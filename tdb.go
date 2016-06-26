@@ -4,56 +4,80 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Knetic/govaluate"
-	"github.com/boltdb/bolt"
+	"github.com/getlantern/golog"
+	"github.com/oxtoacart/vtime"
+	"github.com/spaolacci/murmur3"
+	"github.com/tecbot/gorocksdb"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
+var (
+	log = golog.LoggerFor("tdb")
+)
+
 type bucket struct {
-	start  time.Time
-	values []float64
-	next   *bucket
-	prev   *bucket
+	start time.Time
+	val   float64
+	prev  *bucket
 }
 
-type series struct {
-	t    *table
-	head *bucket
-	tail *bucket
-	mx   sync.RWMutex
+type insert struct {
+	ts  time.Time
+	key []byte
+	val float64
 }
 
-type table struct {
-	bdb             *bolt.DB
-	resolution      int64
-	hotPeriod       time.Duration
-	retentionPeriod time.Duration
-	fields          map[string]int
-	derivedFields   map[string]*govaluate.EvaluableExpression
-	series          map[string]*series
-	stats           TableStats
-	mx              sync.RWMutex
+type archiveRequest struct {
+	key string
+	b   *bucket
+}
+
+type partition struct {
+	t       *table
+	inserts chan *insert
+	tail    map[string]*bucket
 }
 
 type TableStats struct {
-	NumSeries  int
-	NumBuckets int
+	HotKeys         int64
+	HotBuckets      int64
+	ArchivedBuckets int64
+}
+
+type table struct {
+	clock           *vtime.Clock
+	rdb             *gorocksdb.DB
+	resolution      time.Duration
+	hotPeriod       time.Duration
+	retentionPeriod time.Duration
+	derivedFields   map[string]*govaluate.EvaluableExpression
+	partitions      []*partition
+	toArchive       chan *archiveRequest
+	stats           TableStats
+	statsMutex      sync.RWMutex
+}
+
+type tsval struct {
+	ts  time.Time
+	val float64
+}
+
+type DB struct {
+	dir         string
+	tables      map[string]*table
+	tablesMutex sync.RWMutex
 }
 
 type Point struct {
 	Ts   time.Time
 	Dims map[string]interface{}
 	Vals map[string]float64
-}
-
-type DB struct {
-	dir    string
-	tables map[string]*table
-	mx     sync.RWMutex
 }
 
 func NewDB(dir string) *DB {
@@ -65,19 +89,15 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	if len(derivedFields)%2 != 0 {
 		return fmt.Errorf("derivedFields needs to be of the form [name] [expression] [name] [expression] ...")
 	}
-	bdb, err := bolt.Open(filepath.Join(db.dir, name), 0600, nil)
-	if err != nil {
-		return fmt.Errorf("Unable to open bolt database: %v", err)
-	}
+
 	numDerivedFields := len(derivedFields) / 2
 	t := &table{
-		bdb:             bdb,
-		resolution:      int64(resolution),
+		clock:           vtime.NewClock(time.Time{}),
+		resolution:      resolution,
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
-		fields:          make(map[string]int),
 		derivedFields:   make(map[string]*govaluate.EvaluableExpression, numDerivedFields),
-		series:          make(map[string]*series),
+		toArchive:       make(chan *archiveRequest, 100000),
 	}
 	for i := 0; i < numDerivedFields; i++ {
 		field := strings.ToLower(derivedFields[i*2])
@@ -88,120 +108,252 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		}
 		t.derivedFields[field] = expr
 	}
-	db.mx.Lock()
-	defer db.mx.Unlock()
+	numCPU := runtime.NumCPU()
+	t.partitions = make([]*partition, 0, numCPU)
+	for i := 0; i < numCPU; i++ {
+		p := &partition{
+			t:       t,
+			inserts: make(chan *insert, 100000/numCPU),
+			tail:    make(map[string]*bucket),
+		}
+		t.partitions = append(t.partitions, p)
+	}
+
+	opts := gorocksdb.NewDefaultOptions()
+	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
+	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(3 << 30))
+	filter := gorocksdb.NewBloomFilter(10)
+	bbtopts.SetFilterPolicy(filter)
+	opts.SetBlockBasedTableFactory(bbtopts)
+	opts.SetCreateIfMissing(true)
+	opts.SetMergeOperator(t)
+
+	db.tablesMutex.Lock()
+	defer db.tablesMutex.Unlock()
+
 	if db.tables[name] != nil {
 		return fmt.Errorf("Table %v already exists", name)
 	}
+
+	rdb, err := gorocksdb.OpenDb(opts, filepath.Join(db.dir, name))
+	if err != nil {
+		return fmt.Errorf("Unable to open rocksdb database: %v", err)
+	}
+	t.rdb = rdb
 	db.tables[name] = t
+
+	for i := 0; i < numCPU; i++ {
+		go t.partitions[i].processInserts()
+	}
+
+	go t.archive()
+
 	return nil
+}
+
+func (db *DB) TableStats(table string) TableStats {
+	db.tablesMutex.RLock()
+	t := db.tables[table]
+	db.tablesMutex.RUnlock()
+	if t == nil {
+		return TableStats{}
+	}
+	t.statsMutex.RLock()
+	defer t.statsMutex.RUnlock()
+	return t.stats
 }
 
 func (db *DB) Insert(table string, point *Point) error {
-	db.mx.RLock()
+	db.tablesMutex.RLock()
 	t := db.tables[table]
-	db.mx.RUnlock()
+	db.tablesMutex.RUnlock()
 	if t == nil {
 		return fmt.Errorf("Unknown table %v", t)
 	}
-	return t.Insert(point)
+
+	return t.insert(point)
 }
 
-func (t *table) Insert(point *Point) error {
-	key, err := point.key()
-	if err != nil {
-		return err
-	}
-
-	t.mx.Lock()
-	// Update fields
-	fieldsCopy := make(map[string]int, len(t.fields))
-	for field := range point.Vals {
-		field = strings.ToLower(field)
-		idx, found := t.fields[field]
-		if !found {
-			// New field
-			idx = len(t.fields)
-			t.fields[field] = idx
-		}
-		fieldsCopy[field] = idx
-	}
-	s := t.series[key]
-	if s == nil {
-		s = &series{t: t}
-		t.series[key] = s
-		t.stats.NumSeries++
-	}
-	t.mx.Unlock()
-
-	return s.insert(fieldsCopy, point)
-}
-
-func (s *series) insert(fields map[string]int, point *Point) error {
-	start := time.Unix(0, point.Ts.UnixNano()/s.t.resolution*s.t.resolution)
-
-	s.mx.Lock()
-	defer s.mx.Unlock()
-
-	if s.tail != nil && point.Ts.Before(s.tail.start.Add(time.Duration(s.t.resolution)).Add(-1*s.t.hotPeriod)) {
-		return fmt.Errorf("Timestamp falls outside of hot period, insertion not allowed")
-	}
-
-	prev := s.tail
-	var next *bucket
-	for {
-		if prev == nil || prev.start.Before(start) {
-			// Add a new bucket
-			b := &bucket{
-				start:  start,
-				values: point.values(fields),
-				prev:   prev,
-				next:   next,
-			}
-			if prev != nil {
-				prev.next = b
-			} else {
-				s.head = b
-			}
-			if next != nil {
-				next.prev = b
-			} else {
-				s.tail = b
-			}
-			return nil
-		}
-		if prev.start == start {
-			// Insert to existing bucket
-			prev.insert(fields, point)
-		}
-		next = prev
-		prev = prev.prev
-	}
-}
-
-func (b *bucket) insert(fields map[string]int, point *Point) error {
+func (t *table) insert(point *Point) error {
+	t.clock.Advance(point.Ts)
 	for field, val := range point.Vals {
-		fieldIdx := fields[strings.ToLower(field)]
-		b.values[fieldIdx] = b.values[fieldIdx] + val
+		key, err := point.keyFor(field)
+		if err != nil {
+			return err
+		}
+		h := int(murmur3.Sum32(key))
+		p := h % len(t.partitions)
+		t.partitions[p].inserts <- &insert{point.Ts, key, val}
 	}
+
 	return nil
 }
 
-func (point *Point) key() (string, error) {
+func (p *partition) processInserts() {
+	// TODO: base this on the passage of fake time
+	archivePeriod := p.t.hotPeriod / 10
+	log.Debugf("Archiving every %v", archivePeriod)
+	archiveTicker := p.t.clock.NewTicker(archivePeriod)
+	for {
+		select {
+		case insert := <-p.inserts:
+			p.insert(insert)
+		case <-archiveTicker.C:
+			p.requestArchiving()
+		}
+	}
+}
+
+func (p *partition) insert(insert *insert) {
+	key := string(insert.key)
+	now := p.t.clock.Now()
+	start := roundTime(insert.ts, p.t.resolution)
+	if now.Sub(start) > p.t.hotPeriod {
+		log.Trace("Discarding insert outside of hot period")
+		return
+	}
+	b := p.tail[key]
+	if b == nil || b.start.Before(start) {
+		p.t.statsMutex.Lock()
+		p.t.stats.HotBuckets++
+		if b == nil {
+			p.t.stats.HotKeys++
+		}
+		p.t.statsMutex.Unlock()
+		b = &bucket{start, insert.val, b}
+		p.tail[key] = b
+		return
+	}
+	for {
+		if b.start == start {
+			// Update existing bucket
+			b.val += insert.val
+			return
+		}
+		if b.prev == nil || b.prev.start.Before(start) {
+			// Insert new bucket
+			p.t.statsMutex.Lock()
+			p.t.stats.HotBuckets++
+			p.t.statsMutex.Unlock()
+			b.prev = &bucket{start, insert.val, b.prev}
+			return
+		}
+		// Continue looking
+		b = b.prev
+	}
+}
+
+func (p *partition) requestArchiving() {
+	now := p.t.clock.Now()
+	log.Tracef("Requested archiving at %v", now)
+	for key, b := range p.tail {
+		if now.Sub(b.start) > p.t.hotPeriod {
+			log.Tracef("Archiving full. %v / %v %v", b.start, now, b.prev != nil)
+			delete(p.tail, key)
+			p.t.statsMutex.Lock()
+			p.t.stats.HotKeys--
+			p.t.statsMutex.Unlock()
+			p.t.toArchive <- &archiveRequest{key, b}
+			continue
+		}
+		next := b
+		for {
+			b = b.prev
+			if b == nil {
+				break
+			}
+			log.Tracef("Checking %v", b.start)
+			if now.Sub(b.start) > p.t.hotPeriod {
+				log.Trace("Archiving partial")
+				p.t.toArchive <- &archiveRequest{key, b}
+				next.prev = nil
+				break
+			}
+		}
+	}
+}
+
+func (t *table) archive() {
+	wo := gorocksdb.NewDefaultWriteOptions()
+
+	batch := gorocksdb.NewWriteBatch()
+	for req := range t.toArchive {
+		key := []byte(req.key)
+		buckets := make([]*bucket, 0, 1)
+		b := req.b
+		for {
+			buckets = append(buckets, b)
+			if b.prev == nil {
+				break
+			}
+			b = b.prev
+		}
+		for i := len(buckets) - 1; i >= 0; i-- {
+			b := buckets[i]
+			tv := tsval{b.start, b.val}
+			vb := &bytes.Buffer{}
+			err := msgpack.NewEncoder(vb).Encode(tv)
+			if err != nil {
+				log.Errorf("Unable to encode value: %v", err)
+				continue
+			}
+			batch.Merge(key, vb.Bytes())
+		}
+		count := int64(batch.Count())
+		if count >= 10000 {
+			err := t.rdb.Write(wo, batch)
+			if err != nil {
+				log.Errorf("Unable to write batch: %v", err)
+			}
+			t.statsMutex.Lock()
+			t.stats.HotBuckets -= count
+			t.stats.ArchivedBuckets += count
+			t.statsMutex.Unlock()
+			batch = gorocksdb.NewWriteBatch()
+		}
+	}
+}
+
+func (p *Point) keyFor(field string) ([]byte, error) {
 	buf := &bytes.Buffer{}
 	enc := msgpack.NewEncoder(buf)
 	enc.SortMapKeys(true)
-	err := enc.Encode(point.Dims)
+	err := enc.Encode(p.Dims)
 	if err != nil {
-		return "", fmt.Errorf("Unable to encode dims")
+		return nil, fmt.Errorf("Unable to encode dims: %v", err)
 	}
-	return buf.String(), nil
+	err = enc.Encode(field)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to encode field: %v", err)
+	}
+	return buf.Bytes(), nil
 }
 
-func (point *Point) values(fields map[string]int) []float64 {
-	values := make([]float64, len(fields))
-	for field, val := range point.Vals {
-		values[fields[strings.ToLower(field)]] = val
+func roundTime(ts time.Time, resolution time.Duration) time.Time {
+	rounded := ts.Round(resolution)
+	if rounded.After(ts) {
+		rounded = rounded.Add(-1 * resolution)
 	}
-	return values
+	return rounded
+}
+
+// FullMerge implements method from gorocksdb.MergeOperator
+func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
+	if existingValue == nil {
+		existingValue = make([]byte, 0)
+	}
+	for _, operand := range operands {
+		existingValue = append(existingValue, operand...)
+	}
+	return existingValue, true
+}
+
+// PartialMerge implements method from gorocksdb.MergeOperator
+func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
+	return append(leftOperand, rightOperand...), true
+}
+
+// Name implements method from gorocksdb.MergeOperator
+func (t *table) Name() string {
+	return "merge"
 }
