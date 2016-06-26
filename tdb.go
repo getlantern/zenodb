@@ -51,8 +51,9 @@ type TableStats struct {
 }
 
 type table struct {
+	name            string
 	clock           *vtime.Clock
-	rdb             *gorocksdb.DB
+	archiveByKey    *gorocksdb.DB
 	resolution      time.Duration
 	hotPeriod       time.Duration
 	retentionPeriod time.Duration
@@ -92,6 +93,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 
 	numDerivedFields := len(derivedFields) / 2
 	t := &table{
+		name:            name,
 		clock:           vtime.NewClock(time.Time{}),
 		resolution:      resolution,
 		hotPeriod:       hotPeriod,
@@ -119,15 +121,6 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		t.partitions = append(t.partitions, p)
 	}
 
-	opts := gorocksdb.NewDefaultOptions()
-	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(3 << 30))
-	filter := gorocksdb.NewBloomFilter(10)
-	bbtopts.SetFilterPolicy(filter)
-	opts.SetBlockBasedTableFactory(bbtopts)
-	opts.SetCreateIfMissing(true)
-	opts.SetMergeOperator(t)
-
 	db.tablesMutex.Lock()
 	defer db.tablesMutex.Unlock()
 
@@ -135,11 +128,11 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		return fmt.Errorf("Table %v already exists", name)
 	}
 
-	rdb, err := gorocksdb.OpenDb(opts, filepath.Join(db.dir, name))
+	var err error
+	t.archiveByKey, err = t.createDatabase(db.dir, "bykey")
 	if err != nil {
-		return fmt.Errorf("Unable to open rocksdb database: %v", err)
+		return fmt.Errorf("Unable to create rocksdb database: %v", err)
 	}
-	t.rdb = rdb
 	db.tables[name] = t
 
 	for i := 0; i < numCPU; i++ {
@@ -149,6 +142,19 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	go t.archive()
 
 	return nil
+}
+
+func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error) {
+	opts := gorocksdb.NewDefaultOptions()
+	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
+	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(8 * 1024 * 1024))
+	filter := gorocksdb.NewBloomFilter(10)
+	bbtopts.SetFilterPolicy(filter)
+	opts.SetBlockBasedTableFactory(bbtopts)
+	opts.SetCreateIfMissing(true)
+	opts.SetMergeOperator(t)
+	opts.SetComparator(t)
+	return gorocksdb.OpenDb(opts, filepath.Join(dir, t.name+"_"+suffix))
 }
 
 func (db *DB) TableStats(table string) TableStats {
@@ -301,7 +307,7 @@ func (t *table) archive() {
 		}
 		count := int64(batch.Count())
 		if count >= 10000 {
-			err := t.rdb.Write(wo, batch)
+			err := t.archiveByKey.Write(wo, batch)
 			if err != nil {
 				log.Errorf("Unable to write batch: %v", err)
 			}
@@ -353,7 +359,14 @@ func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, boo
 	return append(leftOperand, rightOperand...), true
 }
 
-// Name implements method from gorocksdb.MergeOperator
+// Compare implements method from gorocksdb.Comparator, sorting in reverse
+// lexicographical order.
+func (t *table) Compare(a, b []byte) int {
+	return bytes.Compare(b, a)
+}
+
+// Name implements method from gorocksdb.MergeOperator and from
+// gorocksdb.Comparator.
 func (t *table) Name() string {
-	return "merge"
+	return t.name
 }
