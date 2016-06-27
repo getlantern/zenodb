@@ -149,6 +149,8 @@ func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error)
 	opts.SetCreateIfMissing(true)
 	opts.SetMergeOperator(t)
 	opts.SetComparator(t)
+	opts.IncreaseParallelism(runtime.NumCPU())
+	opts.SetMaxSuccessiveMerges(10)
 	return gorocksdb.OpenDb(opts, filepath.Join(dir, t.name+"_"+suffix))
 }
 
