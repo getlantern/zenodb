@@ -90,7 +90,7 @@ HeapAlloc pre/post GC %f/%f MiB
 				q := &tdb.Query{
 					Table:  "test",
 					Fields: []string{"i"},
-					From:   now,
+					From:   now.Add(-2 * hotPeriod),
 					OnValues: func(key map[string]interface{}, field string, vals []float64) {
 						count++
 					},
