@@ -64,11 +64,6 @@ type table struct {
 	statsMutex      sync.RWMutex
 }
 
-type tsval struct {
-	ts  time.Time
-	val float64
-}
-
 type DB struct {
 	dir         string
 	tables      map[string]*table
@@ -147,7 +142,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error) {
 	opts := gorocksdb.NewDefaultOptions()
 	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(8 * 1024 * 1024))
+	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(32 * 1024 * 1024))
 	filter := gorocksdb.NewBloomFilter(10)
 	bbtopts.SetFilterPolicy(filter)
 	opts.SetBlockBasedTableFactory(bbtopts)
@@ -285,28 +280,9 @@ func (t *table) archive() {
 	batch := gorocksdb.NewWriteBatch()
 	for req := range t.toArchive {
 		key := []byte(req.key)
-		buckets := make([]*bucket, 0, 1)
-		b := req.b
-		for {
-			buckets = append(buckets, b)
-			if b.prev == nil {
-				break
-			}
-			b = b.prev
-		}
-		for i := len(buckets) - 1; i >= 0; i-- {
-			b := buckets[i]
-			tv := tsval{b.start, b.val}
-			vb := &bytes.Buffer{}
-			err := msgpack.NewEncoder(vb).Encode(tv)
-			if err != nil {
-				log.Errorf("Unable to encode value: %v", err)
-				continue
-			}
-			batch.Merge(key, vb.Bytes())
-		}
+		batch.Merge(key, req.b.toSequence(t.resolution))
 		count := int64(batch.Count())
-		if count >= 10000 {
+		if count >= 100 {
 			err := t.archiveByKey.Write(wo, batch)
 			if err != nil {
 				log.Errorf("Unable to write batch: %v", err)
@@ -345,18 +321,21 @@ func roundTime(ts time.Time, resolution time.Duration) time.Time {
 
 // FullMerge implements method from gorocksdb.MergeOperator
 func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
-	if existingValue == nil {
-		existingValue = make([]byte, 0)
-	}
 	for _, operand := range operands {
-		existingValue = append(existingValue, operand...)
+		if operand != nil && len(operand) > size64bits*2 {
+			if existingValue == nil || len(existingValue) < size64bits*2 {
+				existingValue = sequence(operand)
+			} else {
+				existingValue = sequence(existingValue).append(sequence(operand), t.resolution)
+			}
+		}
 	}
 	return existingValue, true
 }
 
 // PartialMerge implements method from gorocksdb.MergeOperator
 func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
-	return append(leftOperand, rightOperand...), true
+	return sequence(rightOperand).append(sequence(leftOperand), t.resolution), true
 }
 
 // Compare implements method from gorocksdb.Comparator, sorting in reverse
