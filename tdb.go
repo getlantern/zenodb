@@ -148,9 +148,6 @@ func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error)
 	opts.SetBlockBasedTableFactory(bbtopts)
 	opts.SetCreateIfMissing(true)
 	opts.SetMergeOperator(t)
-	opts.SetComparator(t)
-	opts.IncreaseParallelism(runtime.NumCPU())
-	opts.SetMaxSuccessiveMerges(10)
 	return gorocksdb.OpenDb(opts, filepath.Join(dir, t.name+"_"+suffix))
 }
 
@@ -340,14 +337,7 @@ func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, boo
 	return sequence(rightOperand).append(sequence(leftOperand), t.resolution), true
 }
 
-// Compare implements method from gorocksdb.Comparator, sorting in reverse
-// lexicographical order.
-func (t *table) Compare(a, b []byte) int {
-	return bytes.Compare(b, a)
-}
-
-// Name implements method from gorocksdb.MergeOperator and from
-// gorocksdb.Comparator.
+// Name implements method from gorocksdb.MergeOperator.
 func (t *table) Name() string {
 	return t.name
 }
