@@ -38,8 +38,9 @@ func TestBuildSequence(t *testing.T) {
 
 	seq := b.toSequence(res).append(b2.toSequence(res), res)
 	assert.Equal(t, ts.Add(10*res), seq.start().In(time.UTC))
+	assert.Equal(t, 11, seq.numBuckets())
 	for i := time.Duration(-1); i <= 12; i++ {
-		actual := int(seq.valueAt(ts.Add(i*res), res))
+		actual := int(seq.valueAtTime(ts.Add(i*res), res))
 		t.Logf("%d -> %d", i, actual)
 		expected := 0
 		switch i {

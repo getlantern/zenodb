@@ -1,7 +1,6 @@
 package tdb
 
 import (
-	"bytes"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -12,9 +11,7 @@ import (
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/golog"
 	"github.com/oxtoacart/vtime"
-	"github.com/spaolacci/murmur3"
 	"github.com/tecbot/gorocksdb"
-	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 var (
@@ -25,17 +22,6 @@ type bucket struct {
 	start time.Time
 	val   float64
 	prev  *bucket
-}
-
-type insert struct {
-	ts  time.Time
-	key []byte
-	val float64
-}
-
-type archiveRequest struct {
-	key string
-	b   *bucket
 }
 
 type partition struct {
@@ -52,6 +38,7 @@ type TableStats struct {
 
 type table struct {
 	name            string
+	batchSize       int64
 	clock           *vtime.Clock
 	archiveByKey    *gorocksdb.DB
 	resolution      time.Duration
@@ -64,20 +51,19 @@ type table struct {
 	statsMutex      sync.RWMutex
 }
 
+type DBOpts struct {
+	Dir       string
+	BatchSize int64
+}
+
 type DB struct {
-	dir         string
+	opts        *DBOpts
 	tables      map[string]*table
 	tablesMutex sync.RWMutex
 }
 
-type Point struct {
-	Ts   time.Time
-	Dims map[string]interface{}
-	Vals map[string]float64
-}
-
-func NewDB(dir string) *DB {
-	return &DB{dir: dir, tables: make(map[string]*table)}
+func NewDB(opts *DBOpts) *DB {
+	return &DB{opts: opts, tables: make(map[string]*table)}
 }
 
 func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, derivedFields ...string) error {
@@ -89,6 +75,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	numDerivedFields := len(derivedFields) / 2
 	t := &table{
 		name:            name,
+		batchSize:       db.opts.BatchSize,
 		clock:           vtime.NewClock(time.Time{}),
 		resolution:      resolution,
 		hotPeriod:       hotPeriod,
@@ -124,7 +111,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	}
 
 	var err error
-	t.archiveByKey, err = t.createDatabase(db.dir, "bykey")
+	t.archiveByKey, err = t.createDatabase(db.opts.Dir, "bykey")
 	if err != nil {
 		return fmt.Errorf("Unable to create rocksdb database: %v", err)
 	}
@@ -152,9 +139,7 @@ func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error)
 }
 
 func (db *DB) TableStats(table string) TableStats {
-	db.tablesMutex.RLock()
-	t := db.tables[table]
-	db.tablesMutex.RUnlock()
+	t := db.getTable(table)
 	if t == nil {
 		return TableStats{}
 	}
@@ -163,151 +148,19 @@ func (db *DB) TableStats(table string) TableStats {
 	return t.stats
 }
 
-func (db *DB) Insert(table string, point *Point) error {
-	db.tablesMutex.RLock()
-	t := db.tables[table]
-	db.tablesMutex.RUnlock()
+func (db *DB) Now(table string) time.Time {
+	t := db.getTable(table)
 	if t == nil {
-		return fmt.Errorf("Unknown table %v", t)
+		return time.Time{}
 	}
-
-	return t.insert(point)
+	return t.clock.Now()
 }
 
-func (t *table) insert(point *Point) error {
-	t.clock.Advance(point.Ts)
-	for field, val := range point.Vals {
-		key, err := point.keyFor(field)
-		if err != nil {
-			return err
-		}
-		h := int(murmur3.Sum32(key))
-		p := h % len(t.partitions)
-		t.partitions[p].inserts <- &insert{point.Ts, key, val}
-	}
-
-	return nil
-}
-
-func (p *partition) processInserts() {
-	// TODO: base this on the passage of fake time
-	archivePeriod := p.t.hotPeriod / 10
-	log.Debugf("Archiving every %v", archivePeriod)
-	archiveTicker := p.t.clock.NewTicker(archivePeriod)
-	for {
-		select {
-		case insert := <-p.inserts:
-			p.insert(insert)
-		case <-archiveTicker.C:
-			p.requestArchiving()
-		}
-	}
-}
-
-func (p *partition) insert(insert *insert) {
-	key := string(insert.key)
-	now := p.t.clock.Now()
-	start := roundTime(insert.ts, p.t.resolution)
-	if now.Sub(start) > p.t.hotPeriod {
-		log.Trace("Discarding insert outside of hot period")
-		return
-	}
-	b := p.tail[key]
-	if b == nil || b.start.Before(start) {
-		p.t.statsMutex.Lock()
-		p.t.stats.HotBuckets++
-		if b == nil {
-			p.t.stats.HotKeys++
-		}
-		p.t.statsMutex.Unlock()
-		b = &bucket{start, insert.val, b}
-		p.tail[key] = b
-		return
-	}
-	for {
-		if b.start == start {
-			// Update existing bucket
-			b.val += insert.val
-			return
-		}
-		if b.prev == nil || b.prev.start.Before(start) {
-			// Insert new bucket
-			p.t.statsMutex.Lock()
-			p.t.stats.HotBuckets++
-			p.t.statsMutex.Unlock()
-			b.prev = &bucket{start, insert.val, b.prev}
-			return
-		}
-		// Continue looking
-		b = b.prev
-	}
-}
-
-func (p *partition) requestArchiving() {
-	now := p.t.clock.Now()
-	log.Tracef("Requested archiving at %v", now)
-	for key, b := range p.tail {
-		if now.Sub(b.start) > p.t.hotPeriod {
-			log.Tracef("Archiving full. %v / %v %v", b.start, now, b.prev != nil)
-			delete(p.tail, key)
-			p.t.statsMutex.Lock()
-			p.t.stats.HotKeys--
-			p.t.statsMutex.Unlock()
-			p.t.toArchive <- &archiveRequest{key, b}
-			continue
-		}
-		next := b
-		for {
-			b = b.prev
-			if b == nil {
-				break
-			}
-			log.Tracef("Checking %v", b.start)
-			if now.Sub(b.start) > p.t.hotPeriod {
-				log.Trace("Archiving partial")
-				p.t.toArchive <- &archiveRequest{key, b}
-				next.prev = nil
-				break
-			}
-		}
-	}
-}
-
-func (t *table) archive() {
-	wo := gorocksdb.NewDefaultWriteOptions()
-
-	batch := gorocksdb.NewWriteBatch()
-	for req := range t.toArchive {
-		key := []byte(req.key)
-		batch.Merge(key, req.b.toSequence(t.resolution))
-		count := int64(batch.Count())
-		if count >= 100 {
-			err := t.archiveByKey.Write(wo, batch)
-			if err != nil {
-				log.Errorf("Unable to write batch: %v", err)
-			}
-			t.statsMutex.Lock()
-			t.stats.HotBuckets -= count
-			t.stats.ArchivedBuckets += count
-			t.statsMutex.Unlock()
-			batch = gorocksdb.NewWriteBatch()
-		}
-	}
-}
-
-func (p *Point) keyFor(field string) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	enc := msgpack.NewEncoder(buf)
-	enc.SortMapKeys(true)
-	err := enc.Encode(p.Dims)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to encode dims: %v", err)
-	}
-	err = enc.Encode(field)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to encode field: %v", err)
-	}
-	return buf.Bytes(), nil
+func (db *DB) getTable(table string) *table {
+	db.tablesMutex.RLock()
+	t := db.tables[strings.ToLower(table)]
+	db.tablesMutex.RUnlock()
+	return t
 }
 
 func roundTime(ts time.Time, resolution time.Duration) time.Time {
@@ -316,28 +169,4 @@ func roundTime(ts time.Time, resolution time.Duration) time.Time {
 		rounded = rounded.Add(-1 * resolution)
 	}
 	return rounded
-}
-
-// FullMerge implements method from gorocksdb.MergeOperator
-func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
-	for _, operand := range operands {
-		if operand != nil && len(operand) > size64bits*2 {
-			if existingValue == nil || len(existingValue) < size64bits*2 {
-				existingValue = sequence(operand)
-			} else {
-				existingValue = sequence(existingValue).append(sequence(operand), t.resolution)
-			}
-		}
-	}
-	return existingValue, true
-}
-
-// PartialMerge implements method from gorocksdb.MergeOperator
-func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
-	return sequence(rightOperand).append(sequence(leftOperand), t.resolution), true
-}
-
-// Name implements method from gorocksdb.MergeOperator.
-func (t *table) Name() string {
-	return t.name
 }

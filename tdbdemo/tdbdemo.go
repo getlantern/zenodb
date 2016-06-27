@@ -39,7 +39,10 @@ func main() {
 	hotPeriod := resolution * 10
 	retentionPeriod := time.Duration(reportingPeriods) * reportingInterval * 2
 	numWriters := 4
-	db := tdb.NewDB(tmpDir)
+	db := tdb.NewDB(&tdb.DBOpts{
+		Dir:       tmpDir,
+		BatchSize: 1000,
+	})
 	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod)
 	if err != nil {
 		log.Fatal(err)
@@ -74,6 +77,32 @@ HeapAlloc pre/post GC %f/%f MiB
 			tk := time.NewTicker(30 * time.Second)
 			for range tk.C {
 				report()
+			}
+		}
+	}()
+
+	go func() {
+		for {
+			tk := time.NewTicker(10 * time.Second)
+			for range tk.C {
+				count := 0
+				now := db.Now("test")
+				q := &tdb.Query{
+					Table:  "test",
+					Fields: []string{"i"},
+					From:   now,
+					OnValues: func(key map[string]interface{}, field string, vals []float64) {
+						count++
+					},
+				}
+				start := time.Now()
+				err := db.RunQuery(q)
+				delta := time.Now().Sub(start)
+				if err != nil {
+					log.Errorf("Unable to run query: %v", err)
+					continue
+				}
+				fmt.Printf("\nQuery at %v returned %v in %v\n", now, humanize.Comma(int64(count)), delta)
 			}
 		}
 	}()

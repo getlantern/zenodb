@@ -1,7 +1,6 @@
 package tdb
 
 import (
-	"bytes"
 	"encoding/binary"
 	"math"
 	"time"
@@ -22,48 +21,51 @@ var (
 type sequence []byte
 
 func (b *bucket) toSequence(resolution time.Duration) sequence {
-	// Allocate a largish amount of space to avoid having to grow the buffer too
-	// often.
-	buf := bytes.NewBuffer(make([]byte, 0, 1024))
+	// Pre-allocate a largish amount of space to avoid having to grow the buffer
+	// too often.
+	buf := make([]byte, 1024)
 
 	// Write the starting time of the sequence
-	err := binary.Write(buf, binary.BigEndian, b.start.UnixNano())
-	if err != nil {
-		log.Errorf("Unable to encode start time to sequence: %v", err)
-		return emptySequence
-	}
+	binary.BigEndian.PutUint64(buf, uint64(b.start.UnixNano()))
 
 	// Write all values
+	i := 1
 	for {
-		err := binary.Write(buf, binary.BigEndian, b.val)
-		if err != nil {
-			log.Errorf("Unable to encode value to sequence: %v", err)
-			return emptySequence
+		offset := i * size64bits
+		i++
+		if offset >= len(buf) {
+			newBuf := make([]byte, offset+1024)
+			copy(newBuf, buf)
+			buf = newBuf
 		}
+		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(b.val))
 		if b.prev == nil {
 			break
 		}
 
 		// Fill gaps
 		delta := int(b.start.Sub(b.prev.start)/resolution) - 1
-		for i := 0; i < delta*size64bits; i++ {
-			err := buf.WriteByte(0)
-			if err != nil {
-				log.Errorf("Unable to fill gaps in sequence: %v", err)
-				return emptySequence
-			}
-		}
+		i += delta
 
 		// Continue with previous bucket
 		b = b.prev
 	}
 
-	return sequence(buf.Bytes())
+	return sequence(buf[:i*size64bits])
+}
+
+func (a sequence) isValid() bool {
+	return a != nil && len(a) >= size64bits*2
 }
 
 func (a sequence) append(b sequence, resolution time.Duration) sequence {
 	as := a.start()
 	bs := b.start()
+	if as.Before(bs) {
+		// Swap
+		a, b = b, a
+		as, bs = bs, as
+	}
 	gap := int(as.Sub(bs)/resolution) - (len(a) / size64bits) + 1
 	gapSize := gap * size64bits
 	result := make(sequence, len(a)+len(b)+gapSize-size64bits)
@@ -72,22 +74,30 @@ func (a sequence) append(b sequence, resolution time.Duration) sequence {
 	return result
 }
 
-func (seq sequence) valueAt(t time.Time, resolution time.Duration) float64 {
-	start := seq.start()
-	if t.After(start) {
-		return 0
-	}
-	bucket := int(start.Sub(t) / resolution)
-	offset := (bucket + 1) * size64bits
-	if offset >= len(seq) {
-		return 0
-	}
-	return math.Float64frombits(binary.BigEndian.Uint64(seq[offset:]))
-}
-
 func (seq sequence) start() time.Time {
 	ts := int64(binary.BigEndian.Uint64(seq))
 	s := ts / int64(time.Second)
 	ns := ts % int64(time.Second)
 	return time.Unix(s, ns)
+}
+
+func (seq sequence) numBuckets() int {
+	return len(seq)/size64bits - 1
+}
+
+func (seq sequence) valueAtTime(t time.Time, resolution time.Duration) float64 {
+	start := seq.start()
+	if t.After(start) {
+		return 0
+	}
+	bucket := int(start.Sub(t) / resolution)
+	return seq.valueAt(bucket)
+}
+
+func (seq sequence) valueAt(bucket int) float64 {
+	offset := (bucket + 1) * size64bits
+	if offset >= len(seq) {
+		return 0
+	}
+	return math.Float64frombits(binary.BigEndian.Uint64(seq[offset:]))
 }
