@@ -13,6 +13,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
 	"github.com/oxtoacart/tdb"
+	. "github.com/oxtoacart/tdb/expr"
 )
 
 var (
@@ -43,7 +44,10 @@ func main() {
 		Dir:       tmpDir,
 		BatchSize: 1000,
 	})
-	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod)
+	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod, tdb.DerivedField{
+		Name: "iii",
+		Expr: Avg(Calc("ii / i")),
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
