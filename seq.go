@@ -58,7 +58,7 @@ func (a sequence) isValid() bool {
 	return a != nil && len(a) >= size64bits*2
 }
 
-func (a sequence) append(b sequence, resolution time.Duration) sequence {
+func (a sequence) append(b sequence, resolution time.Duration, truncateBefore time.Time) sequence {
 	as := a.start()
 	bs := b.start()
 	if as.Before(bs) {
@@ -66,11 +66,31 @@ func (a sequence) append(b sequence, resolution time.Duration) sequence {
 		a, b = b, a
 		as, bs = bs, as
 	}
+	aPeriods := a.numBuckets()
+	maxPeriods := int(as.Sub(truncateBefore)/resolution) + 1
+	if maxPeriods <= 0 {
+		// Entire sequence falls outside of truncation range
+		return nil
+	}
+	maxLength := (maxPeriods + 1) * size64bits
+	if maxPeriods < aPeriods {
+		return a[:maxLength]
+	}
+	if bs.Before(truncateBefore) {
+		return a
+	}
 	gap := int(as.Sub(bs)/resolution) - (len(a) / size64bits) + 1
 	gapSize := gap * size64bits
-	result := make(sequence, len(a)+len(b)+gapSize-size64bits)
+	length := len(a) + len(b) + gapSize - size64bits
+	truncateBy := length - maxLength
+	if truncateBy > 0 {
+		length = maxLength
+	} else {
+		truncateBy = 0
+	}
+	result := make(sequence, length)
 	copy(result, a)
-	copy(result[len(a)+gapSize:], b[size64bits:])
+	copy(result[len(a)+gapSize:], b[size64bits:len(b)-truncateBy])
 	return result
 }
 

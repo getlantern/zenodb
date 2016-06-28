@@ -1,5 +1,9 @@
 package tdb
 
+import (
+	"time"
+)
+
 // FullMerge implements method from gorocksdb.MergeOperator.
 func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
 	es := sequence(existingValue)
@@ -9,7 +13,7 @@ func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte,
 			if !es.isValid() {
 				es = os
 			} else {
-				es = os.append(es, t.resolution)
+				es = os.append(es, t.resolution, t.truncateBefore())
 			}
 		}
 	}
@@ -18,7 +22,7 @@ func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte,
 
 // PartialMerge implements method from gorocksdb.MergeOperator.
 func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
-	return sequence(rightOperand).append(sequence(leftOperand), t.resolution), true
+	return sequence(rightOperand).append(sequence(leftOperand), t.resolution, t.truncateBefore()), true
 }
 
 // Transform implements method from gorocksdb.SliceTransform.
@@ -40,4 +44,8 @@ func (t *table) InRange(src []byte) bool {
 // gorocksdb.SliceTransform.
 func (t *table) Name() string {
 	return "default"
+}
+
+func (t *table) truncateBefore() time.Time {
+	return t.clock.Now().Add(-1 * t.retentionPeriod)
 }
