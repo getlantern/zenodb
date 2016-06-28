@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/oxtoacart/tdb/values"
 	"github.com/spaolacci/murmur3"
 	"github.com/tecbot/gorocksdb"
@@ -240,7 +241,7 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 			log.Errorf("Unable to remove expired keys: %v", err)
 		} else {
 			delta := time.Now().Sub(start)
-			log.Debugf("Removed %d expired keys in %v", batch.Count(), delta)
+			log.Debugf("Removed %v expired keys in %v", humanize(batch.Count()), delta)
 		}
 	} else {
 		log.Debug("No expired keys to remove")
