@@ -4,8 +4,6 @@ import (
 	"encoding/binary"
 	"math"
 	"time"
-
-	"github.com/oxtoacart/tdb/values"
 )
 
 const (
@@ -22,25 +20,25 @@ var (
 // the sequence.
 type sequence []byte
 
-func (b *bucket) toSequences(resolution time.Duration) map[string]sequence {
-	bufs := make(map[string][]byte, len(b.vals))
-	for field := range b.vals {
-		bufs[field] = b.newBuffer()
-	}
+func (b *bucket) toSequence(resolution time.Duration) sequence {
+	// Pre-allocate a largish amount of space to avoid having to grow the buffer
+	// too often.
+	buf := make([]byte, 1024)
+
+	// Write the starting time of the sequence
+	binary.BigEndian.PutUint64(buf, uint64(b.start.UnixNano()))
 
 	// Write all values
 	i := 1
 	for {
 		offset := i * size64bits
 		i++
-		for field, buf := range bufs {
-			val := b.vals[field]
-			if val == nil {
-				val = values.Float(0)
-				b.vals[field] = val
-			}
-			bufs[field] = b.collect(buf, offset, val)
+		if offset >= len(buf) {
+			newBuf := make([]byte, offset+1024)
+			copy(newBuf, buf)
+			buf = newBuf
 		}
+		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(b.val.Val()))
 		if b.prev == nil {
 			break
 		}
@@ -53,30 +51,7 @@ func (b *bucket) toSequences(resolution time.Duration) map[string]sequence {
 		b = b.prev
 	}
 
-	out := make(map[string]sequence, len(bufs))
-	for field, buf := range bufs {
-		out[field] = sequence(buf[:i*size64bits])
-	}
-	return out
-}
-
-func (b *bucket) newBuffer() []byte {
-	// Pre-allocate a largish amount of space to avoid having to grow the buffer
-	// too often.
-	buf := make([]byte, 1024)
-	// Write the starting time of the sequence
-	binary.BigEndian.PutUint64(buf, uint64(b.start.UnixNano()))
-	return buf
-}
-
-func (b *bucket) collect(buf []byte, offset int, val values.Value) []byte {
-	if offset >= len(buf) {
-		newBuf := make([]byte, offset+1024)
-		copy(newBuf, buf)
-		buf = newBuf
-	}
-	binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(val.Val()))
-	return buf
+	return sequence(buf[:i*size64bits])
 }
 
 func (a sequence) isValid() bool {

@@ -1,9 +1,8 @@
 package tdb
 
 import (
-	"time"
-
 	"github.com/oxtoacart/tdb/values"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -14,31 +13,31 @@ func TestBuildSequence(t *testing.T) {
 	res := time.Minute
 	b := &bucket{
 		start: ts.Add(10 * res),
-		vals:  map[string]values.Value{"a": values.Float(6)},
+		val:   values.Float(6),
 		prev: &bucket{
 			start: ts.Add(7 * res),
-			vals:  map[string]values.Value{"a": values.Float(5)},
+			val:   values.Float(5),
 			prev: &bucket{
 				start: ts.Add(5 * res),
-				vals:  map[string]values.Value{"a": values.Float(4)},
+				val:   values.Float(4),
 			},
 		},
 	}
 
 	b2 := &bucket{
 		start: ts.Add(3 * res),
-		vals:  map[string]values.Value{"a": values.Float(3)},
+		val:   values.Float(3),
 		prev: &bucket{
 			start: ts.Add(1 * res),
-			vals:  map[string]values.Value{"a": values.Float(2)},
+			val:   values.Float(2),
 			prev: &bucket{
 				start: ts,
-				vals:  map[string]values.Value{"a": values.Float(1)},
+				val:   values.Float(1),
 			},
 		},
 	}
 
-	seq := b.toSequences(res)["a"].append(b2.toSequences(res)["a"], res)
+	seq := b.toSequence(res).append(b2.toSequence(res), res)
 	assert.Equal(t, ts.Add(10*res), seq.start().In(time.UTC))
 	assert.Equal(t, 11, seq.numBuckets())
 	for i := time.Duration(-1); i <= 12; i++ {

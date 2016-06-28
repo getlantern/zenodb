@@ -17,9 +17,25 @@ type Point struct {
 	Vals map[string]float64
 }
 
+type Value interface {
+	Val() float64
+
+	Add(addend float64) Value
+}
+
+type FloatValue float64
+
+func (v FloatValue) Val() float64 {
+	return float64(v)
+}
+
+func (v FloatValue) Add(addend float64) Value {
+	return FloatValue(v.Val() + addend)
+}
+
 type bucket struct {
 	start time.Time
-	vals  map[string]values.Value
+	val   values.Value
 	prev  *bucket
 }
 
@@ -30,9 +46,9 @@ type partition struct {
 }
 
 type insert struct {
-	ts   time.Time
-	key  []byte
-	vals map[string]values.Value
+	ts  time.Time
+	key []byte
+	val values.Value
 }
 
 type archiveRequest struct {
@@ -51,18 +67,23 @@ func (db *DB) Insert(table string, point *Point) error {
 
 func (t *table) insert(point *Point) error {
 	t.clock.Advance(point.Ts)
-	insert, err := point.asInsert()
-	if err != nil {
-		return err
-	}
+	vals := floatsToValues(point.Vals)
 	// TODO: deal with situation where name of inserted field conflicts with
 	// derived field
 	for _, field := range t.derivedFields {
-		insert.vals[field.Name] = field.Expr(insert.vals)
+		vals[field.Name] = field.Expr(vals)
 	}
-	h := int(murmur3.Sum32(insert.key))
-	p := h % len(t.partitions)
-	t.partitions[p].inserts <- insert
+
+	for field, val := range vals {
+		key, err := point.keyFor(field)
+		if err != nil {
+			return err
+		}
+		h := int(murmur3.Sum32(key))
+		p := h % len(t.partitions)
+		t.partitions[p].inserts <- &insert{point.Ts, key, val}
+	}
+
 	return nil
 }
 
@@ -96,23 +117,21 @@ func (p *partition) insert(insert *insert) {
 			p.t.stats.HotKeys++
 		}
 		p.t.statsMutex.Unlock()
-		b = &bucket{start, insert.vals, b}
+		b = &bucket{start, insert.val, b}
 		p.tail[key] = b
 		return
 	}
 	for {
 		if b.start == start {
 			// Update existing bucket
-			for key, val := range insert.vals {
-				b.vals[key] = b.vals[key].Plus(val)
-			}
+			b.val = b.val.Plus(insert.val)
 			return
 		}
 		if b.prev == nil || b.prev.start.Before(start) {
 			// Insert new bucket
 			p.t.statsMutex.Lock()
 			p.t.statsMutex.Unlock()
-			b.prev = &bucket{start, insert.vals, b.prev}
+			b.prev = &bucket{start, insert.val, b.prev}
 			return
 		}
 		// Continue looking
@@ -155,53 +174,36 @@ func (t *table) archive() {
 
 	batch := gorocksdb.NewWriteBatch()
 	for req := range t.toArchive {
-		seqs := req.b.toSequences(t.resolution)
-		for field, seq := range seqs {
-			keyBytes := []byte(req.key)
-			keyBuf := bytes.NewBuffer(make([]byte, 0, len(keyBytes)))
-			err := msgpack.NewEncoder(keyBuf).EncodeString(field)
-			if err != nil {
-				log.Errorf("Unable to encode field: %v", err)
-				continue
-			}
-			_, err = keyBuf.Write(keyBytes)
-			if err != nil {
-				log.Errorf("Unable to write key: %v", err)
-				continue
-			}
-			numBuckets := int64(seq.numBuckets())
-			if log.IsTraceEnabled() {
-				log.Tracef("Archiving %d buckets for %v starting at %v", numBuckets, field, seq.start().In(time.UTC))
-			}
-			batch.Merge(keyBuf.Bytes(), seq)
-			t.stats.ArchivedBuckets += numBuckets
+		key := []byte(req.key)
+		seq := req.b.toSequence(t.resolution)
+		numBuckets := int64(seq.numBuckets())
+		if log.IsTraceEnabled() {
+			log.Tracef("Archiving %d buckets starting at %v", numBuckets, seq.start().In(time.UTC))
 		}
+		t.statsMutex.Lock()
+		t.stats.ArchivedBuckets += numBuckets
+		t.statsMutex.Unlock()
+		batch.Merge(key, seq)
 		count := int64(batch.Count())
 		if count >= t.batchSize {
 			err := t.archiveByKey.Write(wo, batch)
 			if err != nil {
 				log.Errorf("Unable to write batch: %v", err)
 			}
-			t.statsMutex.Lock()
-			t.statsMutex.Unlock()
 			batch = gorocksdb.NewWriteBatch()
 		}
 	}
 }
 
-func (p *Point) asInsert() (*insert, error) {
-	key, err := p.key()
-	if err != nil {
-		return nil, err
-	}
-	return &insert{p.Ts, key, floatsToValues(p.Vals)}, nil
-}
-
-func (p *Point) key() ([]byte, error) {
+func (p *Point) keyFor(field string) ([]byte, error) {
 	buf := &bytes.Buffer{}
 	enc := msgpack.NewEncoder(buf)
 	enc.SortMapKeys(true)
-	err := enc.Encode(p.Dims)
+	err := enc.Encode(field)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to encode field: %v", err)
+	}
+	err = enc.Encode(p.Dims)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to encode dims: %v", err)
 	}
