@@ -68,7 +68,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
 		derivedFields:   derivedFields,
-		toArchive:       make(chan *archiveRequest, 100000),
+		toArchive:       make(chan *archiveRequest, db.opts.BatchSize*100),
 	}
 	numCPU := runtime.NumCPU()
 	t.partitions = make([]*partition, 0, numCPU)

@@ -82,7 +82,12 @@ func (t *table) insert(point *Point) error {
 		}
 		h := int(murmur3.Sum32(key))
 		p := h % len(t.partitions)
-		t.partitions[p].inserts <- &insert{point.Ts, key, val}
+		select {
+		case t.partitions[p].inserts <- &insert{point.Ts, key, val}:
+			// ok
+		default:
+			log.Error("Partition full, dropping point")
+		}
 	}
 
 	return nil
