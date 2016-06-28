@@ -19,6 +19,8 @@ var (
 )
 
 type TableStats struct {
+	InsertedPoints  int64
+	DroppedPoints   int64
 	HotKeys         int64
 	ArchivedBuckets int64
 }

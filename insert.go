@@ -84,9 +84,13 @@ func (t *table) insert(point *Point) error {
 		p := h % len(t.partitions)
 		select {
 		case t.partitions[p].inserts <- &insert{point.Ts, key, val}:
-			// ok
+			t.statsMutex.Lock()
+			t.stats.InsertedPoints++
+			t.statsMutex.Unlock()
 		default:
-			log.Error("Partition full, dropping point")
+			t.statsMutex.Lock()
+			t.stats.DroppedPoints++
+			t.statsMutex.Unlock()
 		}
 	}
 
