@@ -94,7 +94,6 @@ func (t *table) insert(point *Point) error {
 }
 
 func (p *partition) processInserts() {
-	// TODO: base this on the passage of fake time
 	archivePeriod := p.t.hotPeriod / 10
 	log.Debugf("Archiving every %v", archivePeriod)
 	archiveTicker := p.t.clock.NewTicker(archivePeriod)
@@ -147,7 +146,7 @@ func (p *partition) insert(insert *insert) {
 
 func (p *partition) requestArchiving() {
 	now := p.t.clock.Now()
-	log.Tracef("Requested archiving at %v", now)
+	log.Debugf("Requested archiving at %v", now)
 	for key, b := range p.tail {
 		if now.Sub(b.start) > p.t.hotPeriod {
 			log.Tracef("Archiving full. %v / %v %v", b.start, now, b.prev != nil)
