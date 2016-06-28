@@ -20,7 +20,6 @@ var (
 
 type TableStats struct {
 	HotKeys         int64
-	HotBuckets      int64
 	ArchivedBuckets int64
 }
 

@@ -89,7 +89,6 @@ func (p *partition) insert(insert *insert) {
 	b := p.tail[key]
 	if b == nil || b.start.Before(start) {
 		p.t.statsMutex.Lock()
-		p.t.stats.HotBuckets++
 		if b == nil {
 			p.t.stats.HotKeys++
 		}
@@ -109,7 +108,6 @@ func (p *partition) insert(insert *insert) {
 		if b.prev == nil || b.prev.start.Before(start) {
 			// Insert new bucket
 			p.t.statsMutex.Lock()
-			p.t.stats.HotBuckets++
 			p.t.statsMutex.Unlock()
 			b.prev = &bucket{start, floatsToValues(insert.vals), b.prev}
 			return
@@ -173,7 +171,6 @@ func (t *table) archive() {
 				log.Tracef("Archiving %d buckets for %v starting at %v", numBuckets, field, seq.start().In(time.UTC))
 			}
 			batch.Merge(keyBuf.Bytes(), seq)
-			t.stats.HotBuckets -= numBuckets
 			t.stats.ArchivedBuckets += numBuckets
 		}
 		count := int64(batch.Count())

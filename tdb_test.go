@@ -53,7 +53,7 @@ func TestRoundTrip(t *testing.T) {
 		db.getTable("test_a").clock.Advance(now)
 		time.Sleep(250 * time.Millisecond)
 		stats := db.TableStats("test_a")
-		log.Debugf("At %v\tHot Keys: %d\tHot Buckets: %d\tArchived Buckets: %d", now, stats.HotKeys, stats.HotBuckets, stats.ArchivedBuckets)
+		log.Debugf("At %v\tHot Keys: %d\tArchived Buckets: %d", now, stats.HotKeys, stats.ArchivedBuckets)
 	}
 
 	db.Insert("test_a", &Point{

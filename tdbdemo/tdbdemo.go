@@ -64,11 +64,11 @@ func main() {
 		postGC := float64(ms.HeapAlloc) / 1024.0 / 1024.0
 		fmt.Printf(`
 %s inserts at %s inserts per second
-Hot Keys: %s     Hot Buckets: %s     Archived Buckets: %s
+Hot Keys: %s     Archived Buckets: %s
 HeapAlloc pre/post GC %f/%f MiB
 `,
 			humanize.Comma(i), humanize.Comma(i/int64(delta.Seconds())),
-			humanize.Comma(stats.HotKeys), humanize.Comma(stats.HotBuckets), humanize.Comma(stats.ArchivedBuckets),
+			humanize.Comma(stats.HotKeys), humanize.Comma(stats.ArchivedBuckets),
 			preGC, postGC)
 	}
 
