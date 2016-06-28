@@ -32,7 +32,7 @@ type partition struct {
 type insert struct {
 	ts   time.Time
 	key  []byte
-	vals map[string]float64
+	vals map[string]values.Value
 }
 
 type archiveRequest struct {
@@ -46,8 +46,6 @@ func (db *DB) Insert(table string, point *Point) error {
 		return fmt.Errorf("Unknown table %v", table)
 	}
 
-	// TODO: deal with situation name of inserted field conflicts with derived
-	// field
 	return t.insert(point)
 }
 
@@ -56,6 +54,11 @@ func (t *table) insert(point *Point) error {
 	insert, err := point.asInsert()
 	if err != nil {
 		return err
+	}
+	// TODO: deal with situation where name of inserted field conflicts with
+	// derived field
+	for _, field := range t.derivedFields {
+		insert.vals[field.Name] = field.Expr(insert.vals)
 	}
 	h := int(murmur3.Sum32(insert.key))
 	p := h % len(t.partitions)
@@ -93,7 +96,7 @@ func (p *partition) insert(insert *insert) {
 			p.t.stats.HotKeys++
 		}
 		p.t.statsMutex.Unlock()
-		b = &bucket{start, floatsToValues(insert.vals), b}
+		b = &bucket{start, insert.vals, b}
 		p.tail[key] = b
 		return
 	}
@@ -101,7 +104,7 @@ func (p *partition) insert(insert *insert) {
 		if b.start == start {
 			// Update existing bucket
 			for key, val := range insert.vals {
-				b.vals[key] = b.vals[key].Add(val)
+				b.vals[key] = b.vals[key].Plus(val)
 			}
 			return
 		}
@@ -109,7 +112,7 @@ func (p *partition) insert(insert *insert) {
 			// Insert new bucket
 			p.t.statsMutex.Lock()
 			p.t.statsMutex.Unlock()
-			b.prev = &bucket{start, floatsToValues(insert.vals), b.prev}
+			b.prev = &bucket{start, insert.vals, b.prev}
 			return
 		}
 		// Continue looking
@@ -152,7 +155,7 @@ func (t *table) archive() {
 
 	batch := gorocksdb.NewWriteBatch()
 	for req := range t.toArchive {
-		seqs := req.b.toSequences(t.resolution, t.derivedFields...)
+		seqs := req.b.toSequences(t.resolution)
 		for field, seq := range seqs {
 			keyBytes := []byte(req.key)
 			keyBuf := bytes.NewBuffer(make([]byte, 0, len(keyBytes)))
@@ -186,20 +189,12 @@ func (t *table) archive() {
 	}
 }
 
-func floatsToValues(in map[string]float64) map[string]values.Value {
-	out := make(map[string]values.Value, len(in))
-	for key, value := range in {
-		out[key] = values.Float(value)
-	}
-	return out
-}
-
 func (p *Point) asInsert() (*insert, error) {
 	key, err := p.key()
 	if err != nil {
 		return nil, err
 	}
-	return &insert{p.Ts, key, p.Vals}, nil
+	return &insert{p.Ts, key, floatsToValues(p.Vals)}, nil
 }
 
 func (p *Point) key() ([]byte, error) {
@@ -211,4 +206,12 @@ func (p *Point) key() ([]byte, error) {
 		return nil, fmt.Errorf("Unable to encode dims: %v", err)
 	}
 	return buf.Bytes(), nil
+}
+
+func floatsToValues(in map[string]float64) map[string]values.Value {
+	out := make(map[string]values.Value, len(in))
+	for key, value := range in {
+		out[key] = values.Float(value)
+	}
+	return out
 }

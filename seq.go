@@ -22,13 +22,10 @@ var (
 // the sequence.
 type sequence []byte
 
-func (b *bucket) toSequences(resolution time.Duration, derivedFields ...DerivedField) map[string]sequence {
-	bufs := make(map[string][]byte, len(b.vals)+len(derivedFields))
+func (b *bucket) toSequences(resolution time.Duration) map[string]sequence {
+	bufs := make(map[string][]byte, len(b.vals))
 	for field := range b.vals {
 		bufs[field] = b.newBuffer()
-	}
-	for _, field := range derivedFields {
-		bufs[field.Name] = b.newBuffer()
 	}
 
 	// Write all values
@@ -43,20 +40,6 @@ func (b *bucket) toSequences(resolution time.Duration, derivedFields ...DerivedF
 				b.vals[field] = val
 			}
 			bufs[field] = b.collect(buf, offset, val)
-		}
-		for _, field := range derivedFields {
-			// TODO: change API so that we don't have to make copies of maps
-			vals := make(map[string]interface{}, len(b.vals))
-			for key, val := range b.vals {
-				vals[key] = val.Val()
-			}
-			val, err := field.Calc.Add(field.Calc.Initial(), vals)
-			if err != nil {
-				log.Errorf("Unable to calculate field %v: %v", field.Name, err)
-				continue
-			}
-			log.Tracef("%v -> %f", field.Name, val)
-			bufs[field.Name] = b.collect(bufs[field.Name], offset, val)
 		}
 		if b.prev == nil {
 			break

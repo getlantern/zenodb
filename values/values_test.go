@@ -7,8 +7,11 @@ import (
 )
 
 func TestFloat(t *testing.T) {
-	v := Float(1.1)
-	assert.True(t, floatEquals(3.3, v.Add(2.2).Val()))
+	assert.True(t, floatEquals(3.3, Float(1.1).Plus(Float(2.2)).Val()))
+}
+
+func TestInt(t *testing.T) {
+	assert.EqualValues(t, 3, Int(1).Plus(Int(2)).Val())
 }
 
 // from https://gist.github.com/cevaris/bc331cbe970b03816c6b

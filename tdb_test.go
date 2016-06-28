@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/oxtoacart/tdb/calc"
+	. "github.com/oxtoacart/tdb/expr"
 
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -34,13 +34,9 @@ func TestRoundTrip(t *testing.T) {
 		Dir:       tmpDir,
 		BatchSize: 1,
 	})
-	c, err := calc.Expr("i*ii")
-	if err != nil {
-		t.Fatal(err)
-	}
 	err = db.CreateTable("test_A", resolution, hotPeriod, retentionPeriod, DerivedField{
 		Name: "iii",
-		Calc: c,
+		Expr: Avg(Calc("i*ii")),
 	})
 	if !assert.NoError(t, err, "Unable to create table") {
 		return
@@ -139,7 +135,7 @@ func TestRoundTrip(t *testing.T) {
 	result, err = query(epoch, epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
-			assert.Equal(t, []float64{242}, result[1])
+			assert.Equal(t, []float64{101}, result[1])
 		}
 	}
 

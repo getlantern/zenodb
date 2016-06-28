@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/getlantern/golog"
-	"github.com/oxtoacart/tdb/calc"
+	"github.com/oxtoacart/tdb/expr"
 	"github.com/oxtoacart/vtime"
 	"github.com/tecbot/gorocksdb"
 )
@@ -25,7 +25,7 @@ type TableStats struct {
 
 type DerivedField struct {
 	Name string
-	Calc calc.Calculated
+	Expr expr.Expr
 }
 
 type table struct {
