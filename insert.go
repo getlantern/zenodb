@@ -16,6 +16,34 @@ type Point struct {
 	Vals map[string]float64
 }
 
+type Value interface {
+	Val() float64
+
+	Add(addend float64) Value
+}
+
+type FloatValue float64
+
+func (v FloatValue) Val() float64 {
+	return float64(v)
+}
+
+func (v FloatValue) Add(addend float64) Value {
+	return FloatValue(v.Val() + addend)
+}
+
+type bucket struct {
+	start time.Time
+	val   Value
+	prev  *bucket
+}
+
+type partition struct {
+	t       *table
+	inserts chan *insert
+	tail    map[string]*bucket
+}
+
 type insert struct {
 	ts  time.Time
 	key []byte
@@ -82,14 +110,14 @@ func (p *partition) insert(insert *insert) {
 			p.t.stats.HotKeys++
 		}
 		p.t.statsMutex.Unlock()
-		b = &bucket{start, insert.val, b}
+		b = &bucket{start, FloatValue(insert.val), b}
 		p.tail[key] = b
 		return
 	}
 	for {
 		if b.start == start {
 			// Update existing bucket
-			b.val += insert.val
+			b.val = b.val.Add(insert.val)
 			return
 		}
 		if b.prev == nil || b.prev.start.Before(start) {
@@ -97,7 +125,7 @@ func (p *partition) insert(insert *insert) {
 			p.t.statsMutex.Lock()
 			p.t.stats.HotBuckets++
 			p.t.statsMutex.Unlock()
-			b.prev = &bucket{start, insert.val, b.prev}
+			b.prev = &bucket{start, FloatValue(insert.val), b.prev}
 			return
 		}
 		// Continue looking

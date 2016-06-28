@@ -12,26 +12,26 @@ func TestBuildSequence(t *testing.T) {
 	res := time.Minute
 	b := &bucket{
 		start: ts.Add(10 * res),
-		val:   6,
+		val:   FloatValue(6),
 		prev: &bucket{
 			start: ts.Add(7 * res),
-			val:   5,
+			val:   FloatValue(5),
 			prev: &bucket{
 				start: ts.Add(5 * res),
-				val:   4,
+				val:   FloatValue(4),
 			},
 		},
 	}
 
 	b2 := &bucket{
 		start: ts.Add(3 * res),
-		val:   3,
+		val:   FloatValue(3),
 		prev: &bucket{
 			start: ts.Add(1 * res),
-			val:   2,
+			val:   FloatValue(2),
 			prev: &bucket{
 				start: ts,
-				val:   1,
+				val:   FloatValue(1),
 			},
 		},
 	}

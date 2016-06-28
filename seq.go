@@ -38,7 +38,7 @@ func (b *bucket) toSequence(resolution time.Duration) sequence {
 			copy(newBuf, buf)
 			buf = newBuf
 		}
-		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(b.val))
+		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(b.val.Val()))
 		if b.prev == nil {
 			break
 		}

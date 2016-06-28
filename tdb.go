@@ -18,18 +18,6 @@ var (
 	log = golog.LoggerFor("tdb")
 )
 
-type bucket struct {
-	start time.Time
-	val   float64
-	prev  *bucket
-}
-
-type partition struct {
-	t       *table
-	inserts chan *insert
-	tail    map[string]*bucket
-}
-
 type TableStats struct {
 	HotKeys         int64
 	HotBuckets      int64
