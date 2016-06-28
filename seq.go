@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"math"
 	"time"
+
+	"github.com/oxtoacart/tdb/values"
 )
 
 const (
@@ -20,25 +22,42 @@ var (
 // the sequence.
 type sequence []byte
 
-func (b *bucket) toSequence(resolution time.Duration) sequence {
-	// Pre-allocate a largish amount of space to avoid having to grow the buffer
-	// too often.
-	buf := make([]byte, 1024)
-
-	// Write the starting time of the sequence
-	binary.BigEndian.PutUint64(buf, uint64(b.start.UnixNano()))
+func (b *bucket) toSequences(resolution time.Duration, derivedFields ...DerivedField) map[string]sequence {
+	bufs := make(map[string][]byte, len(b.vals)+len(derivedFields))
+	for field := range b.vals {
+		bufs[field] = b.newBuffer()
+	}
+	for _, field := range derivedFields {
+		bufs[field.Name] = b.newBuffer()
+	}
 
 	// Write all values
 	i := 1
 	for {
 		offset := i * size64bits
 		i++
-		if offset >= len(buf) {
-			newBuf := make([]byte, offset+1024)
-			copy(newBuf, buf)
-			buf = newBuf
+		for field, buf := range bufs {
+			val := b.vals[field]
+			if val == nil {
+				val = values.Float(0)
+				b.vals[field] = val
+			}
+			bufs[field] = b.collect(buf, offset, val)
 		}
-		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(b.val.Val()))
+		for _, field := range derivedFields {
+			// TODO: change API so that we don't have to make copies of maps
+			vals := make(map[string]interface{}, len(b.vals))
+			for key, val := range b.vals {
+				vals[key] = val.Val()
+			}
+			val, err := field.Calc.Add(field.Calc.Initial(), vals)
+			if err != nil {
+				log.Errorf("Unable to calculate field %v: %v", field.Name, err)
+				continue
+			}
+			log.Tracef("%v -> %f", field.Name, val)
+			bufs[field.Name] = b.collect(bufs[field.Name], offset, val)
+		}
 		if b.prev == nil {
 			break
 		}
@@ -51,7 +70,30 @@ func (b *bucket) toSequence(resolution time.Duration) sequence {
 		b = b.prev
 	}
 
-	return sequence(buf[:i*size64bits])
+	out := make(map[string]sequence, len(bufs))
+	for field, buf := range bufs {
+		out[field] = sequence(buf[:i*size64bits])
+	}
+	return out
+}
+
+func (b *bucket) newBuffer() []byte {
+	// Pre-allocate a largish amount of space to avoid having to grow the buffer
+	// too often.
+	buf := make([]byte, 1024)
+	// Write the starting time of the sequence
+	binary.BigEndian.PutUint64(buf, uint64(b.start.UnixNano()))
+	return buf
+}
+
+func (b *bucket) collect(buf []byte, offset int, val values.Value) []byte {
+	if offset >= len(buf) {
+		newBuf := make([]byte, offset+1024)
+		copy(newBuf, buf)
+		buf = newBuf
+	}
+	binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(val.Val()))
+	return buf
 }
 
 func (a sequence) isValid() bool {

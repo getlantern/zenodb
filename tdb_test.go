@@ -5,9 +5,10 @@ import (
 	"os"
 	"time"
 
-	"testing"
+	"github.com/oxtoacart/tdb/calc"
 
 	"github.com/stretchr/testify/assert"
+	"testing"
 )
 
 func TestRoundTime(t *testing.T) {
@@ -22,7 +23,7 @@ func TestRoundTrip(t *testing.T) {
 
 	tmpDir, err := ioutil.TempDir("", "tdbtest")
 	if err != nil {
-		log.Fatal(err)
+		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmpDir)
 
@@ -33,7 +34,14 @@ func TestRoundTrip(t *testing.T) {
 		Dir:       tmpDir,
 		BatchSize: 1,
 	})
-	err = db.CreateTable("test_A", resolution, hotPeriod, retentionPeriod)
+	c, err := calc.Expr("i*ii")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = db.CreateTable("test_A", resolution, hotPeriod, retentionPeriod, DerivedField{
+		Name: "iii",
+		Calc: c,
+	})
 	if !assert.NoError(t, err, "Unable to create table") {
 		return
 	}
@@ -125,6 +133,13 @@ func TestRoundTrip(t *testing.T) {
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{11}, result[1])
+		}
+	}
+
+	result, err = query(epoch, epoch, "u", "iii")
+	if assert.NoError(t, err, "Unable to run query") {
+		if assert.Len(t, result, 1) {
+			assert.Equal(t, []float64{242}, result[1])
 		}
 	}
 

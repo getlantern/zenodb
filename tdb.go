@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Knetic/govaluate"
 	"github.com/getlantern/golog"
+	"github.com/oxtoacart/tdb/calc"
 	"github.com/oxtoacart/vtime"
 	"github.com/tecbot/gorocksdb"
 )
@@ -24,6 +24,11 @@ type TableStats struct {
 	ArchivedBuckets int64
 }
 
+type DerivedField struct {
+	Name string
+	Calc calc.Calculated
+}
+
 type table struct {
 	name            string
 	batchSize       int64
@@ -32,7 +37,7 @@ type table struct {
 	resolution      time.Duration
 	hotPeriod       time.Duration
 	retentionPeriod time.Duration
-	derivedFields   map[string]*govaluate.EvaluableExpression
+	derivedFields   []DerivedField
 	partitions      []*partition
 	toArchive       chan *archiveRequest
 	stats           TableStats
@@ -54,13 +59,8 @@ func NewDB(opts *DBOpts) *DB {
 	return &DB{opts: opts, tables: make(map[string]*table)}
 }
 
-func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, derivedFields ...string) error {
+func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, derivedFields ...DerivedField) error {
 	name = strings.ToLower(name)
-	if len(derivedFields)%2 != 0 {
-		return fmt.Errorf("derivedFields needs to be of the form [name] [expression] [name] [expression] ...")
-	}
-
-	numDerivedFields := len(derivedFields) / 2
 	t := &table{
 		name:            name,
 		batchSize:       db.opts.BatchSize,
@@ -68,17 +68,8 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		resolution:      resolution,
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
-		derivedFields:   make(map[string]*govaluate.EvaluableExpression, numDerivedFields),
+		derivedFields:   derivedFields,
 		toArchive:       make(chan *archiveRequest, 100000),
-	}
-	for i := 0; i < numDerivedFields; i++ {
-		field := strings.ToLower(derivedFields[i*2])
-		expression := strings.ToLower(derivedFields[i*2+1])
-		expr, err := govaluate.NewEvaluableExpression(expression)
-		if err != nil {
-			return fmt.Errorf("Field %v has an invalid expression %v: %v", field, expression, err)
-		}
-		t.derivedFields[field] = expr
 	}
 	numCPU := runtime.NumCPU()
 	t.partitions = make([]*partition, 0, numCPU)
