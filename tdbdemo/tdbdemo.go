@@ -32,13 +32,14 @@ func main() {
 	log.Debugf("Writing data to %v", tmpDir)
 
 	numReporters := 5000
-	uniquesPerReporter := 500
+	uniquesPerReporter := 100
 	uniquesPerPeriod := 20
 	reportingPeriods := 1000
 	reportingInterval := time.Millisecond
 	resolution := reportingInterval * 5
 	hotPeriod := resolution * 10
-	retentionPeriod := time.Duration(reportingPeriods) * reportingInterval * 2
+	retainPeriods := 2
+	retentionPeriod := time.Duration(retainPeriods) * reportingInterval
 	numWriters := 4
 	db := tdb.NewDB(&tdb.DBOpts{
 		Dir:       tmpDir,

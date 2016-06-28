@@ -29,7 +29,7 @@ func TestRoundTrip(t *testing.T) {
 
 	resolution := time.Millisecond
 	hotPeriod := 2 * resolution
-	retentionPeriod := 10 * resolution
+	retentionPeriod := 100 * resolution
 	db := NewDB(&DBOpts{
 		Dir:       tmpDir,
 		BatchSize: 1,

@@ -170,28 +170,80 @@ func (p *partition) requestArchiving() {
 }
 
 func (t *table) archive() {
-	wo := gorocksdb.NewDefaultWriteOptions()
-
 	batch := gorocksdb.NewWriteBatch()
+	wo := gorocksdb.NewDefaultWriteOptions()
 	for req := range t.toArchive {
-		key := []byte(req.key)
-		seq := req.b.toSequence(t.resolution)
-		numBuckets := int64(seq.numBuckets())
-		if log.IsTraceEnabled() {
-			log.Tracef("Archiving %d buckets starting at %v", numBuckets, seq.start().In(time.UTC))
+		batch = t.doArchive(batch, wo, req)
+	}
+}
+
+func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOptions, req *archiveRequest) *gorocksdb.WriteBatch {
+	key := []byte(req.key)
+	seq := req.b.toSequence(t.resolution)
+	numBuckets := int64(seq.numBuckets())
+	if log.IsTraceEnabled() {
+		log.Tracef("Archiving %d buckets starting at %v", numBuckets, seq.start().In(time.UTC))
+	}
+	t.statsMutex.Lock()
+	t.stats.ArchivedBuckets += numBuckets
+	t.statsMutex.Unlock()
+	batch.Merge(key, seq)
+	count := int64(batch.Count())
+	if count >= t.batchSize {
+		err := t.archiveByKey.Write(wo, batch)
+		if err != nil {
+			log.Errorf("Unable to write batch: %v", err)
 		}
-		t.statsMutex.Lock()
-		t.stats.ArchivedBuckets += numBuckets
-		t.statsMutex.Unlock()
-		batch.Merge(key, seq)
-		count := int64(batch.Count())
-		if count >= t.batchSize {
-			err := t.archiveByKey.Write(wo, batch)
-			if err != nil {
-				log.Errorf("Unable to write batch: %v", err)
-			}
-			batch = gorocksdb.NewWriteBatch()
+		batch = gorocksdb.NewWriteBatch()
+	}
+	return batch
+}
+
+func (t *table) retain() {
+	retentionTicker := t.clock.NewTicker(t.retentionPeriod)
+	wo := gorocksdb.NewDefaultWriteOptions()
+	for range retentionTicker.C {
+		t.doRetain(wo)
+	}
+}
+
+func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
+	log.Debug("Removing expired keys")
+	start := time.Now()
+	batch := gorocksdb.NewWriteBatch()
+	var keysToFree []*gorocksdb.Slice
+	defer func() {
+		for _, k := range keysToFree {
+			k.Free()
 		}
+	}()
+
+	retainUntil := t.clock.Now().Add(-1 * t.retentionPeriod)
+	ro := gorocksdb.NewDefaultReadOptions()
+	ro.SetFillCache(false)
+	it := t.archiveByKey.NewIterator(ro)
+	defer it.Close()
+	for it.SeekToFirst(); it.Valid(); it.Next() {
+		v := it.Value()
+		vd := v.Data()
+		if vd == nil || len(vd) < size64bits || sequence(vd).start().Before(retainUntil) {
+			k := it.Key()
+			keysToFree = append(keysToFree, k)
+			batch.Delete(k.Data())
+		}
+		v.Free()
+	}
+
+	if batch.Count() > 0 {
+		err := t.archiveByKey.Write(wo, batch)
+		if err != nil {
+			log.Errorf("Unable to remove expired keys: %v", err)
+		} else {
+			delta := time.Now().Sub(start)
+			log.Debugf("Removed %d expired keys in %v", batch.Count(), delta)
+		}
+	} else {
+		log.Debug("No expired keys to remove")
 	}
 }
 

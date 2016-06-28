@@ -100,6 +100,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	}
 
 	go t.archive()
+	go t.retain()
 
 	return nil
 }

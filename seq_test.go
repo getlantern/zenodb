@@ -64,7 +64,7 @@ func TestBuildSequence(t *testing.T) {
 	checkTruncation := func(offset time.Duration, length int, msg string) {
 		merged := b.toSequence(res).append(b2.toSequence(res), res, epoch.Add(offset*res))
 		if length == 0 {
-			assert.Nil(t, merged, msg)
+			assert.Equal(t, emptySequence, merged, msg)
 		} else {
 			assert.Equal(t, length, merged.numBuckets(), msg)
 		}

@@ -11,7 +11,7 @@ const (
 )
 
 var (
-	emptySequence = []byte{}
+	emptySequence = sequence([]byte{})
 )
 
 // sequence represents a time-ordered sequence of values in descending time
@@ -70,7 +70,7 @@ func (a sequence) append(b sequence, resolution time.Duration, truncateBefore ti
 	maxPeriods := int(as.Sub(truncateBefore)/resolution) + 1
 	if maxPeriods <= 0 {
 		// Entire sequence falls outside of truncation range
-		return nil
+		return emptySequence
 	}
 	maxLength := (maxPeriods + 1) * size64bits
 	if maxPeriods < aPeriods {
