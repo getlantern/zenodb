@@ -156,7 +156,6 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 						val = val.Plus(next)
 					}
 				}
-				log.Debugf("%v.%v %d : %v", entry.Dims["u"], entry.NumPeriods, summary.Name, val)
 				entry.Summaries[summary.Name] = val.Val()
 			}
 		}
