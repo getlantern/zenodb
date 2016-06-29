@@ -42,9 +42,10 @@ type bucket struct {
 }
 
 type partition struct {
-	t       *table
-	inserts chan *insert
-	tail    map[string]*bucket
+	t            *table
+	archiveDelay time.Duration
+	inserts      chan *insert
+	tail         map[string]*bucket
 }
 
 type insert struct {
@@ -99,8 +100,8 @@ func (t *table) insert(point *Point) error {
 }
 
 func (p *partition) processInserts() {
-	archivePeriod := p.t.hotPeriod / 10
-	log.Debugf("Archiving every %v", archivePeriod)
+	archivePeriod := p.t.archivePeriod()
+	log.Debugf("Archiving every %v, delayed by %v", archivePeriod, p.archiveDelay)
 	archiveTicker := p.t.clock.NewTicker(archivePeriod)
 	for {
 		select {
@@ -255,6 +256,10 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 	} else {
 		log.Debug("No expired keys to remove")
 	}
+}
+
+func (t *table) archivePeriod() time.Duration {
+	return t.hotPeriod / 10
 }
 
 func (p *Point) keyFor(field string) ([]byte, error) {

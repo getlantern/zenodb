@@ -77,9 +77,10 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	t.partitions = make([]*partition, 0, numCPU)
 	for i := 0; i < numCPU; i++ {
 		p := &partition{
-			t:       t,
-			inserts: make(chan *insert, 100000/numCPU),
-			tail:    make(map[string]*bucket),
+			t:            t,
+			archiveDelay: time.Duration(i) * t.archivePeriod() / time.Duration(numCPU),
+			inserts:      make(chan *insert, 100000/numCPU),
+			tail:         make(map[string]*bucket),
 		}
 		t.partitions = append(t.partitions, p)
 	}
