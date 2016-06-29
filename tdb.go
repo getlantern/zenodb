@@ -2,6 +2,7 @@ package tdb
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -90,7 +91,10 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		return fmt.Errorf("Table %v already exists", name)
 	}
 
-	var err error
+	err := os.MkdirAll(db.opts.Dir, 0755)
+	if err != nil && !os.IsExist(err) {
+		return fmt.Errorf("Unable to create folder for rocksdb database: %v", err)
+	}
 	t.archiveByKey, err = t.createDatabase(db.opts.Dir, "bykey")
 	if err != nil {
 		return fmt.Errorf("Unable to create rocksdb database: %v", err)
