@@ -8,11 +8,11 @@ import (
 
 func TestMin(t *testing.T) {
 	min := Min(Calc("a + b"))
-	fields1 := map[string]values.Value{
+	fields1 := Map{
 		"a": values.Float(1),
 		"b": values.Float(2),
 	}
-	fields2 := map[string]values.Value{
+	fields2 := Map{
 		"a": values.Float(3),
 		"b": values.Float(4),
 	}
@@ -21,11 +21,11 @@ func TestMin(t *testing.T) {
 
 func TestMax(t *testing.T) {
 	max := Max(Calc("a + b"))
-	fields1 := map[string]values.Value{
+	fields1 := Map{
 		"a": values.Float(1),
 		"b": values.Float(2),
 	}
-	fields2 := map[string]values.Value{
+	fields2 := Map{
 		"a": values.Float(3),
 		"b": values.Float(4),
 	}

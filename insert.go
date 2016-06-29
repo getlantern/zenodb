@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/oxtoacart/tdb/expr"
 	"github.com/oxtoacart/tdb/values"
 	"github.com/spaolacci/murmur3"
 	"github.com/tecbot/gorocksdb"
@@ -72,7 +73,7 @@ func (t *table) insert(point *Point) error {
 	// TODO: deal with situation where name of inserted field conflicts with
 	// derived field
 	for _, field := range t.derivedFields {
-		vals[field.Name] = field.Expr(vals)
+		vals[field.Name] = field.Expr(expr.Map(vals))
 	}
 
 	for field, val := range vals {

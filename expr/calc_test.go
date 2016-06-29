@@ -8,7 +8,7 @@ import (
 
 func TestCalc(t *testing.T) {
 	c := Calc("a + b")
-	fields := map[string]values.Value{
+	fields := Map{
 		"a": values.Float(2.2),
 		"b": values.Float(3.3),
 	}

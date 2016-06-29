@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"github.com/oxtoacart/govaluate"
 	"github.com/oxtoacart/tdb/values"
 )
 
@@ -21,7 +22,7 @@ func (a *averageValue) Plus(addend values.Value) values.Value {
 }
 
 func Avg(expr Expr) Expr {
-	return func(fields map[string]values.Value) values.Value {
+	return func(fields govaluate.Parameters) values.Value {
 		return &averageValue{1, expr(fields).Val()}
 	}
 }

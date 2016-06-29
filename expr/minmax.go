@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"github.com/oxtoacart/govaluate"
 	"github.com/oxtoacart/tdb/values"
 )
 
@@ -31,13 +32,13 @@ func (v maxvalue) Plus(addend values.Value) values.Value {
 }
 
 func Min(expr Expr) Expr {
-	return func(fields map[string]values.Value) values.Value {
+	return func(fields govaluate.Parameters) values.Value {
 		return minvalue(expr(fields).Val())
 	}
 }
 
 func Max(expr Expr) Expr {
-	return func(fields map[string]values.Value) values.Value {
+	return func(fields govaluate.Parameters) values.Value {
 		return maxvalue(expr(fields).Val())
 	}
 }

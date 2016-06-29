@@ -26,9 +26,6 @@ func (db *DB) RunQuery(q *Query) error {
 	if len(q.Fields) == 0 {
 		return fmt.Errorf("Please specify at least one field")
 	}
-	if q.OnValues == nil {
-		return fmt.Errorf("Please specify an OnValues callback")
-	}
 	t := db.getTable(q.Table)
 	if t == nil {
 		return fmt.Errorf("Unknown table %v", q.Table)
@@ -45,9 +42,13 @@ func (db *DB) RunQuery(q *Query) error {
 	if q.To.IsZero() {
 		q.To = t.clock.Now()
 	}
-	q.From = roundTime(q.From, t.resolution)
-	q.To = roundTime(q.To, t.resolution)
-	numBuckets := int(q.To.Sub(q.From)/t.resolution) + 1
+	from := roundTime(q.From, t.resolution)
+	to := q.To
+	if to.IsZero() {
+		to = t.clock.Now()
+	}
+	to = roundTime(to, t.resolution)
+	numBuckets := int(to.Sub(from)/t.resolution) + 1
 	log.Tracef("Query will return %d buckets", numBuckets)
 
 	ro := gorocksdb.NewDefaultReadOptions()
@@ -85,8 +86,7 @@ func (db *DB) RunQuery(q *Query) error {
 					log.Tracef("Sequence starts at %v and has %d buckets", seqStart.In(time.UTC), seq.numBuckets())
 				}
 				includeKey := false
-				if !seqStart.Before(q.From) {
-					to := q.To
+				if !seqStart.Before(from) {
 					if to.After(seqStart) {
 						to = seqStart
 					}

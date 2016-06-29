@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	. "github.com/oxtoacart/tdb/expr"
 
 	"github.com/stretchr/testify/assert"
@@ -145,6 +146,41 @@ func TestRoundTrip(t *testing.T) {
 		if assert.Len(t, result, 2) {
 			assert.Equal(t, []float64{222, 22, 0, 0}, result[1])
 			assert.Equal(t, []float64{42, 0, 0, 0}, result[2])
+		}
+	}
+
+	testAggregateQuery(t, db, epoch, resolution)
+}
+
+func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.Duration) {
+	// Test aggregate query
+	aq := &AggregateQuery{
+		Resolution: resolution * 100,
+		Dims:       []string{"u"},
+		Fields: []DerivedField{
+			DerivedField{
+				Name: "sum_ii",
+				Expr: Calc("ii"),
+			},
+		},
+		OrderBy: map[string]Order{
+			"sum_ii": ORDER_DESC,
+		},
+	}
+	q := &Query{
+		Table:  "Test_A",
+		Fields: []string{"ii"},
+		From:   epoch.Add(-1 * resolution),
+		To:     epoch.Add(resolution * 2),
+	}
+
+	result, err := aq.Run(db, q)
+	if assert.NoError(t, err, "Unable to run query") {
+		log.Debug(spew.Sprint(result))
+		if assert.EqualValues(t, 1, result[0].Dims[0], "Wrong dim, result may be sorted incorrectly") {
+			if assert.Len(t, result[0].Fields[0], 1, "Wrong number of periods, bucketing may not be working correctly") {
+				assert.EqualValues(t, 244, result[0].Fields[0][0], "Wrong value, bucketing may not be working correctly")
+			}
 		}
 	}
 }

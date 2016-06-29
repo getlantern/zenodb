@@ -8,11 +8,11 @@ import (
 
 func TestAvg(t *testing.T) {
 	avg := Avg(Calc("a + b"))
-	fields1 := map[string]values.Value{
+	fields1 := Map{
 		"a": values.Float(1),
 		"b": values.Float(2),
 	}
-	fields2 := map[string]values.Value{
+	fields2 := Map{
 		"a": values.Float(3),
 		"b": values.Float(4),
 	}
