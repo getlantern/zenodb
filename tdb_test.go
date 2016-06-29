@@ -159,14 +159,14 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 		Dims:       []string{"u"},
 		Fields: []DerivedField{
 			DerivedField{
-				Name: "sum_ii",
-				Expr: Calc("ii"),
+				Name: "min_ii",
+				Expr: Min(Calc("ii")),
 			},
 		},
 		Summaries: []DerivedField{
 			DerivedField{
 				Name: "avg_ii",
-				Expr: Avg(Calc("ii")),
+				Expr: Avg(Calc("min_ii")),
 			},
 		},
 		OrderBy: map[string]Order{
@@ -185,7 +185,9 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 		log.Debug(spew.Sprint(result))
 		if assert.EqualValues(t, 1, result[0].Dims["u"], "Wrong dim, result may be sorted incorrectly") {
 			if assert.Len(t, result[0].Fields["sum_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
-				assert.EqualValues(t, 244, result[0].Fields["sum_ii"][0], "Wrong value, bucketing may not be working correctly")
+				assert.EqualValues(t, 244, result[0].Fields["ii"][0], "Wrong field value, bucketing may not be working correctly")
+				assert.EqualValues(t, 20, result[0].Fields["min_ii"][0], "Wrong derived value, bucketing may not be working correctly")
+				assert.EqualValues(t, 20, result[0].Summaries["avg_ii"], "Wrong summary value")
 			}
 		}
 	}
