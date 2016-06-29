@@ -7,10 +7,15 @@ import (
 )
 
 func TestCalc(t *testing.T) {
-	c := Calc("a + b")
-	fields := Map{
-		"a": values.Float(2.2),
-		"b": values.Float(3.3),
+	c := Calc("b > 0 ? a / b")
+	fields1 := Map{
+		"a": values.Float(4.4),
+		"b": values.Float(2.2),
 	}
-	assert.EqualValues(t, 5.5, c(fields))
+	fields2 := Map{
+		"a": values.Float(2.2),
+		"b": values.Float(0),
+	}
+	assert.EqualValues(t, 2, c(fields1))
+	assert.EqualValues(t, 0, c(fields2))
 }

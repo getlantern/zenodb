@@ -17,6 +17,10 @@ func Calc(expression string) Expr {
 			log.Errorf("Unable to evaluate expression %v: %v", expression, err)
 			return values.Float(0)
 		}
-		return values.Float(result.(float64))
+		val := float64(0)
+		if result != nil {
+			val = result.(float64)
+		}
+		return values.Float(val)
 	}
 }
