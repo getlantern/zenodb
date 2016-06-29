@@ -52,7 +52,8 @@ func (db *DB) RunQuery(q *Query) error {
 	log.Tracef("Query will return %d buckets", numBuckets)
 
 	ro := gorocksdb.NewDefaultReadOptions()
-	ro.SetFillCache(false)
+	// Go ahead and fill the cache
+	ro.SetFillCache(true)
 	it := t.archiveByKey.NewIterator(ro)
 	defer it.Close()
 	for _, fieldBytes := range fields {

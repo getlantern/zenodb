@@ -24,8 +24,9 @@ type AggregateQuery struct {
 }
 
 type AggregateResult struct {
-	Dims   []interface{}
-	Fields [][]float64
+	Dims       []interface{}
+	Fields     [][]float64
+	NumPeriods int
 }
 
 type aggregateEntry struct {
@@ -134,18 +135,19 @@ func (aq *AggregateQuery) buildResult(entries map[string]*aggregateEntry) ([]*Ag
 	}
 
 	for _, entry := range entries {
-		r := &AggregateResult{
-			Dims:   make([]interface{}, len(aq.Dims)),
-			Fields: make([][]float64, len(aq.Fields)),
-		}
-		for i, dim := range aq.Dims {
-			r.Dims[i] = entry.key[dim]
-		}
-
 		numBuckets := 0
 		for _, fieldValues := range entry.fields {
 			numBuckets = len(fieldValues)
 			break
+		}
+
+		r := &AggregateResult{
+			Dims:       make([]interface{}, len(aq.Dims)),
+			Fields:     make([][]float64, len(aq.Fields)),
+			NumPeriods: numBuckets,
+		}
+		for i, dim := range aq.Dims {
+			r.Dims[i] = entry.key[dim]
 		}
 
 		for fi, field := range aq.Fields {

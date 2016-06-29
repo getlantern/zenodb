@@ -110,7 +110,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error) {
 	opts := gorocksdb.NewDefaultOptions()
 	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(32 * 1024 * 1024))
+	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(256 * 1024 * 1024))
 	filter := gorocksdb.NewBloomFilter(10)
 	bbtopts.SetFilterPolicy(filter)
 	opts.SetBlockBasedTableFactory(bbtopts)
