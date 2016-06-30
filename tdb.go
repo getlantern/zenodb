@@ -26,13 +26,15 @@ type TableStats struct {
 	ArchivedBuckets int64
 }
 
-type DerivedField struct {
+type field struct {
+	expr.Expr
 	Name string
-	Expr expr.Expr
 }
 
 type table struct {
 	name            string
+	fields          sortedFields
+	fieldIndexes    map[string]int
 	batchSize       int64
 	clock           *vtime.Clock
 	archiveByKey    *gorocksdb.DB
@@ -60,10 +62,18 @@ func NewDB(opts *DBOpts) *DB {
 	return &DB{opts: opts, tables: make(map[string]*table)}
 }
 
-func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration) error {
+func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, fields map[string]expr.Expr) error {
 	name = strings.ToLower(name)
+	fieldsArray := sortFields(fields)
+	fieldIndexes := make(map[string]int, len(fieldsArray))
+	for i, field := range fieldsArray {
+		fieldIndexes[field.Name] = i
+	}
+
 	t := &table{
 		name:            name,
+		fields:          fieldsArray,
+		fieldIndexes:    fieldIndexes,
 		batchSize:       db.opts.BatchSize,
 		clock:           vtime.NewClock(time.Time{}),
 		resolution:      resolution,

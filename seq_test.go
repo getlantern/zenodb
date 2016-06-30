@@ -1,7 +1,7 @@
 package tdb
 
 import (
-	"github.com/oxtoacart/tdb/values"
+	. "github.com/oxtoacart/tdb/expr"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -13,33 +13,33 @@ func TestBuildSequence(t *testing.T) {
 	res := time.Minute
 	b := &bucket{
 		start: epoch.Add(10 * res),
-		val:   values.Float(6),
+		vals:  []Accumulator{Constant(6).Accumulator()},
 		prev: &bucket{
 			start: epoch.Add(7 * res),
-			val:   values.Float(5),
+			vals:  []Accumulator{Constant(5).Accumulator()},
 			prev: &bucket{
 				start: epoch.Add(5 * res),
-				val:   values.Float(4),
+				vals:  []Accumulator{Constant(4).Accumulator()},
 			},
 		},
 	}
 
 	b2 := &bucket{
 		start: epoch.Add(3 * res),
-		val:   values.Float(3),
+		vals:  []Accumulator{Constant(3).Accumulator()},
 		prev: &bucket{
 			start: epoch.Add(1 * res),
-			val:   values.Float(2),
+			vals:  []Accumulator{Constant(2).Accumulator()},
 			prev: &bucket{
 				start: epoch,
-				val:   values.Float(1),
+				vals:  []Accumulator{Constant(1).Accumulator()},
 			},
 		},
 	}
 
-	seq := b.toSequence(res).append(b2.toSequence(res), res, epoch)
+	seq := b.toSequences(res)[0].append(b2.toSequences(res)[0], res, epoch)
 	assert.Equal(t, epoch.Add(10*res), seq.start().In(time.UTC))
-	assert.Equal(t, 11, seq.numBuckets())
+	assert.Equal(t, 11, seq.numPeriods())
 	for i := time.Duration(-1); i <= 12; i++ {
 		actual := int(seq.valueAtTime(epoch.Add(i*res), res))
 		t.Logf("%d -> %d", i, actual)
@@ -62,11 +62,11 @@ func TestBuildSequence(t *testing.T) {
 	}
 
 	checkTruncation := func(offset time.Duration, length int, msg string) {
-		merged := b.toSequence(res).append(b2.toSequence(res), res, epoch.Add(offset*res))
+		merged := b.toSequences(res)[0].append(b2.toSequences(res)[0], res, epoch.Add(offset*res))
 		if length == 0 {
 			assert.Equal(t, emptySequence, merged, msg)
 		} else {
-			assert.Equal(t, length, merged.numBuckets(), msg)
+			assert.Equal(t, length, merged.numPeriods(), msg)
 		}
 	}
 

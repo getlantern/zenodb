@@ -1,44 +1,19 @@
 package tdb
 
 import (
-	"bytes"
 	"fmt"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/oxtoacart/tdb/expr"
-	"github.com/oxtoacart/tdb/values"
 	"github.com/spaolacci/murmur3"
 	"github.com/tecbot/gorocksdb"
-	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 type Point struct {
 	Ts   time.Time
 	Dims map[string]interface{}
 	Vals map[string]float64
-}
-
-type Value interface {
-	Val() float64
-
-	Add(addend float64) Value
-}
-
-type FloatValue float64
-
-func (v FloatValue) Val() float64 {
-	return float64(v)
-}
-
-func (v FloatValue) Add(addend float64) Value {
-	return FloatValue(v.Val() + addend)
-}
-
-type bucket struct {
-	start time.Time
-	val   values.Value
-	prev  *bucket
 }
 
 type partition struct {
@@ -49,9 +24,11 @@ type partition struct {
 }
 
 type insert struct {
-	ts  time.Time
-	key []byte
-	val values.Value
+	ts     time.Time
+	t      *table
+	key    []byte
+	vals   map[string]expr.Value
+	bucket *bucket
 }
 
 type archiveRequest struct {
@@ -71,24 +48,21 @@ func (db *DB) Insert(table string, point *Point) error {
 func (t *table) insert(point *Point) error {
 	t.clock.Advance(point.Ts)
 	vals := floatsToValues(point.Vals)
-
-	for field, val := range vals {
-		key, err := point.keyFor(field)
-		if err != nil {
-			return err
-		}
-		h := int(murmur3.Sum32(key))
-		p := h % len(t.partitions)
-		select {
-		case t.partitions[p].inserts <- &insert{point.Ts, key, val}:
-			t.statsMutex.Lock()
-			t.stats.InsertedPoints++
-			t.statsMutex.Unlock()
-		default:
-			t.statsMutex.Lock()
-			t.stats.DroppedPoints++
-			t.statsMutex.Unlock()
-		}
+	key, err := keyToBytes(point.Dims)
+	if err != nil {
+		return err
+	}
+	h := int(murmur3.Sum32(key))
+	p := h % len(t.partitions)
+	select {
+	case t.partitions[p].inserts <- &insert{point.Ts, t, key, vals, nil}:
+		t.statsMutex.Lock()
+		t.stats.InsertedPoints++
+		t.statsMutex.Unlock()
+	default:
+		t.statsMutex.Lock()
+		t.stats.DroppedPoints++
+		t.statsMutex.Unlock()
 	}
 
 	return nil
@@ -123,26 +97,41 @@ func (p *partition) insert(insert *insert) {
 			p.t.stats.HotKeys++
 		}
 		p.t.statsMutex.Unlock()
-		b = &bucket{start, insert.val, b}
+		b = &bucket{start: start, prev: b}
+		b.init(insert)
 		p.tail[key] = b
 		return
 	}
 	for {
 		if b.start == start {
 			// Update existing bucket
-			b.val = b.val.Plus(insert.val)
+			b.update(insert)
 			return
 		}
 		if b.prev == nil || b.prev.start.Before(start) {
 			// Insert new bucket
 			p.t.statsMutex.Lock()
 			p.t.statsMutex.Unlock()
-			b.prev = &bucket{start, insert.val, b.prev}
+			b.prev = &bucket{start: start, prev: b.prev}
+			b.prev.init(insert)
 			return
 		}
 		// Continue looking
 		b = b.prev
 	}
+}
+
+func (insert *insert) Get(name string) expr.Value {
+	// First look in fields
+	val, ok := insert.vals[name]
+	if ok {
+		return val
+	}
+	fieldIdx, ok := insert.t.fieldIndexes[name]
+	if ok {
+		return insert.bucket.vals[fieldIdx]
+	}
+	return expr.Zero
 }
 
 func (p *partition) requestArchiving() {
@@ -185,15 +174,22 @@ func (t *table) archive() {
 
 func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOptions, req *archiveRequest) *gorocksdb.WriteBatch {
 	key := []byte(req.key)
-	seq := req.b.toSequence(t.resolution)
-	numBuckets := int64(seq.numBuckets())
+	seqs := req.b.toSequences(t.resolution)
+	numPeriods := int64(seqs[0].numPeriods())
 	if log.IsTraceEnabled() {
-		log.Tracef("Archiving %d buckets starting at %v", numBuckets, seq.start().In(time.UTC))
+		log.Tracef("Archiving %d buckets starting at %v", numPeriods, seqs[0].start().In(time.UTC))
 	}
 	t.statsMutex.Lock()
-	t.stats.ArchivedBuckets += numBuckets
+	t.stats.ArchivedBuckets += numPeriods
 	t.statsMutex.Unlock()
-	batch.Merge(key, seq)
+	for i, field := range t.fields {
+		k, err := keyWithField(key, field.Name)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+		batch.Merge(k, seqs[i])
+	}
 	count := int64(batch.Count())
 	if count >= t.batchSize {
 		err := t.archiveByKey.Write(wo, batch)
@@ -257,25 +253,10 @@ func (t *table) archivePeriod() time.Duration {
 	return t.hotPeriod / 10
 }
 
-func (p *Point) keyFor(field string) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	enc := msgpack.NewEncoder(buf)
-	enc.SortMapKeys(true)
-	err := enc.Encode(field)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to encode field: %v", err)
-	}
-	err = enc.Encode(p.Dims)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to encode dims: %v", err)
-	}
-	return buf.Bytes(), nil
-}
-
-func floatsToValues(in map[string]float64) map[string]values.Value {
-	out := make(map[string]values.Value, len(in))
+func floatsToValues(in map[string]float64) map[string]expr.Value {
+	out := make(map[string]expr.Value, len(in))
 	for key, value := range in {
-		out[key] = values.Float(value)
+		out[key] = expr.Float(value)
 	}
 	return out
 }

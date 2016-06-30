@@ -1,13 +1,11 @@
 package tdb
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 	"time"
 
-	"github.com/oxtoacart/tdb/values"
-	"gopkg.in/vmihailenco/msgpack.v2"
+	"github.com/oxtoacart/tdb/expr"
 )
 
 const (
@@ -18,31 +16,46 @@ const (
 type Order int
 
 type AggregateQuery struct {
-	Resolution time.Duration
-	Dims       []string
-	Fields     []DerivedField
-	Summaries  []DerivedField
-	OrderBy    map[string]Order
+	Resolution      time.Duration
+	Dims            []string
+	Fields          map[string]expr.Expr
+	sortedFields    sortedFields
+	Summaries       map[string]expr.Expr
+	sortedSummaries sortedFields
+	OrderBy         map[string]Order
 }
 
 type AggregateEntry struct {
-	Dims       map[string]interface{}
-	Fields     map[string][]float64
-	Summaries  map[string]float64
-	NumPeriods int
-	idx        int
+	Dims          map[string]interface{}
+	Fields        map[string][]expr.Accumulator
+	Summaries     map[string]expr.Accumulator
+	NumPeriods    int
+	scalingFactor int
+	rawValues     map[string][]float64
+	inPeriods     int
+	inIdx         int
+	outIdx        int
 }
 
 // Get implements the method from interface govaluate.Parameters
-func (entry *AggregateEntry) Get(name string) (interface{}, error) {
-	vals := entry.Fields[name]
-	if vals == nil {
-		return entry.Summaries[name], nil
+func (entry *AggregateEntry) Get(name string) expr.Value {
+	rawVals := entry.rawValues[name]
+	if rawVals != nil {
+		if entry.inIdx >= len(rawVals) {
+			return expr.Zero
+		}
+		return expr.Float(rawVals[entry.inIdx])
 	}
-	return vals[entry.idx], nil
+	vals := entry.Fields[name]
+	if vals != nil {
+		return vals[entry.outIdx]
+	}
+	return expr.Zero
 }
 
 func (aq *AggregateQuery) Run(db *DB, q *Query) ([]*AggregateEntry, error) {
+	aq.sortedFields = sortFields(aq.Fields)
+	aq.sortedSummaries = sortFields(aq.Summaries)
 	entries, err := aq.prepare(db, q)
 	if err != nil {
 		return nil, err
@@ -59,6 +72,24 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 	if t == nil {
 		return nil, fmt.Errorf("Table %v not found", q.Table)
 	}
+
+	dependencies := make(map[string]bool, len(aq.sortedFields)+len(aq.sortedSummaries))
+	for _, field := range aq.sortedFields {
+		for _, dependency := range field.DependsOn() {
+			dependencies[dependency] = true
+		}
+	}
+	for _, field := range aq.sortedSummaries {
+		for _, dependency := range field.DependsOn() {
+			dependencies[dependency] = true
+		}
+	}
+	fields := make([]string, 0, len(dependencies))
+	for dependency := range dependencies {
+		fields = append(fields, dependency)
+	}
+	q.Fields = fields
+
 	nativeResolution := t.resolution
 	resolution := aq.Resolution
 	if resolution == 0 {
@@ -72,9 +103,9 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 		return nil, fmt.Errorf("Aggregate query's resolution of %v is not evenly divisible by the table's native resolution of %v", resolution, nativeResolution)
 	}
 	scalingFactor := int(resolution / nativeResolution)
-	// we'll calculate buckets lazily later
-	inBuckets := 0
-	outBuckets := 0
+	// we'll calculate periods lazily later
+	inPeriods := 0
+	outPeriods := 0
 
 	includedDims := make(map[string]bool, len(aq.Dims))
 	for _, dim := range aq.Dims {
@@ -101,27 +132,32 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 		entry := entries[ks]
 		if entry == nil {
 			entry = &AggregateEntry{
-				Dims:   key,
-				Fields: make(map[string][]float64, len(aq.Fields)+1),
+				Dims:      key,
+				Fields:    make(map[string][]expr.Accumulator, len(aq.Fields)+1),
+				rawValues: make(map[string][]float64, len(q.Fields)),
+			}
+			if aq.Summaries != nil {
+				entry.Summaries = make(map[string]expr.Accumulator, len(aq.Summaries))
+				for _, summary := range aq.sortedSummaries {
+					entry.Summaries[summary.Name] = summary.Accumulator()
+				}
 			}
 			entries[ks] = entry
 		}
-		aggregatedVals := entry.Fields[field]
-		if aggregatedVals == nil {
-			if inBuckets < 1 {
-				inBuckets = len(vals)
-				// Limit inBuckets based on what we can fit into outBuckets
-				inBuckets -= inBuckets % scalingFactor
-				outBuckets = (inBuckets / scalingFactor) + 1
-				inBuckets = outBuckets * scalingFactor
+		if entry.scalingFactor == 0 {
+			if inPeriods < 1 {
+				inPeriods = len(vals)
+				// Limit inPeriods based on what we can fit into outPeriods
+				inPeriods -= inPeriods % scalingFactor
+				outPeriods = (inPeriods / scalingFactor) + 1
+				inPeriods = outPeriods * scalingFactor
 			}
-			entry.NumPeriods = outBuckets
-			aggregatedVals = make([]float64, outBuckets)
-			entry.Fields[field] = aggregatedVals
+			log.Debugf("%d -> %d -> %d at %d", len(vals), inPeriods, outPeriods, scalingFactor)
+			entry.NumPeriods = outPeriods
+			entry.inPeriods = inPeriods
+			entry.scalingFactor = scalingFactor
 		}
-		for i := 0; i < len(vals); i++ {
-			aggregatedVals[i/scalingFactor] += vals[i]
-		}
+		entry.rawValues[field] = vals
 	}
 
 	return entries, nil
@@ -134,29 +170,34 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 	}
 
 	for _, entry := range entries {
-		for _, field := range aq.Fields {
-			vals := make([]float64, entry.NumPeriods)
+		// for i := 0; i < len(vals); i++ {
+		// 	entry.idx = i
+		// 	aggregatedVals[i/scalingFactor].Update(entry)
+		// }
+		//
+		// aggregatedVals = make([]expr.Accumulator, 0, outPeriods)
+		// for _, f := range aq.Fields {
+		// 	aggregatedVals = append(aggregatedVals, f.Accumulator())
+		// }
+		//
+		//
+		for _, field := range aq.sortedFields {
+			// Initialize accumulators
+			vals := make([]expr.Accumulator, 0, entry.NumPeriods)
 			for i := 0; i < entry.NumPeriods; i++ {
-				entry.idx = i
-				vals[i] = field.Expr(entry).Val()
+				vals = append(vals, field.Accumulator())
 			}
 			entry.Fields[field.Name] = vals
-		}
 
-		if aq.Summaries != nil {
-			entry.Summaries = make(map[string]float64, len(aq.Summaries))
-			for _, summary := range aq.Summaries {
-				var val values.Value
-				for i := 0; i < entry.NumPeriods; i++ {
-					entry.idx = i
-					next := summary.Expr(entry)
-					if i == 0 {
-						val = next
-					} else {
-						val = val.Plus(next)
-					}
+			// Calculate per-period values
+			for i := 0; i < entry.inPeriods; i++ {
+				entry.inIdx = i
+				entry.outIdx = i / entry.scalingFactor
+				vals[entry.outIdx].Update(entry)
+				// Also update summaries
+				for _, summary := range aq.sortedSummaries {
+					entry.Summaries[summary.Name].Update(entry)
 				}
-				entry.Summaries[summary.Name] = val.Val()
 			}
 		}
 
@@ -167,7 +208,7 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 		orderBy := make(map[string]bool, len(aq.OrderBy))
 		for orderSummary, order := range aq.OrderBy {
 			summaryFound := false
-			for _, summary := range aq.Summaries {
+			for _, summary := range aq.sortedSummaries {
 				if summary.Name == orderSummary {
 					summaryFound = true
 					break
@@ -199,8 +240,8 @@ func (r *orderedAggregated) Less(i, j int) bool {
 	a := r.r[i]
 	b := r.r[j]
 	for summary, asc := range r.orderBy {
-		fa := a.Summaries[summary]
-		fb := b.Summaries[summary]
+		fa := a.Summaries[summary].Get()
+		fb := b.Summaries[summary].Get()
 		if fa == fb {
 			continue
 		}
@@ -210,24 +251,4 @@ func (r *orderedAggregated) Less(i, j int) bool {
 		return fa > fb
 	}
 	return false
-}
-
-func keyToBytes(key map[string]interface{}) ([]byte, error) {
-	buf := &bytes.Buffer{}
-	enc := msgpack.NewEncoder(buf)
-	enc.SortMapKeys(true)
-	err := enc.Encode(key)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to encode dims: %v", err)
-	}
-	return buf.Bytes(), nil
-}
-
-func keyFromBytes(keyBytes []byte) (map[string]interface{}, error) {
-	key := make(map[string]interface{}, 0)
-	err := msgpack.Unmarshal(keyBytes, &key)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to decode dims: %v", err)
-	}
-	return key, nil
 }

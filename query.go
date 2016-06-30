@@ -48,8 +48,8 @@ func (db *DB) RunQuery(q *Query) error {
 		to = t.clock.Now()
 	}
 	to = roundTime(to, t.resolution)
-	numBuckets := int(to.Sub(from)/t.resolution) + 1
-	log.Tracef("Query will return %d buckets", numBuckets)
+	numPeriods := int(to.Sub(from)/t.resolution) + 1
+	log.Tracef("Query will return %d periods", numPeriods)
 
 	ro := gorocksdb.NewDefaultReadOptions()
 	// Go ahead and fill the cache
@@ -79,12 +79,12 @@ func (db *DB) RunQuery(q *Query) error {
 
 			v := it.Value()
 			seq := sequence(v.Data())
-			vals := make([]float64, numBuckets)
+			vals := make([]float64, numPeriods)
 			if seq.isValid() {
 				read++
 				seqStart := seq.start()
 				if log.IsTraceEnabled() {
-					log.Tracef("Sequence starts at %v and has %d buckets", seqStart.In(time.UTC), seq.numBuckets())
+					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), seq.numPeriods())
 				}
 				includeKey := false
 				if !seqStart.Before(from) {
@@ -93,8 +93,8 @@ func (db *DB) RunQuery(q *Query) error {
 					}
 					startOffset := int(seqStart.Sub(to) / t.resolution)
 					log.Tracef("Start offset %d", startOffset)
-					copyBuckets := seq.numBuckets()
-					for i := 0; i+startOffset < copyBuckets && i < numBuckets; i++ {
+					copyPeriods := seq.numPeriods()
+					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
 						includeKey = true
 						val := seq.valueAt(i + startOffset)
 						log.Tracef("Grabbing value %f", val)

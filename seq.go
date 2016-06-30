@@ -20,40 +20,6 @@ var (
 // the sequence.
 type sequence []byte
 
-func (b *bucket) toSequence(resolution time.Duration) sequence {
-	// Pre-allocate a largish amount of space to avoid having to grow the buffer
-	// too often.
-	buf := make([]byte, 1024)
-
-	// Write the starting time of the sequence
-	binary.BigEndian.PutUint64(buf, uint64(b.start.UnixNano()))
-
-	// Write all values
-	i := 1
-	for {
-		offset := i * size64bits
-		i++
-		if offset >= len(buf) {
-			newBuf := make([]byte, offset+1024)
-			copy(newBuf, buf)
-			buf = newBuf
-		}
-		binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(b.val.Val()))
-		if b.prev == nil {
-			break
-		}
-
-		// Fill gaps
-		delta := int(b.start.Sub(b.prev.start)/resolution) - 1
-		i += delta
-
-		// Continue with previous bucket
-		b = b.prev
-	}
-
-	return sequence(buf[:i*size64bits])
-}
-
 func (a sequence) isValid() bool {
 	return a != nil && len(a) >= size64bits*2
 }
@@ -66,7 +32,7 @@ func (a sequence) append(b sequence, resolution time.Duration, truncateBefore ti
 		a, b = b, a
 		as, bs = bs, as
 	}
-	aPeriods := a.numBuckets()
+	aPeriods := a.numPeriods()
 	maxPeriods := int(as.Sub(truncateBefore)/resolution) + 1
 	if maxPeriods <= 0 {
 		// Entire sequence falls outside of truncation range
@@ -101,7 +67,7 @@ func (seq sequence) start() time.Time {
 	return time.Unix(s, ns)
 }
 
-func (seq sequence) numBuckets() int {
+func (seq sequence) numPeriods() int {
 	return len(seq)/size64bits - 1
 }
 
@@ -110,12 +76,12 @@ func (seq sequence) valueAtTime(t time.Time, resolution time.Duration) float64 {
 	if t.After(start) {
 		return 0
 	}
-	bucket := int(start.Sub(t) / resolution)
-	return seq.valueAt(bucket)
+	period := int(start.Sub(t) / resolution)
+	return seq.valueAt(period)
 }
 
-func (seq sequence) valueAt(bucket int) float64 {
-	offset := (bucket + 1) * size64bits
+func (seq sequence) valueAt(period int) float64 {
+	offset := (period + 1) * size64bits
 	if offset >= len(seq) {
 		return 0
 	}
