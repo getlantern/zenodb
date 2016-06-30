@@ -161,10 +161,8 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 		}
 		rawValues := entry.rawValues[field]
 		if rawValues == nil {
-			log.Debugf("New: %v", key)
 			rawValues = [][]float64{vals}
 		} else {
-			log.Debugf("Existing: %v", key)
 			rawValues = append(rawValues, vals)
 		}
 		entry.rawValues[field] = rawValues
