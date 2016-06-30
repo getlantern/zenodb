@@ -2,30 +2,61 @@ package expr
 
 import (
 	"github.com/getlantern/golog"
-	"github.com/oxtoacart/govaluate"
-	"github.com/oxtoacart/tdb/values"
 )
 
 var (
 	log = golog.LoggerFor("expr")
 )
 
-// Map is an implementation of the Parameters interface using a map.
-type Map map[string]values.Value
-
-// Get implements the method from Parameters
-func (p Map) Get(name string) (interface{}, error) {
-	val := p[name]
-	if val == nil {
-		return float64(0), nil
-	}
-	return val.Val(), nil
+type Value interface {
+	Get() float64
 }
 
-type Expr func(fields govaluate.Parameters) values.Value
+type Float float64
 
-func Constant(val values.Value) Expr {
-	return func(fields govaluate.Parameters) values.Value {
-		return val
+func (f Float) Get() float64 {
+	return float64(f)
+}
+
+type Params interface {
+	Get(name string) Value
+}
+
+// Map is an implementation of the Params interface using a map.
+type Map map[string]Value
+
+// Get implements the method from the Params interface
+func (p Map) Get(name string) Value {
+	val := p[name]
+	if val == nil {
+		val = Float(0)
+	}
+	return val
+}
+
+type Accumulator interface {
+	Update(params Params)
+
+	Get() float64
+}
+
+type Expr interface {
+	Accumulator() Accumulator
+
+	DependsOn() []string
+}
+
+func exprFor(expr interface{}) Expr {
+	switch e := expr.(type) {
+	case Expr:
+		return e
+	case string:
+		return Field(e)
+	case int:
+		return Constant(float64(e))
+	case float64:
+		return Constant(e)
+	default:
+		panic("Please specify an Expr, string, float64 or integer")
 	}
 }

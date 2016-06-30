@@ -71,11 +71,6 @@ func (db *DB) Insert(table string, point *Point) error {
 func (t *table) insert(point *Point) error {
 	t.clock.Advance(point.Ts)
 	vals := floatsToValues(point.Vals)
-	// TODO: deal with situation where name of inserted field conflicts with
-	// derived field
-	for _, field := range t.derivedFields {
-		vals[field.Name] = field.Expr(expr.Map(vals))
-	}
 
 	for field, val := range vals {
 		key, err := point.keyFor(field)

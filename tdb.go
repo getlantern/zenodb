@@ -39,7 +39,6 @@ type table struct {
 	resolution      time.Duration
 	hotPeriod       time.Duration
 	retentionPeriod time.Duration
-	derivedFields   []DerivedField
 	partitions      []*partition
 	toArchive       chan *archiveRequest
 	stats           TableStats
@@ -61,7 +60,7 @@ func NewDB(opts *DBOpts) *DB {
 	return &DB{opts: opts, tables: make(map[string]*table)}
 }
 
-func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, derivedFields ...DerivedField) error {
+func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration) error {
 	name = strings.ToLower(name)
 	t := &table{
 		name:            name,
@@ -70,7 +69,6 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		resolution:      resolution,
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
-		derivedFields:   derivedFields,
 		toArchive:       make(chan *archiveRequest, db.opts.BatchSize*100),
 	}
 	numCPU := runtime.NumCPU()
