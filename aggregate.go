@@ -193,10 +193,15 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 				entry.inIdx = i
 				entry.outIdx = i / entry.scalingFactor
 				vals[entry.outIdx].Update(entry)
-				// Also update summaries
-				for _, summary := range aq.sortedSummaries {
-					entry.Summaries[summary.Name].Update(entry)
-				}
+			}
+		}
+
+		// Also update summaries
+		for _, summary := range aq.sortedSummaries {
+			for i := 0; i < entry.inPeriods; i++ {
+				entry.inIdx = i
+				entry.outIdx = i / entry.scalingFactor
+				entry.Summaries[summary.Name].Update(entry)
 			}
 		}
 

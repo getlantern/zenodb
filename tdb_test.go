@@ -167,6 +167,10 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 		},
 		Summaries: map[string]Expr{
 			"summary_avg_ii": Div("sum_ii", "count_ii"),
+			// TODO: the below should also work with Sum("sum_ii"), but we have a
+			// problem right now with doing aggregations on aggregations. Maybe we
+			// just need a validation that prevents us from doing this or something.
+			"summary_sum_ii": Sum("ii"),
 		},
 		OrderBy: map[string]Order{
 			"summary_avg_ii": ORDER_DESC,
@@ -188,6 +192,7 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 					t.Log(spew.Sprint(result[0].Fields["avg_ii"][0]))
 				}
 				assert.EqualValues(t, 0, result[0].Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+				assert.EqualValues(t, 244, result[0].Summaries["summary_sum_ii"].Get(), "Wrong summary value")
 				if !assert.EqualValues(t, avg, result[0].Summaries["summary_avg_ii"].Get(), "Wrong summary value") {
 					t.Log(spew.Sprint(result[0].Summaries["summary_avg_ii"]))
 				}
