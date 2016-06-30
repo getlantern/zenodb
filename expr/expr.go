@@ -1,6 +1,9 @@
 package expr
 
 import (
+	"fmt"
+	"reflect"
+
 	"github.com/getlantern/golog"
 )
 
@@ -54,9 +57,19 @@ func exprFor(expr interface{}) Expr {
 		return Field(e)
 	case int:
 		return Constant(float64(e))
+	case int64:
+		return Constant(float64(e))
+	case int32:
+		return Constant(float64(e))
+	case int16:
+		return Constant(float64(e))
+	case byte:
+		return Constant(float64(e))
+	case float32:
+		return Constant(float64(e))
 	case float64:
 		return Constant(e)
 	default:
-		panic("Please specify an Expr, string, float64 or integer")
+		panic(fmt.Sprintf("Got a %v, please specify an Expr, string, float64 or integer", reflect.TypeOf(expr)))
 	}
 }
