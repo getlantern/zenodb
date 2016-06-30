@@ -163,10 +163,6 @@ func (insert *insert) Get(name string) expr.Value {
 	if ok {
 		return val
 	}
-	fieldIdx, ok := insert.t.fieldIndexes[name]
-	if ok {
-		return insert.bucket.vals[fieldIdx]
-	}
 	return expr.Zero
 }
 

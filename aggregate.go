@@ -33,7 +33,6 @@ type AggregateEntry struct {
 	numSamples    int
 	inIdx         int
 	valuesIdx     int
-	outIdx        int
 	rawValues     map[string][][]float64
 }
 
@@ -41,18 +40,12 @@ type AggregateEntry struct {
 func (entry *AggregateEntry) Get(name string) expr.Value {
 	rawVals := entry.rawValues[name]
 	if rawVals != nil {
-		if entry.valuesIdx >= len(rawVals) {
-			return expr.Zero
+		if entry.valuesIdx < len(rawVals) {
+			raw := rawVals[entry.valuesIdx]
+			if entry.inIdx < len(raw) {
+				return expr.Float(raw[entry.inIdx])
+			}
 		}
-		raw := rawVals[entry.valuesIdx]
-		if entry.inIdx >= len(raw) {
-			return expr.Zero
-		}
-		return expr.Float(raw[entry.inIdx])
-	}
-	vals := entry.Fields[name]
-	if vals != nil {
-		return vals[entry.outIdx]
 	}
 	return expr.Zero
 }
@@ -140,11 +133,8 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 			entry = &AggregateEntry{
 				Dims:      key,
 				Fields:    make(map[string][]expr.Accumulator, len(aq.Fields)),
+				Totals:    make(map[string]expr.Accumulator, len(aq.Fields)),
 				rawValues: make(map[string][][]float64),
-			}
-			entry.Totals = make(map[string]expr.Accumulator, len(aq.Fields))
-			for _, field := range aq.sortedFields {
-				entry.Totals[field.Name] = field.Accumulator()
 			}
 			entries[ks] = entry
 		}
@@ -189,16 +179,17 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 				vals = append(vals, field.Accumulator())
 			}
 			entry.Fields[field.Name] = vals
+			total := field.Accumulator()
+			entry.Totals[field.Name] = total
 
 			// Calculate per-period values
 			for i := 0; i < entry.inPeriods; i++ {
 				entry.inIdx = i
-				entry.outIdx = i / entry.scalingFactor
+				outIdx := i / entry.scalingFactor
 				for j := 0; j < entry.numSamples; j++ {
 					entry.valuesIdx = j
-					vals[entry.outIdx].Update(entry)
-					// Also update total
-					entry.Totals[field.Name].Update(entry)
+					vals[outIdx].Update(entry)
+					total.Update(entry)
 				}
 			}
 		}
