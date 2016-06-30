@@ -31,20 +31,23 @@ type AggregateEntry struct {
 	Summaries     map[string]expr.Accumulator
 	NumPeriods    int
 	scalingFactor int
-	rawValues     map[string][]float64
 	inPeriods     int
+	numSamples    int
 	inIdx         int
+	valuesIdx     int
 	outIdx        int
+	rawValues     map[string][][]float64
 }
 
 // Get implements the method from interface govaluate.Parameters
 func (entry *AggregateEntry) Get(name string) expr.Value {
 	rawVals := entry.rawValues[name]
 	if rawVals != nil {
-		if entry.inIdx >= len(rawVals) {
+		raw := rawVals[entry.valuesIdx]
+		if entry.inIdx >= len(raw) {
 			return expr.Zero
 		}
-		return expr.Float(rawVals[entry.inIdx])
+		return expr.Float(raw[entry.inIdx])
 	}
 	vals := entry.Fields[name]
 	if vals != nil {
@@ -134,7 +137,7 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 			entry = &AggregateEntry{
 				Dims:      key,
 				Fields:    make(map[string][]expr.Accumulator, len(aq.Fields)+1),
-				rawValues: make(map[string][]float64, len(q.Fields)),
+				rawValues: make(map[string][][]float64),
 			}
 			if aq.Summaries != nil {
 				entry.Summaries = make(map[string]expr.Accumulator, len(aq.Summaries))
@@ -156,7 +159,18 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 			entry.inPeriods = inPeriods
 			entry.scalingFactor = scalingFactor
 		}
-		entry.rawValues[field] = vals
+		rawValues := entry.rawValues[field]
+		if rawValues == nil {
+			log.Debugf("New: %v", key)
+			rawValues = [][]float64{vals}
+		} else {
+			log.Debugf("Existing: %v", key)
+			rawValues = append(rawValues, vals)
+		}
+		entry.rawValues[field] = rawValues
+		if len(rawValues) > entry.numSamples {
+			entry.numSamples = len(rawValues)
+		}
 	}
 
 	return entries, nil
@@ -169,17 +183,6 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 	}
 
 	for _, entry := range entries {
-		// for i := 0; i < len(vals); i++ {
-		// 	entry.idx = i
-		// 	aggregatedVals[i/scalingFactor].Update(entry)
-		// }
-		//
-		// aggregatedVals = make([]expr.Accumulator, 0, outPeriods)
-		// for _, f := range aq.Fields {
-		// 	aggregatedVals = append(aggregatedVals, f.Accumulator())
-		// }
-		//
-		//
 		for _, field := range aq.sortedFields {
 			// Initialize accumulators
 			vals := make([]expr.Accumulator, 0, entry.NumPeriods)
@@ -192,7 +195,10 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 			for i := 0; i < entry.inPeriods; i++ {
 				entry.inIdx = i
 				entry.outIdx = i / entry.scalingFactor
-				vals[entry.outIdx].Update(entry)
+				for j := 0; j < entry.numSamples; j++ {
+					entry.valuesIdx = j
+					vals[entry.outIdx].Update(entry)
+				}
 			}
 		}
 
@@ -201,7 +207,10 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 			for i := 0; i < entry.inPeriods; i++ {
 				entry.inIdx = i
 				entry.outIdx = i / entry.scalingFactor
-				entry.Summaries[summary.Name].Update(entry)
+				for j := 0; j < entry.numSamples; j++ {
+					entry.valuesIdx = j
+					entry.Summaries[summary.Name].Update(entry)
+				}
 			}
 		}
 

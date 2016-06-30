@@ -158,7 +158,7 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 	// Test aggregate query
 	aq := &AggregateQuery{
 		Resolution: resolution * time.Duration(scalingFactor),
-		Dims:       []string{"u"},
+		Dims:       []string{"r"},
 		Fields: map[string]Expr{
 			"sum_ii":   Sum("ii"),
 			"count_ii": Count("ii"),
@@ -184,15 +184,15 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 
 	result, err := aq.Run(db, q)
 	if assert.NoError(t, err, "Unable to run query") {
-		if assert.EqualValues(t, 1, result[0].Dims["u"], "Wrong dim, result may be sorted incorrectly") {
+		if assert.EqualValues(t, "reporter1", result[0].Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 			if assert.Len(t, result[0].Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
-				avg := float64(244) / float64(scalingFactor)
-				assert.EqualValues(t, 244, result[0].Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+				avg := float64(286) / 2 / float64(scalingFactor)
+				assert.EqualValues(t, 286, result[0].Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
 				if !assert.EqualValues(t, avg, result[0].Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
 					t.Log(spew.Sprint(result[0].Fields["avg_ii"][0]))
 				}
 				assert.EqualValues(t, 0, result[0].Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-				assert.EqualValues(t, 244, result[0].Summaries["summary_sum_ii"].Get(), "Wrong summary value")
+				assert.EqualValues(t, 286, result[0].Summaries["summary_sum_ii"].Get(), "Wrong summary value")
 				if !assert.EqualValues(t, avg, result[0].Summaries["summary_avg_ii"].Get(), "Wrong summary value") {
 					t.Log(spew.Sprint(result[0].Summaries["summary_avg_ii"]))
 				}
