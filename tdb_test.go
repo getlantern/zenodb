@@ -173,7 +173,7 @@ func TestRoundTrip(t *testing.T) {
 func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.Duration) {
 	scalingFactor := 5
 
-	aq := Aggregate("Test_A", resolution*time.Duration(scalingFactor)).
+	aq := db.Aggregate("Test_A", resolution*time.Duration(scalingFactor)).
 		Select("sum_ii", Sum("ii")).
 		Select("count_ii", Count("ii")).
 		Select("avg_ii", Avg("ii")).
@@ -183,7 +183,7 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 		From(epoch.Add(-1 * resolution)).
 		To(epoch.Add(resolution * 2))
 
-	result, err := aq.Run(db)
+	result, err := aq.Run()
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.EqualValues(t, "reporter1", result[0].Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 			if assert.Len(t, result[0].Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {

@@ -36,6 +36,7 @@ func (entry *AggregateEntry) Get(name string) expr.Value {
 }
 
 type AggregateQuery struct {
+	db           *DB
 	table        string
 	from         time.Time
 	to           time.Time
@@ -46,8 +47,8 @@ type AggregateQuery struct {
 	orderBy      map[string]bool
 }
 
-func Aggregate(table string, resolution time.Duration) *AggregateQuery {
-	return &AggregateQuery{table: table, resolution: resolution}
+func (db *DB) Aggregate(table string, resolution time.Duration) *AggregateQuery {
+	return &AggregateQuery{db: db, table: table, resolution: resolution}
 }
 
 func (aq *AggregateQuery) Select(name string, e expr.Expr) *AggregateQuery {
@@ -85,25 +86,25 @@ func (aq *AggregateQuery) To(to time.Time) *AggregateQuery {
 	return aq
 }
 
-func (aq *AggregateQuery) Run(db *DB) ([]*AggregateEntry, error) {
+func (aq *AggregateQuery) Run() ([]*AggregateEntry, error) {
 	q := &Query{
 		Table: aq.table,
 		From:  aq.from,
 		To:    aq.to,
 	}
-	entries, err := aq.prepare(db, q)
+	entries, err := aq.prepare(q)
 	if err != nil {
 		return nil, err
 	}
-	err = db.RunQuery(q)
+	err = aq.db.RunQuery(q)
 	if err != nil {
 		return nil, err
 	}
 	return aq.buildResult(entries)
 }
 
-func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry, error) {
-	t := db.getTable(q.Table)
+func (aq *AggregateQuery) prepare(q *Query) (map[string]*AggregateEntry, error) {
+	t := aq.db.getTable(q.Table)
 	if t == nil {
 		return nil, fmt.Errorf("Table %v not found", q.Table)
 	}
