@@ -43,6 +43,9 @@ type AggregateEntry struct {
 func (entry *AggregateEntry) Get(name string) expr.Value {
 	rawVals := entry.rawValues[name]
 	if rawVals != nil {
+		if entry.valuesIdx >= len(rawVals) {
+			return expr.Zero
+		}
 		raw := rawVals[entry.valuesIdx]
 		if entry.inIdx >= len(raw) {
 			return expr.Zero
