@@ -44,17 +44,8 @@ func TestRoundTrip(t *testing.T) {
 		return
 	}
 
-	err = db.CreateTable("view_a", resolution, hotPeriod, retentionPeriod, map[string]Expr{
-		"i":   Sum("i"),
-		"ii":  Sum("ii"),
-		"iii": Avg(Mult("i", "ii")),
-	})
-	if !assert.NoError(t, err, "Unable to create view table") {
-		return
-	}
-
 	// Create a view grouped by dim "u"
-	err = db.CreateView("test_a", "view_a", "u")
+	err = db.CreateView("test_a", "view_a", resolution, hotPeriod, retentionPeriod, "u")
 	if !assert.NoError(t, err, "Unable to create view") {
 		return
 	}

@@ -132,17 +132,21 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	return nil
 }
 
-func (db *DB) CreateView(from string, to string, dims ...string) error {
+func (db *DB) CreateView(from string, to string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, dims ...string) error {
 	f := db.getTable(from)
-	t := db.getTable(to)
 	if f == nil {
 		return fmt.Errorf("Unable to create view, from table not found: %v", from)
 	}
-	if t == nil {
-		return fmt.Errorf("Unable to create view, to table not found: %v", to)
+	fields := make(map[string]expr.Expr, len(f.fields))
+	for _, field := range f.fields {
+		fields[field.Name] = field.Expr
+	}
+	err := db.CreateTable(to, resolution, hotPeriod, retentionPeriod, fields)
+	if err != nil {
+		return fmt.Errorf("Unable to create view: %v", err)
 	}
 	view := &view{
-		To:   t.name,
+		To:   strings.ToLower(to),
 		Dims: make(map[string]bool, len(dims)),
 	}
 	for _, dim := range dims {
