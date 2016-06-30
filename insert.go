@@ -42,7 +42,37 @@ func (db *DB) Insert(table string, point *Point) error {
 		return fmt.Errorf("Unknown table %v", table)
 	}
 
-	return t.insert(point)
+	err := t.insert(point)
+	if err != nil {
+		return err
+	}
+
+	t.viewsMutex.RLock()
+	var views []*view
+	for _, view := range t.views {
+		views = append(views, view)
+	}
+	t.viewsMutex.RUnlock()
+
+	if len(views) > 0 {
+		for _, view := range views {
+			newDims := make(map[string]interface{}, len(view.Dims))
+			for dim := range view.Dims {
+				newDims[dim] = point.Dims[dim]
+			}
+			newPoint := &Point{
+				Ts:   point.Ts,
+				Dims: newDims,
+				Vals: point.Vals,
+			}
+			err := t.db.Insert(view.To, newPoint)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 func (t *table) insert(point *Point) error {
@@ -206,38 +236,6 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 		batch = gorocksdb.NewWriteBatch()
 	}
 
-	t.viewsMutex.RLock()
-	var views []*view
-	for _, view := range t.views {
-		views = append(views, view)
-	}
-	t.viewsMutex.RUnlock()
-
-	if len(views) > 0 {
-		for i := 0; int64(i) <= numPeriods; i++ {
-			for _, view := range views {
-				dims, err := keyFromBytes([]byte(req.key))
-				if err != nil {
-					t.log.Errorf("Unable to get dims for key, aborting view processing: %v", err)
-				}
-				for dim := range dims {
-					// Remove unused dims
-					if !view.Dims[dim] {
-						delete(dims, dim)
-					}
-				}
-				p := &Point{
-					Ts:   start.Add(-1 * time.Duration(i) * t.resolution),
-					Dims: dims,
-					Vals: make(map[string]float64),
-				}
-				for j, seq := range seqs {
-					p.Vals[t.fields[j].Name] = seq.valueAt(i)
-				}
-				t.db.Insert(view.To, p)
-			}
-		}
-	}
 	return batch
 }
 

@@ -44,7 +44,7 @@ func TestRoundTrip(t *testing.T) {
 		return
 	}
 
-	err = db.CreateTable("view_a", resolution*100, hotPeriod*100, retentionPeriod*100, map[string]Expr{
+	err = db.CreateTable("view_a", resolution, hotPeriod, retentionPeriod, map[string]Expr{
 		"i":   Sum("i"),
 		"ii":  Sum("ii"),
 		"iii": Avg("iii"),
@@ -64,6 +64,7 @@ func TestRoundTrip(t *testing.T) {
 		time.Sleep(500 * time.Millisecond)
 		now = now.Add(d)
 		db.getTable("test_a").clock.Advance(now)
+		db.getTable("view_a").clock.Advance(now)
 		time.Sleep(500 * time.Millisecond)
 		for _, table := range []string{"test_a", "view_a"} {
 			stats := db.TableStats(table)
@@ -125,7 +126,7 @@ func TestRoundTrip(t *testing.T) {
 		},
 	})
 
-	advance(hotPeriod * 1000)
+	advance(hotPeriod * 10)
 
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[uint64][]float64, error) {
 		result := make(map[uint64][]float64, 0)
