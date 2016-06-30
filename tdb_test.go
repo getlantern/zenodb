@@ -30,7 +30,7 @@ func TestRoundTrip(t *testing.T) {
 
 	resolution := time.Millisecond
 	hotPeriod := 2 * resolution
-	retentionPeriod := 10000 * resolution
+	retentionPeriod := 100000 * resolution
 	db := NewDB(&DBOpts{
 		Dir:       tmpDir,
 		BatchSize: 1,
@@ -44,14 +44,31 @@ func TestRoundTrip(t *testing.T) {
 		return
 	}
 
+	err = db.CreateTable("view_a", resolution*100, hotPeriod*100, retentionPeriod*100, map[string]Expr{
+		"i":   Sum("i"),
+		"ii":  Sum("ii"),
+		"iii": Avg("iii"),
+	})
+	if !assert.NoError(t, err, "Unable to create view table") {
+		return
+	}
+
+	// Create a view grouped by dim "u"
+	err = db.CreateView("test_a", "view_a", "u")
+	if !assert.NoError(t, err, "Unable to create view") {
+		return
+	}
+
 	now := epoch
 	advance := func(d time.Duration) {
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(500 * time.Millisecond)
 		now = now.Add(d)
 		db.getTable("test_a").clock.Advance(now)
-		time.Sleep(250 * time.Millisecond)
-		stats := db.TableStats("test_a")
-		log.Debugf("At %v\tInserted Points: %d\tDropped Points: %d\tHot Keys: %d\tArchived Buckets: %d", now, stats.InsertedPoints, stats.DroppedPoints, stats.HotKeys, stats.ArchivedBuckets)
+		time.Sleep(500 * time.Millisecond)
+		for _, table := range []string{"test_a", "view_a"} {
+			stats := db.TableStats(table)
+			log.Debugf("%v (%v)\tInserted Points: %d\tDropped Points: %d\tHot Keys: %d\tArchived Buckets: %d", table, db.Now(table).In(time.UTC), stats.InsertedPoints, stats.DroppedPoints, stats.HotKeys, stats.ArchivedBuckets)
+		}
 	}
 
 	db.Insert("test_a", &Point{
@@ -108,12 +125,12 @@ func TestRoundTrip(t *testing.T) {
 		},
 	})
 
-	advance(hotPeriod * 10)
+	advance(hotPeriod * 1000)
 
-	query := func(from time.Time, to time.Time, dim string, field string) (map[uint64][]float64, error) {
+	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[uint64][]float64, error) {
 		result := make(map[uint64][]float64, 0)
 		err = db.RunQuery(&Query{
-			Table:  "Test_A",
+			Table:  table,
 			Fields: []string{field},
 			From:   from,
 			To:     to,
@@ -127,21 +144,29 @@ func TestRoundTrip(t *testing.T) {
 		return result, err
 	}
 
-	result, err := query(epoch, epoch, "u", "i")
+	result, err := query("Test_A", epoch, epoch, "u", "i")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{11}, result[1])
 		}
 	}
 
-	result, err = query(epoch, epoch, "u", "iii")
+	result, err = query("Test_A", epoch, epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{101}, result[1])
 		}
 	}
 
-	result, err = query(epoch.Add(-1*resolution), epoch.Add(resolution*2), "u", "ii")
+	result, err = query("Test_A", epoch.Add(-1*resolution), epoch.Add(resolution*2), "u", "ii")
+	if assert.NoError(t, err, "Unable to run query") {
+		if assert.Len(t, result, 2) {
+			assert.Equal(t, []float64{222, 22, 0, 0}, result[1])
+			assert.Equal(t, []float64{42, 0, 0, 0}, result[2])
+		}
+	}
+
+	result, err = query("view_a", epoch.Add(-1*resolution), epoch.Add(resolution*20), "u", "ii")
 	log.Debug(result)
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {

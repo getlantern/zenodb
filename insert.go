@@ -70,7 +70,7 @@ func (t *table) insert(point *Point) error {
 
 func (p *partition) processInserts() {
 	archivePeriod := p.t.archivePeriod()
-	log.Debugf("Archiving every %v, delayed by %v", archivePeriod, p.archiveDelay)
+	p.t.log.Debugf("Archiving every %v, delayed by %v", archivePeriod, p.archiveDelay)
 	archiveTicker := p.t.clock.NewTicker(archivePeriod)
 	for {
 		select {
@@ -87,7 +87,13 @@ func (p *partition) insert(insert *insert) {
 	now := p.t.clock.Now()
 	start := roundTime(insert.ts, p.t.resolution)
 	if now.Sub(start) > p.t.hotPeriod {
-		log.Trace("Discarding insert outside of hot period")
+		p.t.statsMutex.Lock()
+		p.t.stats.InsertedPoints--
+		p.t.stats.DroppedPoints++
+		p.t.statsMutex.Unlock()
+		if p.t.log.IsTraceEnabled() {
+			p.t.log.Tracef("Discarding insert at %v outside of hot period starting at %v", start.In(time.UTC), now.Add(-1*p.t.hotPeriod))
+		}
 		return
 	}
 	b := p.tail[key]
@@ -136,10 +142,10 @@ func (insert *insert) Get(name string) expr.Value {
 
 func (p *partition) requestArchiving() {
 	now := p.t.clock.Now()
-	log.Debugf("Requested archiving at %v", now)
+	p.t.log.Debugf("Requested archiving at %v", now)
 	for key, b := range p.tail {
 		if now.Sub(b.start) > p.t.hotPeriod {
-			log.Tracef("Archiving full. %v / %v %v", b.start, now, b.prev != nil)
+			p.t.log.Tracef("Archiving full. %v / %v %v", b.start, now, b.prev != nil)
 			delete(p.tail, key)
 			p.t.statsMutex.Lock()
 			p.t.stats.HotKeys--
@@ -153,9 +159,9 @@ func (p *partition) requestArchiving() {
 			if b == nil {
 				break
 			}
-			log.Tracef("Checking %v", b.start)
+			p.t.log.Tracef("Checking %v", b.start)
 			if now.Sub(b.start) > p.t.hotPeriod {
-				log.Trace("Archiving partial")
+				p.t.log.Trace("Archiving partial")
 				p.t.toArchive <- &archiveRequest{key, b}
 				next.prev = nil
 				break
@@ -176,8 +182,9 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 	key := []byte(req.key)
 	seqs := req.b.toSequences(t.resolution)
 	numPeriods := int64(seqs[0].numPeriods())
-	if log.IsTraceEnabled() {
-		log.Tracef("Archiving %d buckets starting at %v", numPeriods, seqs[0].start().In(time.UTC))
+	start := seqs[0].start()
+	if t.log.IsTraceEnabled() {
+		t.log.Tracef("Archiving %d buckets starting at %v", numPeriods, start.In(time.UTC))
 	}
 	t.statsMutex.Lock()
 	t.stats.ArchivedBuckets += numPeriods
@@ -185,7 +192,7 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 	for i, field := range t.fields {
 		k, err := keyWithField(key, field.Name)
 		if err != nil {
-			log.Error(err)
+			t.log.Error(err)
 			continue
 		}
 		batch.Merge(k, seqs[i])
@@ -194,9 +201,42 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 	if count >= t.batchSize {
 		err := t.archiveByKey.Write(wo, batch)
 		if err != nil {
-			log.Errorf("Unable to write batch: %v", err)
+			t.log.Errorf("Unable to write batch: %v", err)
 		}
 		batch = gorocksdb.NewWriteBatch()
+	}
+
+	t.viewsMutex.RLock()
+	var views []*view
+	for _, view := range t.views {
+		views = append(views, view)
+	}
+	t.viewsMutex.RUnlock()
+
+	if len(views) > 0 {
+		for i := 0; int64(i) <= numPeriods; i++ {
+			for _, view := range views {
+				dims, err := keyFromBytes([]byte(req.key))
+				if err != nil {
+					t.log.Errorf("Unable to get dims for key, aborting view processing: %v", err)
+				}
+				for dim := range dims {
+					// Remove unused dims
+					if !view.Dims[dim] {
+						delete(dims, dim)
+					}
+				}
+				p := &Point{
+					Ts:   start.Add(-1 * time.Duration(i) * t.resolution),
+					Dims: dims,
+					Vals: make(map[string]float64),
+				}
+				for j, seq := range seqs {
+					p.Vals[t.fields[j].Name] = seq.valueAt(i)
+				}
+				t.db.Insert(view.To, p)
+			}
+		}
 	}
 	return batch
 }
@@ -210,7 +250,7 @@ func (t *table) retain() {
 }
 
 func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
-	log.Debug("Removing expired keys")
+	t.log.Debug("Removing expired keys")
 	start := time.Now()
 	batch := gorocksdb.NewWriteBatch()
 	var keysToFree []*gorocksdb.Slice
@@ -239,13 +279,13 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 	if batch.Count() > 0 {
 		err := t.archiveByKey.Write(wo, batch)
 		if err != nil {
-			log.Errorf("Unable to remove expired keys: %v", err)
+			t.log.Errorf("Unable to remove expired keys: %v", err)
 		} else {
 			delta := time.Now().Sub(start)
-			log.Debugf("Removed %v expired keys in %v", humanize.Comma(int64(batch.Count())), delta)
+			t.log.Debugf("Removed %v expired keys in %v", humanize.Comma(int64(batch.Count())), delta)
 		}
 	} else {
-		log.Debug("No expired keys to remove")
+		t.log.Debug("No expired keys to remove")
 	}
 }
 

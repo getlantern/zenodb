@@ -33,8 +33,12 @@ type field struct {
 
 type table struct {
 	name            string
+	db              *DB
+	log             golog.Logger
 	fields          sortedFields
 	fieldIndexes    map[string]int
+	views           []*view
+	viewsMutex      sync.RWMutex
 	batchSize       int64
 	clock           *vtime.Clock
 	archiveByKey    *gorocksdb.DB
@@ -58,6 +62,11 @@ type DB struct {
 	tablesMutex sync.RWMutex
 }
 
+type view struct {
+	To   string
+	Dims map[string]bool
+}
+
 func NewDB(opts *DBOpts) *DB {
 	return &DB{opts: opts, tables: make(map[string]*table)}
 }
@@ -72,8 +81,11 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 
 	t := &table{
 		name:            name,
+		db:              db,
+		log:             golog.LoggerFor("tdb." + name),
 		fields:          fieldsArray,
 		fieldIndexes:    fieldIndexes,
+		views:           make([]*view, 0),
 		batchSize:       db.opts.BatchSize,
 		clock:           vtime.NewClock(time.Time{}),
 		resolution:      resolution,
@@ -120,16 +132,26 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	return nil
 }
 
-func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error) {
-	opts := gorocksdb.NewDefaultOptions()
-	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
-	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(256 * 1024 * 1024))
-	filter := gorocksdb.NewBloomFilter(10)
-	bbtopts.SetFilterPolicy(filter)
-	opts.SetBlockBasedTableFactory(bbtopts)
-	opts.SetCreateIfMissing(true)
-	opts.SetMergeOperator(t)
-	return gorocksdb.OpenDb(opts, filepath.Join(dir, t.name+"_"+suffix))
+func (db *DB) CreateView(from string, to string, dims ...string) error {
+	f := db.getTable(from)
+	t := db.getTable(to)
+	if f == nil {
+		return fmt.Errorf("Unable to create view, from table not found: %v", from)
+	}
+	if t == nil {
+		return fmt.Errorf("Unable to create view, to table not found: %v", to)
+	}
+	view := &view{
+		To:   t.name,
+		Dims: make(map[string]bool, len(dims)),
+	}
+	for _, dim := range dims {
+		view.Dims[dim] = true
+	}
+	f.viewsMutex.Lock()
+	f.views = append(f.views, view)
+	f.viewsMutex.Unlock()
+	return nil
 }
 
 func (db *DB) TableStats(table string) TableStats {
@@ -155,6 +177,18 @@ func (db *DB) getTable(table string) *table {
 	t := db.tables[strings.ToLower(table)]
 	db.tablesMutex.RUnlock()
 	return t
+}
+
+func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error) {
+	opts := gorocksdb.NewDefaultOptions()
+	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
+	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(256 * 1024 * 1024))
+	filter := gorocksdb.NewBloomFilter(10)
+	bbtopts.SetFilterPolicy(filter)
+	opts.SetBlockBasedTableFactory(bbtopts)
+	opts.SetCreateIfMissing(true)
+	opts.SetMergeOperator(t)
+	return gorocksdb.OpenDb(opts, filepath.Join(dir, t.name+"_"+suffix))
 }
 
 func roundTime(ts time.Time, resolution time.Duration) time.Time {
