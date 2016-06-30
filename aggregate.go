@@ -16,19 +16,17 @@ const (
 type Order int
 
 type AggregateQuery struct {
-	Resolution      time.Duration
-	Dims            []string
-	Fields          map[string]expr.Expr
-	sortedFields    sortedFields
-	Summaries       map[string]expr.Expr
-	sortedSummaries sortedFields
-	OrderBy         map[string]Order
+	Resolution   time.Duration
+	Dims         []string
+	Fields       map[string]expr.Expr
+	sortedFields sortedFields
+	OrderBy      map[string]Order
 }
 
 type AggregateEntry struct {
 	Dims          map[string]interface{}
 	Fields        map[string][]expr.Accumulator
-	Summaries     map[string]expr.Accumulator
+	Totals        map[string]expr.Accumulator
 	NumPeriods    int
 	scalingFactor int
 	inPeriods     int
@@ -60,8 +58,6 @@ func (entry *AggregateEntry) Get(name string) expr.Value {
 }
 
 func (aq *AggregateQuery) Run(db *DB, q *Query) ([]*AggregateEntry, error) {
-	aq.sortedFields = sortFields(aq.Fields)
-	aq.sortedSummaries = sortFields(aq.Summaries)
 	entries, err := aq.prepare(db, q)
 	if err != nil {
 		return nil, err
@@ -79,13 +75,17 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 		return nil, fmt.Errorf("Table %v not found", q.Table)
 	}
 
-	dependencies := make(map[string]bool, len(aq.sortedFields)+len(aq.sortedSummaries))
-	for _, field := range aq.sortedFields {
-		for _, dependency := range field.DependsOn() {
-			dependencies[dependency] = true
+	if aq.OrderBy != nil {
+		for orderField := range aq.OrderBy {
+			if aq.Fields[orderField] == nil {
+				return nil, fmt.Errorf("OrderBy field %v is not included in Fields", orderField)
+			}
 		}
 	}
-	for _, field := range aq.sortedSummaries {
+
+	aq.sortedFields = sortFields(aq.Fields)
+	dependencies := make(map[string]bool, len(aq.sortedFields))
+	for _, field := range aq.sortedFields {
 		for _, dependency := range field.DependsOn() {
 			dependencies[dependency] = true
 		}
@@ -139,14 +139,12 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 		if entry == nil {
 			entry = &AggregateEntry{
 				Dims:      key,
-				Fields:    make(map[string][]expr.Accumulator, len(aq.Fields)+1),
+				Fields:    make(map[string][]expr.Accumulator, len(aq.Fields)),
 				rawValues: make(map[string][][]float64),
 			}
-			if aq.Summaries != nil {
-				entry.Summaries = make(map[string]expr.Accumulator, len(aq.Summaries))
-				for _, summary := range aq.sortedSummaries {
-					entry.Summaries[summary.Name] = summary.Accumulator()
-				}
+			entry.Totals = make(map[string]expr.Accumulator, len(aq.Fields))
+			for _, field := range aq.sortedFields {
+				entry.Totals[field.Name] = field.Accumulator()
 			}
 			entries[ks] = entry
 		}
@@ -199,18 +197,8 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 				for j := 0; j < entry.numSamples; j++ {
 					entry.valuesIdx = j
 					vals[entry.outIdx].Update(entry)
-				}
-			}
-		}
-
-		// Also update summaries
-		for _, summary := range aq.sortedSummaries {
-			for i := 0; i < entry.inPeriods; i++ {
-				entry.inIdx = i
-				entry.outIdx = i / entry.scalingFactor
-				for j := 0; j < entry.numSamples; j++ {
-					entry.valuesIdx = j
-					entry.Summaries[summary.Name].Update(entry)
+					// Also update total
+					entry.Totals[field.Name].Update(entry)
 				}
 			}
 		}
@@ -218,21 +206,10 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 		result = append(result, entry)
 	}
 
-	if len(aq.OrderBy) > 0 {
+	if aq.OrderBy != nil && len(aq.OrderBy) > 0 {
 		orderBy := make(map[string]bool, len(aq.OrderBy))
-		for orderSummary, order := range aq.OrderBy {
-			summaryFound := false
-			for _, summary := range aq.sortedSummaries {
-				if summary.Name == orderSummary {
-					summaryFound = true
-					break
-				}
-			}
-			if !summaryFound {
-				log.Errorf("Missing summary for %v from orderBy, ignoring", orderSummary)
-				continue
-			}
-			orderBy[orderSummary] = order == ORDER_ASC
+		for orderField, order := range aq.OrderBy {
+			orderBy[orderField] = order == ORDER_ASC
 		}
 
 		if len(orderBy) > 0 {
@@ -253,9 +230,9 @@ func (r *orderedAggregated) Swap(i, j int) { r.r[i], r.r[j] = r.r[j], r.r[i] }
 func (r *orderedAggregated) Less(i, j int) bool {
 	a := r.r[i]
 	b := r.r[j]
-	for summary, asc := range r.orderBy {
-		fa := a.Summaries[summary].Get()
-		fb := b.Summaries[summary].Get()
+	for field, asc := range r.orderBy {
+		fa := a.Totals[field].Get()
+		fb := b.Totals[field].Get()
 		if fa == fb {
 			continue
 		}
