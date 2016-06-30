@@ -152,7 +152,6 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 				outPeriods = (inPeriods / scalingFactor) + 1
 				inPeriods = outPeriods * scalingFactor
 			}
-			log.Debugf("%d -> %d -> %d at %d", len(vals), inPeriods, outPeriods, scalingFactor)
 			entry.NumPeriods = outPeriods
 			entry.inPeriods = inPeriods
 			entry.scalingFactor = scalingFactor
