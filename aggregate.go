@@ -8,21 +8,6 @@ import (
 	"github.com/oxtoacart/tdb/expr"
 )
 
-const (
-	ORDER_ASC  = 1
-	ORDER_DESC = 2
-)
-
-type Order int
-
-type AggregateQuery struct {
-	Resolution   time.Duration
-	Dims         []string
-	Fields       map[string]expr.Expr
-	sortedFields sortedFields
-	OrderBy      map[string]Order
-}
-
 type AggregateEntry struct {
 	Dims          map[string]interface{}
 	Fields        map[string][]expr.Accumulator
@@ -50,7 +35,62 @@ func (entry *AggregateEntry) Get(name string) expr.Value {
 	return expr.Zero
 }
 
-func (aq *AggregateQuery) Run(db *DB, q *Query) ([]*AggregateEntry, error) {
+type AggregateQuery struct {
+	table        string
+	from         time.Time
+	to           time.Time
+	resolution   time.Duration
+	fields       map[string]expr.Expr
+	sortedFields sortedFields
+	dims         []string
+	orderBy      map[string]bool
+}
+
+func Aggregate(table string, resolution time.Duration) *AggregateQuery {
+	return &AggregateQuery{table: table, resolution: resolution}
+}
+
+func (aq *AggregateQuery) Select(name string, e expr.Expr) *AggregateQuery {
+	if aq.fields == nil {
+		aq.fields = make(map[string]expr.Expr)
+	}
+	aq.fields[name] = e
+	return aq
+}
+
+func (aq *AggregateQuery) GroupBy(dim string) *AggregateQuery {
+	if aq.dims == nil {
+		aq.dims = []string{dim}
+	} else {
+		aq.dims = append(aq.dims, dim)
+	}
+	return aq
+}
+
+func (aq *AggregateQuery) OrderBy(name string, asc bool) *AggregateQuery {
+	if aq.orderBy == nil {
+		aq.orderBy = make(map[string]bool)
+	}
+	aq.orderBy[name] = asc
+	return aq
+}
+
+func (aq *AggregateQuery) From(from time.Time) *AggregateQuery {
+	aq.from = from
+	return aq
+}
+
+func (aq *AggregateQuery) To(to time.Time) *AggregateQuery {
+	aq.to = to
+	return aq
+}
+
+func (aq *AggregateQuery) Run(db *DB) ([]*AggregateEntry, error) {
+	q := &Query{
+		Table: aq.table,
+		From:  aq.from,
+		To:    aq.to,
+	}
 	entries, err := aq.prepare(db, q)
 	if err != nil {
 		return nil, err
@@ -68,15 +108,15 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 		return nil, fmt.Errorf("Table %v not found", q.Table)
 	}
 
-	if aq.OrderBy != nil {
-		for orderField := range aq.OrderBy {
-			if aq.Fields[orderField] == nil {
-				return nil, fmt.Errorf("OrderBy field %v is not included in Fields", orderField)
+	if aq.orderBy != nil {
+		for orderField := range aq.orderBy {
+			if aq.fields[orderField] == nil {
+				return nil, fmt.Errorf("OrderBy field %v is not included in selected fields", orderField)
 			}
 		}
 	}
 
-	aq.sortedFields = sortFields(aq.Fields)
+	aq.sortedFields = sortFields(aq.fields)
 	dependencies := make(map[string]bool, len(aq.sortedFields))
 	for _, field := range aq.sortedFields {
 		for _, dependency := range field.DependsOn() {
@@ -90,7 +130,7 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 	q.Fields = fields
 
 	nativeResolution := t.resolution
-	resolution := aq.Resolution
+	resolution := aq.resolution
 	if resolution == 0 {
 		// Default to native resolution
 		resolution = nativeResolution
@@ -106,8 +146,8 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 	inPeriods := 0
 	outPeriods := 0
 
-	includedDims := make(map[string]bool, len(aq.Dims))
-	for _, dim := range aq.Dims {
+	includedDims := make(map[string]bool, len(aq.dims))
+	for _, dim := range aq.dims {
 		includedDims[dim] = true
 	}
 	includeDim := func(dim string) bool {
@@ -132,8 +172,8 @@ func (aq *AggregateQuery) prepare(db *DB, q *Query) (map[string]*AggregateEntry,
 		if entry == nil {
 			entry = &AggregateEntry{
 				Dims:      key,
-				Fields:    make(map[string][]expr.Accumulator, len(aq.Fields)),
-				Totals:    make(map[string]expr.Accumulator, len(aq.Fields)),
+				Fields:    make(map[string][]expr.Accumulator, len(aq.fields)),
+				Totals:    make(map[string]expr.Accumulator, len(aq.fields)),
 				rawValues: make(map[string][][]float64),
 			}
 			entries[ks] = entry
@@ -197,15 +237,8 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 		result = append(result, entry)
 	}
 
-	if aq.OrderBy != nil && len(aq.OrderBy) > 0 {
-		orderBy := make(map[string]bool, len(aq.OrderBy))
-		for orderField, order := range aq.OrderBy {
-			orderBy[orderField] = order == ORDER_ASC
-		}
-
-		if len(orderBy) > 0 {
-			sort.Sort(&orderedAggregated{result, orderBy})
-		}
+	if aq.orderBy != nil && len(aq.orderBy) > 0 {
+		sort.Sort(&orderedAggregated{result, aq.orderBy})
 	}
 
 	return result, nil

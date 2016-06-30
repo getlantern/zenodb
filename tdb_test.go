@@ -172,27 +172,18 @@ func TestRoundTrip(t *testing.T) {
 
 func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.Duration) {
 	scalingFactor := 5
-	// Test aggregate query
-	aq := &AggregateQuery{
-		Resolution: resolution * time.Duration(scalingFactor),
-		Dims:       []string{"r"},
-		Fields: map[string]Expr{
-			"sum_ii":   Sum("ii"),
-			"count_ii": Count("ii"),
-			"avg_ii":   Avg("ii"),
-			"min_ii":   Min("ii"),
-		},
-		OrderBy: map[string]Order{
-			"avg_ii": ORDER_DESC,
-		},
-	}
-	q := &Query{
-		Table: "Test_A",
-		From:  epoch.Add(-1 * resolution),
-		To:    epoch.Add(resolution * 2),
-	}
 
-	result, err := aq.Run(db, q)
+	aq := Aggregate("Test_A", resolution*time.Duration(scalingFactor)).
+		Select("sum_ii", Sum("ii")).
+		Select("count_ii", Count("ii")).
+		Select("avg_ii", Avg("ii")).
+		Select("min_ii", Min("ii")).
+		GroupBy("r").
+		OrderBy("avg_ii", false).
+		From(epoch.Add(-1 * resolution)).
+		To(epoch.Add(resolution * 2))
+
+	result, err := aq.Run(db)
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.EqualValues(t, "reporter1", result[0].Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 			if assert.Len(t, result[0].Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
