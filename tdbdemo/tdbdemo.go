@@ -45,9 +45,10 @@ func main() {
 		Dir:       tmpDir,
 		BatchSize: 1000,
 	})
-	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod, tdb.DerivedField{
-		Name: "iii",
-		Expr: Avg(Calc("ii / i")),
+	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod, map[string]Expr{
+		"i":   Sum("i"),
+		"ii":  Sum("ii"),
+		"iii": Avg(Div("ii", "i")),
 	})
 	if err != nil {
 		log.Fatal(err)
