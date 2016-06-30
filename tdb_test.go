@@ -30,7 +30,7 @@ func TestRoundTrip(t *testing.T) {
 
 	resolution := time.Millisecond
 	hotPeriod := 2 * resolution
-	retentionPeriod := 100000 * resolution
+	retentionPeriod := 100 * resolution
 	db := NewDB(&DBOpts{
 		Dir:       tmpDir,
 		BatchSize: 1,
@@ -47,7 +47,7 @@ func TestRoundTrip(t *testing.T) {
 	err = db.CreateTable("view_a", resolution, hotPeriod, retentionPeriod, map[string]Expr{
 		"i":   Sum("i"),
 		"ii":  Sum("ii"),
-		"iii": Avg("iii"),
+		"iii": Avg(Mult("i", "ii")),
 	})
 	if !assert.NoError(t, err, "Unable to create view table") {
 		return
@@ -61,11 +61,11 @@ func TestRoundTrip(t *testing.T) {
 
 	now := epoch
 	advance := func(d time.Duration) {
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		now = now.Add(d)
 		db.getTable("test_a").clock.Advance(now)
 		db.getTable("view_a").clock.Advance(now)
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(250 * time.Millisecond)
 		for _, table := range []string{"test_a", "view_a"} {
 			stats := db.TableStats(table)
 			log.Debugf("%v (%v)\tInserted Points: %d\tDropped Points: %d\tHot Keys: %d\tArchived Buckets: %d", table, db.Now(table).In(time.UTC), stats.InsertedPoints, stats.DroppedPoints, stats.HotKeys, stats.ArchivedBuckets)
@@ -167,7 +167,7 @@ func TestRoundTrip(t *testing.T) {
 		}
 	}
 
-	result, err = query("view_a", epoch.Add(-1*resolution), epoch.Add(resolution*20), "u", "ii")
+	result, err = query("Test_A", epoch.Add(-1*resolution), epoch.Add(resolution*2), "u", "ii")
 	log.Debug(result)
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
