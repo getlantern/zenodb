@@ -17,11 +17,20 @@ type Entry struct {
 	numSamples    int
 	inIdx         int
 	valuesIdx     int
+	fieldsIdx     int
 	rawValues     map[string][][]float64
+	orderByValues []expr.Accumulator
 }
 
 // Get implements the method from interface govaluate.Parameters
 func (entry *Entry) Get(name string) expr.Value {
+	if entry.fieldsIdx >= 0 {
+		vals := entry.Fields[name]
+		if vals == nil || entry.fieldsIdx >= len(vals) {
+			return expr.Zero
+		}
+		return vals[entry.fieldsIdx]
+	}
 	rawVals := entry.rawValues[name]
 	if rawVals != nil {
 		if entry.valuesIdx < len(rawVals) {
@@ -34,6 +43,16 @@ func (entry *Entry) Get(name string) expr.Value {
 	return expr.Zero
 }
 
+type QueryResult struct {
+	Table      string
+	From       time.Time
+	To         time.Time
+	Resolution time.Duration
+	Fields     map[string]expr.Expr
+	Dims       []string
+	Entries    []*Entry
+}
+
 type Query struct {
 	db           *DB
 	table        string
@@ -44,17 +63,7 @@ type Query struct {
 	sortedFields sortedFields
 	dims         []string
 	dimsMap      map[string]bool
-	orderBy      map[string]bool
-}
-
-type QueryResult struct {
-	Table      string
-	From       time.Time
-	To         time.Time
-	Resolution time.Duration
-	Fields     map[string]expr.Expr
-	Dims       []string
-	Entries    []*Entry
+	orderBy      []expr.Expr
 }
 
 func (db *DB) Query(table string, resolution time.Duration) *Query {
@@ -78,11 +87,11 @@ func (aq *Query) GroupBy(dim string) *Query {
 	return aq
 }
 
-func (aq *Query) OrderBy(name string, asc bool) *Query {
-	if aq.orderBy == nil {
-		aq.orderBy = make(map[string]bool)
+func (aq *Query) OrderBy(e expr.Expr, asc bool) *Query {
+	if !asc {
+		e = expr.Mult(-1, e)
 	}
-	aq.orderBy[name] = asc
+	aq.orderBy = append(aq.orderBy, e)
 	return aq
 }
 
@@ -137,14 +146,6 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	t := aq.db.getTable(q.table)
 	if t == nil {
 		return nil, fmt.Errorf("Table %v not found", q.table)
-	}
-
-	if aq.orderBy != nil {
-		for orderField := range aq.orderBy {
-			if aq.fields[orderField] == nil {
-				return nil, fmt.Errorf("OrderBy field %v is not included in selected fields", orderField)
-			}
-		}
 	}
 
 	aq.sortedFields = sortFields(aq.fields)
@@ -217,6 +218,10 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 				Fields:    make(map[string][]expr.Accumulator, len(aq.fields)),
 				rawValues: make(map[string][][]float64),
 			}
+			// Initialize orderBys
+			for _, orderBy := range aq.orderBy {
+				entry.orderByValues = append(entry.orderByValues, orderBy.Accumulator())
+			}
 			entries[ks] = entry
 		}
 		if entry.scalingFactor == 0 {
@@ -253,6 +258,8 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 	}
 
 	for _, entry := range entries {
+		// Don't get fields right now
+		entry.fieldsIdx = -1
 		for _, field := range aq.sortedFields {
 			// Initialize accumulators
 			vals := make([]expr.Accumulator, 0, entry.NumPeriods)
@@ -272,36 +279,40 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 			}
 		}
 
+		// Calculate order bys
+		for i := range aq.orderBy {
+			accum := entry.orderByValues[i]
+			for j := 0; j < entry.inPeriods; j++ {
+				entry.fieldsIdx = j
+				accum.Update(entry)
+			}
+		}
+
 		result = append(result, entry)
 	}
 
 	if aq.orderBy != nil && len(aq.orderBy) > 0 {
-		sort.Sort(&orderedEntries{result, aq.orderBy})
+		sort.Sort(orderedEntries(result))
 	}
 
 	return result, nil
 }
 
-type orderedEntries struct {
-	r       []*Entry
-	orderBy map[string]bool
-}
+type orderedEntries []*Entry
 
-func (r *orderedEntries) Len() int      { return len(r.r) }
-func (r *orderedEntries) Swap(i, j int) { r.r[i], r.r[j] = r.r[j], r.r[i] }
-func (r *orderedEntries) Less(i, j int) bool {
-	a := r.r[i]
-	b := r.r[j]
-	for field, asc := range r.orderBy {
-		fa := a.Fields[field][0].Get()
-		fb := b.Fields[field][0].Get()
-		if fa == fb {
-			continue
+func (r orderedEntries) Len() int      { return len(r) }
+func (r orderedEntries) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
+func (r orderedEntries) Less(i, j int) bool {
+	a := r[i]
+	b := r[j]
+	for i := 0; i < len(a.orderByValues); i++ {
+		diff := a.orderByValues[i].Get() - b.orderByValues[i].Get()
+		if diff < 0 {
+			return true
 		}
-		if asc {
-			return fb < fa
+		if diff > 0 {
+			return false
 		}
-		return fa > fb
 	}
 	return false
 }

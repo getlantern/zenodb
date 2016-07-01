@@ -179,7 +179,7 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 		Select("avg_ii", Avg("ii")).
 		Select("min_ii", Min("ii")).
 		GroupBy("r").
-		OrderBy("avg_ii", false).
+		OrderBy(Avg("avg_ii"), false).
 		From(epoch.Add(-1 * resolution)).
 		To(epoch.Add(resolution * 2))
 
