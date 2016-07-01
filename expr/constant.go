@@ -2,11 +2,11 @@ package expr
 
 var (
 	// Zero value
-	Zero = Constant(0).Accumulator()
+	Zero = CONST(0).Accumulator()
 )
 
-// Constant returns an Accumulator that always has a constant value.
-func Constant(value float64) Expr {
+// CONST returns an Accumulator that always has a constant value.
+func CONST(value float64) Expr {
 	return &constant{value}
 }
 

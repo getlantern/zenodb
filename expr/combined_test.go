@@ -6,7 +6,7 @@ import (
 )
 
 func TestCombined(t *testing.T) {
-	e, err := JS(`Avg(Sub(Add(Div("a", "b"), 1), 0.5))`)
+	e, err := JS(`AVG(SUB(ADD(DIV("a", "b"), 1), 0.5))`)
 	if !assert.NoError(t, err, "Unable to parse JS expression") {
 		return
 	}

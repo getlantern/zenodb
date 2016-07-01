@@ -6,7 +6,7 @@ import (
 )
 
 func TestConstant(t *testing.T) {
-	e := Constant(5.5)
+	e := CONST(5.5)
 	params := Map{
 		"a": Float(8.8),
 		"b": Float(4.4),

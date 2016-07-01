@@ -5,35 +5,36 @@ import (
 	"testing"
 )
 
-func TestSum(t *testing.T) {
-	doTestAggregate(t, Sum("a"), 13.2)
+func TestSUM(t *testing.T) {
+	doTestAggregate(t, SUM("a"), []string{"a"}, 13.2)
 }
 
-func TestMin(t *testing.T) {
-	doTestAggregate(t, Min("a"), 4.4)
+func TestMIN(t *testing.T) {
+	doTestAggregate(t, MIN("a"), []string{"a"}, 4.4)
 }
 
-func TestMax(t *testing.T) {
-	doTestAggregate(t, Max("a"), 8.8)
+func TestMAX(t *testing.T) {
+	doTestAggregate(t, MAX("a"), []string{"a"}, 8.8)
 }
 
-func TestAvg(t *testing.T) {
-	doTestAggregate(t, Avg("a"), 6.6)
+func TestAVG(t *testing.T) {
+	doTestAggregate(t, AVG("a"), []string{"a"}, 6.6)
 }
 
-func TestCount(t *testing.T) {
-	doTestAggregate(t, Count("a"), 2)
+func TestCOUNT(t *testing.T) {
+	doTestAggregate(t, COUNT("b"), []string{"b"}, 2)
 }
 
-func doTestAggregate(t *testing.T, e Expr, expected float64) {
+func doTestAggregate(t *testing.T, e Expr, expectedDepends []string, expected float64) {
 	params1 := Map{
 		"a": Float(4.4),
 	}
 	params2 := Map{
 		"a": Float(8.8),
+		"b": Float(1.1),
 	}
 
-	assert.Equal(t, []string{"a"}, e.DependsOn())
+	assert.Equal(t, expectedDepends, e.DependsOn())
 	a := e.Accumulator()
 	a.Update(params1)
 	a.Update(params2)

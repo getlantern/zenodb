@@ -36,9 +36,9 @@ func TestRoundTrip(t *testing.T) {
 		BatchSize: 1,
 	})
 	err = db.CreateTable("test_A", resolution, hotPeriod, retentionPeriod, map[string]Expr{
-		"i":   Sum("i"),
-		"ii":  Sum("ii"),
-		"iii": Avg(Mult("i", "ii")),
+		"i":   SUM("i"),
+		"ii":  SUM("ii"),
+		"iii": AVG(MULT("i", "ii")),
 	})
 	if !assert.NoError(t, err, "Unable to create table") {
 		return
@@ -174,12 +174,12 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 	scalingFactor := 5
 
 	aq := db.Query("Test_A", resolution*time.Duration(scalingFactor)).
-		Select("sum_ii", Sum("ii")).
-		Select("count_ii", Count("ii")).
-		Select("avg_ii", Avg("ii")).
-		Select("min_ii", Min("ii")).
+		Select("sum_ii", SUM("ii")).
+		Select("count_ii", COUNT("ii")).
+		Select("avg_ii", AVG("ii")).
+		Select("min_ii", MIN("ii")).
 		GroupBy("r").
-		OrderBy(Avg("avg_ii"), false).
+		OrderBy(AVG("avg_ii"), false).
 		From(epoch.Add(-1 * resolution)).
 		To(epoch.Add(resolution * 2))
 
@@ -200,7 +200,7 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 
 	// Test defaults
 	aq = db.Query("Test_A", 0).
-		Select("sum_ii", Sum("ii")).
+		Select("sum_ii", SUM("ii")).
 		From(epoch.Add(-1 * resolution))
 
 	result, err = aq.Run()

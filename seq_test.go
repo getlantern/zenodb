@@ -13,26 +13,26 @@ func TestBuildSequence(t *testing.T) {
 	res := time.Minute
 	b := &bucket{
 		start: epoch.Add(10 * res),
-		vals:  []Accumulator{Constant(6).Accumulator()},
+		vals:  []Accumulator{CONST(6).Accumulator()},
 		prev: &bucket{
 			start: epoch.Add(7 * res),
-			vals:  []Accumulator{Constant(5).Accumulator()},
+			vals:  []Accumulator{CONST(5).Accumulator()},
 			prev: &bucket{
 				start: epoch.Add(5 * res),
-				vals:  []Accumulator{Constant(4).Accumulator()},
+				vals:  []Accumulator{CONST(4).Accumulator()},
 			},
 		},
 	}
 
 	b2 := &bucket{
 		start: epoch.Add(3 * res),
-		vals:  []Accumulator{Constant(3).Accumulator()},
+		vals:  []Accumulator{CONST(3).Accumulator()},
 		prev: &bucket{
 			start: epoch.Add(1 * res),
-			vals:  []Accumulator{Constant(2).Accumulator()},
+			vals:  []Accumulator{CONST(2).Accumulator()},
 			prev: &bucket{
 				start: epoch,
-				vals:  []Accumulator{Constant(1).Accumulator()},
+				vals:  []Accumulator{CONST(1).Accumulator()},
 			},
 		},
 	}

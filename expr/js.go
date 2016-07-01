@@ -10,15 +10,15 @@ var (
 	ottoPool = &sync.Pool{
 		New: func() interface{} {
 			vm := otto.New()
-			vm.Set("Sum", Sum)
-			vm.Set("Min", Min)
-			vm.Set("Max", Max)
-			vm.Set("Count", Count)
-			vm.Set("Avg", Avg)
-			vm.Set("Add", Add)
-			vm.Set("Sub", Sub)
-			vm.Set("Mult", Mult)
-			vm.Set("Div", Div)
+			vm.Set("SUM", SUM)
+			vm.Set("MIN", MIN)
+			vm.Set("MAX", MAX)
+			vm.Set("COUNT", COUNT)
+			vm.Set("AVG", AVG)
+			vm.Set("ADD", ADD)
+			vm.Set("SUB", SUB)
+			vm.Set("MULT", MULT)
+			vm.Set("DIV", DIV)
 			return vm
 		},
 	}

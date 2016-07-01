@@ -1,8 +1,8 @@
 package expr
 
-// Avg creates an Expr that obtains its value by averaging the values of the
+// AVG creates an Expr that obtains its value by averaging the values of the
 // given expression or field.
-func Avg(expr interface{}) Expr {
+func AVG(expr interface{}) Expr {
 	return &avg{exprFor(expr)}
 }
 

@@ -1,7 +1,7 @@
 package expr
 
-// Field creates an Expr that obtains its value from a named field.
-func Field(name string) Expr {
+// FIELD creates an Expr that obtains its value from a named field.
+func FIELD(name string) Expr {
 	return &field{name}
 }
 

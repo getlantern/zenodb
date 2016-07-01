@@ -5,24 +5,24 @@ import (
 	"testing"
 )
 
-func TestAdd(t *testing.T) {
-	doTestCalc(t, Add("a", "b"), []string{"a", "b"}, 13.2)
+func TestADD(t *testing.T) {
+	doTestCalc(t, ADD("a", "b"), []string{"a", "b"}, 13.2)
 }
 
-func TestSub(t *testing.T) {
-	doTestCalc(t, Sub("a", "b"), []string{"a", "b"}, 4.4)
+func TestSUB(t *testing.T) {
+	doTestCalc(t, SUB("a", "b"), []string{"a", "b"}, 4.4)
 }
 
-func TestMult(t *testing.T) {
-	doTestCalc(t, Mult("a", "b"), []string{"a", "b"}, 38.72)
+func TestMULT(t *testing.T) {
+	doTestCalc(t, MULT("a", "b"), []string{"a", "b"}, 38.72)
 }
 
-func TestDiv(t *testing.T) {
-	doTestCalc(t, Div("a", "b"), []string{"a", "b"}, 2)
+func TestDIV(t *testing.T) {
+	doTestCalc(t, DIV("a", "b"), []string{"a", "b"}, 2)
 }
 
-func TestDivZero(t *testing.T) {
-	doTestCalc(t, Div("a", "c"), []string{"a", "c"}, 0)
+func TestDIVZero(t *testing.T) {
+	doTestCalc(t, DIV("a", "c"), []string{"a", "c"}, 0)
 }
 
 func doTestCalc(t *testing.T, e Expr, expectedDepends []string, expected float64) {

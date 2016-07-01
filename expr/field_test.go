@@ -9,7 +9,7 @@ func TestField(t *testing.T) {
 	params := Map{
 		"a": Float(4.4),
 	}
-	f := Field("a")
+	f := FIELD("a")
 	assert.Equal(t, []string{"a"}, f.DependsOn())
 	a := f.Accumulator()
 	a.Update(params)

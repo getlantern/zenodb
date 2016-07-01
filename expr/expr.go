@@ -54,21 +54,21 @@ func exprFor(expr interface{}) Expr {
 	case Expr:
 		return e
 	case string:
-		return Field(e)
+		return FIELD(e)
 	case int:
-		return Constant(float64(e))
+		return CONST(float64(e))
 	case int64:
-		return Constant(float64(e))
+		return CONST(float64(e))
 	case int32:
-		return Constant(float64(e))
+		return CONST(float64(e))
 	case int16:
-		return Constant(float64(e))
+		return CONST(float64(e))
 	case byte:
-		return Constant(float64(e))
+		return CONST(float64(e))
 	case float32:
-		return Constant(float64(e))
+		return CONST(float64(e))
 	case float64:
-		return Constant(e)
+		return CONST(e)
 	default:
 		panic(fmt.Sprintf("Got a %v, please specify an Expr, string, float64 or integer", reflect.TypeOf(expr)))
 	}

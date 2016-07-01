@@ -89,7 +89,7 @@ func (aq *Query) GroupBy(dim string) *Query {
 
 func (aq *Query) OrderBy(e expr.Expr, asc bool) *Query {
 	if !asc {
-		e = expr.Mult(-1, e)
+		e = expr.MULT(-1, e)
 	}
 	aq.orderBy = append(aq.orderBy, e)
 	return aq
