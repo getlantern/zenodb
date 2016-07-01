@@ -6,7 +6,7 @@ import (
 )
 
 func TestCombined(t *testing.T) {
-	e, err := JS(`AVG(SUB(ADD(DIV("a", "b"), 1), 0.5))`)
+	e, err := JS(`MULT(AVG(SUB(ADD(DIV("a", "b"), 1), 0.5)), 2)`)
 	if !assert.NoError(t, err, "Unable to parse JS expression") {
 		return
 	}
@@ -23,5 +23,5 @@ func TestCombined(t *testing.T) {
 	a := e.Accumulator()
 	a.Update(params1)
 	a.Update(params2)
-	assertFloatEquals(t, 3.5, a.Get())
+	assertFloatEquals(t, 7, a.Get())
 }

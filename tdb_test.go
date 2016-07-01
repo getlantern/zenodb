@@ -197,7 +197,7 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 SELECT
 	SUM(ii) AS sum_ii,
 	COUNT(ii) AS count_ii,
-	AVG(ii) AS avg_ii,
+	AVG(ii) * 2 AS avg_ii,
 	MIN(ii) AS min_ii
 FROM test_a
 WHERE b != true
@@ -221,7 +221,7 @@ ORDER BY AVG(avg_ii) DESC
 	if !assert.Len(t, entry.Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
 		return
 	}
-	avg := float64(286) / 2 / float64(scalingFactor)
+	avg := float64(286) / float64(scalingFactor)
 	assert.EqualValues(t, 286, entry.Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
 	if !assert.EqualValues(t, avg, entry.Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
 		t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))

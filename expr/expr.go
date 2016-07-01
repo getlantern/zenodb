@@ -3,6 +3,7 @@ package expr
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/golog"
@@ -55,6 +56,10 @@ func exprFor(expr interface{}) Expr {
 	case Expr:
 		return e
 	case string:
+		v, err := strconv.ParseFloat(e, 64)
+		if err == nil {
+			return CONST(v)
+		}
 		return FIELD(e)
 	case int:
 		return CONST(float64(e))

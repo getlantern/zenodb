@@ -11,7 +11,7 @@ import (
 func TestSQL(t *testing.T) {
 	aq := &Query{}
 	err := aq.applySQL(`
-SELECT AVG(a / (A + b + C)) AS rate
+SELECT AVG(a / (A + b + C)) * 2 AS rate
 FROM Table_A
 WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d != 'thing'
 GROUP BY dim_A, period(5s) // time is a special function
@@ -21,7 +21,7 @@ ORDER BY AVG(Rate) DESC
 		return
 	}
 	if !assert.Len(t, aq.fields, 1) {
-		expected := ToString(AVG(DIV("a", ADD(ADD("a", "b"), "c"))))
+		expected := ToString(MULT(AVG(DIV("a", ADD(ADD("a", "b"), "c"))), 2))
 		actual := ToString(aq.fields["rate"])
 		assert.Equal(t, expected, actual)
 	}
