@@ -121,12 +121,12 @@ func TestRoundTrip(t *testing.T) {
 
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[uint64][]float64, error) {
 		result := make(map[uint64][]float64, 0)
-		err = db.RunQuery(&Query{
-			Table:  table,
-			Fields: []string{field},
-			From:   from,
-			To:     to,
-			OnValues: func(key map[string]interface{}, resultField string, vals []float64) {
+		err = db.runQuery(&query{
+			table:  table,
+			fields: []string{field},
+			from:   from,
+			to:     to,
+			onValues: func(key map[string]interface{}, resultField string, vals []float64) {
 				log.Debugf("%v : %v : %v", key, field, vals)
 				if field == resultField {
 					result[key[dim].(uint64)] = vals
@@ -173,7 +173,7 @@ func TestRoundTrip(t *testing.T) {
 func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.Duration) {
 	scalingFactor := 5
 
-	aq := db.Aggregate("Test_A", resolution*time.Duration(scalingFactor)).
+	aq := db.Query("Test_A", resolution*time.Duration(scalingFactor)).
 		Select("sum_ii", Sum("ii")).
 		Select("count_ii", Count("ii")).
 		Select("avg_ii", Avg("ii")).
@@ -185,17 +185,18 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 
 	result, err := aq.Run()
 	if assert.NoError(t, err, "Unable to run query") {
-		if assert.EqualValues(t, "reporter1", result[0].Dims["r"], "Wrong dim, result may be sorted incorrectly") {
-			if assert.Len(t, result[0].Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
+		entry := result.Entries[0]
+		if assert.EqualValues(t, "reporter1", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
+			if assert.Len(t, entry.Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
 				avg := float64(286) / 2 / float64(scalingFactor)
-				assert.EqualValues(t, 286, result[0].Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-				if !assert.EqualValues(t, avg, result[0].Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
-					t.Log(spew.Sprint(result[0].Fields["avg_ii"][0]))
+				assert.EqualValues(t, 286, entry.Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+				if !assert.EqualValues(t, avg, entry.Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
+					t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
 				}
-				assert.EqualValues(t, 0, result[0].Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-				assert.EqualValues(t, 286, result[0].Totals["sum_ii"].Get(), "Wrong total value")
-				if !assert.EqualValues(t, avg, result[0].Totals["avg_ii"].Get(), "Wrong total value") {
-					t.Log(spew.Sprint(result[0].Totals["avg_ii"]))
+				assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+				assert.EqualValues(t, 286, entry.Totals["sum_ii"].Get(), "Wrong total value")
+				if !assert.EqualValues(t, avg, entry.Totals["avg_ii"].Get(), "Wrong total value") {
+					t.Log(spew.Sprint(entry.Totals["avg_ii"]))
 				}
 			}
 		}

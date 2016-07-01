@@ -11,27 +11,27 @@ import (
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
-type Query struct {
-	Table    string
-	Fields   []string
-	From     time.Time
-	To       time.Time
-	OnValues func(key map[string]interface{}, field string, vals []float64)
+type query struct {
+	table    string
+	fields   []string
+	from     time.Time
+	to       time.Time
+	onValues func(key map[string]interface{}, field string, vals []float64)
 }
 
-func (db *DB) RunQuery(q *Query) error {
-	if q.From.IsZero() {
+func (db *DB) runQuery(q *query) error {
+	if q.from.IsZero() {
 		return fmt.Errorf("Please specify a from")
 	}
-	if len(q.Fields) == 0 {
+	if len(q.fields) == 0 {
 		return fmt.Errorf("Please specify at least one field")
 	}
-	t := db.getTable(q.Table)
+	t := db.getTable(q.table)
 	if t == nil {
-		return fmt.Errorf("Unknown table %v", q.Table)
+		return fmt.Errorf("Unknown table %v", q.table)
 	}
-	fields := make([][]byte, 0, len(q.Fields))
-	for _, field := range q.Fields {
+	fields := make([][]byte, 0, len(q.fields))
+	for _, field := range q.fields {
 		fieldBytes, err := msgpack.Marshal(strings.ToLower(field))
 		if err != nil {
 			return fmt.Errorf("Unable to marshal field: %v", err)
@@ -39,11 +39,11 @@ func (db *DB) RunQuery(q *Query) error {
 		fields = append(fields, fieldBytes)
 	}
 	sort.Sort(lexicographical(fields))
-	if q.To.IsZero() {
-		q.To = t.clock.Now()
+	if q.to.IsZero() {
+		q.to = t.clock.Now()
 	}
-	from := roundTime(q.From, t.resolution)
-	to := q.To
+	from := roundTime(q.from, t.resolution)
+	to := q.to
 	if to.IsZero() {
 		to = t.clock.Now()
 	}
@@ -102,7 +102,7 @@ func (db *DB) RunQuery(q *Query) error {
 					}
 				}
 				if includeKey {
-					q.OnValues(key, storedField, vals)
+					q.onValues(key, storedField, vals)
 				}
 			}
 			v.Free()

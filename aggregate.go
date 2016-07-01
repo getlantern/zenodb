@@ -8,7 +8,7 @@ import (
 	"github.com/oxtoacart/tdb/expr"
 )
 
-type AggregateEntry struct {
+type Entry struct {
 	Dims          map[string]interface{}
 	Fields        map[string][]expr.Accumulator
 	Totals        map[string]expr.Accumulator
@@ -22,7 +22,7 @@ type AggregateEntry struct {
 }
 
 // Get implements the method from interface govaluate.Parameters
-func (entry *AggregateEntry) Get(name string) expr.Value {
+func (entry *Entry) Get(name string) expr.Value {
 	rawVals := entry.rawValues[name]
 	if rawVals != nil {
 		if entry.valuesIdx < len(rawVals) {
@@ -35,7 +35,7 @@ func (entry *AggregateEntry) Get(name string) expr.Value {
 	return expr.Zero
 }
 
-type AggregateQuery struct {
+type Query struct {
 	db           *DB
 	table        string
 	from         time.Time
@@ -47,11 +47,21 @@ type AggregateQuery struct {
 	orderBy      map[string]bool
 }
 
-func (db *DB) Aggregate(table string, resolution time.Duration) *AggregateQuery {
-	return &AggregateQuery{db: db, table: table, resolution: resolution}
+type QueryResult struct {
+	Table      string
+	From       time.Time
+	To         time.Time
+	Resolution time.Duration
+	Fields     []string
+	Dims       []string
+	Entries    []*Entry
 }
 
-func (aq *AggregateQuery) Select(name string, e expr.Expr) *AggregateQuery {
+func (db *DB) Query(table string, resolution time.Duration) *Query {
+	return &Query{db: db, table: table, resolution: resolution}
+}
+
+func (aq *Query) Select(name string, e expr.Expr) *Query {
 	if aq.fields == nil {
 		aq.fields = make(map[string]expr.Expr)
 	}
@@ -59,7 +69,7 @@ func (aq *AggregateQuery) Select(name string, e expr.Expr) *AggregateQuery {
 	return aq
 }
 
-func (aq *AggregateQuery) GroupBy(dim string) *AggregateQuery {
+func (aq *Query) GroupBy(dim string) *Query {
 	if aq.dims == nil {
 		aq.dims = []string{dim}
 	} else {
@@ -68,7 +78,7 @@ func (aq *AggregateQuery) GroupBy(dim string) *AggregateQuery {
 	return aq
 }
 
-func (aq *AggregateQuery) OrderBy(name string, asc bool) *AggregateQuery {
+func (aq *Query) OrderBy(name string, asc bool) *Query {
 	if aq.orderBy == nil {
 		aq.orderBy = make(map[string]bool)
 	}
@@ -76,37 +86,43 @@ func (aq *AggregateQuery) OrderBy(name string, asc bool) *AggregateQuery {
 	return aq
 }
 
-func (aq *AggregateQuery) From(from time.Time) *AggregateQuery {
+func (aq *Query) From(from time.Time) *Query {
 	aq.from = from
 	return aq
 }
 
-func (aq *AggregateQuery) To(to time.Time) *AggregateQuery {
+func (aq *Query) To(to time.Time) *Query {
 	aq.to = to
 	return aq
 }
 
-func (aq *AggregateQuery) Run() ([]*AggregateEntry, error) {
-	q := &Query{
-		Table: aq.table,
-		From:  aq.from,
-		To:    aq.to,
+func (aq *Query) Run() (*QueryResult, error) {
+	q := &query{
+		table: aq.table,
+		from:  aq.from,
+		to:    aq.to,
 	}
 	entries, err := aq.prepare(q)
 	if err != nil {
 		return nil, err
 	}
-	err = aq.db.RunQuery(q)
+	err = aq.db.runQuery(q)
 	if err != nil {
 		return nil, err
 	}
-	return aq.buildResult(entries)
+	resultEntries, err := aq.buildEntries(entries)
+	if err != nil {
+		return nil, err
+	}
+	return &QueryResult{
+		Entries: resultEntries,
+	}, nil
 }
 
-func (aq *AggregateQuery) prepare(q *Query) (map[string]*AggregateEntry, error) {
-	t := aq.db.getTable(q.Table)
+func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
+	t := aq.db.getTable(q.table)
 	if t == nil {
-		return nil, fmt.Errorf("Table %v not found", q.Table)
+		return nil, fmt.Errorf("Table %v not found", q.table)
 	}
 
 	if aq.orderBy != nil {
@@ -128,7 +144,7 @@ func (aq *AggregateQuery) prepare(q *Query) (map[string]*AggregateEntry, error) 
 	for dependency := range dependencies {
 		fields = append(fields, dependency)
 	}
-	q.Fields = fields
+	q.fields = fields
 
 	nativeResolution := t.resolution
 	resolution := aq.resolution
@@ -137,10 +153,10 @@ func (aq *AggregateQuery) prepare(q *Query) (map[string]*AggregateEntry, error) 
 		resolution = nativeResolution
 	}
 	if resolution < nativeResolution {
-		return nil, fmt.Errorf("Aggregate query's resolution of %v is higher than table's native resolution of %v", resolution, nativeResolution)
+		return nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", resolution, nativeResolution)
 	}
 	if resolution%nativeResolution != 0 {
-		return nil, fmt.Errorf("Aggregate query's resolution of %v is not evenly divisible by the table's native resolution of %v", resolution, nativeResolution)
+		return nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", resolution, nativeResolution)
 	}
 	scalingFactor := int(resolution / nativeResolution)
 	// we'll calculate periods lazily later
@@ -155,8 +171,8 @@ func (aq *AggregateQuery) prepare(q *Query) (map[string]*AggregateEntry, error) 
 		return includedDims[dim]
 	}
 
-	entries := make(map[string]*AggregateEntry, 0)
-	q.OnValues = func(key map[string]interface{}, field string, vals []float64) {
+	entries := make(map[string]*Entry, 0)
+	q.onValues = func(key map[string]interface{}, field string, vals []float64) {
 		// Trim key down only to included dims
 		for k := range key {
 			if !includeDim(k) {
@@ -171,7 +187,7 @@ func (aq *AggregateQuery) prepare(q *Query) (map[string]*AggregateEntry, error) 
 		ks := string(kb)
 		entry := entries[ks]
 		if entry == nil {
-			entry = &AggregateEntry{
+			entry = &Entry{
 				Dims:      key,
 				Fields:    make(map[string][]expr.Accumulator, len(aq.fields)),
 				Totals:    make(map[string]expr.Accumulator, len(aq.fields)),
@@ -206,8 +222,8 @@ func (aq *AggregateQuery) prepare(q *Query) (map[string]*AggregateEntry, error) 
 	return entries, nil
 }
 
-func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*AggregateEntry, error) {
-	result := make([]*AggregateEntry, 0, len(entries))
+func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
+	result := make([]*Entry, 0, len(entries))
 	if len(entries) == 0 {
 		return result, nil
 	}
@@ -239,20 +255,20 @@ func (aq *AggregateQuery) buildResult(entries map[string]*AggregateEntry) ([]*Ag
 	}
 
 	if aq.orderBy != nil && len(aq.orderBy) > 0 {
-		sort.Sort(&orderedAggregated{result, aq.orderBy})
+		sort.Sort(&orderedEntries{result, aq.orderBy})
 	}
 
 	return result, nil
 }
 
-type orderedAggregated struct {
-	r       []*AggregateEntry
+type orderedEntries struct {
+	r       []*Entry
 	orderBy map[string]bool
 }
 
-func (r *orderedAggregated) Len() int      { return len(r.r) }
-func (r *orderedAggregated) Swap(i, j int) { r.r[i], r.r[j] = r.r[j], r.r[i] }
-func (r *orderedAggregated) Less(i, j int) bool {
+func (r *orderedEntries) Len() int      { return len(r.r) }
+func (r *orderedEntries) Swap(i, j int) { r.r[i], r.r[j] = r.r[j], r.r[i] }
+func (r *orderedEntries) Less(i, j int) bool {
 	a := r.r[i]
 	b := r.r[j]
 	for field, asc := range r.orderBy {
