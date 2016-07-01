@@ -42,13 +42,12 @@ func (db *DB) runQuery(q *query) error {
 	if q.to.IsZero() {
 		q.to = t.clock.Now()
 	}
-	from := roundTime(q.from, t.resolution)
-	to := q.to
-	if to.IsZero() {
-		to = t.clock.Now()
+	q.from = roundTime(q.from, t.resolution)
+	if q.to.IsZero() {
+		q.to = t.clock.Now()
 	}
-	to = roundTime(to, t.resolution)
-	numPeriods := int(to.Sub(from)/t.resolution) + 1
+	q.to = roundTime(q.to, t.resolution)
+	numPeriods := int(q.to.Sub(q.from)/t.resolution) + 1
 	log.Tracef("Query will return %d periods", numPeriods)
 
 	ro := gorocksdb.NewDefaultReadOptions()
@@ -87,7 +86,8 @@ func (db *DB) runQuery(q *query) error {
 					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), seq.numPeriods())
 				}
 				includeKey := false
-				if !seqStart.Before(from) {
+				if !seqStart.Before(q.from) {
+					to := q.to
 					if to.After(seqStart) {
 						to = seqStart
 					}
