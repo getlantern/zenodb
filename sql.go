@@ -219,7 +219,7 @@ func boolExprFor(_e sqlparser.Expr) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("(%s && %s)", left, right), nil
+		return fmt.Sprintf("%s && %s", left, right), nil
 	case *sqlparser.OrExpr:
 		left, err := boolExprFor(e.Left)
 		if err != nil {
@@ -229,13 +229,38 @@ func boolExprFor(_e sqlparser.Expr) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("(%s || %s)", left, right), nil
+		return fmt.Sprintf("%s || %s", left, right), nil
+	case *sqlparser.ParenBoolExpr:
+		wrapped, err := boolExprFor(e.Expr)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("(%s)", wrapped), nil
 	case *sqlparser.NotExpr:
 		wrapped, err := boolExprFor(e.Expr)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("!%s", wrapped), nil
+	case *sqlparser.ComparisonExpr:
+		left, err := boolExprFor(e.Left)
+		if err != nil {
+			return "", err
+		}
+		right, err := boolExprFor(e.Right)
+		if err != nil {
+			return "", err
+		}
+		op := e.Operator
+		switch strings.ToUpper(op) {
+		case "LIKE":
+			op = "=~"
+		case "<>":
+			op = "!="
+		case "=":
+			op = "=="
+		}
+		return fmt.Sprintf("%s %s %s", left, op, right), nil
 	default:
 		str := exprToString(_e)
 		log.Tracef("Returning string for boolean expression: %v", str)

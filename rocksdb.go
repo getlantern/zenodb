@@ -22,7 +22,15 @@ func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte,
 
 // PartialMerge implements method from gorocksdb.MergeOperator.
 func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
-	return sequence(rightOperand).append(sequence(leftOperand), t.resolution, t.truncateBefore()), true
+	left := sequence(leftOperand)
+	right := sequence(rightOperand)
+	if !left.isValid() {
+		return right, true
+	}
+	if !right.isValid() {
+		return left, true
+	}
+	return right.append(left, t.resolution, t.truncateBefore()), true
 }
 
 // Transform implements method from gorocksdb.SliceTransform.

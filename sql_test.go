@@ -13,7 +13,7 @@ func TestSQL(t *testing.T) {
 	err := aq.applySQL(`
 SELECT AVG(a / (A + b + C)) AS rate
 FROM Table_A
-WHERE Dim_a LIKE '172.56.' AND dim_b > 10
+WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d != 'thing'
 GROUP BY dim_A, period(5s) // time is a special function
 ORDER BY AVG(Rate) DESC
 `)
@@ -35,4 +35,5 @@ ORDER BY AVG(Rate) DESC
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, 5*time.Second, aq.resolution)
+	assert.Equal(t, "dim_a =~ '172.56.' && (dim_b > 10 || dim_c == 20) || dim_d != 'thing'", aq.filter)
 }
