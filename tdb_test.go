@@ -207,6 +207,7 @@ ORDER BY AVG(avg_ii)
 		t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
 	}
 	assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii", "min_ii"}, result.FieldOrder)
 
 	// Test defaults
 	aq = db.Query("Test_A").

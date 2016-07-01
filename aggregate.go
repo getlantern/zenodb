@@ -49,6 +49,7 @@ type QueryResult struct {
 	To         time.Time
 	Resolution time.Duration
 	Fields     map[string]expr.Expr
+	FieldOrder []string
 	Dims       []string
 	Entries    []*Entry
 }
@@ -60,6 +61,7 @@ type Query struct {
 	to           time.Time
 	resolution   time.Duration
 	fields       map[string]expr.Expr
+	fieldOrder   []string
 	sortedFields sortedFields
 	dims         []string
 	dimsMap      map[string]bool
@@ -89,6 +91,7 @@ func (aq *Query) Select(name string, e expr.Expr) *Query {
 		aq.fields = make(map[string]expr.Expr)
 	}
 	aq.fields[name] = e
+	aq.fieldOrder = append(aq.fieldOrder, name)
 	return aq
 }
 
@@ -143,6 +146,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		To:         q.to,
 		Resolution: aq.resolution,
 		Fields:     aq.fields,
+		FieldOrder: aq.fieldOrder,
 		Dims:       aq.dims,
 		Entries:    resultEntries,
 	}
