@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Knetic/govaluate"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/oxtoacart/tdb/expr"
 )
 
@@ -53,6 +54,7 @@ type QueryResult struct {
 	FieldOrder []string
 	Dims       []string
 	Entries    []*Entry
+	Stats      *QueryStats
 }
 
 type Query struct {
@@ -139,10 +141,12 @@ func (aq *Query) Run() (*QueryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = aq.db.runQuery(q)
+	stats, err := aq.db.runQuery(q)
 	if err != nil {
 		return nil, err
 	}
+	log.Debug(spew.Sdump(stats))
+
 	resultEntries, err := aq.buildEntries(entries)
 	if err != nil {
 		return nil, err
@@ -156,6 +160,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		FieldOrder: aq.fieldOrder,
 		Dims:       aq.dims,
 		Entries:    resultEntries,
+		Stats:      stats,
 	}
 	if result.Dims == nil || len(result.Dims) == 0 {
 		result.Dims = make([]string, 0, len(aq.dimsMap))
@@ -187,6 +192,7 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	q.fields = fields
 
 	if aq.filter != "" {
+		log.Debugf("Applying filter: %v", aq.filter)
 		filter, err := govaluate.NewEvaluableExpression(aq.filter)
 		if err != nil {
 			return nil, fmt.Errorf("Invalid filter expression: %v", err)

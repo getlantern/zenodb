@@ -140,7 +140,7 @@ func TestRoundTrip(t *testing.T) {
 			return nil, queryErr
 		}
 		result := make(map[uint64][]float64, 0)
-		err = db.runQuery(&query{
+		_, err = db.runQuery(&query{
 			table:  table,
 			fields: []string{field},
 			from:   from,

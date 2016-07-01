@@ -21,22 +21,33 @@ type query struct {
 	onValues func(key map[string]interface{}, field string, vals []float64)
 }
 
-func (db *DB) runQuery(q *query) error {
+type QueryStats struct {
+	Scanned      int64
+	FilterPass   int64
+	FilterReject int64
+	ReadValue    int64
+	DataValid    int64
+	Included     int64
+}
+
+func (db *DB) runQuery(q *query) (*QueryStats, error) {
+	stats := &QueryStats{}
+
 	if q.from.IsZero() {
-		return fmt.Errorf("Please specify a from")
+		return stats, fmt.Errorf("Please specify a from")
 	}
 	if len(q.fields) == 0 {
-		return fmt.Errorf("Please specify at least one field")
+		return stats, fmt.Errorf("Please specify at least one field")
 	}
 	t := db.getTable(q.table)
 	if t == nil {
-		return fmt.Errorf("Unknown table %v", q.table)
+		return stats, fmt.Errorf("Unknown table %v", q.table)
 	}
 	fields := make([][]byte, 0, len(q.fields))
 	for _, field := range q.fields {
 		fieldBytes, err := msgpack.Marshal(strings.ToLower(field))
 		if err != nil {
-			return fmt.Errorf("Unable to marshal field: %v", err)
+			return stats, fmt.Errorf("Unable to marshal field: %v", err)
 		}
 		fields = append(fields, fieldBytes)
 	}
@@ -57,42 +68,48 @@ func (db *DB) runQuery(q *query) error {
 	ro.SetFillCache(true)
 	it := t.archiveByKey.NewIterator(ro)
 	defer it.Close()
+
 	for _, fieldBytes := range fields {
-		scanned := 0
-		read := 0
 		for it.Seek(fieldBytes); it.ValidForPrefix(fieldBytes); it.Next() {
-			scanned++
+			stats.Scanned++
 			k := it.Key()
 			kr := bytes.NewReader(k.Data())
 			dec := msgpack.NewDecoder(kr)
 			storedField, err := dec.DecodeString()
 			if err != nil {
 				k.Free()
-				return fmt.Errorf("Unable to decode field: %v", err)
+				return stats, fmt.Errorf("Unable to decode field: %v", err)
 			}
 			key := make(map[string]interface{})
 			err = dec.Decode(&key)
 			if err != nil {
 				k.Free()
-				return fmt.Errorf("Unable to decode key: %v", err)
+				return stats, fmt.Errorf("Unable to decode key: %v", err)
 			}
 			k.Free()
 
 			if q.filter != nil {
 				include, err := q.filter.Evaluate(key)
 				if err != nil {
-					return fmt.Errorf("Unable to apply filter: %v", err)
+					return stats, fmt.Errorf("Unable to apply filter: %v", err)
 				}
-				if !include.(bool) {
+				inc, ok := include.(bool)
+				if !ok {
+					return stats, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
+				}
+				if !inc {
+					stats.FilterReject++
 					continue
 				}
+				stats.FilterPass++
 			}
 
 			v := it.Value()
+			stats.ReadValue++
 			seq := sequence(v.Data())
 			vals := make([]float64, numPeriods)
 			if seq.isValid() {
-				read++
+				stats.DataValid++
 				seqStart := seq.start()
 				if log.IsTraceEnabled() {
 					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), seq.numPeriods())
@@ -114,14 +131,14 @@ func (db *DB) runQuery(q *query) error {
 					}
 				}
 				if includeKey {
+					stats.Included++
 					q.onValues(key, storedField, vals)
 				}
 			}
 			v.Free()
 		}
-		log.Tracef("Query read/scanned %d/%d", read, scanned)
 	}
-	return nil
+	return stats, nil
 }
 
 type lexicographical [][]byte
