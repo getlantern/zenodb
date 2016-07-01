@@ -28,9 +28,11 @@ type QueryStats struct {
 	ReadValue    int64
 	DataValid    int64
 	InTimeRange  int64
+	Runtime      time.Duration
 }
 
 func (db *DB) runQuery(q *query) (*QueryStats, error) {
+	start := time.Now()
 	stats := &QueryStats{}
 
 	if q.from.IsZero() {
@@ -138,6 +140,8 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 			v.Free()
 		}
 	}
+
+	stats.Runtime = time.Now().Sub(start)
 	return stats, nil
 }
 
