@@ -1,6 +1,7 @@
 package tdb
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"time"
@@ -173,31 +174,39 @@ func TestRoundTrip(t *testing.T) {
 func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.Duration) {
 	scalingFactor := 5
 
-	aq := db.Query("Test_A").
-		Resolution(resolution*time.Duration(scalingFactor)).
-		Select("sum_ii", SUM("ii")).
-		Select("count_ii", COUNT("ii")).
-		Select("avg_ii", AVG("ii")).
-		Select("min_ii", MIN("ii")).
-		GroupBy("r").
-		OrderBy(AVG("avg_ii"), false).
-		From(epoch.Add(-1 * resolution)).
-		To(epoch.Add(resolution * 2))
+	aq, err := db.SQLQuery(fmt.Sprintf(`
+SELECT
+	SUM(ii) AS sum_ii,
+	COUNT(ii) AS count_ii,
+	AVG(ii) AS avg_ii,
+	MIN(ii) AS min_ii
+FROM test_a
+GROUP BY r, period(%v)
+ORDER BY AVG(avg_ii)
+`, resolution*time.Duration(scalingFactor)))
+	if !assert.NoError(t, err, "Unable to create SQL query") {
+		return
+	}
+	aq.From(epoch.Add(-1 * resolution)).To(epoch.Add(resolution * 2))
 
 	result, err := aq.Run()
-	if assert.NoError(t, err, "Unable to run query") {
-		entry := result.Entries[0]
-		if assert.EqualValues(t, "reporter1", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
-			if assert.Len(t, entry.Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
-				avg := float64(286) / 2 / float64(scalingFactor)
-				assert.EqualValues(t, 286, entry.Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-				if !assert.EqualValues(t, avg, entry.Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
-					t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
-				}
-				assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-			}
-		}
+	if !assert.NoError(t, err, "Unable to run query") {
+		return
 	}
+
+	entry := result.Entries[0]
+	if !assert.EqualValues(t, "reporter1", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
+		return
+	}
+	if !assert.Len(t, entry.Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
+		return
+	}
+	avg := float64(286) / 2 / float64(scalingFactor)
+	assert.EqualValues(t, 286, entry.Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+	if !assert.EqualValues(t, avg, entry.Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
+		t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
+	}
+	assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
 
 	// Test defaults
 	aq = db.Query("Test_A").

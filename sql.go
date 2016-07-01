@@ -39,11 +39,11 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 // applySQL parses a SQL statement and populates query parameters using it.
 // For example:
 //
-//    SELECT AVG(a / (a + b + c)) AS rate
-//    FROM table_a
-//    WHERE dim_a =~ '172.56.+'
-//    GROUP BY dim_a, period('5')
-//    ORDER BY AVG(rate) ASC
+//  SELECT AVG(a / (A + b + C)) AS rate
+//  FROM Table_A
+//  WHERE Dim_a =~ '^172.56.+' // this is a regex match
+//  GROUP BY dim_A, period(5s) // time is a special function
+//  ORDER BY AVG(Rate) ASC
 //
 func (aq *Query) applySQL(sql string) error {
 	parsed, err := sqlparser.Parse(sql)
@@ -110,7 +110,7 @@ func (aq *Query) applyGroupBy(stmt *sqlparser.Select) error {
 				return ErrInvalidPeriod
 			}
 			period := exprToString(fn.Exprs[0])
-			res, err := time.ParseDuration(strings.ToLower(strings.Trim(period, "'")))
+			res, err := time.ParseDuration(strings.ToLower(strings.Replace(period, " as ", "", 1)))
 			if err != nil {
 				return fmt.Errorf("Unable to parse period %v: %v", period, err)
 			}
