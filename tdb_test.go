@@ -173,7 +173,8 @@ func TestRoundTrip(t *testing.T) {
 func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.Duration) {
 	scalingFactor := 5
 
-	aq := db.Query("Test_A", resolution*time.Duration(scalingFactor)).
+	aq := db.Query("Test_A").
+		Resolution(resolution*time.Duration(scalingFactor)).
 		Select("sum_ii", SUM("ii")).
 		Select("count_ii", COUNT("ii")).
 		Select("avg_ii", AVG("ii")).
@@ -199,7 +200,7 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 	}
 
 	// Test defaults
-	aq = db.Query("Test_A", 0).
+	aq = db.Query("Test_A").
 		Select("sum_ii", SUM("ii")).
 		From(epoch.Add(-1 * resolution))
 

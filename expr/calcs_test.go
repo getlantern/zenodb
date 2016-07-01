@@ -30,6 +30,7 @@ func doTestCalc(t *testing.T, e Expr, expectedDepends []string, expected float64
 		"a": Float(8.8),
 		"b": Float(4.4),
 		"c": Float(0),
+		"d": Float(1.1),
 	}
 
 	assert.Equal(t, expectedDepends, e.DependsOn())

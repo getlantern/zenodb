@@ -66,8 +66,13 @@ type Query struct {
 	orderBy      []expr.Expr
 }
 
-func (db *DB) Query(table string, resolution time.Duration) *Query {
-	return &Query{db: db, table: table, resolution: resolution}
+func (db *DB) Query(table string) *Query {
+	return &Query{db: db, table: table}
+}
+
+func (aq *Query) Resolution(resolution time.Duration) *Query {
+	aq.resolution = resolution
+	return aq
 }
 
 func (aq *Query) Select(name string, e expr.Expr) *Query {

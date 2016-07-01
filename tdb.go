@@ -186,6 +186,8 @@ func (db *DB) getTable(table string) *table {
 func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error) {
 	opts := gorocksdb.NewDefaultOptions()
 	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
+	// TODO: make this tunable or auto-adjust based on table resolution or
+	// something
 	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(256 * 1024 * 1024))
 	filter := gorocksdb.NewBloomFilter(10)
 	bbtopts.SetFilterPolicy(filter)

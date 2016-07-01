@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/golog"
 )
 
@@ -72,4 +73,9 @@ func exprFor(expr interface{}) Expr {
 	default:
 		panic(fmt.Sprintf("Got a %v, please specify an Expr, string, float64 or integer", reflect.TypeOf(expr)))
 	}
+}
+
+// ToString returns a readable string representation of an Expr.
+func ToString(e Expr) string {
+	return spew.Sprint(e)
 }
