@@ -13,7 +13,6 @@ type calcAccumulator struct {
 }
 
 func (a *calcAccumulator) Get() float64 {
-	log.Debugf("%v : %v", a.left.Get(), a.right.Get())
 	return a.calc(a.left.Get(), a.right.Get())
 }
 
