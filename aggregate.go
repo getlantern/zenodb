@@ -11,7 +11,6 @@ import (
 type Entry struct {
 	Dims          map[string]interface{}
 	Fields        map[string][]expr.Accumulator
-	Totals        map[string]expr.Accumulator
 	NumPeriods    int
 	scalingFactor int
 	inPeriods     int
@@ -216,7 +215,6 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 			entry = &Entry{
 				Dims:      key,
 				Fields:    make(map[string][]expr.Accumulator, len(aq.fields)),
-				Totals:    make(map[string]expr.Accumulator, len(aq.fields)),
 				rawValues: make(map[string][][]float64),
 			}
 			entries[ks] = entry
@@ -262,8 +260,6 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 				vals = append(vals, field.Accumulator())
 			}
 			entry.Fields[field.Name] = vals
-			total := field.Accumulator()
-			entry.Totals[field.Name] = total
 
 			// Calculate per-period values
 			for i := 0; i < entry.inPeriods; i++ {
@@ -272,7 +268,6 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 				for j := 0; j < entry.numSamples; j++ {
 					entry.valuesIdx = j
 					vals[outIdx].Update(entry)
-					total.Update(entry)
 				}
 			}
 		}
@@ -298,8 +293,8 @@ func (r *orderedEntries) Less(i, j int) bool {
 	a := r.r[i]
 	b := r.r[j]
 	for field, asc := range r.orderBy {
-		fa := a.Totals[field].Get()
-		fb := b.Totals[field].Get()
+		fa := a.Fields[field][0].Get()
+		fb := b.Fields[field][0].Get()
 		if fa == fb {
 			continue
 		}

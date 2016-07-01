@@ -194,10 +194,6 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 					t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
 				}
 				assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-				assert.EqualValues(t, 286, entry.Totals["sum_ii"].Get(), "Wrong total value")
-				if !assert.EqualValues(t, avg, entry.Totals["avg_ii"].Get(), "Wrong total value") {
-					t.Log(spew.Sprint(entry.Totals["avg_ii"]))
-				}
 			}
 		}
 	}
