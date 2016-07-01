@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/oxtoacart/tdb/expr"
 	"github.com/xwb1989/sqlparser"
@@ -17,6 +18,7 @@ var (
 	ErrNonUnaryFunction        = errors.New("Currently only unary functions like SUM(field) are supported")
 	ErrWildcardNotAllowed      = errors.New("Wildcard * is not supported")
 	ErrNestedFunctionCall      = errors.New("Nested function calls are not currently supported in SELECT")
+	ErrInvalidPeriod           = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
 )
 
 var unaryFuncs = map[string]func(param interface{}) expr.Expr{
@@ -34,16 +36,16 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 	"/": expr.DIV,
 }
 
-// ApplySQL parses a SQL statement and populates query parameters using it.
+// applySQL parses a SQL statement and populates query parameters using it.
 // For example:
 //
 //    SELECT AVG(a / (a + b + c)) AS rate
 //    FROM table_a
 //    WHERE dim_a =~ '172.56.+'
-//    GROUP BY dim_a, time(15s)
-//    ORDER BY rate ASC
+//    GROUP BY dim_a, period('5')
+//    ORDER BY AVG(rate) ASC
 //
-func (aq *Query) ApplySQL(sql string) error {
+func (aq *Query) applySQL(sql string) error {
 	parsed, err := sqlparser.Parse(sql)
 	if err != nil {
 		return err
@@ -101,7 +103,22 @@ func (aq *Query) applyFrom(stmt *sqlparser.Select) error {
 
 func (aq *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	for _, e := range stmt.GroupBy {
-		aq.GroupBy(exprToString(e))
+		fn, ok := e.(*sqlparser.FuncExpr)
+		if ok && strings.EqualFold("period", string(fn.Name)) {
+			log.Trace("Detected period in group by")
+			if len(fn.Exprs) != 1 {
+				return ErrInvalidPeriod
+			}
+			period := exprToString(fn.Exprs[0])
+			res, err := time.ParseDuration(strings.ToLower(strings.Trim(period, "'")))
+			if err != nil {
+				return fmt.Errorf("Unable to parse period %v: %v", period, err)
+			}
+			aq.Resolution(res)
+		} else {
+			log.Trace("Dimension specified in group by")
+			aq.GroupBy(exprToString(e))
+		}
 	}
 	return nil
 }

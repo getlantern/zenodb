@@ -66,6 +66,15 @@ type Query struct {
 	orderBy      []expr.Expr
 }
 
+func (db *DB) SQLQuery(sql string) (*Query, error) {
+	aq := &Query{db: db}
+	err := aq.applySQL(sql)
+	if err != nil {
+		return nil, err
+	}
+	return aq, nil
+}
+
 func (db *DB) Query(table string) *Query {
 	return &Query{db: db, table: table}
 }

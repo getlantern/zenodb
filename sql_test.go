@@ -2,6 +2,7 @@ package tdb
 
 import (
 	"testing"
+	"time"
 
 	. "github.com/oxtoacart/tdb/expr"
 	"github.com/stretchr/testify/assert"
@@ -9,11 +10,11 @@ import (
 
 func TestSQL(t *testing.T) {
 	aq := &Query{}
-	err := aq.ApplySQL(`
+	err := aq.applySQL(`
 SELECT AVG(a / (A + b + C)) AS rate
 FROM Table_A
 WHERE Dim_a =~ '^172.56.+' // this is a regex match
-GROUP BY dim_A //, time('15s') // time is a special function
+GROUP BY dim_A, period('5s') // time is a special function
 ORDER BY AVG(Rate) ASC
 `)
 	if assert.NoError(t, err) {
@@ -31,5 +32,6 @@ ORDER BY AVG(Rate) ASC
 			actual := ToString(aq.orderBy[0])
 			assert.Equal(t, expected, actual)
 		}
+		assert.Equal(t, 5*time.Second, aq.resolution)
 	}
 }
