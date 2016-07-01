@@ -15,7 +15,7 @@ SELECT AVG(a / (A + b + C)) AS rate
 FROM Table_A
 WHERE Dim_a =~ '^172.56.+' // this is a regex match
 GROUP BY dim_A, period(5s) // time is a special function
-ORDER BY AVG(Rate) ASC
+ORDER BY AVG(Rate) DESC
 `)
 	if !assert.NoError(t, err) {
 		return
@@ -30,7 +30,7 @@ ORDER BY AVG(Rate) ASC
 		assert.Equal(t, "dim_a", aq.dims[0])
 	}
 	if assert.Len(t, aq.orderBy, 1) {
-		expected := ToString(AVG("rate"))
+		expected := ToString(MULT(-1, AVG("rate")))
 		actual := ToString(aq.orderBy[0])
 		assert.Equal(t, expected, actual)
 	}

@@ -43,7 +43,7 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 //  FROM Table_A
 //  WHERE Dim_a =~ '^172.56.+' // this is a regex match
 //  GROUP BY dim_A, period(5s) // time is a special function
-//  ORDER BY AVG(Rate) ASC
+//  ORDER BY AVG(Rate) DESC
 //
 func (aq *Query) applySQL(sql string) error {
 	parsed, err := sqlparser.Parse(sql)
@@ -129,7 +129,11 @@ func (aq *Query) applyOrderBy(stmt *sqlparser.Select) error {
 		if err != nil {
 			return err
 		}
-		aq.OrderBy(e.(expr.Expr), strings.EqualFold("ASC", _e.Direction))
+		asc := strings.EqualFold("ASC", _e.Direction)
+		if log.IsTraceEnabled() {
+			log.Tracef("Ordering by %v asc?: %v", expr.ToString(e.(expr.Expr)), asc)
+		}
+		aq.OrderBy(e.(expr.Expr), asc)
 	}
 	return nil
 }

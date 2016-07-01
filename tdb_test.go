@@ -182,7 +182,7 @@ SELECT
 	MIN(ii) AS min_ii
 FROM test_a
 GROUP BY r, period(%v)
-ORDER BY AVG(avg_ii)
+ORDER BY AVG(avg_ii) DESC
 `, resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
 		return
