@@ -27,7 +27,7 @@ type QueryStats struct {
 	FilterReject int64
 	ReadValue    int64
 	DataValid    int64
-	Included     int64
+	InTimeRange  int64
 }
 
 func (db *DB) runQuery(q *query) (*QueryStats, error) {
@@ -131,7 +131,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 					}
 				}
 				if includeKey {
-					stats.Included++
+					stats.InTimeRange++
 					q.onValues(key, storedField, vals)
 				}
 			}
