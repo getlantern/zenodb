@@ -13,7 +13,7 @@ func TestSQL(t *testing.T) {
 	err := aq.applySQL(`
 SELECT AVG(a / (A + b + C)) AS rate
 FROM Table_A
-WHERE Dim_a =~ '^172.56.+' // this is a regex match
+WHERE Dim_a LIKE '172.56.' AND dim_b > 10
 GROUP BY dim_A, period(5s) // time is a special function
 ORDER BY AVG(Rate) DESC
 `)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Knetic/govaluate"
 	"github.com/tecbot/gorocksdb"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
@@ -14,6 +15,7 @@ import (
 type query struct {
 	table    string
 	fields   []string
+	filter   *govaluate.EvaluableExpression
 	from     time.Time
 	to       time.Time
 	onValues func(key map[string]interface{}, field string, vals []float64)
@@ -75,6 +77,16 @@ func (db *DB) runQuery(q *query) error {
 				return fmt.Errorf("Unable to decode key: %v", err)
 			}
 			k.Free()
+
+			if q.filter != nil {
+				include, err := q.filter.Evaluate(key)
+				if err != nil {
+					return fmt.Errorf("Unable to apply filter: %v", err)
+				}
+				if !include.(bool) {
+					continue
+				}
+			}
 
 			v := it.Value()
 			seq := sequence(v.Data())

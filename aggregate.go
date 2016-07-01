@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Knetic/govaluate"
 	"github.com/oxtoacart/tdb/expr"
 )
 
@@ -65,6 +66,7 @@ type Query struct {
 	sortedFields sortedFields
 	dims         []string
 	dimsMap      map[string]bool
+	filter       string
 	orderBy      []expr.Expr
 }
 
@@ -109,6 +111,11 @@ func (aq *Query) OrderBy(e expr.Expr, asc bool) *Query {
 		e = expr.MULT(-1, e)
 	}
 	aq.orderBy = append(aq.orderBy, e)
+	return aq
+}
+
+func (aq *Query) Where(filter string) *Query {
+	aq.filter = filter
 	return aq
 }
 
@@ -178,6 +185,14 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		fields = append(fields, dependency)
 	}
 	q.fields = fields
+
+	if aq.filter != "" {
+		filter, err := govaluate.NewEvaluableExpression(aq.filter)
+		if err != nil {
+			return nil, fmt.Errorf("Invalid filter expression: %v", err)
+		}
+		q.filter = filter
+	}
 
 	nativeResolution := t.resolution
 	resolution := aq.resolution

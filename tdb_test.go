@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Knetic/govaluate"
 	"github.com/davecgh/go-spew/spew"
 	. "github.com/oxtoacart/tdb/expr"
 
@@ -69,7 +70,7 @@ func TestRoundTrip(t *testing.T) {
 		Dims: map[string]interface{}{
 			"r": "reporter1",
 			"u": 1,
-			"b": true,
+			"b": false,
 		},
 		Vals: map[string]float64{
 			"i":  1,
@@ -82,7 +83,7 @@ func TestRoundTrip(t *testing.T) {
 		Dims: map[string]interface{}{
 			"r": "reporter1",
 			"u": 1,
-			"b": true,
+			"b": false,
 		},
 		Vals: map[string]float64{
 			"i":  10,
@@ -97,7 +98,7 @@ func TestRoundTrip(t *testing.T) {
 		Dims: map[string]interface{}{
 			"r": "reporter1",
 			"u": 1,
-			"b": true,
+			"b": false,
 		},
 		Vals: map[string]float64{
 			"i":  111,
@@ -118,15 +119,33 @@ func TestRoundTrip(t *testing.T) {
 		},
 	})
 
+	db.Insert("test_a", &Point{
+		Ts: now,
+		Dims: map[string]interface{}{
+			"r": "reporter1",
+			"u": 2,
+			"b": true,
+		},
+		Vals: map[string]float64{
+			"i":  30000,
+			"ii": 40000,
+		},
+	})
+
 	advance(hotPeriod * 10)
 
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[uint64][]float64, error) {
+		filter, queryErr := govaluate.NewEvaluableExpression("!b")
+		if queryErr != nil {
+			return nil, queryErr
+		}
 		result := make(map[uint64][]float64, 0)
 		err = db.runQuery(&query{
 			table:  table,
 			fields: []string{field},
 			from:   from,
 			to:     to,
+			filter: filter,
 			onValues: func(key map[string]interface{}, resultField string, vals []float64) {
 				log.Debugf("%v : %v : %v", key, field, vals)
 				if field == resultField {
@@ -181,6 +200,7 @@ SELECT
 	AVG(ii) AS avg_ii,
 	MIN(ii) AS min_ii
 FROM test_a
+WHERE b != true
 GROUP BY r, period(%v)
 ORDER BY AVG(avg_ii) DESC
 `, resolution*time.Duration(scalingFactor)))

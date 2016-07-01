@@ -41,7 +41,7 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 //
 //  SELECT AVG(a / (A + b + C)) AS rate
 //  FROM Table_A
-//  WHERE Dim_a =~ '^172.56.+' // this is a regex match
+//  WHERE Dim_a LIKE '172.56.' AND dim_b > 10
 //  GROUP BY dim_A, period(5s) // time is a special function
 //  ORDER BY AVG(Rate) DESC
 //
@@ -64,6 +64,12 @@ func (aq *Query) applySQL(sql string) error {
 	err = aq.applyFrom(stmt)
 	if err != nil {
 		return err
+	}
+	if stmt.Where != nil {
+		err = aq.applyWhere(stmt)
+		if err != nil {
+			return err
+		}
 	}
 	err = aq.applyGroupBy(stmt)
 	if err != nil {
@@ -98,6 +104,13 @@ func (aq *Query) applySelect(stmt *sqlparser.Select) error {
 
 func (aq *Query) applyFrom(stmt *sqlparser.Select) error {
 	aq.table = strings.ToLower(exprToString(stmt.From[0]))
+	return nil
+}
+
+func (aq *Query) applyWhere(stmt *sqlparser.Select) error {
+	filter, _ := boolExprFor(stmt.Where.Expr)
+	log.Tracef("Applying where: %v", filter)
+	aq.Where(filter)
 	return nil
 }
 
@@ -138,11 +151,11 @@ func (aq *Query) applyOrderBy(stmt *sqlparser.Select) error {
 	return nil
 }
 
-func exprFor(se sqlparser.Expr) (interface{}, error) {
+func exprFor(_e sqlparser.Expr) (interface{}, error) {
 	if log.IsTraceEnabled() {
-		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(se), exprToString(se))
+		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
-	switch e := se.(type) {
+	switch e := _e.(type) {
 	case *sqlparser.FuncExpr:
 		if len(e.Exprs) != 1 {
 			return nil, ErrNonUnaryFunction
@@ -186,8 +199,46 @@ func exprFor(se sqlparser.Expr) (interface{}, error) {
 		log.Tracef("Returning wrapped expression for ValTuple")
 		return exprFor(e[0])
 	default:
-		str := exprToString(se)
+		str := exprToString(_e)
 		log.Tracef("Returning string for expression: %v", str)
+		return str, nil
+	}
+}
+
+func boolExprFor(_e sqlparser.Expr) (string, error) {
+	if log.IsTraceEnabled() {
+		log.Tracef("Parsing boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
+	}
+	switch e := _e.(type) {
+	case *sqlparser.AndExpr:
+		left, err := boolExprFor(e.Left)
+		if err != nil {
+			return "", err
+		}
+		right, err := boolExprFor(e.Right)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("(%s && %s)", left, right), nil
+	case *sqlparser.OrExpr:
+		left, err := boolExprFor(e.Left)
+		if err != nil {
+			return "", err
+		}
+		right, err := boolExprFor(e.Right)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("(%s || %s)", left, right), nil
+	case *sqlparser.NotExpr:
+		wrapped, err := boolExprFor(e.Expr)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("!%s", wrapped), nil
+	default:
+		str := exprToString(_e)
+		log.Tracef("Returning string for boolean expression: %v", str)
 		return str, nil
 	}
 }
