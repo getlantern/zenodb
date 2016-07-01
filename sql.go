@@ -11,7 +11,11 @@ import (
 )
 
 var (
-	ErrSelectInvalidExpression = errors.New("All expressions in SELECT clause must be unary function calls like SUM(field) AS alias. Wildcard * is not supported.")
+	ErrMissingSelect           = errors.New("Please SELECT at least one field")
+	ErrInvalidFrom             = errors.New("Please specify a single table in the FROM clause")
+	ErrSelectInvalidExpression = errors.New("All expressions in SELECT clause must be unary function calls like SUM(field) AS alias")
+	ErrNonUnaryFunction        = errors.New("Currently only unary functions like SUM(field) are supported")
+	ErrWildcardNotAllowed      = errors.New("Wildcard * is not supported")
 	ErrNestedFunctionCall      = errors.New("Nested function calls are not currently supported in SELECT")
 )
 
@@ -39,56 +43,108 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 //    GROUP BY dim_a, time(15s)
 //    ORDER BY rate ASC
 //
-func (aq *Query) ApplySQL(sql string) (*Query, error) {
+func (aq *Query) ApplySQL(sql string) error {
 	parsed, err := sqlparser.Parse(sql)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	stmt := parsed.(*sqlparser.Select)
+	if len(stmt.SelectExprs) == 0 {
+		return ErrMissingSelect
+	}
+	if len(stmt.From) != 1 {
+		return ErrInvalidFrom
+	}
+	err = aq.applySelect(stmt)
+	if err != nil {
+		return err
+	}
+	err = aq.applyFrom(stmt)
+	if err != nil {
+		return err
+	}
+	err = aq.applyGroupBy(stmt)
+	if err != nil {
+		return err
+	}
+	err = aq.applyOrderBy(stmt)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (aq *Query) applySelect(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.SelectExprs {
 		log.Tracef("Parsing SELECT expression: %v", _e)
 		e, ok := _e.(*sqlparser.NonStarExpr)
 		if !ok {
-			return nil, ErrSelectInvalidExpression
+			return ErrSelectInvalidExpression
 		}
 		if len(e.As) == 0 {
-			return nil, ErrSelectInvalidExpression
+			return ErrSelectInvalidExpression
 		}
-		fc, ok := e.Expr.(*sqlparser.FuncExpr)
-		if !ok {
-			return nil, ErrSelectInvalidExpression
+		fe, err := exprFor(e.Expr)
+		if err != nil {
+			return err
 		}
-		if len(fc.Exprs) != 1 {
-			return nil, ErrSelectInvalidExpression
+		aq.Select(string(e.As), fe.(expr.Expr))
+	}
+
+	return nil
+}
+
+func (aq *Query) applyFrom(stmt *sqlparser.Select) error {
+	aq.table = strings.ToLower(exprToString(stmt.From[0]))
+	return nil
+}
+
+func (aq *Query) applyGroupBy(stmt *sqlparser.Select) error {
+	for _, e := range stmt.GroupBy {
+		aq.GroupBy(exprToString(e))
+	}
+	return nil
+}
+
+func (aq *Query) applyOrderBy(stmt *sqlparser.Select) error {
+	for _, _e := range stmt.OrderBy {
+		e, err := exprFor(_e.Expr)
+		if err != nil {
+			return err
 		}
-		fname := strings.ToUpper(string(fc.Name))
+		aq.OrderBy(e.(expr.Expr), strings.EqualFold("ASC", _e.Direction))
+	}
+	return nil
+}
+
+func exprFor(se sqlparser.Expr) (interface{}, error) {
+	if log.IsTraceEnabled() {
+		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(se), exprToString(se))
+	}
+	switch e := se.(type) {
+	case *sqlparser.FuncExpr:
+		if len(e.Exprs) != 1 {
+			return nil, ErrNonUnaryFunction
+		}
+		fname := strings.ToUpper(string(e.Name))
 		f, ok := unaryFuncs[fname]
 		if !ok {
 			return nil, fmt.Errorf("Unknown function '%v'", fname)
 		}
 		log.Tracef("Found function in SELECT: %v", fname)
-		_param, ok := fc.Exprs[0].(*sqlparser.NonStarExpr)
+		_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
 		if !ok {
-			return nil, ErrSelectInvalidExpression
+			return nil, ErrWildcardNotAllowed
 		}
 		param, err := exprFor(_param.Expr)
 		if err != nil {
 			return nil, err
 		}
-		aq.Select(string(e.As), f(param))
-	}
-	return aq, nil
-}
-
-func exprFor(se sqlparser.Expr) (interface{}, error) {
-	if log.IsTraceEnabled() {
-		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(se), toString(se))
-	}
-	switch e := se.(type) {
+		return f(param), nil
 	case *sqlparser.BinaryExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {
-			log.Tracef("Parsing BinaryExpr %v %v %v", toString(e.Left), _op, toString(e.Right))
+			log.Tracef("Parsing BinaryExpr %v %v %v", exprToString(e.Left), _op, exprToString(e.Right))
 		}
 		op, ok := operators[_op]
 		if !ok {
@@ -109,13 +165,13 @@ func exprFor(se sqlparser.Expr) (interface{}, error) {
 		log.Tracef("Returning wrapped expression for ValTuple")
 		return exprFor(e[0])
 	default:
-		str := toString(se)
+		str := exprToString(se)
 		log.Tracef("Returning string for expression: %v", str)
 		return str, nil
 	}
 }
 
-func toString(node sqlparser.SQLNode) string {
+func exprToString(node sqlparser.SQLNode) string {
 	buf := sqlparser.NewTrackedBuffer(nil)
 	node.Format(buf)
 	return buf.String()
