@@ -44,6 +44,7 @@ type Query struct {
 	fields       map[string]expr.Expr
 	sortedFields sortedFields
 	dims         []string
+	dimsMap      map[string]bool
 	orderBy      map[string]bool
 }
 
@@ -52,7 +53,7 @@ type QueryResult struct {
 	From       time.Time
 	To         time.Time
 	Resolution time.Duration
-	Fields     []string
+	Fields     map[string]expr.Expr
 	Dims       []string
 	Entries    []*Entry
 }
@@ -114,9 +115,23 @@ func (aq *Query) Run() (*QueryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &QueryResult{
-		Entries: resultEntries,
-	}, nil
+	result := &QueryResult{
+		Table:      aq.table,
+		From:       q.from,
+		To:         q.to,
+		Resolution: aq.resolution,
+		Fields:     aq.fields,
+		Dims:       aq.dims,
+		Entries:    resultEntries,
+	}
+	if result.Dims == nil || len(result.Dims) == 0 {
+		result.Dims = make([]string, 0, len(aq.dimsMap))
+		for dim := range aq.dimsMap {
+			result.Dims = append(result.Dims, dim)
+		}
+		sort.Strings(result.Dims)
+	}
+	return result, nil
 }
 
 func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
@@ -151,6 +166,7 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	if resolution == 0 {
 		// Default to native resolution
 		resolution = nativeResolution
+		aq.resolution = nativeResolution
 	}
 	if resolution < nativeResolution {
 		return nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", resolution, nativeResolution)
@@ -163,12 +179,22 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	inPeriods := 0
 	outPeriods := 0
 
-	includedDims := make(map[string]bool, len(aq.dims))
-	for _, dim := range aq.dims {
-		includedDims[dim] = true
-	}
-	includeDim := func(dim string) bool {
-		return includedDims[dim]
+	var includeDim func(dim string) bool
+	if len(aq.dims) == 0 {
+		aq.dimsMap = make(map[string]bool, 10)
+		includeDim = func(dim string) bool {
+			// Collect the dims
+			aq.dimsMap[dim] = true
+			return true
+		}
+	} else {
+		includedDims := make(map[string]bool, len(aq.dims))
+		for _, dim := range aq.dims {
+			includedDims[dim] = true
+		}
+		includeDim = func(dim string) bool {
+			return includedDims[dim]
+		}
 	}
 
 	entries := make(map[string]*Entry, 0)

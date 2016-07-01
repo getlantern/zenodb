@@ -201,4 +201,15 @@ func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.D
 			}
 		}
 	}
+
+	// Test defaults
+	aq = db.Query("Test_A", 0).
+		Select("sum_ii", Sum("ii")).
+		From(epoch.Add(-1 * resolution))
+
+	result, err = aq.Run()
+	if assert.NoError(t, err, "Unable to run query with defaults") {
+		assert.Equal(t, []string{"b", "r", "u"}, result.Dims)
+		assert.NotNil(t, result.To)
+	}
 }
