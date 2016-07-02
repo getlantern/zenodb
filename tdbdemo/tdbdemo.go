@@ -46,9 +46,9 @@ func main() {
 		BatchSize: 1000,
 	})
 	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod, map[string]Expr{
-		"i":   Sum("i"),
-		"ii":  Sum("ii"),
-		"iii": Avg(Div("ii", "i")),
+		"i":   SUM("i"),
+		"ii":  SUM("ii"),
+		"iii": AVG(DIV("ii", "i")),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -91,22 +91,27 @@ HeapAlloc pre/post GC %f/%f MiB
 		for {
 			tk := time.NewTicker(10 * time.Second)
 			for range tk.C {
-				count := 0
 				now := db.Now("test")
-				q := &tdb.Query{
-					Table:  "test",
-					Fields: []string{"i"},
-					From:   now.Add(-2 * hotPeriod),
-					OnValues: func(key map[string]interface{}, field string, vals []float64) {
-						count++
-					},
+				q, err := db.SQLQuery(`
+SELECT COUNT(i) AS the_count
+FROM test
+GROUP BY period(168h)
+`)
+				if err != nil {
+					log.Errorf("Unable to build query: %v", err)
+					continue
 				}
+				q.From(now.Add(-2 * hotPeriod))
 				start := time.Now()
-				err := db.RunQuery(q)
+				result, err := q.Run()
 				delta := time.Now().Sub(start)
 				if err != nil {
 					log.Errorf("Unable to run query: %v", err)
 					continue
+				}
+				count := float64(0)
+				if len(result.Entries) > 0 {
+					count = result.Entries[0].Fields["the_count"][0].Get()
 				}
 				fmt.Printf("\nQuery at %v returned %v in %v\n", now, humanize.Comma(int64(count)), delta)
 			}

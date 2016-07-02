@@ -11,12 +11,12 @@ import (
 	"testing"
 )
 
-const numBuckets = 365 * 24
+const numPeriods = 365 * 24
 
 func testSnappy(t *testing.T) {
 	for i := 0.01; i <= 1; i += 0.01 {
-		buf := bytes.NewBuffer(make([]byte, 0, numBuckets*8))
-		for j := 0; j < numBuckets; j++ {
+		buf := bytes.NewBuffer(make([]byte, 0, numPeriods*8))
+		for j := 0; j < numPeriods; j++ {
 			val := rand.Float64()
 			if val > i {
 				val = 0
