@@ -16,6 +16,8 @@ type query struct {
 	table    string
 	fields   []string
 	filter   *govaluate.EvaluableExpression
+	offset   time.Duration
+	limit    time.Duration
 	from     time.Time
 	to       time.Time
 	onValues func(key map[string]interface{}, field string, vals []float64)
@@ -35,8 +37,8 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	start := time.Now()
 	stats := &QueryStats{}
 
-	if q.from.IsZero() {
-		return stats, fmt.Errorf("Please specify a from")
+	if q.offset == 0 {
+		return stats, fmt.Errorf("Please specify an offset")
 	}
 	if len(q.fields) == 0 {
 		return stats, fmt.Errorf("Please specify at least one field")
@@ -54,15 +56,13 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 		fields = append(fields, fieldBytes)
 	}
 	sort.Sort(lexicographical(fields))
-	if q.to.IsZero() {
-		q.to = t.clock.Now()
+	if q.limit == 0 {
+		q.limit = q.offset
 	}
-	q.to = roundTime(q.to, t.resolution)
-	q.from = roundTime(q.from, t.resolution)
-	if !q.from.Before(q.to) {
-		return stats, fmt.Errorf("From %v must be before to %v", q.from, q.to)
-	}
-	numPeriods := int(q.to.Sub(q.from) / t.resolution)
+	numPeriods := int(q.limit / t.resolution)
+	now := t.clock.Now()
+	q.from = now.Add(-1 * q.offset)
+	q.to = q.from.Add(q.limit)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.from, q.to)
 
 	ro := gorocksdb.NewDefaultReadOptions()

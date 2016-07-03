@@ -79,7 +79,7 @@ func (aq *Query) applySQL(sql string) error {
 	if err != nil {
 		return err
 	}
-	return nil
+	return aq.applyLimit(stmt)
 }
 
 func (aq *Query) applySelect(stmt *sqlparser.Select) error {
@@ -123,7 +123,7 @@ func (aq *Query) applyGroupBy(stmt *sqlparser.Select) error {
 				return ErrInvalidPeriod
 			}
 			period := exprToString(fn.Exprs[0])
-			res, err := time.ParseDuration(strings.ToLower(strings.Replace(period, " as ", "", 1)))
+			res, err := time.ParseDuration(strings.ToLower(strings.Replace(strings.Trim(period, "''"), " as ", "", 1)))
 			if err != nil {
 				return fmt.Errorf("Unable to parse period %v: %v", period, err)
 			}
@@ -148,6 +148,30 @@ func (aq *Query) applyOrderBy(stmt *sqlparser.Select) error {
 		}
 		aq.OrderBy(e.(expr.Expr), asc)
 	}
+	return nil
+}
+
+func (aq *Query) applyLimit(stmt *sqlparser.Select) error {
+	if stmt.Limit != nil {
+		if stmt.Limit.Rowcount != nil {
+			_limit := exprToString(stmt.Limit.Rowcount)
+			limit, err := time.ParseDuration(strings.ToLower(strings.Trim(_limit, "''")))
+			if err != nil {
+				return fmt.Errorf("Unable to parse limit %v: %v", _limit, err)
+			}
+			aq.Limit(limit)
+		}
+
+		if stmt.Limit.Offset != nil {
+			_offset := exprToString(stmt.Limit.Offset)
+			offset, err := time.ParseDuration(strings.ToLower(strings.Trim(_offset, "''")))
+			if err != nil {
+				return fmt.Errorf("Unable to parse offset %v: %v", _offset, err)
+			}
+			aq.Offset(offset)
+		}
+	}
+
 	return nil
 }
 

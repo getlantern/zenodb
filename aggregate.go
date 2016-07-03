@@ -60,8 +60,8 @@ type QueryResult struct {
 type Query struct {
 	db           *DB
 	table        string
-	from         time.Time
-	to           time.Time
+	offset       time.Duration
+	limit        time.Duration
 	resolution   time.Duration
 	fields       map[string]expr.Expr
 	fieldOrder   []string
@@ -121,21 +121,21 @@ func (aq *Query) Where(filter string) *Query {
 	return aq
 }
 
-func (aq *Query) From(from time.Time) *Query {
-	aq.from = from
+func (aq *Query) Offset(offset time.Duration) *Query {
+	aq.offset = offset
 	return aq
 }
 
-func (aq *Query) To(to time.Time) *Query {
-	aq.to = to
+func (aq *Query) Limit(limit time.Duration) *Query {
+	aq.limit = limit
 	return aq
 }
 
 func (aq *Query) Run() (*QueryResult, error) {
 	q := &query{
-		table: aq.table,
-		from:  aq.from,
-		to:    aq.to,
+		table:  aq.table,
+		offset: aq.offset,
+		limit:  aq.limit,
 	}
 	entries, err := aq.prepare(q)
 	if err != nil {

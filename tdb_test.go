@@ -139,12 +139,14 @@ func TestIntegration(t *testing.T) {
 		if queryErr != nil {
 			return nil, queryErr
 		}
+		offset := now.Sub(from)
+		limit := to.Sub(from)
 		result := make(map[uint64][]float64, 0)
 		_, err = db.runQuery(&query{
 			table:  table,
 			fields: []string{field},
-			from:   from,
-			to:     to,
+			offset: offset,
+			limit:  limit,
 			filter: filter,
 			onValues: func(key map[string]interface{}, resultField string, vals []float64) {
 				log.Debugf("%v : %v : %v", key, field, vals)
@@ -187,10 +189,10 @@ func TestIntegration(t *testing.T) {
 		}
 	}
 
-	testAggregateQuery(t, db, epoch, resolution)
+	testAggregateQuery(t, db, now, epoch, resolution)
 }
 
-func testAggregateQuery(t *testing.T, db *DB, epoch time.Time, resolution time.Duration) {
+func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration) {
 	scalingFactor := 5
 
 	aq, err := db.SQLQuery(fmt.Sprintf(`
@@ -201,19 +203,20 @@ SELECT
 	MIN(ii) AS min_ii
 FROM test_a
 WHERE b != true
-GROUP BY r, period(%v)
+GROUP BY r, period('%v')
 ORDER BY AVG(avg_ii) DESC
-`, resolution*time.Duration(scalingFactor)))
+LIMIT '%v', '%v'
+`, resolution*time.Duration(scalingFactor), now.Sub(epoch.Add(-1*resolution)), 3*resolution))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
 		return
 	}
-	aq.From(epoch.Add(-1 * resolution)).To(epoch.Add(resolution * 2))
 
 	result, err := aq.Run()
 	if !assert.NoError(t, err, "Unable to run query") {
 		return
 	}
 
+	log.Debugf("%v -> %v", result.From, result.To)
 	entry := result.Entries[0]
 	if !assert.EqualValues(t, "reporter1", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 		return
@@ -232,7 +235,7 @@ ORDER BY AVG(avg_ii) DESC
 	// Test defaults
 	aq = db.Query("Test_A").
 		Select("sum_ii", SUM("ii")).
-		From(epoch.Add(-1 * resolution))
+		Offset(now.Sub(epoch.Add(-1 * resolution)))
 
 	result, err = aq.Run()
 	if assert.NoError(t, err, "Unable to run query with defaults") {
