@@ -57,13 +57,13 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	if q.to.IsZero() {
 		q.to = t.clock.Now()
 	}
-	q.from = roundTime(q.from, t.resolution)
-	if q.to.IsZero() {
-		q.to = t.clock.Now()
-	}
 	q.to = roundTime(q.to, t.resolution)
-	numPeriods := int(q.to.Sub(q.from)/t.resolution) + 1
-	log.Tracef("Query will return %d periods", numPeriods)
+	q.from = roundTime(q.from, t.resolution)
+	if !q.from.Before(q.to) {
+		return stats, fmt.Errorf("From %v must be before to %v", q.from, q.to)
+	}
+	numPeriods := int(q.to.Sub(q.from) / t.resolution)
+	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.from, q.to)
 
 	ro := gorocksdb.NewDefaultReadOptions()
 	// Go ahead and fill the cache

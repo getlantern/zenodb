@@ -21,7 +21,7 @@ func TestRoundTime(t *testing.T) {
 	assert.Equal(t, expected, rounded)
 }
 
-func TestRoundTrip(t *testing.T) {
+func TestIntegration(t *testing.T) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	tmpDir, err := ioutil.TempDir("", "tdbtest")
@@ -156,21 +156,21 @@ func TestRoundTrip(t *testing.T) {
 		return result, err
 	}
 
-	result, err := query("Test_A", epoch, epoch, "u", "i")
+	result, err := query("Test_A", epoch.Add(-1*resolution), epoch, "u", "i")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{11}, result[1])
 		}
 	}
 
-	result, err = query("Test_A", epoch, epoch, "u", "iii")
+	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{101}, result[1])
 		}
 	}
 
-	result, err = query("Test_A", epoch.Add(-1*resolution), epoch.Add(resolution*2), "u", "ii")
+	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
 			assert.Equal(t, []float64{222, 22, 0, 0}, result[1])
@@ -178,7 +178,7 @@ func TestRoundTrip(t *testing.T) {
 		}
 	}
 
-	result, err = query("Test_A", epoch.Add(-1*resolution), epoch.Add(resolution*2), "u", "ii")
+	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
 	log.Debug(result)
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {

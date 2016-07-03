@@ -201,19 +201,18 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	}
 
 	nativeResolution := t.resolution
-	resolution := aq.resolution
-	if resolution == 0 {
+	if aq.resolution == 0 {
 		// Default to native resolution
-		resolution = nativeResolution
 		aq.resolution = nativeResolution
 	}
-	if resolution < nativeResolution {
-		return nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", resolution, nativeResolution)
+	if aq.resolution < nativeResolution {
+		return nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.resolution, nativeResolution)
 	}
-	if resolution%nativeResolution != 0 {
-		return nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", resolution, nativeResolution)
+	if aq.resolution%nativeResolution != 0 {
+		return nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", aq.resolution, nativeResolution)
 	}
-	scalingFactor := int(resolution / nativeResolution)
+	scalingFactor := int(aq.resolution / nativeResolution)
+	log.Tracef("Scaling factor: %d", scalingFactor)
 	// we'll calculate periods lazily later
 	inPeriods := 0
 	outPeriods := 0
@@ -270,6 +269,7 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 				inPeriods -= inPeriods % scalingFactor
 				outPeriods = (inPeriods / scalingFactor) + 1
 				inPeriods = outPeriods * scalingFactor
+				log.Tracef("In: %d   Out: %d", inPeriods, outPeriods)
 			}
 			entry.NumPeriods = outPeriods
 			entry.inPeriods = inPeriods
