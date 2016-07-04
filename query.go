@@ -59,9 +59,12 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	now := t.clock.Now()
 	if q.to.IsZero() {
 		q.to = now
+		if q.toOffset != 0 {
+			q.to = q.to.Add(q.toOffset)
+		}
 	}
 	if q.from.IsZero() {
-		q.from = q.to.Add(q.fromOffset)
+		q.from = now.Add(q.fromOffset)
 	}
 	q.to = roundTime(q.to, t.resolution)
 	q.from = roundTime(q.from, t.resolution)
