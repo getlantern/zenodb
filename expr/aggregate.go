@@ -1,10 +1,14 @@
 package expr
 
+import (
+	"fmt"
+)
+
 type updateFN func(current float64, next float64) float64
 
 // aggregate creates an Expr that obtains its value by doing aggregation
-func aggregate(expr interface{}, defaultValue float64, update updateFN) Expr {
-	return &agg{exprFor(expr), defaultValue, update}
+func aggregate(name string, expr interface{}, defaultValue float64, update updateFN) Expr {
+	return &agg{name, exprFor(expr), defaultValue, update}
 }
 
 type aggregateAccumulator struct {
@@ -27,6 +31,7 @@ func (a *aggregateAccumulator) Get() float64 {
 }
 
 type agg struct {
+	name         string
 	wrapped      Expr
 	defaultValue float64
 	update       updateFN
@@ -43,4 +48,8 @@ func (e *agg) Accumulator() Accumulator {
 
 func (e *agg) DependsOn() []string {
 	return e.wrapped.DependsOn()
+}
+
+func (e *agg) String() string {
+	return fmt.Sprintf("%v(%v)", e.name, e.wrapped)
 }

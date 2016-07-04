@@ -4,11 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/oxtoacart/sqlparser"
 	"github.com/oxtoacart/tdb/expr"
-	"github.com/xwb1989/sqlparser"
 )
 
 var (
@@ -34,6 +35,15 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 	"-": expr.SUB,
 	"*": expr.MULT,
 	"/": expr.DIV,
+}
+
+var conditions = map[string]func(left interface{}, right interface{}) expr.Cond{
+	"<":  expr.LT,
+	"<=": expr.LTE,
+	"=":  expr.EQ,
+	"<>": expr.NEQ,
+	">=": expr.GTE,
+	">":  expr.GT,
 }
 
 // applySQL parses a SQL statement and populates query parameters using it.
@@ -71,7 +81,17 @@ func (aq *Query) applySQL(sql string) error {
 			return err
 		}
 	}
+	if stmt.TimeRange != nil {
+		err = aq.applyTimeRange(stmt)
+		if err != nil {
+			return err
+		}
+	}
 	err = aq.applyGroupBy(stmt)
+	if err != nil {
+		return err
+	}
+	err = aq.applyHaving(stmt)
 	if err != nil {
 		return err
 	}
@@ -114,6 +134,34 @@ func (aq *Query) applyWhere(stmt *sqlparser.Select) error {
 	return nil
 }
 
+func (aq *Query) applyTimeRange(stmt *sqlparser.Select) error {
+	if stmt.TimeRange.From != "" {
+		t, d, err := stringToTimeOrDuration(stmt.TimeRange.From)
+		if err != nil {
+			return fmt.Errorf("Bad TIMERANGE from: %v", err)
+		}
+		if !t.IsZero() {
+			aq.From(t)
+		} else {
+			aq.FromOffset(d)
+		}
+	}
+
+	if stmt.TimeRange.To != "" {
+		t, d, err := stringToTimeOrDuration(stmt.TimeRange.To)
+		if err != nil {
+			return fmt.Errorf("Bad TIMERANGE to: %v", err)
+		}
+		if !t.IsZero() {
+			aq.To(t)
+		} else {
+			aq.ToOffset(d)
+		}
+	}
+
+	return nil
+}
+
 func (aq *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	for _, e := range stmt.GroupBy {
 		fn, ok := e.(*sqlparser.FuncExpr)
@@ -136,6 +184,15 @@ func (aq *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	return nil
 }
 
+func (aq *Query) applyHaving(stmt *sqlparser.Select) error {
+	if stmt.Having != nil {
+		filter, _ := exprFor(stmt.Having.Expr)
+		log.Tracef("Applying having: %v", filter)
+		aq.Having(filter.(expr.Cond))
+	}
+	return nil
+}
+
 func (aq *Query) applyOrderBy(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.OrderBy {
 		e, err := exprFor(_e.Expr)
@@ -144,7 +201,7 @@ func (aq *Query) applyOrderBy(stmt *sqlparser.Select) error {
 		}
 		asc := strings.EqualFold("ASC", _e.Direction)
 		if log.IsTraceEnabled() {
-			log.Tracef("Ordering by %v asc?: %v", expr.ToString(e.(expr.Expr)), asc)
+			log.Tracef("Ordering by %v asc?: %v", e, asc)
 		}
 		aq.OrderBy(e.(expr.Expr), asc)
 	}
@@ -155,7 +212,7 @@ func (aq *Query) applyLimit(stmt *sqlparser.Select) error {
 	if stmt.Limit != nil {
 		if stmt.Limit.Rowcount != nil {
 			_limit := exprToString(stmt.Limit.Rowcount)
-			limit, err := time.ParseDuration(strings.ToLower(strings.Trim(_limit, "''")))
+			limit, err := strconv.Atoi(strings.ToLower(strings.Trim(_limit, "''")))
 			if err != nil {
 				return fmt.Errorf("Unable to parse limit %v: %v", _limit, err)
 			}
@@ -164,7 +221,7 @@ func (aq *Query) applyLimit(stmt *sqlparser.Select) error {
 
 		if stmt.Limit.Offset != nil {
 			_offset := exprToString(stmt.Limit.Offset)
-			offset, err := time.ParseDuration(strings.ToLower(strings.Trim(_offset, "''")))
+			offset, err := strconv.Atoi(strings.ToLower(strings.Trim(_offset, "''")))
 			if err != nil {
 				return fmt.Errorf("Unable to parse offset %v: %v", _offset, err)
 			}
@@ -189,7 +246,7 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 		if !ok {
 			return nil, fmt.Errorf("Unknown function '%v'", fname)
 		}
-		log.Tracef("Found function in SELECT: %v", fname)
+		log.Tracef("Found function: %v", fname)
 		_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
 		if !ok {
 			return nil, ErrWildcardNotAllowed
@@ -199,6 +256,24 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 			return nil, err
 		}
 		return f(param), nil
+	case *sqlparser.ComparisonExpr:
+		_op := string(e.Operator)
+		if log.IsTraceEnabled() {
+			log.Tracef("Parsing ComparisonExpr %v %v %v", exprToString(e.Left), _op, exprToString(e.Right))
+		}
+		cond, ok := conditions[_op]
+		if !ok {
+			return nil, fmt.Errorf("Unknown condition %v", _op)
+		}
+		left, err := exprFor(e.Left)
+		if err != nil {
+			return nil, err
+		}
+		right, err := exprFor(e.Right)
+		if err != nil {
+			return nil, err
+		}
+		return cond(left, right), nil
 	case *sqlparser.BinaryExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {
@@ -296,4 +371,13 @@ func exprToString(node sqlparser.SQLNode) string {
 	buf := sqlparser.NewTrackedBuffer(nil)
 	node.Format(buf)
 	return buf.String()
+}
+
+func stringToTimeOrDuration(str string) (time.Time, time.Duration, error) {
+	t, err := time.Parse(time.RFC3339, str)
+	if err == nil {
+		return t, 0, err
+	}
+	d, err := time.ParseDuration(strings.ToLower(str))
+	return t, d, err
 }

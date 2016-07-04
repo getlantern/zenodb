@@ -22,6 +22,7 @@ type Entry struct {
 	fieldsIdx     int
 	rawValues     map[string][][]float64
 	orderByValues []expr.Accumulator
+	havingTest    expr.Accumulator
 }
 
 // Get implements the method from interface govaluate.Parameters
@@ -57,11 +58,18 @@ type QueryResult struct {
 	Stats      *QueryStats
 }
 
+// TODO: if expressions repeat across fields, or across orderBy and having,
+// optimize by sharing accumulators.
+
 type Query struct {
 	db           *DB
 	table        string
-	offset       time.Duration
-	limit        time.Duration
+	from         time.Time
+	fromOffset   time.Duration
+	to           time.Time
+	toOffset     time.Duration
+	offset       int
+	limit        int
 	resolution   time.Duration
 	fields       map[string]expr.Expr
 	fieldOrder   []string
@@ -70,6 +78,7 @@ type Query struct {
 	dimsMap      map[string]bool
 	filter       string
 	orderBy      []expr.Expr
+	having       expr.Cond
 }
 
 func (db *DB) SQLQuery(sql string) (*Query, error) {
@@ -116,26 +125,53 @@ func (aq *Query) OrderBy(e expr.Expr, asc bool) *Query {
 	return aq
 }
 
+func (aq *Query) Having(e expr.Cond) *Query {
+	aq.having = e
+	return aq
+}
+
 func (aq *Query) Where(filter string) *Query {
 	aq.filter = filter
 	return aq
 }
 
-func (aq *Query) Offset(offset time.Duration) *Query {
+func (aq *Query) From(from time.Time) *Query {
+	aq.from = from
+	return aq
+}
+
+func (aq *Query) FromOffset(fromOffset time.Duration) *Query {
+	aq.fromOffset = fromOffset
+	return aq
+}
+
+func (aq *Query) To(to time.Time) *Query {
+	aq.to = to
+	return aq
+}
+
+func (aq *Query) ToOffset(toOffset time.Duration) *Query {
+	aq.toOffset = toOffset
+	return aq
+}
+
+func (aq *Query) Offset(offset int) *Query {
 	aq.offset = offset
 	return aq
 }
 
-func (aq *Query) Limit(limit time.Duration) *Query {
+func (aq *Query) Limit(limit int) *Query {
 	aq.limit = limit
 	return aq
 }
 
 func (aq *Query) Run() (*QueryResult, error) {
 	q := &query{
-		table:  aq.table,
-		offset: aq.offset,
-		limit:  aq.limit,
+		table:      aq.table,
+		from:       aq.from,
+		fromOffset: aq.fromOffset,
+		to:         aq.to,
+		toOffset:   aq.toOffset,
 	}
 	entries, err := aq.prepare(q)
 	if err != nil {
@@ -192,7 +228,7 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	q.fields = fields
 
 	if aq.filter != "" {
-		log.Debugf("Applying filter: %v", aq.filter)
+		log.Tracef("Applying filter: %v", aq.filter)
 		filter, err := govaluate.NewEvaluableExpression(aq.filter)
 		if err != nil {
 			return nil, fmt.Errorf("Invalid filter expression: %v", err)
@@ -259,6 +295,10 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 			// Initialize orderBys
 			for _, orderBy := range aq.orderBy {
 				entry.orderByValues = append(entry.orderByValues, orderBy.Accumulator())
+			}
+			// Initialize havings
+			if aq.having != nil {
+				entry.havingTest = aq.having.Accumulator()
 			}
 			entries[ks] = entry
 		}
@@ -327,11 +367,46 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 			}
 		}
 
+		// Calculate havings
+		if entry.havingTest != nil {
+			for j := 0; j < entry.inPeriods; j++ {
+				entry.fieldsIdx = j
+				entry.havingTest.Update(entry)
+			}
+		}
+
 		result = append(result, entry)
 	}
 
-	if aq.orderBy != nil && len(aq.orderBy) > 0 {
+	if len(aq.orderBy) > 0 {
 		sort.Sort(orderedEntries(result))
+	}
+
+	if aq.having != nil {
+		unfiltered := result
+		result = make([]*Entry, 0, len(result))
+		for _, entry := range unfiltered {
+			testResult := entry.havingTest.Get() == 1
+			log.Tracef("Testing %v : %v", aq.having, testResult)
+			if testResult {
+				result = append(result, entry)
+			}
+		}
+	}
+
+	if aq.offset > 0 {
+		offset := aq.offset
+		if offset > len(result) {
+			return make([]*Entry, 0), nil
+		}
+		result = result[offset:]
+	}
+	if aq.limit > 0 {
+		end := aq.limit
+		if end > len(result) {
+			end = len(result)
+		}
+		result = result[:end]
 	}
 
 	return result, nil

@@ -22,6 +22,12 @@ func TestEQ(t *testing.T) {
 	doTestCond(t, EQ("b", "b"), []string{"b"}, true)
 }
 
+func TestNEQ(t *testing.T) {
+	doTestCond(t, NEQ("a", "b"), []string{"a", "b"}, true)
+	doTestCond(t, NEQ("b", "a"), []string{"a", "b"}, true)
+	doTestCond(t, NEQ("b", "b"), []string{"b"}, false)
+}
+
 func TestFUZZY_EQ(t *testing.T) {
 	doTestCond(t, FUZZY_EQ("a", "b", .0001), []string{"a", "b"}, false)
 	doTestCond(t, FUZZY_EQ("a", "b", .001), []string{"a", "b"}, true)

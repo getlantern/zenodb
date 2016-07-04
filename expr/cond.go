@@ -9,8 +9,8 @@ type Cond interface {
 type compareFN func(left float64, right float64) bool
 
 // cond creates a Cond that performs its comparison using the given compareFN
-func cond(left interface{}, right interface{}, compare compareFN) Expr {
-	return &conditional{binaryExpr{exprFor(left), exprFor(right)}, compare}
+func cond(cond string, left interface{}, right interface{}, compare compareFN) Expr {
+	return &conditional{binaryExpr{cond, exprFor(left), exprFor(right)}, compare}
 }
 
 type condAccumulator struct {

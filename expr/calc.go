@@ -3,8 +3,8 @@ package expr
 type calcFN func(left float64, right float64) float64
 
 // calc creates an Expr that obtains its value by applying the given calcFN
-func calc(left interface{}, right interface{}, calc calcFN) Expr {
-	return &calculator{binaryExpr{exprFor(left), exprFor(right)}, calc}
+func calc(op string, left interface{}, right interface{}, calc calcFN) Expr {
+	return &calculator{binaryExpr{op, exprFor(left), exprFor(right)}, calc}
 }
 
 type calcAccumulator struct {

@@ -29,3 +29,7 @@ func (e *field) Accumulator() Accumulator {
 func (e *field) DependsOn() []string {
 	return []string{e.name}
 }
+
+func (e *field) String() string {
+	return e.name
+}

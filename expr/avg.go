@@ -1,5 +1,9 @@
 package expr
 
+import (
+	"fmt"
+)
+
 // AVG creates an Expr that obtains its value by averaging the values of the
 // given expression or field.
 func AVG(expr interface{}) Expr {
@@ -35,4 +39,8 @@ func (e *avg) Accumulator() Accumulator {
 
 func (e *avg) DependsOn() []string {
 	return e.wrapped.DependsOn()
+}
+
+func (e *avg) String() string {
+	return fmt.Sprintf("AVG(%v)", e.wrapped)
 }

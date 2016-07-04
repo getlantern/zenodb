@@ -1,5 +1,9 @@
 package expr
 
+import (
+	"fmt"
+)
+
 var (
 	// Zero value
 	Zero = CONST(0).Accumulator()
@@ -31,4 +35,8 @@ func (e *constant) Accumulator() Accumulator {
 
 func (e *constant) DependsOn() []string {
 	return []string{}
+}
+
+func (e *constant) String() string {
+	return fmt.Sprintf("%f", e.value)
 }

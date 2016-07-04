@@ -2,21 +2,21 @@ package expr
 
 // ADD creates an Expr that obtains its value by adding right and left.
 func ADD(left interface{}, right interface{}) Expr {
-	return calc(left, right, func(left float64, right float64) float64 {
+	return calc("+", left, right, func(left float64, right float64) float64 {
 		return left + right
 	})
 }
 
 // SUB creates an Expr that obtains its value by subtracting right from left.
 func SUB(left interface{}, right interface{}) Expr {
-	return calc(left, right, func(left float64, right float64) float64 {
+	return calc("-", left, right, func(left float64, right float64) float64 {
 		return left - right
 	})
 }
 
 // MULT creates an Expr that obtains its value by multiplying right and left.
 func MULT(left interface{}, right interface{}) Expr {
-	return calc(left, right, func(left float64, right float64) float64 {
+	return calc("*", left, right, func(left float64, right float64) float64 {
 		return left * right
 	})
 }
@@ -24,7 +24,7 @@ func MULT(left interface{}, right interface{}) Expr {
 // DIV creates an Expr that obtains its value by dividing left by right. If
 // right is 0, this returns 0.
 func DIV(left interface{}, right interface{}) Expr {
-	return calc(left, right, func(left float64, right float64) float64 {
+	return calc("/", left, right, func(left float64, right float64) float64 {
 		if right == 0 {
 			return 0
 		}

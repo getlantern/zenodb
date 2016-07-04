@@ -13,14 +13,14 @@ import (
 )
 
 type query struct {
-	table    string
-	fields   []string
-	filter   *govaluate.EvaluableExpression
-	offset   time.Duration
-	limit    time.Duration
-	from     time.Time
-	to       time.Time
-	onValues func(key map[string]interface{}, field string, vals []float64)
+	table      string
+	fields     []string
+	filter     *govaluate.EvaluableExpression
+	to         time.Time
+	toOffset   time.Duration
+	from       time.Time
+	fromOffset time.Duration
+	onValues   func(key map[string]interface{}, field string, vals []float64)
 }
 
 type QueryStats struct {
@@ -37,8 +37,8 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	start := time.Now()
 	stats := &QueryStats{}
 
-	if q.offset == 0 {
-		return stats, fmt.Errorf("Please specify an offset")
+	if q.from.IsZero() && q.fromOffset >= 0 {
+		return stats, fmt.Errorf("Please specify a from or a negative fromOffset")
 	}
 	if len(q.fields) == 0 {
 		return stats, fmt.Errorf("Please specify at least one field")
@@ -56,13 +56,16 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 		fields = append(fields, fieldBytes)
 	}
 	sort.Sort(lexicographical(fields))
-	if q.limit == 0 {
-		q.limit = q.offset
-	}
-	numPeriods := int(q.limit / t.resolution)
 	now := t.clock.Now()
-	q.from = now.Add(-1 * q.offset)
-	q.to = q.from.Add(q.limit)
+	if q.to.IsZero() {
+		q.to = now
+	}
+	if q.from.IsZero() {
+		q.from = q.to.Add(q.fromOffset)
+	}
+	q.to = roundTime(q.to, t.resolution)
+	q.from = roundTime(q.from, t.resolution)
+	numPeriods := int(q.to.Sub(q.from) / t.resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.from, q.to)
 
 	ro := gorocksdb.NewDefaultReadOptions()

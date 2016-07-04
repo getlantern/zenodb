@@ -7,7 +7,7 @@ import (
 // SUM creates an Expr that obtains its value by summing the given expressions
 // or fields.
 func SUM(expr interface{}) Expr {
-	return aggregate(expr, 0, func(current float64, next float64) float64 {
+	return aggregate("SUM", expr, 0, func(current float64, next float64) float64 {
 		return current + next
 	})
 }
@@ -15,7 +15,7 @@ func SUM(expr interface{}) Expr {
 // MIN creates an Expr that obtains its value by taking the minimum of the given
 // expressions or fields.
 func MIN(expr interface{}) Expr {
-	return aggregate(expr, math.MaxFloat64, func(current float64, next float64) float64 {
+	return aggregate("MIN", expr, math.MaxFloat64, func(current float64, next float64) float64 {
 		if next < current {
 			return next
 		}
@@ -26,7 +26,7 @@ func MIN(expr interface{}) Expr {
 // MAX creates an Expr that obtains its value by taking the maximum of the given
 // expressions or fields.
 func MAX(expr interface{}) Expr {
-	return aggregate(expr, -1*math.MaxFloat64, func(current float64, next float64) float64 {
+	return aggregate("MAX", expr, -1*math.MaxFloat64, func(current float64, next float64) float64 {
 		if next > current {
 			return next
 		}
@@ -36,7 +36,7 @@ func MAX(expr interface{}) Expr {
 
 // COUNT creates an Expr that counts the number of values.
 func COUNT(expr interface{}) Expr {
-	return aggregate(expr, 0, func(current float64, next float64) float64 {
+	return aggregate("COUNT", expr, 0, func(current float64, next float64) float64 {
 		return current + 1
 	})
 }

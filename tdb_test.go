@@ -139,15 +139,15 @@ func TestIntegration(t *testing.T) {
 		if queryErr != nil {
 			return nil, queryErr
 		}
-		offset := now.Sub(from)
-		limit := to.Sub(from)
+		fromOffset := from.Sub(now)
+		toOffset := to.Sub(now)
 		result := make(map[uint64][]float64, 0)
 		_, err = db.runQuery(&query{
-			table:  table,
-			fields: []string{field},
-			offset: offset,
-			limit:  limit,
-			filter: filter,
+			table:      table,
+			fields:     []string{field},
+			fromOffset: fromOffset,
+			toOffset:   toOffset,
+			filter:     filter,
 			onValues: func(key map[string]interface{}, resultField string, vals []float64) {
 				log.Debugf("%v : %v : %v", key, field, vals)
 				if field == resultField {
@@ -202,11 +202,12 @@ SELECT
 	AVG(ii) * 2 AS avg_ii,
 	MIN(ii) AS min_ii
 FROM test_a
+ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, period('%v')
+HAVING SUM(sum_ii) = 286
 ORDER BY AVG(avg_ii) DESC
-LIMIT '%v', '%v'
-`, resolution*time.Duration(scalingFactor), now.Sub(epoch.Add(-1*resolution)), 3*resolution))
+`, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
 		return
 	}
@@ -217,6 +218,9 @@ LIMIT '%v', '%v'
 	}
 
 	log.Debugf("%v -> %v", result.From, result.To)
+	if !assert.Len(t, result.Entries, 1, "Wrong number of entries, perhaps HAVING isn't working") {
+		return
+	}
 	entry := result.Entries[0]
 	if !assert.EqualValues(t, "reporter1", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 		return
@@ -235,7 +239,7 @@ LIMIT '%v', '%v'
 	// Test defaults
 	aq = db.Query("Test_A").
 		Select("sum_ii", SUM("ii")).
-		Offset(now.Sub(epoch.Add(-1 * resolution)))
+		FromOffset(epoch.Add(-1 * resolution).Sub(now))
 
 	result, err = aq.Run()
 	if assert.NoError(t, err, "Unable to run query with defaults") {

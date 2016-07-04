@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"fmt"
 	"sort"
 )
 
@@ -15,6 +16,7 @@ func (a *binaryAccumulator) Update(params Params) {
 }
 
 type binaryExpr struct {
+	op    string
 	left  Expr
 	right Expr
 }
@@ -33,4 +35,8 @@ func (e *binaryExpr) DependsOn() []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func (e *binaryExpr) String() string {
+	return fmt.Sprintf("%v %v %v", e.left, e.op, e.right)
 }
