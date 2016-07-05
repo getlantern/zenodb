@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/oxtoacart/bytemap"
 	"github.com/oxtoacart/tdb/expr"
 	"github.com/spaolacci/murmur3"
 	"github.com/tecbot/gorocksdb"
@@ -26,7 +27,7 @@ type partition struct {
 type insert struct {
 	ts     time.Time
 	t      *table
-	key    []byte
+	key    bytemap.ByteMap
 	vals   map[string]expr.Value
 	bucket *bucket
 }
@@ -42,10 +43,7 @@ func (db *DB) Insert(table string, point *Point) error {
 		return fmt.Errorf("Unknown table %v", table)
 	}
 
-	err := t.insert(point)
-	if err != nil {
-		return err
-	}
+	t.insert(point)
 
 	t.viewsMutex.RLock()
 	var views []*view
@@ -75,13 +73,10 @@ func (db *DB) Insert(table string, point *Point) error {
 	return nil
 }
 
-func (t *table) insert(point *Point) error {
+func (t *table) insert(point *Point) {
 	t.clock.Advance(point.Ts)
 	vals := floatsToValues(point.Vals)
-	key, err := keyToBytes(point.Dims)
-	if err != nil {
-		return err
-	}
+	key := bytemap.New(point.Dims)
 	h := int(murmur3.Sum32(key))
 	p := h % len(t.partitions)
 	select {
@@ -94,8 +89,6 @@ func (t *table) insert(point *Point) error {
 		t.stats.DroppedPoints++
 		t.statsMutex.Unlock()
 	}
-
-	return nil
 }
 
 func (p *partition) processInserts() {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Knetic/govaluate"
+	"github.com/oxtoacart/bytemap"
 	"github.com/tecbot/gorocksdb"
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
@@ -20,7 +21,7 @@ type query struct {
 	toOffset   time.Duration
 	from       time.Time
 	fromOffset time.Duration
-	onValues   func(key map[string]interface{}, field string, vals []float64)
+	onValues   func(key bytemap.ByteMap, field string, vals []float64)
 }
 
 type QueryStats struct {
@@ -81,23 +82,18 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 		for it.Seek(fieldBytes); it.ValidForPrefix(fieldBytes); it.Next() {
 			stats.Scanned++
 			k := it.Key()
-			kr := bytes.NewReader(k.Data())
+			kr := bytes.NewBuffer(k.Data())
+			kr.Reset()
 			dec := msgpack.NewDecoder(kr)
 			storedField, err := dec.DecodeString()
 			if err != nil {
 				k.Free()
 				return stats, fmt.Errorf("Unable to decode field: %v", err)
 			}
-			key := make(map[string]interface{})
-			err = dec.Decode(&key)
-			if err != nil {
-				k.Free()
-				return stats, fmt.Errorf("Unable to decode key: %v", err)
-			}
-			k.Free()
+			key := bytemap.ByteMap(kr.Bytes())
 
 			if q.filter != nil {
-				include, err := q.filter.Evaluate(key)
+				include, err := q.filter.Eval(byteMapParams(key))
 				if err != nil {
 					return stats, fmt.Errorf("Unable to apply filter: %v", err)
 				}
@@ -143,12 +139,19 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 					q.onValues(key, storedField, vals)
 				}
 			}
+			k.Free()
 			v.Free()
 		}
 	}
 
 	stats.Runtime = time.Now().Sub(start)
 	return stats, nil
+}
+
+type byteMapParams bytemap.ByteMap
+
+func (bmp byteMapParams) Get(field string) (interface{}, error) {
+	return bytemap.ByteMap(bmp).Get(field), nil
 }
 
 type lexicographical [][]byte

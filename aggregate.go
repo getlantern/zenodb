@@ -7,6 +7,7 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/oxtoacart/bytemap"
 	"github.com/oxtoacart/tdb/expr"
 )
 
@@ -253,42 +254,26 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	inPeriods := 0
 	outPeriods := 0
 
-	var includeDim func(dim string) bool
+	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(aq.dims) == 0 {
-		aq.dimsMap = make(map[string]bool, 10)
-		includeDim = func(dim string) bool {
-			// Collect the dims
-			aq.dimsMap[dim] = true
-			return true
+		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+			return key
 		}
+
 	} else {
-		includedDims := make(map[string]bool, len(aq.dims))
-		for _, dim := range aq.dims {
-			includedDims[dim] = true
-		}
-		includeDim = func(dim string) bool {
-			return includedDims[dim]
+		sort.Strings(aq.dims)
+		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+			return key.Slice(aq.dims...)
 		}
 	}
 
 	entries := make(map[string]*Entry, 0)
-	q.onValues = func(key map[string]interface{}, field string, vals []float64) {
-		// Trim key down only to included dims
-		for k := range key {
-			if !includeDim(k) {
-				delete(key, k)
-			}
-		}
-		kb, err := keyToBytes(key)
-		if err != nil {
-			log.Errorf("Unable to encode key, skipping: %v", err)
-			return
-		}
-		ks := string(kb)
-		entry := entries[ks]
+	q.onValues = func(key bytemap.ByteMap, field string, vals []float64) {
+		kb := sliceKey(key)
+		entry := entries[string(kb)]
 		if entry == nil {
 			entry = &Entry{
-				Dims:      key,
+				Dims:      key.AsMap(),
 				Fields:    make(map[string][]expr.Accumulator, len(aq.fields)),
 				rawValues: make(map[string][][]float64),
 			}
@@ -300,7 +285,7 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 			if aq.having != nil {
 				entry.havingTest = aq.having.Accumulator()
 			}
-			entries[ks] = entry
+			entries[string(kb)] = entry
 		}
 		if entry.scalingFactor == 0 {
 			if inPeriods < 1 {

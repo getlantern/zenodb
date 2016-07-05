@@ -8,6 +8,7 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/oxtoacart/bytemap"
 	. "github.com/oxtoacart/tdb/expr"
 
 	"github.com/stretchr/testify/assert"
@@ -148,7 +149,8 @@ func TestIntegration(t *testing.T) {
 			fromOffset: fromOffset,
 			toOffset:   toOffset,
 			filter:     filter,
-			onValues: func(key map[string]interface{}, resultField string, vals []float64) {
+			onValues: func(keybytes bytemap.ByteMap, resultField string, vals []float64) {
+				key := keybytes.AsMap()
 				log.Debugf("%v : %v : %v", key, field, vals)
 				if field == resultField {
 					result[key[dim].(uint64)] = vals
