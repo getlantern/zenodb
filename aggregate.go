@@ -260,9 +260,8 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	if len(aq.dims) == 0 {
 		aq.dimsMap = make(map[string]bool, 0)
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			cp := make([]byte, len(key))
-			copy(cp, key)
-			return cp
+			// Original key is fine
+			return key
 		}
 	} else {
 		sort.Strings(aq.dims)

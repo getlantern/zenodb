@@ -81,10 +81,12 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 			if q.filter != nil {
 				include, err := q.filter.Eval(byteMapParams(key))
 				if err != nil {
+					k.Free()
 					return stats, fmt.Errorf("Unable to apply filter: %v", err)
 				}
 				inc, ok := include.(bool)
 				if !ok {
+					k.Free()
 					return stats, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
 				}
 				if !inc {
