@@ -92,16 +92,15 @@ HeapAlloc pre/post GC %f/%f MiB
 			tk := time.NewTicker(10 * time.Second)
 			for range tk.C {
 				now := db.Now("test")
-				q, err := db.SQLQuery(`
+				q, err := db.SQLQuery(fmt.Sprintf(`
 SELECT COUNT(i) AS the_count
-FROM test
+FROM test ASOF '%v'
 GROUP BY period(168h)
-`)
+`, -2*hotPeriod))
 				if err != nil {
 					log.Errorf("Unable to build query: %v", err)
 					continue
 				}
-				q.From(now.Add(-2 * hotPeriod))
 				start := time.Now()
 				result, err := q.Run()
 				delta := time.Now().Sub(start)
