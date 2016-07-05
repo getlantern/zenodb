@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/Knetic/govaluate"
 	"github.com/oxtoacart/bytemap"
 	"github.com/tecbot/gorocksdb"
-	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 type query struct {
@@ -50,11 +48,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	}
 	fields := make([][]byte, 0, len(q.fields))
 	for _, field := range q.fields {
-		fieldBytes, err := msgpack.Marshal(strings.ToLower(field))
-		if err != nil {
-			return stats, fmt.Errorf("Unable to marshal field: %v", err)
-		}
-		fields = append(fields, fieldBytes)
+		fields = append(fields, encodeField(field))
 	}
 	sort.Sort(lexicographical(fields))
 	now := t.clock.Now()
@@ -82,15 +76,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 		for it.Seek(fieldBytes); it.ValidForPrefix(fieldBytes); it.Next() {
 			stats.Scanned++
 			k := it.Key()
-			kr := bytes.NewBuffer(k.Data())
-			kr.Reset()
-			dec := msgpack.NewDecoder(kr)
-			storedField, err := dec.DecodeString()
-			if err != nil {
-				k.Free()
-				return stats, fmt.Errorf("Unable to decode field: %v", err)
-			}
-			key := bytemap.ByteMap(kr.Bytes())
+			storedField, key := fieldAndKey(k.Data())
 
 			if q.filter != nil {
 				include, err := q.filter.Eval(byteMapParams(key))

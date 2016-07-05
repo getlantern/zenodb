@@ -209,11 +209,7 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 	t.stats.ArchivedBuckets += numPeriods
 	t.statsMutex.Unlock()
 	for i, field := range t.fields {
-		k, err := keyWithField(key, field.Name)
-		if err != nil {
-			t.log.Error(err)
-			continue
-		}
+		k := keyWithField(key, field.Name)
 		batch.Merge(k, seqs[i])
 	}
 	count := int64(batch.Count())

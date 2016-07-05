@@ -256,10 +256,12 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(aq.dims) == 0 {
+		aq.dimsMap = make(map[string]bool, 0)
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			return key
+			cp := make([]byte, len(key))
+			copy(cp, key)
+			return cp
 		}
-
 	} else {
 		sort.Strings(aq.dims)
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
@@ -276,6 +278,12 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 				Dims:      key.AsMap(),
 				Fields:    make(map[string][]expr.Accumulator, len(aq.fields)),
 				rawValues: make(map[string][][]float64),
+			}
+			if len(aq.dims) == 0 {
+				// Track dims
+				for dim := range entry.Dims {
+					aq.dimsMap[dim] = true
+				}
 			}
 			// Initialize orderBys
 			for _, orderBy := range aq.orderBy {

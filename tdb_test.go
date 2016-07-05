@@ -135,14 +135,14 @@ func TestIntegration(t *testing.T) {
 
 	advance(hotPeriod * 10)
 
-	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[uint64][]float64, error) {
+	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[int][]float64, error) {
 		filter, queryErr := govaluate.NewEvaluableExpression("!b")
 		if queryErr != nil {
 			return nil, queryErr
 		}
 		fromOffset := from.Sub(now)
 		toOffset := to.Sub(now)
-		result := make(map[uint64][]float64, 0)
+		result := make(map[int][]float64, 0)
 		_, err = db.runQuery(&query{
 			table:      table,
 			fields:     []string{field},
@@ -153,7 +153,7 @@ func TestIntegration(t *testing.T) {
 				key := keybytes.AsMap()
 				log.Debugf("%v : %v : %v", key, field, vals)
 				if field == resultField {
-					result[key[dim].(uint64)] = vals
+					result[key[dim].(int)] = vals
 				}
 			},
 		})

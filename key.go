@@ -1,24 +1,34 @@
 package tdb
 
 import (
-	"bytes"
-	"fmt"
+	"encoding/binary"
 
-	"gopkg.in/vmihailenco/msgpack.v2"
+	"github.com/oxtoacart/bytemap"
 )
 
-func keyWithField(keyBytes []byte, field string) ([]byte, error) {
-	// Preallocate buffer to avoid having to grow
-	buf := bytes.NewBuffer(make([]byte, len(keyBytes)+255))
-	buf.Reset()
-	enc := msgpack.NewEncoder(buf)
-	err := enc.Encode(field)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to encode field: %v", err)
-	}
-	_, err = buf.Write(keyBytes)
-	if err != nil {
-		return nil, fmt.Errorf("Unable to write keyBytes: %v", err)
-	}
-	return buf.Bytes(), nil
+func keyWithField(keyBytes []byte, field string) []byte {
+	encodedFieldLen := 2 + len(field)
+	b := make([]byte, len(keyBytes)+encodedFieldLen)
+	doEncodeField(b, field)
+	copy(b[encodedFieldLen:], keyBytes)
+	return b
+}
+
+func fieldAndKey(b []byte) (string, bytemap.ByteMap) {
+	fieldLen := int(binary.BigEndian.Uint16(b))
+	encodedFieldLen := 2 + fieldLen
+	field := string(b[2:encodedFieldLen])
+	bm := bytemap.ByteMap(b[encodedFieldLen:])
+	return field, bm
+}
+
+func encodeField(field string) []byte {
+	b := make([]byte, 2+len(field))
+	doEncodeField(b, field)
+	return b
+}
+
+func doEncodeField(b []byte, field string) {
+	binary.BigEndian.PutUint16(b, uint16(len(field)))
+	copy(b[2:], field)
 }
