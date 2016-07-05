@@ -161,7 +161,7 @@ func (insert *insert) Get(name string) expr.Value {
 
 func (p *partition) requestArchiving() {
 	now := p.t.clock.Now()
-	p.t.log.Debugf("Requested archiving at %v", now)
+	p.t.log.Tracef("Requested archiving at %v", now)
 	for key, b := range p.tail {
 		if now.Sub(b.start) > p.t.hotPeriod {
 			p.t.log.Tracef("Archiving full. %v / %v %v", b.start, now, b.prev != nil)
@@ -233,7 +233,7 @@ func (t *table) retain() {
 }
 
 func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
-	t.log.Debug("Removing expired keys")
+	t.log.Trace("Removing expired keys")
 	start := time.Now()
 	batch := gorocksdb.NewWriteBatch()
 	var keysToFree []*gorocksdb.Slice
@@ -265,10 +265,14 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 			t.log.Errorf("Unable to remove expired keys: %v", err)
 		} else {
 			delta := time.Now().Sub(start)
-			t.log.Debugf("Removed %v expired keys in %v", humanize.Comma(int64(batch.Count())), delta)
+			expiredKeys := int64(batch.Count())
+			t.statsMutex.Lock()
+			t.stats.ExpiredKeys += expiredKeys
+			t.statsMutex.Unlock()
+			t.log.Tracef("Removed %v expired keys in %v", humanize.Comma(expiredKeys), delta)
 		}
 	} else {
-		t.log.Debug("No expired keys to remove")
+		t.log.Trace("No expired keys to remove")
 	}
 }
 

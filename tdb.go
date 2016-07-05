@@ -24,6 +24,7 @@ type TableStats struct {
 	DroppedPoints   int64
 	HotKeys         int64
 	ArchivedBuckets int64
+	ExpiredKeys     int64
 }
 
 type field struct {
