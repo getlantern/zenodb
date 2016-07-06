@@ -128,7 +128,10 @@ func (aq *Query) applyFrom(stmt *sqlparser.Select) error {
 }
 
 func (aq *Query) applyWhere(stmt *sqlparser.Select) error {
-	filter, _ := boolExprFor(stmt.Where.Expr)
+	filter, err := boolExprFor(stmt.Where.Expr)
+	if err != nil {
+		return err
+	}
 	log.Tracef("Applying where: %v", filter)
 	aq.Where(filter)
 	return nil
@@ -354,10 +357,16 @@ func boolExprFor(_e sqlparser.Expr) (string, error) {
 		switch strings.ToUpper(op) {
 		case "LIKE":
 			op = "=~"
+		case "NOT LIKE":
+			op = "!~"
 		case "<>":
 			op = "!="
 		case "=":
 			op = "=="
+		case ">", ">=", "<", "<=", "!=":
+			// Leave as is
+		default:
+			return "", fmt.Errorf("Unknown comparison operator '%v'", e.Operator)
 		}
 		return fmt.Sprintf("%s %s %s", left, op, right), nil
 	default:
