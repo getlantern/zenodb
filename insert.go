@@ -106,7 +106,6 @@ func (p *partition) processInserts() {
 }
 
 func (p *partition) insert(insert *insert) {
-	key := string(insert.key)
 	now := p.t.clock.Now()
 	start := roundTime(insert.ts, p.t.resolution)
 	if now.Sub(start) > p.t.hotPeriod {
@@ -119,7 +118,7 @@ func (p *partition) insert(insert *insert) {
 		}
 		return
 	}
-	b := p.tail[key]
+	b := p.tail[string(insert.key)]
 	if b == nil || b.start.Before(start) {
 		p.t.statsMutex.Lock()
 		if b == nil {
@@ -128,7 +127,7 @@ func (p *partition) insert(insert *insert) {
 		p.t.statsMutex.Unlock()
 		b = &bucket{start: start, prev: b}
 		b.init(insert)
-		p.tail[key] = b
+		p.tail[string(insert.key)] = b
 		return
 	}
 	for {
