@@ -1,13 +1,28 @@
 # TDB
 
-TDB is an embeddable time series database optimized for performing analytical
-queries on high dimensional data.  It was developed to replace
+TDB is an embeddable time series database optimized for performing aggregating
+analytical queries on dimensional data.  It was developed to replace
 [influxdb](https://github.com/influxdata/influxdb/) as a repository for error
-log metrics.
+log metrics at [Lantern](https://www.getlantern.org).
 
-## Features
+## Current Features
 
+ * No limits on the number of dimensions
+ * SQL-based query language including GROUP BY and HAVING support
+ * Reasonably efficient storage model
+ * Seems pretty fast
 
-## Vs influxdb
+## Missing Features
 
-http://puyuan.github.io/influxdb-tag-cardinality-memory-performance
+ * Write-ahead-log to avoid data loss if process ends
+
+## Design Constraints
+
+ * Measurements for historical periods cannot be modified
+
+## Acknowledgements
+
+ * [RocksDB](http://rocksdb.org/) - The storage engine
+ * [gorocksdb](https://github.com/tecbot/gorocksdb) - Go language bindings for RocksDB
+ * [sqlparser](https://github.com/xwb1989/sqlparser) - Go SQL parser
+ * [govaluate](https://github.com/Knetic/govaluate) - Go expression evaluation
