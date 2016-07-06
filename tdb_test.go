@@ -8,8 +8,8 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/oxtoacart/bytemap"
-	. "github.com/oxtoacart/tdb/expr"
+	"github.com/getlantern/bytemap"
+	. "github.com/getlantern/tdb/expr"
 
 	"github.com/stretchr/testify/assert"
 	"testing"

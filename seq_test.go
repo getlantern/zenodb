@@ -1,7 +1,7 @@
 package tdb
 
 import (
-	. "github.com/oxtoacart/tdb/expr"
+	. "github.com/getlantern/tdb/expr"
 	"time"
 
 	"github.com/stretchr/testify/assert"

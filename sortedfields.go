@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/oxtoacart/tdb/expr"
+	"github.com/getlantern/tdb/expr"
 )
 
 func sortFields(fields map[string]expr.Expr) sortedFields {

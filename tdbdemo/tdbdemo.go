@@ -12,8 +12,8 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
-	"github.com/oxtoacart/tdb"
-	. "github.com/oxtoacart/tdb/expr"
+	"github.com/getlantern/tdb"
+	. "github.com/getlantern/tdb/expr"
 )
 
 var (

@@ -4,7 +4,7 @@ import (
 	"math/rand"
 	"sort"
 
-	. "github.com/oxtoacart/tdb/expr"
+	. "github.com/getlantern/tdb/expr"
 
 	"testing"
 )

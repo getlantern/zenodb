@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Knetic/govaluate"
-	"github.com/oxtoacart/bytemap"
+	"github.com/getlantern/bytemap"
 	"github.com/tecbot/gorocksdb"
 )
 

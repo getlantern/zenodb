@@ -5,7 +5,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/oxtoacart/tdb/expr"
+	"github.com/getlantern/tdb/expr"
 )
 
 type bucket struct {

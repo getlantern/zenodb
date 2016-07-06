@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/getlantern/tdb/expr"
 	"github.com/oxtoacart/sqlparser"
-	"github.com/oxtoacart/tdb/expr"
 )
 
 var (

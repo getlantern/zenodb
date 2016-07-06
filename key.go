@@ -3,7 +3,7 @@ package tdb
 import (
 	"encoding/binary"
 
-	"github.com/oxtoacart/bytemap"
+	"github.com/getlantern/bytemap"
 )
 
 func keyWithField(keyBytes []byte, field string) []byte {

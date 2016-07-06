@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
-	"github.com/oxtoacart/bytemap"
-	"github.com/oxtoacart/tdb/expr"
+	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/expr"
 	"github.com/spaolacci/murmur3"
 	"github.com/tecbot/gorocksdb"
 )

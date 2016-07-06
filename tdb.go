@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/getlantern/golog"
-	"github.com/oxtoacart/tdb/expr"
-	"github.com/oxtoacart/vtime"
+	"github.com/getlantern/tdb/expr"
+	"github.com/getlantern/vtime"
 	"github.com/tecbot/gorocksdb"
 )
 

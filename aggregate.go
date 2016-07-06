@@ -7,8 +7,8 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/oxtoacart/bytemap"
-	"github.com/oxtoacart/tdb/expr"
+	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/expr"
 )
 
 type Entry struct {
