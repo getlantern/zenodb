@@ -139,7 +139,11 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 type byteMapParams bytemap.ByteMap
 
 func (bmp byteMapParams) Get(field string) (interface{}, error) {
-	return bytemap.ByteMap(bmp).Get(field), nil
+	result := bytemap.ByteMap(bmp).Get(field)
+	if result == nil {
+		return "", nil
+	}
+	return result, nil
 }
 
 type lexicographical [][]byte
