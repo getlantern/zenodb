@@ -29,17 +29,14 @@ type TableStats struct {
 }
 
 type table struct {
+	sql.Query
 	db              *DB
 	name            string
 	sqlString       string
-	groupBy         []string
 	log             golog.Logger
-	fields          sortedFields
-	fieldIndexes    map[string]int
 	batchSize       int64
 	clock           *vtime.Clock
 	archiveByKey    *gorocksdb.DB
-	resolution      time.Duration
 	hotPeriod       time.Duration
 	retentionPeriod time.Duration
 	partitions      []*partition
@@ -92,23 +89,15 @@ func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod 
 
 func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string, q *sql.Query) error {
 	name = strings.ToLower(name)
-	fieldsArray := sortedFields(q.Fields)
-	fieldIndexes := make(map[string]int, len(fieldsArray))
-	for i, field := range fieldsArray {
-		fieldIndexes[field.Name] = i
-	}
 
 	t := &table{
+		Query:           *q,
 		db:              db,
 		name:            name,
 		sqlString:       sqlString,
-		groupBy:         q.GroupBy,
 		log:             golog.LoggerFor("tdb." + name),
-		fields:          q.Fields,
-		fieldIndexes:    fieldIndexes,
 		batchSize:       db.opts.BatchSize,
 		clock:           vtime.NewClock(time.Time{}),
-		resolution:      q.Resolution,
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
 		toArchive:       make(chan *archiveRequest, db.opts.BatchSize*100),

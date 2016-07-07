@@ -61,9 +61,9 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	if q.asOf.IsZero() {
 		q.asOf = now.Add(q.asOfOffset)
 	}
-	q.until = roundTime(q.until, t.resolution)
-	q.asOf = roundTime(q.asOf, t.resolution)
-	numPeriods := int(q.until.Sub(q.asOf) / t.resolution)
+	q.until = roundTime(q.until, t.Resolution)
+	q.asOf = roundTime(q.asOf, t.Resolution)
+	numPeriods := int(q.until.Sub(q.asOf) / t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
 	ro := gorocksdb.NewDefaultReadOptions()
@@ -112,7 +112,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 					if to.After(seqStart) {
 						to = seqStart
 					}
-					startOffset := int(seqStart.Sub(to) / t.resolution)
+					startOffset := int(seqStart.Sub(to) / t.Resolution)
 					log.Tracef("Start offset %d", startOffset)
 					copyPeriods := seq.numPeriods()
 					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {

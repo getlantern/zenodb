@@ -16,8 +16,8 @@ type bucket struct {
 
 func (b *bucket) init(insert *insert) {
 	insert.bucket = b
-	b.vals = make([]expr.Accumulator, 0, len(insert.t.fields))
-	for _, field := range insert.t.fields {
+	b.vals = make([]expr.Accumulator, 0, len(insert.t.Fields))
+	for _, field := range insert.t.Fields {
 		b.vals = append(b.vals, field.Accumulator())
 	}
 	b.update(insert)
@@ -25,7 +25,7 @@ func (b *bucket) init(insert *insert) {
 
 func (b *bucket) update(insert *insert) {
 	insert.bucket = b
-	for i := range insert.t.fields {
+	for i := range insert.t.Fields {
 		b.vals[i].Update(insert)
 	}
 }

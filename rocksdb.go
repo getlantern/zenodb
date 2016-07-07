@@ -13,7 +13,7 @@ func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte,
 			if !es.isValid() {
 				es = os
 			} else {
-				es = os.append(es, t.resolution, t.truncateBefore())
+				es = os.append(es, t.Resolution, t.truncateBefore())
 			}
 		}
 	}
@@ -30,7 +30,7 @@ func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, boo
 	if !right.isValid() {
 		return left, true
 	}
-	return right.append(left, t.resolution, t.truncateBefore()), true
+	return right.append(left, t.Resolution, t.truncateBefore()), true
 }
 
 // Transform implements method from gorocksdb.SliceTransform.

@@ -50,10 +50,10 @@ func (db *DB) Insert(stream string, point *Point) error {
 func (t *table) insert(point *Point) {
 	t.clock.Advance(point.Ts)
 
-	if len(t.groupBy) > 0 {
+	if len(t.GroupBy) > 0 {
 		// Reslice dimensions
-		newDims := make(map[string]interface{}, len(t.groupBy))
-		for _, dim := range t.groupBy {
+		newDims := make(map[string]interface{}, len(t.GroupBy))
+		for _, dim := range t.GroupBy {
 			newDims[dim] = point.Dims[dim]
 		}
 		point = &Point{
@@ -95,7 +95,7 @@ func (p *partition) processInserts() {
 
 func (p *partition) insert(insert *insert) {
 	now := p.t.clock.Now()
-	start := roundTime(insert.ts, p.t.resolution)
+	start := roundTime(insert.ts, p.t.Resolution)
 	if now.Sub(start) > p.t.hotPeriod {
 		p.t.statsMutex.Lock()
 		p.t.stats.InsertedPoints--
@@ -186,7 +186,7 @@ func (t *table) archive() {
 
 func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOptions, req *archiveRequest) *gorocksdb.WriteBatch {
 	key := []byte(req.key)
-	seqs := req.b.toSequences(t.resolution)
+	seqs := req.b.toSequences(t.Resolution)
 	numPeriods := int64(seqs[0].numPeriods())
 	start := seqs[0].start()
 	if t.log.IsTraceEnabled() {
@@ -195,7 +195,7 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 	t.statsMutex.Lock()
 	t.stats.ArchivedBuckets += numPeriods
 	t.statsMutex.Unlock()
-	for i, field := range t.fields {
+	for i, field := range t.Fields {
 		k := keyWithField(key, field.Name)
 		batch.Merge(k, seqs[i])
 	}

@@ -155,7 +155,7 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		q.filter = where
 	}
 
-	nativeResolution := t.resolution
+	nativeResolution := t.Resolution
 	if aq.Resolution == 0 {
 		// Default to native resolution
 		aq.Resolution = nativeResolution
