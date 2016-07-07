@@ -179,6 +179,22 @@ func (db *DB) TableStats(table string) TableStats {
 	return t.stats
 }
 
+func (db *DB) AllTableStats() map[string]TableStats {
+	m := make(map[string]TableStats)
+	tables := make(map[string]*table, 0)
+	db.tablesMutex.RLock()
+	for name, t := range db.tables {
+		tables[name] = t
+	}
+	db.tablesMutex.RUnlock()
+	for name, t := range tables {
+		t.statsMutex.RLock()
+		m[name] = t.stats
+		t.statsMutex.RUnlock()
+	}
+	return m
+}
+
 func (db *DB) Now(table string) time.Time {
 	t := db.getTable(table)
 	if t == nil {
