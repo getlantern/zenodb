@@ -1,7 +1,6 @@
 package tdb
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -37,44 +36,33 @@ type archiveRequest struct {
 	b   *bucket
 }
 
-func (db *DB) Insert(table string, point *Point) error {
-	t := db.getTable(table)
-	if t == nil {
-		return fmt.Errorf("Unknown table %v", table)
+func (db *DB) Insert(stream string, point *Point) error {
+	db.tablesMutex.Lock()
+	s := db.streams[stream]
+	db.tablesMutex.Unlock()
+
+	for _, t := range s {
+		t.insert(point)
 	}
-
-	t.insert(point)
-
-	t.viewsMutex.RLock()
-	var views []*view
-	for _, view := range t.views {
-		views = append(views, view)
-	}
-	t.viewsMutex.RUnlock()
-
-	if len(views) > 0 {
-		for _, view := range views {
-			newDims := make(map[string]interface{}, len(view.Dims))
-			for dim := range view.Dims {
-				newDims[dim] = point.Dims[dim]
-			}
-			newPoint := &Point{
-				Ts:   point.Ts,
-				Dims: newDims,
-				Vals: point.Vals,
-			}
-			err := t.db.Insert(view.To, newPoint)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
 	return nil
 }
 
 func (t *table) insert(point *Point) {
 	t.clock.Advance(point.Ts)
+
+	if len(t.groupBy) > 0 {
+		// Reslice dimensions
+		newDims := make(map[string]interface{}, len(t.groupBy))
+		for _, dim := range t.groupBy {
+			newDims[dim] = point.Dims[dim]
+		}
+		point = &Point{
+			Ts:   point.Ts,
+			Dims: newDims,
+			Vals: point.Vals,
+		}
+	}
+
 	vals := floatsToValues(point.Vals)
 	key := bytemap.New(point.Dims)
 	h := int(murmur3.Sum32(key))

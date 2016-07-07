@@ -39,17 +39,25 @@ func TestIntegration(t *testing.T) {
 		Dir:       tmpDir,
 		BatchSize: 1,
 	})
-	err = db.CreateTable("test_A", resolution, hotPeriod, retentionPeriod, map[string]Expr{
-		"i":   SUM("i"),
-		"ii":  SUM("ii"),
-		"iii": AVG(MULT("i", "ii")),
-	})
+	err = db.CreateTable("Test_a", hotPeriod, retentionPeriod, fmt.Sprintf(`
+SELECT
+	SUM(i) AS i,
+	SUM(ii) AS ii,
+	AVG(i * ii) AS iii
+FROM inbound
+GROUP BY period(%v)`, resolution))
 	if !assert.NoError(t, err, "Unable to create table") {
 		return
 	}
 
 	// Create a view grouped by dim "u"
-	err = db.CreateView("test_a", "view_a", resolution, hotPeriod, retentionPeriod, "u")
+	err = db.CreateTable("view_a", hotPeriod, retentionPeriod, fmt.Sprintf(`
+SELECT
+	SUM(i) AS i,
+	SUM(ii) AS ii,
+	AVG(i * ii) AS iii
+FROM inbound
+GROUP BY u, period(%v)`, resolution))
 	if !assert.NoError(t, err, "Unable to create view") {
 		return
 	}
@@ -67,7 +75,7 @@ func TestIntegration(t *testing.T) {
 		}
 	}
 
-	db.Insert("test_a", &Point{
+	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
 			"r": "reporter1",
@@ -80,7 +88,7 @@ func TestIntegration(t *testing.T) {
 		},
 	})
 
-	db.Insert("test_a", &Point{
+	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
 			"r": "reporter1",
@@ -95,7 +103,7 @@ func TestIntegration(t *testing.T) {
 
 	advance(resolution)
 
-	db.Insert("test_a", &Point{
+	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
 			"r": "reporter1",
@@ -108,7 +116,7 @@ func TestIntegration(t *testing.T) {
 		},
 	})
 
-	db.Insert("test_a", &Point{
+	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
 			"r": "reporter1",
@@ -121,7 +129,7 @@ func TestIntegration(t *testing.T) {
 		},
 	})
 
-	db.Insert("test_a", &Point{
+	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
 			"r": "reporter1",

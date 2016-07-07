@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tdb/sql"
 	"github.com/getlantern/vtime"
 	"github.com/tecbot/gorocksdb"
 )
@@ -28,13 +28,12 @@ type TableStats struct {
 }
 
 type table struct {
-	name            string
 	db              *DB
+	name            string
+	groupBy         []string
 	log             golog.Logger
 	fields          sortedFields
 	fieldIndexes    map[string]int
-	views           []*view
-	viewsMutex      sync.RWMutex
 	batchSize       int64
 	clock           *vtime.Clock
 	archiveByKey    *gorocksdb.DB
@@ -54,6 +53,7 @@ type DBOpts struct {
 
 type DB struct {
 	opts        *DBOpts
+	streams     map[string][]*table
 	tables      map[string]*table
 	tablesMutex sync.RWMutex
 }
@@ -64,27 +64,33 @@ type view struct {
 }
 
 func NewDB(opts *DBOpts) *DB {
-	return &DB{opts: opts, tables: make(map[string]*table)}
+	return &DB{opts: opts, tables: make(map[string]*table), streams: make(map[string][]*table)}
 }
 
-func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, fields map[string]expr.Expr) error {
+func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string) error {
 	name = strings.ToLower(name)
-	fieldsArray := sortFields(fields)
+
+	q, err := sql.Parse(sqlString)
+	if err != nil {
+		return err
+	}
+
+	fieldsArray := sortedFields(q.Fields)
 	fieldIndexes := make(map[string]int, len(fieldsArray))
 	for i, field := range fieldsArray {
 		fieldIndexes[field.Name] = i
 	}
 
 	t := &table{
-		name:            name,
 		db:              db,
+		name:            name,
+		groupBy:         q.GroupBy,
 		log:             golog.LoggerFor("tdb." + name),
-		fields:          fieldsArray,
+		fields:          q.Fields,
 		fieldIndexes:    fieldIndexes,
-		views:           make([]*view, 0),
 		batchSize:       db.opts.BatchSize,
 		clock:           vtime.NewClock(time.Time{}),
-		resolution:      resolution,
+		resolution:      q.Resolution,
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
 		toArchive:       make(chan *archiveRequest, db.opts.BatchSize*100),
@@ -108,7 +114,7 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 		return fmt.Errorf("Table %v already exists", name)
 	}
 
-	err := os.MkdirAll(db.opts.Dir, 0755)
+	err = os.MkdirAll(db.opts.Dir, 0755)
 	if err != nil && !os.IsExist(err) {
 		return fmt.Errorf("Unable to create folder for rocksdb database: %v", err)
 	}
@@ -125,32 +131,8 @@ func (db *DB) CreateTable(name string, resolution time.Duration, hotPeriod time.
 	go t.archive()
 	go t.retain()
 
-	return nil
-}
+	db.streams[q.From] = append(db.streams[q.From], t)
 
-func (db *DB) CreateView(from string, to string, resolution time.Duration, hotPeriod time.Duration, retentionPeriod time.Duration, dims ...string) error {
-	f := db.getTable(from)
-	if f == nil {
-		return fmt.Errorf("Unable to create view, from table not found: %v", from)
-	}
-	fields := make(map[string]expr.Expr, len(f.fields))
-	for _, field := range f.fields {
-		fields[field.Name] = field.Expr
-	}
-	err := db.CreateTable(to, resolution, hotPeriod, retentionPeriod, fields)
-	if err != nil {
-		return fmt.Errorf("Unable to create view: %v", err)
-	}
-	view := &view{
-		To:   strings.ToLower(to),
-		Dims: make(map[string]bool, len(dims)),
-	}
-	for _, dim := range dims {
-		view.Dims[dim] = true
-	}
-	f.viewsMutex.Lock()
-	f.views = append(f.views, view)
-	f.viewsMutex.Unlock()
 	return nil
 }
 
