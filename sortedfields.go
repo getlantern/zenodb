@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tdb/sql"
 )
 
 func sortFields(fields map[string]expr.Expr) sortedFields {
@@ -22,7 +23,7 @@ func sortFields(fields map[string]expr.Expr) sortedFields {
 	return sorted
 }
 
-type sortedFields []field
+type sortedFields []sql.Field
 
 func (a sortedFields) Len() int      { return len(a) }
 func (a sortedFields) Swap(i, j int) { a[i], a[j] = a[j], a[i] }

@@ -12,14 +12,14 @@ import (
 )
 
 type query struct {
-	table      string
-	fields     []string
-	filter     *govaluate.EvaluableExpression
-	to         time.Time
-	toOffset   time.Duration
-	from       time.Time
-	fromOffset time.Duration
-	onValues   func(key bytemap.ByteMap, field string, vals []float64)
+	table       string
+	fields      []string
+	filter      *govaluate.EvaluableExpression
+	asOf        time.Time
+	asOfOffset  time.Duration
+	until       time.Time
+	untilOffset time.Duration
+	onValues    func(key bytemap.ByteMap, field string, vals []float64)
 }
 
 type QueryStats struct {
@@ -36,8 +36,8 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	start := time.Now()
 	stats := &QueryStats{}
 
-	if q.from.IsZero() && q.fromOffset >= 0 {
-		return stats, fmt.Errorf("Please specify a from or a negative fromOffset")
+	if q.asOf.IsZero() && q.asOfOffset >= 0 {
+		return stats, fmt.Errorf("Please specify an asOf or a negative asOfOffset")
 	}
 	if len(q.fields) == 0 {
 		return stats, fmt.Errorf("Please specify at least one field")
@@ -52,19 +52,19 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	}
 	sort.Sort(lexicographical(fields))
 	now := t.clock.Now()
-	if q.to.IsZero() {
-		q.to = now
-		if q.toOffset != 0 {
-			q.to = q.to.Add(q.toOffset)
+	if q.until.IsZero() {
+		q.until = now
+		if q.untilOffset != 0 {
+			q.until = q.until.Add(q.untilOffset)
 		}
 	}
-	if q.from.IsZero() {
-		q.from = now.Add(q.fromOffset)
+	if q.asOf.IsZero() {
+		q.asOf = now.Add(q.asOfOffset)
 	}
-	q.to = roundTime(q.to, t.resolution)
-	q.from = roundTime(q.from, t.resolution)
-	numPeriods := int(q.to.Sub(q.from) / t.resolution)
-	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.from, q.to)
+	q.until = roundTime(q.until, t.resolution)
+	q.asOf = roundTime(q.asOf, t.resolution)
+	numPeriods := int(q.until.Sub(q.asOf) / t.resolution)
+	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
 	ro := gorocksdb.NewDefaultReadOptions()
 	// Go ahead and fill the cache
@@ -107,8 +107,8 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), seq.numPeriods())
 				}
 				includeKey := false
-				if !seqStart.Before(q.from) {
-					to := q.to
+				if !seqStart.Before(q.asOf) {
+					to := q.until
 					if to.After(seqStart) {
 						to = seqStart
 					}

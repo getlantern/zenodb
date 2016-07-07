@@ -10,6 +10,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	. "github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tdb/sql"
 
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -144,11 +145,11 @@ func TestIntegration(t *testing.T) {
 		toOffset := to.Sub(now)
 		result := make(map[int][]float64, 0)
 		_, err = db.runQuery(&query{
-			table:      table,
-			fields:     []string{field},
-			fromOffset: fromOffset,
-			toOffset:   toOffset,
-			filter:     filter,
+			table:       table,
+			fields:      []string{field},
+			asOfOffset:  fromOffset,
+			untilOffset: toOffset,
+			filter:      filter,
 			onValues: func(keybytes bytemap.ByteMap, resultField string, vals []float64) {
 				key := keybytes.AsMap()
 				log.Debugf("%v : %v : %v", key, field, vals)
@@ -219,7 +220,7 @@ ORDER BY AVG(avg_ii) DESC
 		return
 	}
 
-	log.Debugf("%v -> %v", result.From, result.To)
+	log.Debugf("%v -> %v", result.AsOf, result.Until)
 	if !assert.Len(t, result.Entries, 1, "Wrong number of entries, perhaps HAVING isn't working") {
 		return
 	}
@@ -236,16 +237,22 @@ ORDER BY AVG(avg_ii) DESC
 		t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
 	}
 	assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii", "min_ii"}, result.FieldOrder)
+	fields := make([]string, 0, len(result.Fields))
+	for _, field := range result.Fields {
+		fields = append(fields, field.Name)
+	}
+	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii", "min_ii"}, fields)
 
 	// Test defaults
-	aq = db.Query("Test_A").
-		Select("sum_ii", SUM("ii")).
-		FromOffset(epoch.Add(-1 * resolution).Sub(now))
+	aq = db.Query(&sql.Query{
+		From:       "test_a",
+		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "sum_ii"}},
+		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
+	})
 
 	result, err = aq.Run()
 	if assert.NoError(t, err, "Unable to run query with defaults") {
-		assert.Equal(t, []string{"b", "r", "u"}, result.Dims)
-		assert.NotNil(t, result.To)
+		assert.Equal(t, []string{"b", "r", "u"}, result.GroupBy)
+		assert.NotNil(t, result.Until)
 	}
 }

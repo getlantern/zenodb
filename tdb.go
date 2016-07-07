@@ -27,11 +27,6 @@ type TableStats struct {
 	ExpiredKeys     int64
 }
 
-type field struct {
-	expr.Expr
-	Name string
-}
-
 type table struct {
 	name            string
 	db              *DB
