@@ -16,6 +16,15 @@ type Point struct {
 	Vals map[string]float64
 }
 
+// Get implements the interface govaluate.Parameters
+func (p *Point) Get(name string) (interface{}, error) {
+	result := p.Dims[name]
+	if result == nil {
+		result = ""
+	}
+	return result, nil
+}
+
 type partition struct {
 	t            *table
 	archiveDelay time.Duration
@@ -48,6 +57,25 @@ func (db *DB) Insert(stream string, point *Point) error {
 }
 
 func (t *table) insert(point *Point) {
+	t.whereMutex.RLock()
+	where := t.where
+	t.whereMutex.RUnlock()
+
+	if where != nil {
+		ok, err := where.Eval(point)
+		if err != nil {
+			log.Errorf("Unable to filter inbound point: %v", err)
+			t.statsMutex.Lock()
+			t.stats.DroppedPoints++
+			t.statsMutex.Unlock()
+		} else if !ok.(bool) {
+			log.Tracef("Filtering out inbound point: %v", point.Dims)
+			t.statsMutex.Lock()
+			t.stats.FilteredPoints++
+			t.statsMutex.Unlock()
+			return
+		}
+	}
 	t.clock.Advance(point.Ts)
 
 	if len(t.GroupBy) > 0 {

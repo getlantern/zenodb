@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Knetic/govaluate"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tdb/sql"
@@ -21,6 +22,7 @@ var (
 )
 
 type TableStats struct {
+	FilteredPoints  int64
 	InsertedPoints  int64
 	DroppedPoints   int64
 	HotKeys         int64
@@ -41,6 +43,8 @@ type table struct {
 	retentionPeriod time.Duration
 	partitions      []*partition
 	toArchive       chan *archiveRequest
+	where           *govaluate.EvaluableExpression
+	whereMutex      sync.RWMutex
 	stats           TableStats
 	statsMutex      sync.RWMutex
 }
@@ -102,6 +106,12 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 		retentionPeriod: retentionPeriod,
 		toArchive:       make(chan *archiveRequest, db.opts.BatchSize*100),
 	}
+
+	err := t.applyWhere(q.Where)
+	if err != nil {
+		return err
+	}
+
 	numCPU := runtime.NumCPU()
 	t.partitions = make([]*partition, 0, numCPU)
 	for i := 0; i < numCPU; i++ {
@@ -121,7 +131,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 		return fmt.Errorf("Table %v already exists", name)
 	}
 
-	err := os.MkdirAll(db.opts.Dir, 0755)
+	err = os.MkdirAll(db.opts.Dir, 0755)
 	if err != nil && !os.IsExist(err) {
 		return fmt.Errorf("Unable to create folder for rocksdb database: %v", err)
 	}
@@ -140,6 +150,22 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 
 	db.streams[q.From] = append(db.streams[q.From], t)
 
+	return nil
+}
+
+func (t *table) applyWhere(where string) error {
+	var e *govaluate.EvaluableExpression
+	var err error
+	if where != "" {
+		e, err = govaluate.NewEvaluableExpression(where)
+		if err != nil {
+			return fmt.Errorf("Unable to parse where: %v", err)
+		}
+	}
+	t.whereMutex.Lock()
+	t.Where = where
+	t.where = e
+	t.whereMutex.Unlock()
 	return nil
 }
 

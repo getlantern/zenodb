@@ -51,6 +51,7 @@ func TestIntegration(t *testing.T) {
       SUM(ii) AS ii,
       AVG(i * ii) AS iii
     FROM inbound
+    WHERE r = 'A'
     GROUP BY period(1ms)
 `
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
@@ -77,6 +78,7 @@ func TestIntegration(t *testing.T) {
       SUM(ii) AS ii,
       AVG(i * ii) AS iii
     FROM inbound
+    WHERE r = 'A'
     GROUP BY u, period(1ms)`
 	log.Debug("Writing schemaB")
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaB), 0644)
@@ -104,14 +106,28 @@ func TestIntegration(t *testing.T) {
 		time.Sleep(250 * time.Millisecond)
 		for _, table := range []string{"test_a", "view_a"} {
 			stats := db.TableStats(table)
-			log.Debugf("%v (%v)\tInserted Points: %d\tDropped Points: %d\tHot Keys: %d\tArchived Buckets: %d", table, db.Now(table).In(time.UTC), stats.InsertedPoints, stats.DroppedPoints, stats.HotKeys, stats.ArchivedBuckets)
+			log.Debugf("%v (%v)\tFiltered Out Points: %d\tInserted Points: %d\tDropped Points: %d\tHot Keys: %d\tArchived Buckets: %d", table, db.Now(table).In(time.UTC), stats.FilteredPoints, stats.InsertedPoints, stats.DroppedPoints, stats.HotKeys, stats.ArchivedBuckets)
 		}
 	}
 
 	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
-			"r": "reporter1",
+			"r": "A",
+			"u": 1,
+			"b": false,
+		},
+		Vals: map[string]float64{
+			"i":  1,
+			"ii": 2,
+		},
+	})
+
+	// This should get excluded by the filter
+	db.Insert("inbound", &Point{
+		Ts: now,
+		Dims: map[string]interface{}{
+			"r": "B",
 			"u": 1,
 			"b": false,
 		},
@@ -124,7 +140,7 @@ func TestIntegration(t *testing.T) {
 	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
-			"r": "reporter1",
+			"r": "A",
 			"u": 1,
 			"b": false,
 		},
@@ -139,7 +155,7 @@ func TestIntegration(t *testing.T) {
 	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
-			"r": "reporter1",
+			"r": "A",
 			"u": 1,
 			"b": false,
 		},
@@ -152,7 +168,7 @@ func TestIntegration(t *testing.T) {
 	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
-			"r": "reporter1",
+			"r": "A",
 			"u": 2,
 			"b": false,
 		},
@@ -165,7 +181,7 @@ func TestIntegration(t *testing.T) {
 	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
-			"r": "reporter1",
+			"r": "A",
 			"u": 2,
 			"b": true,
 		},
@@ -266,7 +282,7 @@ ORDER BY AVG(avg_ii) DESC
 		return
 	}
 	entry := result.Entries[0]
-	if !assert.EqualValues(t, "reporter1", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
+	if !assert.EqualValues(t, "A", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 		return
 	}
 	if !assert.Len(t, entry.Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
