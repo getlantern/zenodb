@@ -30,6 +30,7 @@ type TableStats struct {
 type table struct {
 	db              *DB
 	name            string
+	sqlString       string
 	groupBy         []string
 	log             golog.Logger
 	fields          sortedFields
@@ -68,13 +69,16 @@ func NewDB(opts *DBOpts) *DB {
 }
 
 func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string) error {
-	name = strings.ToLower(name)
-
 	q, err := sql.Parse(sqlString)
 	if err != nil {
 		return err
 	}
 
+	return db.doCreateTable(name, hotPeriod, retentionPeriod, sqlString, q)
+}
+
+func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string, q *sql.Query) error {
+	name = strings.ToLower(name)
 	fieldsArray := sortedFields(q.Fields)
 	fieldIndexes := make(map[string]int, len(fieldsArray))
 	for i, field := range fieldsArray {
@@ -84,6 +88,7 @@ func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod 
 	t := &table{
 		db:              db,
 		name:            name,
+		sqlString:       sqlString,
 		groupBy:         q.GroupBy,
 		log:             golog.LoggerFor("tdb." + name),
 		fields:          q.Fields,
@@ -114,7 +119,7 @@ func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod 
 		return fmt.Errorf("Table %v already exists", name)
 	}
 
-	err = os.MkdirAll(db.opts.Dir, 0755)
+	err := os.MkdirAll(db.opts.Dir, 0755)
 	if err != nil && !os.IsExist(err) {
 		return fmt.Errorf("Unable to create folder for rocksdb database: %v", err)
 	}
