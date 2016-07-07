@@ -10,8 +10,9 @@ import (
 	"github.com/getlantern/yaml"
 )
 
+type Schema map[string]*TableDef
+
 type TableDef struct {
-	Name            string
 	HotPeriod       time.Duration
 	RetentionPeriod time.Duration
 	SQL             string
@@ -52,7 +53,7 @@ func (db *DB) ApplySchemaFromFile(filename string) error {
 	if err != nil {
 		return err
 	}
-	var schema []TableDef
+	var schema Schema
 	err = yaml.Unmarshal(b, &schema)
 	if err != nil {
 		return err
@@ -60,19 +61,19 @@ func (db *DB) ApplySchemaFromFile(filename string) error {
 	return db.ApplySchema(schema)
 }
 
-func (db *DB) ApplySchema(tables []TableDef) error {
-	for _, tdef := range tables {
-		tdef.Name = strings.ToLower(tdef.Name)
-		t := db.getTable(tdef.Name)
+func (db *DB) ApplySchema(schema Schema) error {
+	for name, tdef := range schema {
+		name = strings.ToLower(name)
+		t := db.getTable(name)
 		if t == nil {
-			log.Debugf("Creating table %v", tdef.Name)
-			err := db.CreateTable(tdef.Name, tdef.HotPeriod, tdef.RetentionPeriod, tdef.SQL)
+			log.Debugf("Creating table %v", name)
+			err := db.CreateTable(name, tdef.HotPeriod, tdef.RetentionPeriod, tdef.SQL)
 			if err != nil {
 				return err
 			}
 		} else {
 			// TODO: support more comprehensive altering of tables (maybe)
-			log.Debugf("Cowardly altering where and nothing else on table %v", tdef.Name)
+			log.Debugf("Cowardly altering where and nothing else on table %v", name)
 			q, err := sql.Parse(tdef.SQL)
 			if err != nil {
 				return err

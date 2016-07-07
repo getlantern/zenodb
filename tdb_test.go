@@ -42,7 +42,7 @@ func TestIntegration(t *testing.T) {
 	hotPeriod := 2 * resolution
 
 	schemaA := `
-- name: Test_a
+Test_a:
   hotperiod: 2ms
   retentionperiod: 200ms
   sql: >
@@ -69,7 +69,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	schemaB := schemaA + `
-- name: view_a
+view_a:
   hotperiod: 2ms
   retentionperiod: 200ms
   sql: >
