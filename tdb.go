@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tdb/sql"
 	"github.com/getlantern/vtime"
@@ -48,8 +49,9 @@ type table struct {
 }
 
 type DBOpts struct {
-	Dir       string
-	BatchSize int64
+	SchemaFile string
+	Dir        string
+	BatchSize  int64
 }
 
 type DB struct {
@@ -64,11 +66,22 @@ type view struct {
 	Dims map[string]bool
 }
 
-func NewDB(opts *DBOpts) *DB {
-	return &DB{opts: opts, tables: make(map[string]*table), streams: make(map[string][]*table)}
+func NewDB(opts *DBOpts) (*DB, error) {
+	var err error
+	db := &DB{opts: opts, tables: make(map[string]*table), streams: make(map[string][]*table)}
+	if opts.SchemaFile != "" {
+		err = db.pollForSchema(opts.SchemaFile)
+	}
+	return db, err
 }
 
 func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string) error {
+	if hotPeriod <= 0 {
+		return errors.New("Please specify a positive hot period")
+	}
+	if retentionPeriod <= 0 {
+		return errors.New("Please specify a positive retention period")
+	}
 	q, err := sql.Parse(sqlString)
 	if err != nil {
 		return err

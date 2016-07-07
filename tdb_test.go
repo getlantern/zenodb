@@ -27,38 +27,71 @@ func TestIntegration(t *testing.T) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	tmpDir, err := ioutil.TempDir("", "tdbtest")
-	if err != nil {
-		t.Fatal(err)
+	if !assert.NoError(t, err, "Unable to create temp directory") {
+		return
 	}
 	defer os.RemoveAll(tmpDir)
 
+	tmpFile, err := ioutil.TempFile("", "tdbschema")
+	if !assert.NoError(t, err, "Unable to create temp file") {
+		return
+	}
+	tmpFile.Close()
+
 	resolution := time.Millisecond
 	hotPeriod := 2 * resolution
-	retentionPeriod := 100 * resolution
-	db := NewDB(&DBOpts{
-		Dir:       tmpDir,
-		BatchSize: 1,
-	})
-	err = db.CreateTable("Test_a", hotPeriod, retentionPeriod, fmt.Sprintf(`
-SELECT
-	SUM(i) AS i,
-	SUM(ii) AS ii,
-	AVG(i * ii) AS iii
-FROM inbound
-GROUP BY period(%v)`, resolution))
-	if !assert.NoError(t, err, "Unable to create table") {
+
+	schemaA := `
+- name: Test_a
+  hotperiod: 2ms
+  retentionperiod: 200ms
+  sql: >
+    SELECT
+      SUM(i) AS i,
+      SUM(ii) AS ii,
+      AVG(i * ii) AS iii
+    FROM inbound
+    GROUP BY period(1ms)
+`
+	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
+	if !assert.NoError(t, err, "Unable to write schemaA") {
 		return
 	}
 
-	// Create a view grouped by dim "u"
-	err = db.CreateTable("view_a", hotPeriod, retentionPeriod, fmt.Sprintf(`
-SELECT
-	SUM(i) AS i,
-	SUM(ii) AS ii,
-	AVG(i * ii) AS iii
-FROM inbound
-GROUP BY u, period(%v)`, resolution))
-	if !assert.NoError(t, err, "Unable to create view") {
+	db, err := NewDB(&DBOpts{
+		Dir:        tmpDir,
+		BatchSize:  1,
+		SchemaFile: tmpFile.Name(),
+	})
+	if !assert.NoError(t, err, "Unable to create DB") {
+		return
+	}
+
+	schemaB := schemaA + `
+- name: view_a
+  hotperiod: 2ms
+  retentionperiod: 200ms
+  sql: >
+    SELECT
+      SUM(i) AS i,
+      SUM(ii) AS ii,
+      AVG(i * ii) AS iii
+    FROM inbound
+    GROUP BY u, period(1ms)`
+	log.Debug("Writing schemaB")
+	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaB), 0644)
+	if !assert.NoError(t, err, "Unable to write schemaB") {
+		return
+	}
+
+	viewCreated := false
+	for i := 0; i < 50; i++ {
+		time.Sleep(100 * time.Millisecond)
+		if db.getTable("view_a") != nil {
+			viewCreated = true
+		}
+	}
+	if !assert.True(t, viewCreated, "View failed to create within 5 seconds") {
 		return
 	}
 
