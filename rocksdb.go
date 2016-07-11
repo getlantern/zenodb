@@ -6,19 +6,16 @@ import (
 
 // FullMerge implements method from gorocksdb.MergeOperator.
 func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
-	es := sequence(existingValue)
+	seq := sequence(existingValue)
+	truncateBefore := t.truncateBefore()
 	for _, operand := range operands {
-		os := sequence(operand)
-		if os.isValid() {
-			if !es.isValid() {
-				es = os
-			} else {
-				// TODO: append periods rather than sequences
-				// es = os.append(es, t.Resolution, t.truncateBefore())
-			}
-		}
+		val := tsvalue(operand)
+		seq = seq.plus(val, t.Resolution, truncateBefore)
 	}
-	return []byte(es), true
+	if log.IsTraceEnabled() {
+		log.Tracef("Merge result: %v", seq)
+	}
+	return []byte(seq), true
 }
 
 // PartialMerge implements method from gorocksdb.MergeOperator.

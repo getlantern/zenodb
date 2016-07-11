@@ -214,18 +214,19 @@ func (t *table) archive() {
 
 func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOptions, req *archiveRequest) *gorocksdb.WriteBatch {
 	key := []byte(req.key)
-	seqs := req.b.toSequences(t.Resolution)
-	numPeriods := int64(seqs[0].numPeriods())
-	start := seqs[0].start()
+	vals := req.b.toValues(t.Resolution)
 	if t.log.IsTraceEnabled() {
-		t.log.Tracef("Archiving %d buckets starting at %v", numPeriods, start.In(time.UTC))
+		t.log.Tracef("Archiving %d values", len(vals))
 	}
 	t.statsMutex.Lock()
-	t.stats.ArchivedBuckets += numPeriods
 	t.statsMutex.Unlock()
 	for i, field := range t.Fields {
 		k := keyWithField(key, field.Name)
-		batch.Merge(k, seqs[i])
+		for _, val := range vals[i] {
+			// TODO: the below isn't an accurate count, probably need a better stat
+			t.stats.ArchivedBuckets++
+			batch.Merge(k, val)
+		}
 	}
 	count := int64(batch.Count())
 	if count >= t.batchSize {

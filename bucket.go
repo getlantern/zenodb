@@ -1,8 +1,6 @@
 package tdb
 
 import (
-	"encoding/binary"
-	"math"
 	"time"
 
 	"github.com/getlantern/tdb/expr"
@@ -30,46 +28,20 @@ func (b *bucket) update(insert *insert) {
 	}
 }
 
-func (b *bucket) toSequences(resolution time.Duration) []sequence {
-	bufs := make([][]byte, 0, len(b.vals))
-	for i := 0; i < len(b.vals); i++ {
-		// Pre-allocate a largish amount of space to avoid having to grow the buffer
-		// too often.
-		buf := make([]byte, 1024)
-		// Write the starting time of the sequence
-		binary.BigEndian.PutUint64(buf, uint64(b.start.UnixNano()))
-		bufs = append(bufs, buf)
-	}
+func (b *bucket) toValues(resolution time.Duration) [][]tsvalue {
+	vals := make([][]tsvalue, len(b.vals))
 
 	// Write all values
-	i := 1
 	for {
-		offset := i * size64bits
-		i++
-		for j, buf := range bufs {
-			if offset >= len(buf) {
-				newBuf := make([]byte, offset+1024)
-				copy(newBuf, buf)
-				buf = newBuf
-			}
-			binary.BigEndian.PutUint64(buf[offset:], math.Float64bits(b.vals[j].Get()))
+		for i, val := range b.vals {
+			vals[i] = append(vals[i], newTSValue(b.start, val.Get()))
 		}
-
 		if b.prev == nil {
 			break
 		}
-
-		// Fill gaps
-		delta := int(b.start.Sub(b.prev.start)/resolution) - 1
-		i += delta
-
 		// Continue with previous bucket
 		b = b.prev
 	}
 
-	result := make([]sequence, 0, len(bufs))
-	for _, buf := range bufs {
-		result = append(result, sequence(buf[:i*size64bits]))
-	}
-	return result
+	return vals
 }

@@ -2,6 +2,7 @@ package tdb
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 	"time"
 )
@@ -16,7 +17,7 @@ var (
 
 type tsvalue []byte
 
-func newValue(ts time.Time, val float64) tsvalue {
+func newTSValue(ts time.Time, val float64) tsvalue {
 	out := make(sequence, size64bits*2)
 	out.setStart(ts)
 	out.setValueAtOffset(0, val)
@@ -99,7 +100,7 @@ func (seq sequence) setValueAtOffset(offset int, val float64) {
 	binary.BigEndian.PutUint64(seq[offset:], math.Float64bits(val))
 }
 
-func (seq sequence) set(tsv tsvalue, resolution time.Duration, truncateBefore time.Time) sequence {
+func (seq sequence) plus(tsv tsvalue, resolution time.Duration, truncateBefore time.Time) sequence {
 	ts := sequence(tsv).start()
 	val := sequence(tsv).valueAtOffset(0)
 
@@ -160,4 +161,20 @@ func (seq sequence) truncate(resolution time.Duration, truncateBefore time.Time)
 		return seq
 	}
 	return seq[:maxLength]
+}
+
+func (seq sequence) String() string {
+	if seq == nil {
+		return ""
+	}
+	values := ""
+
+	numPeriods := seq.numPeriods()
+	for i := 0; i < numPeriods; i++ {
+		if i > 0 {
+			values += " "
+		}
+		values += fmt.Sprint(seq.valueAt(i))
+	}
+	return fmt.Sprintf("%v: %v", seq.start(), values)
 }

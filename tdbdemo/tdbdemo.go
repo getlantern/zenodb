@@ -13,7 +13,6 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tdb"
-	. "github.com/getlantern/tdb/expr"
 )
 
 var (
@@ -41,15 +40,20 @@ func main() {
 	retainPeriods := 2
 	retentionPeriod := time.Duration(retainPeriods) * reportingInterval
 	numWriters := 4
-	db := tdb.NewDB(&tdb.DBOpts{
+	db, err := tdb.NewDB(&tdb.DBOpts{
 		Dir:       tmpDir,
 		BatchSize: 1000,
 	})
-	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod, map[string]Expr{
-		"i":   SUM("i"),
-		"ii":  SUM("ii"),
-		"iii": AVG(DIV("ii", "i")),
-	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = db.CreateTable("test", hotPeriod, retentionPeriod, fmt.Sprintf(`
+SELECT
+	SUM(i) AS i,
+	SUM(ii) AS ii,
+	AVG(ii / i) AS iii
+FROM inbound
+GROUP BY period(%v)`, resolution))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -138,7 +142,7 @@ GROUP BY period(168h)
 								"ii": float64(rand.Intn(100)),
 							},
 						}
-						ierr := db.Insert("test", p)
+						ierr := db.Insert("inbound", p)
 						if ierr != nil {
 							log.Errorf("Unable to insert: %v", err)
 							return
