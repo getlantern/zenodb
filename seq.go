@@ -11,7 +11,7 @@ const (
 )
 
 var (
-	emptySequence = sequence([]byte{})
+	zeroTime = time.Time{}
 )
 
 type tsvalue []byte
@@ -34,6 +34,9 @@ func (seq sequence) isValid() bool {
 }
 
 func (seq sequence) start() time.Time {
+	if seq == nil {
+		return zeroTime
+	}
 	ts := int64(binary.BigEndian.Uint64(seq))
 	s := ts / int64(time.Second)
 	ns := ts % int64(time.Second)
@@ -45,10 +48,16 @@ func (seq sequence) setStart(t time.Time) {
 }
 
 func (seq sequence) numPeriods() int {
+	if seq == nil {
+		return 0
+	}
 	return len(seq)/size64bits - 1
 }
 
 func (seq sequence) valueAtTime(t time.Time, resolution time.Duration) float64 {
+	if seq == nil {
+		return 0
+	}
 	start := seq.start()
 	if t.After(start) {
 		return 0
@@ -58,10 +67,16 @@ func (seq sequence) valueAtTime(t time.Time, resolution time.Duration) float64 {
 }
 
 func (seq sequence) valueAt(period int) float64 {
+	if seq == nil {
+		return 0
+	}
 	return seq.valueAtOffset(period * size64bits)
 }
 
 func (seq sequence) valueAtOffset(offset int) float64 {
+	if seq == nil {
+		return 0
+	}
 	offset = offset + size64bits
 	if offset >= len(seq) {
 		return 0
@@ -88,6 +103,14 @@ func (seq sequence) set(tsv tsvalue, resolution time.Duration, truncateBefore ti
 	ts := sequence(tsv).start()
 	val := sequence(tsv).valueAtOffset(0)
 
+	if !ts.After(truncateBefore) {
+		// New value falls outside of truncation range, just truncate existing sequence
+		if seq == nil {
+			return nil
+		}
+		return seq.truncate(resolution, truncateBefore)
+	}
+
 	if seq == nil {
 		// Create a new sequence
 		out := make(sequence, 2*size64bits)
@@ -97,19 +120,21 @@ func (seq sequence) set(tsv tsvalue, resolution time.Duration, truncateBefore ti
 	}
 
 	start := seq.start()
-	if ts.Before(start) {
+	if ts.After(start) {
 		// Prepend
-		delta := start.Sub(ts)
+		delta := ts.Sub(start)
 		deltaPeriods := int(delta / resolution)
 		out := make(sequence, len(seq)+size64bits*deltaPeriods)
 		copy(out[(deltaPeriods+1)*size64bits:], seq[size64bits:])
 		out.setStart(ts)
 		out.setValueAt(0, val)
-		return out
+		// TODO: optimize this by applying truncation above
+		return out.truncate(resolution, truncateBefore)
 	}
 
+	// Update existing entry
 	out := seq
-	period := int(ts.Sub(start) / resolution)
+	period := int(start.Sub(ts) / resolution)
 	offset := period * size64bits
 	if offset >= len(seq)-size64bits {
 		// Grow seq
@@ -117,5 +142,22 @@ func (seq sequence) set(tsv tsvalue, resolution time.Duration, truncateBefore ti
 		copy(out, seq)
 	}
 	out.setValueAtOffset(offset, val)
-	return out
+	return out.truncate(resolution, truncateBefore)
+}
+
+func (seq sequence) truncate(resolution time.Duration, truncateBefore time.Time) sequence {
+	if seq == nil {
+		return nil
+	}
+	// New value falls outside of truncation range, truncate existing sequence
+	maxPeriods := int(seq.start().Sub(truncateBefore) / resolution)
+	if maxPeriods <= 0 {
+		// Entire sequence falls outside of truncation range
+		return nil
+	}
+	maxLength := (maxPeriods + 1) * size64bits
+	if maxLength >= len(seq) {
+		return seq
+	}
+	return seq[:maxLength]
 }
