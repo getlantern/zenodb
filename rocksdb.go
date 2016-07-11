@@ -13,7 +13,8 @@ func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte,
 			if !es.isValid() {
 				es = os
 			} else {
-				es = os.append(es, t.Resolution, t.truncateBefore())
+				// TODO: append periods rather than sequences
+				// es = os.append(es, t.Resolution, t.truncateBefore())
 			}
 		}
 	}
@@ -22,15 +23,9 @@ func (t *table) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte,
 
 // PartialMerge implements method from gorocksdb.MergeOperator.
 func (t *table) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
-	left := sequence(leftOperand)
-	right := sequence(rightOperand)
-	if !left.isValid() {
-		return right, true
-	}
-	if !right.isValid() {
-		return left, true
-	}
-	return right.append(left, t.Resolution, t.truncateBefore()), true
+	// TODO: see if partial merge is possible/useful in the case of merging
+	// individual periods
+	return nil, false
 }
 
 // Transform implements method from gorocksdb.SliceTransform.
