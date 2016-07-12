@@ -18,10 +18,21 @@ func TestCombined(t *testing.T) {
 		"a": Float(20),
 		"b": Float(5),
 	}
+	params3 := Map{
+		"a": Float(0),
+		"b": Float(1),
+	}
 
 	assert.Equal(t, []string{"a", "b"}, e.DependsOn())
 	a := e.Accumulator()
 	a.Update(params1)
 	a.Update(params2)
 	assertFloatEquals(t, 7, a.Get())
+
+	rta := e.Accumulator()
+	rta.InitFrom(a.Bytes())
+	assertFloatEquals(t, 7, rta.Get())
+
+	rta.Update(params3)
+	assertFloatEquals(t, 5, rta.Get())
 }

@@ -1,7 +1,5 @@
 package expr
 
-import "fmt"
-
 // LT tests whether left is less than right
 func LT(left interface{}, right interface{}) Cond {
 	return cond("<", left, right, func(left float64, right float64) bool {
@@ -47,7 +45,6 @@ func GTE(left interface{}, right interface{}) Cond {
 // GT tests whether left is greater than right
 func GT(left interface{}, right interface{}) Cond {
 	return cond(">", left, right, func(left float64, right float64) bool {
-		fmt.Printf("%f > %v\n", left, right)
 		return left > right
 	})
 }

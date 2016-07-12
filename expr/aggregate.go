@@ -1,7 +1,9 @@
 package expr
 
 import (
+	"encoding/binary"
 	"fmt"
+	"math"
 )
 
 type updateFN func(current float64, next float64) float64
@@ -28,6 +30,17 @@ func (a *aggregateAccumulator) Get() float64 {
 		return 0
 	}
 	return a.value
+}
+
+func (a *aggregateAccumulator) Bytes() []byte {
+	b := make([]byte, size64bits)
+	binary.BigEndian.PutUint64(b, math.Float64bits(a.value))
+	return append(b, a.wrapped.Bytes()...)
+}
+
+func (a *aggregateAccumulator) InitFrom(b []byte) []byte {
+	a.value = math.Float64frombits(binary.BigEndian.Uint64(b))
+	return a.wrapped.InitFrom(b[size64bits:])
 }
 
 type agg struct {

@@ -25,6 +25,14 @@ func (a *constantAccumulator) Get() float64 {
 	return a.value
 }
 
+func (a *constantAccumulator) Bytes() []byte {
+	return nil
+}
+
+func (a *constantAccumulator) InitFrom(b []byte) []byte {
+	return nil
+}
+
 type constant struct {
 	value float64
 }

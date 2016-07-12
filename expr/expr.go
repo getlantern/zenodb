@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
-
-	"github.com/getlantern/golog"
 )
 
-var (
-	log = golog.LoggerFor("expr")
+const (
+	size64bits = 8
 )
 
 type Value interface {
@@ -42,6 +40,10 @@ type Accumulator interface {
 	Update(params Params)
 
 	Get() float64
+
+	Bytes() []byte
+
+	InitFrom(b []byte) []byte
 }
 
 type Expr interface {

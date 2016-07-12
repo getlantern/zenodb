@@ -18,6 +18,14 @@ func (a *fieldAccumulator) Get() float64 {
 	return a.value.Get()
 }
 
+func (a *fieldAccumulator) Bytes() []byte {
+	return nil
+}
+
+func (a *fieldAccumulator) InitFrom(b []byte) []byte {
+	return nil
+}
+
 type field struct {
 	name string
 }

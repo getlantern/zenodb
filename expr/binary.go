@@ -15,6 +15,14 @@ func (a *binaryAccumulator) Update(params Params) {
 	a.right.Update(params)
 }
 
+func (a *binaryAccumulator) Bytes() []byte {
+	return append(a.left.Bytes(), a.right.Bytes()...)
+}
+
+func (a *binaryAccumulator) InitFrom(b []byte) []byte {
+	return a.right.InitFrom(a.left.InitFrom(b))
+}
+
 type binaryExpr struct {
 	op    string
 	left  Expr
