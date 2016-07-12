@@ -7,12 +7,12 @@ import (
 	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
-type hotMerger struct {
+type accumMerger struct {
 	t *table
 }
 
 // FullMerge implements method from gorocksdb.MergeOperator.
-func (m *hotMerger) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
+func (m *accumMerger) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
 	acs := m.accumulators(existingValue)
 
 	for _, operand := range operands {
@@ -27,7 +27,7 @@ func (m *hotMerger) FullMerge(key, existingValue []byte, operands [][]byte) ([]b
 }
 
 // PartialMerge implements method from gorocksdb.MergeOperator.
-func (m *hotMerger) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
+func (m *accumMerger) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
 	acs := m.accumulators(nil)
 
 	err := applyOperand(acs, leftOperand)
@@ -44,7 +44,7 @@ func (m *hotMerger) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte,
 	return serializeAccumulators(acs), true
 }
 
-func (m *hotMerger) accumulators(existingValue []byte) []expr.Accumulator {
+func (m *accumMerger) accumulators(existingValue []byte) []expr.Accumulator {
 	acs := make([]expr.Accumulator, 0, len(m.t.Fields))
 
 	for _, field := range m.t.Fields {
@@ -82,6 +82,6 @@ func serializeAccumulators(acs []expr.Accumulator) []byte {
 }
 
 // Name implements method from gorocksdb.MergeOperator.
-func (m *hotMerger) Name() string {
+func (m *accumMerger) Name() string {
 	return "default"
 }

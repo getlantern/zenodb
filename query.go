@@ -69,7 +69,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	ro := gorocksdb.NewDefaultReadOptions()
 	// Go ahead and fill the cache
 	ro.SetFillCache(true)
-	it := t.archiveByKey.NewIterator(ro)
+	it := t.rdb.NewIteratorCF(ro, t.archive)
 	defer it.Close()
 
 	for _, fieldBytes := range fields {

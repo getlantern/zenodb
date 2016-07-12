@@ -32,24 +32,24 @@ type TableStats struct {
 
 type table struct {
 	sql.Query
-	db                  *DB
-	name                string
-	sqlString           string
-	log                 golog.Logger
-	batchSize           int64
-	clock               *vtime.Clock
-	archiveByKey        *gorocksdb.DB
-	archiveByKeyHandle  *gorocksdb.ColumnFamilyHandle
-	accumulatorsHandler *gorocksdb.ColumnFamilyHandle
-	rdb                 *gorocksdb.DB
-	hotPeriod           time.Duration
-	retentionPeriod     time.Duration
-	partitions          []*partition
-	toArchive           chan *archiveRequest
-	where               *govaluate.EvaluableExpression
-	whereMutex          sync.RWMutex
-	stats               TableStats
-	statsMutex          sync.RWMutex
+	db              *DB
+	name            string
+	sqlString       string
+	log             golog.Logger
+	batchSize       int64
+	clock           *vtime.Clock
+	rdb             *gorocksdb.DB
+	accum           *gorocksdb.ColumnFamilyHandle
+	dirty           *gorocksdb.ColumnFamilyHandle
+	archive         *gorocksdb.ColumnFamilyHandle
+	hotPeriod       time.Duration
+	retentionPeriod time.Duration
+	partitions      []*partition
+	toArchive       chan *archiveRequest
+	where           *govaluate.EvaluableExpression
+	whereMutex      sync.RWMutex
+	stats           TableStats
+	statsMutex      sync.RWMutex
 }
 
 type DBOpts struct {
@@ -138,7 +138,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 	if err != nil && !os.IsExist(err) {
 		return fmt.Errorf("Unable to create folder for rocksdb database: %v", err)
 	}
-	err = t.createDatabase(db.opts.Dir, "bykey")
+	err = t.createDatabase(db.opts.Dir)
 	if err != nil {
 		return fmt.Errorf("Unable to create rocksdb database: %v", err)
 	}
@@ -148,7 +148,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 		go t.partitions[i].processInserts()
 	}
 
-	go t.archive()
+	go t.processArchive()
 	go t.retain()
 
 	db.streams[q.From] = append(db.streams[q.From], t)
@@ -213,17 +213,18 @@ func (db *DB) getTable(table string) *table {
 	return t
 }
 
-func (t *table) createDatabase(dir string, suffix string) error {
+func (t *table) createDatabase(dir string) error {
 	opts := t.buildDBOpts(nil)
-	cfNames := []string{"default", "accumulators"}
-	cfOpts := []*gorocksdb.Options{t.buildDBOpts(&archiveMerger{t}), t.buildDBOpts(&hotMerger{t})}
-	db, cfs, err := gorocksdb.OpenDbColumnFamilies(opts, filepath.Join(dir, t.name+"_"+suffix), cfNames, cfOpts)
+	cfNames := []string{"accumulators", "dirty", "default"}
+	cfOpts := []*gorocksdb.Options{t.buildDBOpts(&accumMerger{t}), t.buildDBOpts(nil), t.buildDBOpts(&archiveMerger{t})}
+	rdb, cfs, err := gorocksdb.OpenDbColumnFamilies(opts, filepath.Join(dir, t.name), cfNames, cfOpts)
 	if err != nil {
 		return err
 	}
-	t.archiveByKey = db
-	t.archiveByKeyHandle = cfs[0]
-	t.accumulatorsHandler = cfs[1]
+	t.rdb = rdb
+	t.accum = cfs[0]
+	t.dirty = cfs[1]
+	t.archive = cfs[2]
 	return nil
 }
 
@@ -238,7 +239,9 @@ func (t *table) buildDBOpts(mergeOperator gorocksdb.MergeOperator) *gorocksdb.Op
 	opts.SetBlockBasedTableFactory(bbtopts)
 	opts.SetCreateIfMissing(true)
 	opts.SetCreateIfMissingColumnFamilies(true)
-	opts.SetMergeOperator(mergeOperator)
+	if mergeOperator != nil {
+		opts.SetMergeOperator(mergeOperator)
+	}
 	return opts
 }
 

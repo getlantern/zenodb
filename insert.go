@@ -8,6 +8,11 @@ import (
 	"github.com/getlantern/tdb/expr"
 	"github.com/spaolacci/murmur3"
 	"github.com/tecbot/gorocksdb"
+	"gopkg.in/vmihailenco/msgpack.v2"
+)
+
+var (
+	defaultWriteOptions = gorocksdb.NewDefaultWriteOptions()
 )
 
 type Point struct {
@@ -95,6 +100,16 @@ func (t *table) insert(point *Point) {
 	key := bytemap.New(point.Dims)
 	h := int(murmur3.Sum32(key))
 	p := h % len(t.partitions)
+	valsBytes, err := msgpack.Marshal(point.Vals)
+	if err != nil {
+		log.Errorf("Unable to serialize value bytes: %v", err)
+		return
+	}
+	err = t.rdb.PutCF(defaultWriteOptions, t.accum, keyWithTime(key, point.Ts), valsBytes)
+	if err != nil {
+		log.Errorf("Unable to write to accumulators: %v", err)
+		return
+	}
 	select {
 	case t.partitions[p].inserts <- &insert{point.Ts, t, key, vals, nil}:
 		t.statsMutex.Lock()
@@ -204,11 +219,10 @@ func (p *partition) requestArchiving() {
 	}
 }
 
-func (t *table) archive() {
+func (t *table) processArchive() {
 	batch := gorocksdb.NewWriteBatch()
-	wo := gorocksdb.NewDefaultWriteOptions()
 	for req := range t.toArchive {
-		batch = t.doArchive(batch, wo, req)
+		batch = t.doArchive(batch, defaultWriteOptions, req)
 	}
 }
 
@@ -225,12 +239,12 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 		for _, val := range vals[i] {
 			// TODO: the below isn't an accurate count, probably need a better stat
 			t.stats.ArchivedBuckets++
-			batch.MergeCF(t.archiveByKeyHandle, k, val)
+			batch.MergeCF(t.archive, k, val)
 		}
 	}
 	count := int64(batch.Count())
 	if count >= t.batchSize {
-		err := t.archiveByKey.Write(wo, batch)
+		err := t.rdb.Write(wo, batch)
 		if err != nil {
 			t.log.Errorf("Unable to write batch: %v", err)
 		}
@@ -262,7 +276,7 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 	retainUntil := t.clock.Now().Add(-1 * t.retentionPeriod)
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
-	it := t.archiveByKey.NewIterator(ro)
+	it := t.rdb.NewIteratorCF(ro, t.archive)
 	defer it.Close()
 	for it.SeekToFirst(); it.Valid(); it.Next() {
 		v := it.Value()
@@ -276,7 +290,7 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 	}
 
 	if batch.Count() > 0 {
-		err := t.archiveByKey.Write(wo, batch)
+		err := t.rdb.Write(wo, batch)
 		if err != nil {
 			t.log.Errorf("Unable to remove expired keys: %v", err)
 		} else {
