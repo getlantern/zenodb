@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -44,8 +43,7 @@ type table struct {
 	archive         *gorocksdb.ColumnFamilyHandle
 	hotPeriod       time.Duration
 	retentionPeriod time.Duration
-	partitions      []*partition
-	toArchive       chan *archiveRequest
+	inserts         chan *insert
 	where           *govaluate.EvaluableExpression
 	whereMutex      sync.RWMutex
 	stats           TableStats
@@ -107,24 +105,12 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 		clock:           vtime.NewClock(time.Time{}),
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
-		toArchive:       make(chan *archiveRequest, db.opts.BatchSize*100),
+		inserts:         make(chan *insert, db.opts.BatchSize*1000),
 	}
 
 	err := t.applyWhere(q.Where)
 	if err != nil {
 		return err
-	}
-
-	numCPU := runtime.NumCPU()
-	t.partitions = make([]*partition, 0, numCPU)
-	for i := 0; i < numCPU; i++ {
-		p := &partition{
-			t:            t,
-			archiveDelay: time.Duration(i) * t.archivePeriod() / time.Duration(numCPU),
-			inserts:      make(chan *insert, 100000/numCPU),
-			tail:         make(map[string]*bucket),
-		}
-		t.partitions = append(t.partitions, p)
 	}
 
 	db.tablesMutex.Lock()
@@ -144,11 +130,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 	}
 	db.tables[name] = t
 
-	for i := 0; i < numCPU; i++ {
-		go t.partitions[i].processInserts()
-	}
-
-	go t.processArchive()
+	go t.process()
 	go t.retain()
 
 	db.streams[q.From] = append(db.streams[q.From], t)

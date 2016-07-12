@@ -13,7 +13,7 @@ type accumMerger struct {
 
 // FullMerge implements method from gorocksdb.MergeOperator.
 func (m *accumMerger) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte, bool) {
-	acs := m.accumulators(existingValue)
+	acs := m.t.accumulators(existingValue)
 
 	for _, operand := range operands {
 		err := applyOperand(acs, operand)
@@ -28,7 +28,7 @@ func (m *accumMerger) FullMerge(key, existingValue []byte, operands [][]byte) ([
 
 // PartialMerge implements method from gorocksdb.MergeOperator.
 func (m *accumMerger) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bool) {
-	acs := m.accumulators(nil)
+	acs := m.t.accumulators(nil)
 
 	err := applyOperand(acs, leftOperand)
 	if err != nil {
@@ -44,10 +44,10 @@ func (m *accumMerger) PartialMerge(key, leftOperand, rightOperand []byte) ([]byt
 	return serializeAccumulators(acs), true
 }
 
-func (m *accumMerger) accumulators(existingValue []byte) []expr.Accumulator {
-	acs := make([]expr.Accumulator, 0, len(m.t.Fields))
+func (t *table) accumulators(existingValue []byte) []expr.Accumulator {
+	acs := make([]expr.Accumulator, 0, len(t.Fields))
 
-	for _, field := range m.t.Fields {
+	for _, field := range t.Fields {
 		ac := field.Accumulator()
 		if len(existingValue) > 0 {
 			ac.InitFrom(existingValue)
