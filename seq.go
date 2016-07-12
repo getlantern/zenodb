@@ -38,10 +38,7 @@ func (seq sequence) start() time.Time {
 	if seq == nil {
 		return zeroTime
 	}
-	ts := int64(binary.BigEndian.Uint64(seq))
-	s := ts / int64(time.Second)
-	ns := ts % int64(time.Second)
-	return time.Unix(s, ns)
+	return timeFromBytes(seq)
 }
 
 func (seq sequence) setStart(t time.Time) {

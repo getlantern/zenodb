@@ -32,21 +32,24 @@ type TableStats struct {
 
 type table struct {
 	sql.Query
-	db              *DB
-	name            string
-	sqlString       string
-	log             golog.Logger
-	batchSize       int64
-	clock           *vtime.Clock
-	archiveByKey    *gorocksdb.DB
-	hotPeriod       time.Duration
-	retentionPeriod time.Duration
-	partitions      []*partition
-	toArchive       chan *archiveRequest
-	where           *govaluate.EvaluableExpression
-	whereMutex      sync.RWMutex
-	stats           TableStats
-	statsMutex      sync.RWMutex
+	db                  *DB
+	name                string
+	sqlString           string
+	log                 golog.Logger
+	batchSize           int64
+	clock               *vtime.Clock
+	archiveByKey        *gorocksdb.DB
+	archiveByKeyHandle  *gorocksdb.ColumnFamilyHandle
+	accumulatorsHandler *gorocksdb.ColumnFamilyHandle
+	rdb                 *gorocksdb.DB
+	hotPeriod           time.Duration
+	retentionPeriod     time.Duration
+	partitions          []*partition
+	toArchive           chan *archiveRequest
+	where               *govaluate.EvaluableExpression
+	whereMutex          sync.RWMutex
+	stats               TableStats
+	statsMutex          sync.RWMutex
 }
 
 type DBOpts struct {
@@ -135,7 +138,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 	if err != nil && !os.IsExist(err) {
 		return fmt.Errorf("Unable to create folder for rocksdb database: %v", err)
 	}
-	t.archiveByKey, err = t.createDatabase(db.opts.Dir, "bykey")
+	err = t.createDatabase(db.opts.Dir, "bykey")
 	if err != nil {
 		return fmt.Errorf("Unable to create rocksdb database: %v", err)
 	}
@@ -210,18 +213,33 @@ func (db *DB) getTable(table string) *table {
 	return t
 }
 
-func (t *table) createDatabase(dir string, suffix string) (*gorocksdb.DB, error) {
+func (t *table) createDatabase(dir string, suffix string) error {
+	opts := t.buildDBOpts(nil)
+	cfNames := []string{"default", "accumulators"}
+	cfOpts := []*gorocksdb.Options{t.buildDBOpts(&archiveMerger{t}), t.buildDBOpts(&hotMerger{t})}
+	db, cfs, err := gorocksdb.OpenDbColumnFamilies(opts, filepath.Join(dir, t.name+"_"+suffix), cfNames, cfOpts)
+	if err != nil {
+		return err
+	}
+	t.archiveByKey = db
+	t.archiveByKeyHandle = cfs[0]
+	t.accumulatorsHandler = cfs[1]
+	return nil
+}
+
+func (t *table) buildDBOpts(mergeOperator gorocksdb.MergeOperator) *gorocksdb.Options {
 	opts := gorocksdb.NewDefaultOptions()
 	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
 	// TODO: make this tunable or auto-adjust based on table resolution or
 	// something
-	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(256 * 1024 * 1024))
+	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(128 * 1024 * 1024))
 	filter := gorocksdb.NewBloomFilter(10)
 	bbtopts.SetFilterPolicy(filter)
 	opts.SetBlockBasedTableFactory(bbtopts)
 	opts.SetCreateIfMissing(true)
-	opts.SetMergeOperator(t)
-	return gorocksdb.OpenDb(opts, filepath.Join(dir, t.name+"_"+suffix))
+	opts.SetCreateIfMissingColumnFamilies(true)
+	opts.SetMergeOperator(mergeOperator)
+	return opts
 }
 
 func roundTime(ts time.Time, resolution time.Duration) time.Time {
@@ -230,4 +248,8 @@ func roundTime(ts time.Time, resolution time.Duration) time.Time {
 		rounded = rounded.Add(-1 * resolution)
 	}
 	return rounded
+}
+
+func (t *table) truncateBefore() time.Time {
+	return t.clock.Now().Add(-1 * t.retentionPeriod)
 }

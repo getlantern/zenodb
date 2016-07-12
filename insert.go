@@ -225,7 +225,7 @@ func (t *table) doArchive(batch *gorocksdb.WriteBatch, wo *gorocksdb.WriteOption
 		for _, val := range vals[i] {
 			// TODO: the below isn't an accurate count, probably need a better stat
 			t.stats.ArchivedBuckets++
-			batch.Merge(k, val)
+			batch.MergeCF(t.archiveByKeyHandle, k, val)
 		}
 	}
 	count := int64(batch.Count())

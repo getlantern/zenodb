@@ -36,6 +36,14 @@ func (p Map) Get(name string) Value {
 	return val
 }
 
+// FloatMap is an implementation of the Params interface using a map of floats.
+type FloatMap map[string]float64
+
+// Get implements the method from the Params interface
+func (p FloatMap) Get(name string) Value {
+	return Float(p[name])
+}
+
 type Accumulator interface {
 	Update(params Params)
 
