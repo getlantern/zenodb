@@ -218,6 +218,9 @@ view_a:
 		return result, err
 	}
 
+	// Give archiver time to catch up
+	time.Sleep(1 * time.Second)
+
 	result, err := query("Test_A", epoch.Add(-1*resolution), epoch, "u", "i")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
