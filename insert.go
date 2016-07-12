@@ -53,12 +53,12 @@ func (t *table) insert(point *Point) {
 	if where != nil {
 		ok, err := where.Eval(point)
 		if err != nil {
-			log.Errorf("Unable to filter inbound point: %v", err)
+			t.log.Errorf("Unable to filter inbound point: %v", err)
 			t.statsMutex.Lock()
 			t.stats.DroppedPoints++
 			t.statsMutex.Unlock()
 		} else if !ok.(bool) {
-			log.Tracef("Filtering out inbound point: %v", point.Dims)
+			t.log.Tracef("Filtering out inbound point: %v", point.Dims)
 			t.statsMutex.Lock()
 			t.stats.FilteredPoints++
 			t.statsMutex.Unlock()
@@ -83,7 +83,7 @@ func (t *table) insert(point *Point) {
 	key := bytemap.New(point.Dims)
 	vals, err := msgpack.Marshal(point.Vals)
 	if err != nil {
-		log.Errorf("Unable to serialize value bytes: %v", err)
+		t.log.Errorf("Unable to serialize value bytes: %v", err)
 		return
 	}
 	select {
@@ -110,7 +110,7 @@ func (t *table) process() {
 		case <-commitTicker.C:
 			err := t.rdb.Write(defaultWriteOptions, batch)
 			if err != nil {
-				log.Errorf("Unable to commit batch: %v", err)
+				t.log.Errorf("Unable to commit batch: %v", err)
 			}
 			batch = gorocksdb.NewWriteBatch()
 		case <-archiveTicker.C:
@@ -133,7 +133,7 @@ func (t *table) archiveDirty(snap *gorocksdb.Snapshot) {
 		acit.Seek(k)
 		_k.Free()
 		if !acit.Valid() {
-			log.Error("Skipping missing accumulator for dirty key, this should not happen!")
+			t.log.Error("Skipping missing accumulator for dirty key, this should not happen!")
 			continue
 		}
 		_val := acit.Value()
@@ -144,11 +144,12 @@ func (t *table) archiveDirty(snap *gorocksdb.Snapshot) {
 			field := t.Fields[i].Name
 			batch.MergeCF(t.archive, keyWithField(key, field), newTSValue(ts, ac.Get()))
 		}
+		batch.DeleteCF(t.dirty, k)
 		_val.Free()
 	}
 	err := t.rdb.Write(defaultWriteOptions, batch)
 	if err != nil {
-		log.Errorf("Write failed, discarding batch: %v", err)
+		t.log.Errorf("Write failed, discarding batch: %v", err)
 		t.statsMutex.Lock()
 		t.stats.DroppedPoints += int64(batch.Count())
 		t.statsMutex.Unlock()
@@ -157,6 +158,8 @@ func (t *table) archiveDirty(snap *gorocksdb.Snapshot) {
 		t.stats.ArchivedBuckets += int64(batch.Count())
 		t.statsMutex.Unlock()
 	}
+
+	snap.Release()
 }
 
 func (t *table) retain() {

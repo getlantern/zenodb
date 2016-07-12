@@ -23,7 +23,7 @@ func (a *fieldAccumulator) Bytes() []byte {
 }
 
 func (a *fieldAccumulator) InitFrom(b []byte) []byte {
-	return nil
+	return b
 }
 
 type field struct {

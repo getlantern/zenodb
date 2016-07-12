@@ -30,7 +30,7 @@ func (a *constantAccumulator) Bytes() []byte {
 }
 
 func (a *constantAccumulator) InitFrom(b []byte) []byte {
-	return nil
+	return b
 }
 
 type constant struct {

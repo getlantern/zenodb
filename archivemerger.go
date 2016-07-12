@@ -13,8 +13,8 @@ func (m *archiveMerger) FullMerge(key, existingValue []byte, operands [][]byte) 
 		val := tsvalue(operand)
 		seq = seq.plus(val, t.Resolution, truncateBefore)
 	}
-	if log.IsTraceEnabled() {
-		log.Tracef("Merge result: %v", seq)
+	if m.t.log.IsTraceEnabled() {
+		m.t.log.Tracef("Merge result: %v", seq)
 	}
 	return []byte(seq), true
 }

@@ -18,7 +18,7 @@ func (m *accumMerger) FullMerge(key, existingValue []byte, operands [][]byte) ([
 	for _, operand := range operands {
 		err := applyOperand(acs, operand)
 		if err != nil {
-			log.Error(err)
+			log.Errorf("Unable to apply operand: %v", err)
 			return existingValue, false
 		}
 	}
@@ -50,7 +50,7 @@ func (t *table) accumulators(existingValue []byte) []expr.Accumulator {
 	for _, field := range t.Fields {
 		ac := field.Accumulator()
 		if len(existingValue) > 0 {
-			ac.InitFrom(existingValue)
+			existingValue = ac.InitFrom(existingValue)
 		}
 		acs = append(acs, ac)
 	}

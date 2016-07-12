@@ -29,10 +29,16 @@ func TestCombined(t *testing.T) {
 	a.Update(params2)
 	assertFloatEquals(t, 7, a.Get())
 
+	b := append(a.Bytes(), a.Bytes()...)
 	rta := e.Accumulator()
-	rta.InitFrom(a.Bytes())
+	rtb := e.Accumulator()
+	b = rta.InitFrom(b)
+	rtb.InitFrom(b)
 	assertFloatEquals(t, 7, rta.Get())
+	assertFloatEquals(t, 7, rtb.Get())
 
 	rta.Update(params3)
+	rtb.Update(params3)
 	assertFloatEquals(t, 5, rta.Get())
+	assertFloatEquals(t, 5, rtb.Get())
 }
