@@ -7,7 +7,6 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
 	"github.com/tecbot/gorocksdb"
-	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 var (
@@ -81,7 +80,7 @@ func (t *table) insert(point *Point) {
 	}
 
 	key := bytemap.New(point.Dims)
-	vals, err := msgpack.Marshal(point.Vals)
+	vals, err := paramsAsBytes(point.Vals)
 	if err != nil {
 		t.log.Errorf("Unable to serialize value bytes: %v", err)
 		return
