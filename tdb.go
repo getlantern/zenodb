@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Knetic/govaluate"
+	"github.com/dustin/go-humanize"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tdb/sql"
@@ -21,12 +22,13 @@ var (
 )
 
 type TableStats struct {
-	FilteredPoints  int64
-	InsertedPoints  int64
-	DroppedPoints   int64
-	HotKeys         int64
-	ArchivedBuckets int64
-	ExpiredKeys     int64
+	FilteredPoints int64
+	QueuedPoints   int64
+	InsertedPoints int64
+	DroppedPoints  int64
+	DirtyPoints    int64
+	ArchivedPoints int64
+	ExpiredPoints  int64
 }
 
 type table struct {
@@ -44,6 +46,7 @@ type table struct {
 	hotPeriod       time.Duration
 	retentionPeriod time.Duration
 	inserts         chan *insert
+	archiveRequests chan *gorocksdb.Snapshot
 	where           *govaluate.EvaluableExpression
 	whereMutex      sync.RWMutex
 	stats           TableStats
@@ -54,6 +57,7 @@ type DBOpts struct {
 	SchemaFile string
 	Dir        string
 	BatchSize  int64
+	QueueDepth int64
 }
 
 type DB struct {
@@ -71,9 +75,16 @@ type view struct {
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
 	db := &DB{opts: opts, tables: make(map[string]*table), streams: make(map[string][]*table)}
+	if opts.BatchSize == 0 {
+		opts.BatchSize = 1000
+	}
+	if opts.QueueDepth == 0 {
+		opts.QueueDepth = opts.BatchSize * 1000
+	}
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 	}
+	log.Debugf("Dir: %v    SchemaFile: %v    BatchSize: %d    QueueDepth: %d", opts.Dir, opts.SchemaFile, opts.BatchSize, opts.QueueDepth)
 	return db, err
 }
 
@@ -105,7 +116,8 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 		clock:           vtime.NewClock(time.Time{}),
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
-		inserts:         make(chan *insert, db.opts.BatchSize*1000),
+		inserts:         make(chan *insert, db.opts.QueueDepth),
+		archiveRequests: make(chan *gorocksdb.Snapshot, 1),
 	}
 
 	err := t.applyWhere(q.Where)
@@ -131,6 +143,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 	db.tables[name] = t
 
 	go t.process()
+	go t.processArchiving()
 	go t.retain()
 
 	db.streams[q.From] = append(db.streams[q.From], t)
@@ -178,6 +191,20 @@ func (db *DB) AllTableStats() map[string]TableStats {
 		t.statsMutex.RUnlock()
 	}
 	return m
+}
+
+func (db *DB) PrintTableStats(table string) string {
+	stats := db.TableStats(table)
+	now := db.Now(table)
+	return fmt.Sprintf("%v (%v)\tFiltered: %v    Queued: %v    Inserted: %v    Dropped: %v    Dirty: %v    Archived: %v",
+		table,
+		now.In(time.UTC),
+		humanize.Comma(stats.FilteredPoints),
+		humanize.Comma(stats.QueuedPoints),
+		humanize.Comma(stats.InsertedPoints),
+		humanize.Comma(stats.DroppedPoints),
+		humanize.Comma(stats.DirtyPoints),
+		humanize.Comma(stats.ArchivedPoints))
 }
 
 func (db *DB) Now(table string) time.Time {

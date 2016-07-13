@@ -85,52 +85,75 @@ func (t *table) insert(point *Point) {
 		t.log.Errorf("Unable to serialize value bytes: %v", err)
 		return
 	}
-	select {
-	case t.inserts <- &insert{keyWithTime(key, point.Ts), vals}:
-		t.statsMutex.Lock()
-		t.stats.InsertedPoints++
-		t.statsMutex.Unlock()
-	default:
-		t.statsMutex.Lock()
-		t.stats.DroppedPoints++
-		t.statsMutex.Unlock()
-	}
+	t.inserts <- &insert{keyWithTime(key, point.Ts), vals}
+	t.statsMutex.Lock()
+	t.stats.QueuedPoints++
+	t.statsMutex.Unlock()
 }
 
 func (t *table) process() {
 	commitTicker := t.clock.NewTicker(t.Resolution)
-	archiveTicker := t.clock.NewTicker(t.hotPeriod)
+	archiveTicker := t.clock.NewTicker(t.Resolution * 2)
 	batch := gorocksdb.NewWriteBatch()
 	for {
 		select {
 		case i := <-t.inserts:
 			batch.PutCF(t.dirty, i.key, nil)
 			batch.MergeCF(t.accum, i.key, i.vals)
+			t.statsMutex.Lock()
+			t.stats.QueuedPoints--
+			t.statsMutex.Unlock()
 		case <-commitTicker.C:
 			err := t.rdb.Write(defaultWriteOptions, batch)
 			if err != nil {
 				t.log.Errorf("Unable to commit batch: %v", err)
 			}
+			count := int64(batch.Count() / 2)
+			t.statsMutex.Lock()
+			t.stats.InsertedPoints += count
+			t.statsMutex.Unlock()
 			batch = gorocksdb.NewWriteBatch()
 		case <-archiveTicker.C:
-			t.archiveDirty(t.rdb.NewSnapshot())
+			t.archiveRequests <- t.rdb.NewSnapshot()
 		}
 	}
 }
 
+func (t *table) processArchiving() {
+	for snap := range t.archiveRequests {
+		t.archiveDirty(snap)
+	}
+}
+
 func (t *table) archiveDirty(snap *gorocksdb.Snapshot) {
+	t.log.Debug("Archiving dirty")
+	start := time.Now()
+	i := 0
+	defer func() {
+		t.log.Debugf("Done archiving %d dirty in %v", i, time.Now().Sub(start))
+	}()
+
+	var keysToFree []*gorocksdb.Slice
+	defer func() {
+		for _, key := range keysToFree {
+			key.Free()
+		}
+	}()
+
 	batch := gorocksdb.NewWriteBatch()
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetSnapshot(snap)
-	ro.SetFillCache(false)
+	ro.SetFillCache(true)
 	acit := t.rdb.NewIteratorCF(ro, t.accum)
 	acit.SeekToFirst()
 	dit := t.rdb.NewIteratorCF(ro, t.dirty)
 	for dit.SeekToFirst(); dit.Valid(); dit.Next() {
+		i++
 		_k := dit.Key()
+		keysToFree = append(keysToFree, _k)
 		k := _k.Data()
+		batch.DeleteCF(t.dirty, k)
 		acit.Seek(k)
-		_k.Free()
 		if !acit.Valid() {
 			t.log.Error("Skipping missing accumulator for dirty key, this should not happen!")
 			continue
@@ -143,18 +166,19 @@ func (t *table) archiveDirty(snap *gorocksdb.Snapshot) {
 			field := t.Fields[i].Name
 			batch.MergeCF(t.archive, keyWithField(key, field), newTSValue(ts, ac.Get()))
 		}
-		batch.DeleteCF(t.dirty, k)
 		_val.Free()
 	}
+
+	count := int64(batch.Count() / 2 / len(t.Fields))
 	err := t.rdb.Write(defaultWriteOptions, batch)
 	if err != nil {
 		t.log.Errorf("Write failed, discarding batch: %v", err)
 		t.statsMutex.Lock()
-		t.stats.DroppedPoints += int64(batch.Count())
+		t.stats.DroppedPoints += count
 		t.statsMutex.Unlock()
 	} else {
 		t.statsMutex.Lock()
-		t.stats.ArchivedBuckets += int64(batch.Count())
+		t.stats.ArchivedPoints += count
 		t.statsMutex.Unlock()
 	}
 
@@ -202,11 +226,11 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 			t.log.Errorf("Unable to remove expired keys: %v", err)
 		} else {
 			delta := time.Now().Sub(start)
-			expiredKeys := int64(batch.Count())
+			expiredPoints := int64(batch.Count() / len(t.Fields))
 			t.statsMutex.Lock()
-			t.stats.ExpiredKeys += expiredKeys
+			t.stats.ExpiredPoints += expiredPoints
 			t.statsMutex.Unlock()
-			t.log.Tracef("Removed %v expired keys in %v", humanize.Comma(expiredKeys), delta)
+			t.log.Tracef("Removed %v expired points in %v", humanize.Comma(expiredPoints), delta)
 		}
 	} else {
 		t.log.Trace("No expired keys to remove")

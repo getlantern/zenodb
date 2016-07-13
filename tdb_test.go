@@ -105,8 +105,7 @@ view_a:
 		db.getTable("view_a").clock.Advance(now)
 		time.Sleep(250 * time.Millisecond)
 		for _, table := range []string{"test_a", "view_a"} {
-			stats := db.TableStats(table)
-			log.Debugf("%v (%v)\tFiltered Out Points: %d\tInserted Points: %d\tDropped Points: %d\tHot Keys: %d\tArchived Buckets: %d", table, db.Now(table).In(time.UTC), stats.FilteredPoints, stats.InsertedPoints, stats.DroppedPoints, stats.HotKeys, stats.ArchivedBuckets)
+			log.Debug(db.PrintTableStats(table))
 		}
 	}
 
@@ -219,7 +218,7 @@ view_a:
 	}
 
 	// Give archiver time to catch up
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	result, err := query("Test_A", epoch.Add(-1*resolution), epoch, "u", "i")
 	if assert.NoError(t, err, "Unable to run query") {

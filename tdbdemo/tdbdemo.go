@@ -62,7 +62,6 @@ GROUP BY period(%v)`, resolution))
 	start := time.Now()
 
 	report := func() {
-		stats := db.TableStats("test")
 		delta := time.Now().Sub(start)
 		start = time.Now()
 		i := atomic.SwapInt64(&inserts, 0)
@@ -74,11 +73,11 @@ GROUP BY period(%v)`, resolution))
 		postGC := float64(ms.HeapAlloc) / 1024.0 / 1024.0
 		fmt.Printf(`
 %s inserts at %s inserts per second
-Hot Keys: %s     Archived Buckets: %s     Expired Keys: %s
+%v
 HeapAlloc pre/post GC %f/%f MiB
 `,
 			humanize.Comma(i), humanize.Comma(i/int64(delta.Seconds())),
-			humanize.Comma(stats.HotKeys), humanize.Comma(stats.ArchivedBuckets), humanize.Comma(stats.ExpiredKeys),
+			db.PrintTableStats("test"),
 			preGC, postGC)
 	}
 
