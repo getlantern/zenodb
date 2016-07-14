@@ -18,9 +18,12 @@ type avgAccumulator struct {
 }
 
 func (a *avgAccumulator) Update(params Params) {
+	fmt.Printf("Before - Count: %f   Total: %f\n", a.count, a.total)
+	fmt.Printf("Params: i: %f    ii: %f    iii: %f\n", params.Get("i"), params.Get("ii"), params.Get("iii"))
 	a.wrapped.Update(params)
 	a.count++
 	a.total += a.wrapped.Get()
+	fmt.Printf("After - Count: %f   Total: %f\n", a.count, a.total)
 }
 
 func (a *avgAccumulator) Get() float64 {

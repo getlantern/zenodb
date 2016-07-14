@@ -3,6 +3,7 @@ package tdb
 import (
 	"time"
 
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
 )
 
@@ -89,6 +90,10 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 	ts, params := tsp.timeAndParams()
 	periodWidth := accum.EncodedWidth()
 
+	if log.IsTraceEnabled() {
+		log.Tracef("Updating sequence starting at %v to %v at %v", seq.start(), bytemap.ByteMap(bytemapParams(params)).AsMap(), ts)
+	}
+
 	if !ts.After(truncateBefore) {
 		// New value falls outside of truncation range, just truncate existing
 		// sequence
@@ -99,7 +104,7 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 	}
 
 	if seq == nil {
-		// Create a new sequence
+		log.Trace("Creating new sequence")
 		out := make(sequence, width64bits+periodWidth)
 		out.setStart(ts)
 		out.updateValueAt(0, accum, params)
@@ -108,7 +113,7 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 
 	start := seq.start()
 	if ts.After(start) {
-		// Prepend
+		log.Trace("Prepending to sequence")
 		delta := ts.Sub(start)
 		deltaPeriods := int(delta / resolution)
 		out := make(sequence, len(seq)+periodWidth*deltaPeriods)
@@ -119,7 +124,7 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 		return out.truncate(periodWidth, resolution, truncateBefore)
 	}
 
-	// Update existing entry
+	log.Trace("Updating existing entry on sequence")
 	out := seq
 	period := int(start.Sub(ts) / resolution)
 	offset := period * periodWidth

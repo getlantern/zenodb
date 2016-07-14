@@ -177,18 +177,18 @@ view_a:
 		},
 	})
 
-	db.Insert("inbound", &Point{
-		Ts: now,
-		Dims: map[string]interface{}{
-			"r": "A",
-			"u": 2,
-			"b": true,
-		},
-		Vals: map[string]float64{
-			"i":  30000,
-			"ii": 40000,
-		},
-	})
+	// db.Insert("inbound", &Point{
+	// 	Ts: now,
+	// 	Dims: map[string]interface{}{
+	// 		"r": "A",
+	// 		"u": 2,
+	// 		"b": true,
+	// 	},
+	// 	Vals: map[string]float64{
+	// 		"i":  30000,
+	// 		"ii": 40000,
+	// 	},
+	// })
 
 	advance(hotPeriod * 10)
 
@@ -229,7 +229,14 @@ view_a:
 		}
 	}
 
-	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "iii")
+	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "ii")
+	if assert.NoError(t, err, "Unable to run query") {
+		if assert.Len(t, result, 1) {
+			assert.Equal(t, []float64{22}, result[1])
+		}
+	}
+
+	result, err = query("Test_A", epoch.Add(-10*resolution), epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
 			assert.Equal(t, []float64{101}, result[1])
