@@ -1,6 +1,7 @@
 package tdb
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/getlantern/bytemap"
@@ -152,4 +153,20 @@ func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncate
 		return seq
 	}
 	return seq[:maxLength]
+}
+
+func (seq sequence) String(accum expr.Accumulator) string {
+	if seq == nil {
+		return ""
+	}
+	values := ""
+
+	numPeriods := seq.numPeriods(accum.EncodedWidth())
+	for i := 0; i < numPeriods; i++ {
+		if i > 0 {
+			values += " "
+		}
+		values += fmt.Sprint(seq.valueAt(i, accum))
+	}
+	return fmt.Sprintf("%v: %v", seq.start(), values)
 }

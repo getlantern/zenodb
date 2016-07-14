@@ -33,6 +33,11 @@ func (m *merger) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte
 		tsp := tsparams(operand)
 		seq = seq.update(tsp, accum, m.t.Resolution, truncateBefore)
 	}
+
+	if log.IsTraceEnabled() {
+		log.Tracef("Merge result: %v", seq.String(accum))
+	}
+
 	return []byte(seq), true
 }
 
