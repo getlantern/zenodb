@@ -1,47 +1,30 @@
 package expr
 
 import (
+	"encoding/binary"
 	"fmt"
 	"reflect"
 	"strconv"
 )
 
 const (
-	size64bits = 8
+	width64bits = 8
 )
 
-type Value interface {
-	Get() float64
-}
-
-type Float float64
-
-func (f Float) Get() float64 {
-	return float64(f)
-}
+var (
+	binaryEncoding = binary.LittleEndian
+)
 
 type Params interface {
-	Get(name string) Value
+	Get(name string) float64
 }
 
 // Map is an implementation of the Params interface using a map.
-type Map map[string]Value
+type Map map[string]float64
 
 // Get implements the method from the Params interface
-func (p Map) Get(name string) Value {
-	val := p[name]
-	if val == nil {
-		val = Float(0)
-	}
-	return val
-}
-
-// FloatMap is an implementation of the Params interface using a map of floats.
-type FloatMap map[string]float64
-
-// Get implements the method from the Params interface
-func (p FloatMap) Get(name string) Value {
-	return Float(p[name])
+func (p Map) Get(name string) float64 {
+	return p[name]
 }
 
 type Accumulator interface {
@@ -49,9 +32,18 @@ type Accumulator interface {
 
 	Get() float64
 
-	Bytes() []byte
+	// Note - encoding to bytes is only valid for aggregate accumulators
+	EncodedWidth() int
+
+	Encode(b []byte) int
 
 	InitFrom(b []byte) []byte
+}
+
+func Encoded(accum Accumulator) []byte {
+	b := make([]byte, accum.EncodedWidth())
+	accum.Encode(b)
+	return b
 }
 
 type Expr interface {

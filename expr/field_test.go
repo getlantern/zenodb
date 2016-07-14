@@ -7,7 +7,7 @@ import (
 
 func TestField(t *testing.T) {
 	params := Map{
-		"a": Float(4.4),
+		"a": 4.4,
 	}
 	f := FIELD("a")
 	assert.Equal(t, []string{"a"}, f.DependsOn())

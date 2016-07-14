@@ -27,10 +27,10 @@ func TestDIVZero(t *testing.T) {
 
 func doTestCalc(t *testing.T, e Expr, expectedDepends []string, expected float64) {
 	params := Map{
-		"a": Float(8.8),
-		"b": Float(4.4),
-		"c": Float(0),
-		"d": Float(1.1),
+		"a": 8.8,
+		"b": 4.4,
+		"c": 0,
+		"d": 1.1,
 	}
 
 	assert.Equal(t, expectedDepends, e.DependsOn())

@@ -28,24 +28,24 @@ type Entry struct {
 }
 
 // Get implements the method from interface govaluate.Parameters
-func (entry *Entry) Get(name string) expr.Value {
+func (entry *Entry) Get(name string) float64 {
 	if entry.fieldsIdx >= 0 {
 		vals := entry.Fields[name]
 		if vals == nil || entry.fieldsIdx >= len(vals) {
-			return expr.Zero
+			return 0
 		}
-		return vals[entry.fieldsIdx]
+		return vals[entry.fieldsIdx].Get()
 	}
 	rawVals := entry.rawValues[name]
 	if rawVals != nil {
 		if entry.valuesIdx < len(rawVals) {
 			raw := rawVals[entry.valuesIdx]
 			if entry.inIdx < len(raw) {
-				return expr.Float(raw[entry.inIdx])
+				return raw[entry.inIdx]
 			}
 		}
 	}
-	return expr.Zero
+	return 0
 }
 
 type QueryResult struct {

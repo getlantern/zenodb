@@ -7,7 +7,7 @@ func FIELD(name string) Expr {
 
 type fieldAccumulator struct {
 	name  string
-	value Value
+	value float64
 }
 
 func (a *fieldAccumulator) Update(params Params) {
@@ -15,11 +15,15 @@ func (a *fieldAccumulator) Update(params Params) {
 }
 
 func (a *fieldAccumulator) Get() float64 {
-	return a.value.Get()
+	return a.value
 }
 
-func (a *fieldAccumulator) Bytes() []byte {
-	return nil
+func (a *fieldAccumulator) EncodedWidth() int {
+	return 0
+}
+
+func (a *fieldAccumulator) Encode(b []byte) int {
+	return 0
 }
 
 func (a *fieldAccumulator) InitFrom(b []byte) []byte {

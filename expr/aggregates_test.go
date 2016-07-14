@@ -27,11 +27,11 @@ func TestCOUNT(t *testing.T) {
 
 func doTestAggregate(t *testing.T, e Expr, expectedDepends []string, expected float64) {
 	params1 := Map{
-		"a": Float(4.4),
+		"a": 4.4,
 	}
 	params2 := Map{
-		"a": Float(8.8),
-		"b": Float(1.1),
+		"a": 8.8,
+		"b": 1.1,
 	}
 
 	assert.Equal(t, expectedDepends, e.DependsOn())
@@ -39,4 +39,8 @@ func doTestAggregate(t *testing.T, e Expr, expectedDepends []string, expected fl
 	a.Update(params1)
 	a.Update(params2)
 	assertFloatEquals(t, expected, a.Get())
+
+	rt := e.Accumulator()
+	rt.InitFrom(Encoded(a))
+	assertFloatEquals(t, expected, rt.Get())
 }

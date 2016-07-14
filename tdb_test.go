@@ -200,7 +200,7 @@ view_a:
 		fromOffset := from.Sub(now)
 		toOffset := to.Sub(now)
 		result := make(map[int][]float64, 0)
-		_, err = db.runQuery(&query{
+		stats, err := db.runQuery(&query{
 			table:       table,
 			fields:      []string{field},
 			asOfOffset:  fromOffset,
@@ -214,6 +214,8 @@ view_a:
 				}
 			},
 		})
+		log.Debugf("Query stats - scanned: %d    filterpass: %d    datavalid: %d    intimerange: %d", stats.Scanned, stats.FilterPass, stats.DataValid, stats.InTimeRange)
+		log.Debugf("Result: %v", result)
 		return result, err
 	}
 
@@ -229,7 +231,7 @@ view_a:
 
 	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
-		if assert.Len(t, result, 1) {
+		if assert.Len(t, result, 2) {
 			assert.Equal(t, []float64{101}, result[1])
 		}
 	}

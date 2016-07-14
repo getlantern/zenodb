@@ -56,8 +56,8 @@ func TestOR(t *testing.T) {
 
 func doTestCond(t *testing.T, e Cond, expectedDepends []string, expected bool) {
 	params := Map{
-		"a": Float(1.001),
-		"b": Float(1.0),
+		"a": 1.001,
+		"b": 1.0,
 	}
 
 	assert.Equal(t, expectedDepends, e.DependsOn())

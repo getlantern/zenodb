@@ -5,7 +5,6 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/tdb/expr"
 	"github.com/tecbot/gorocksdb"
 )
 
@@ -30,7 +29,7 @@ func (p *Point) Get(name string) (interface{}, error) {
 
 type insert struct {
 	key  bytemap.ByteMap
-	vals []byte
+	vals tsparams
 }
 
 func (db *DB) Insert(stream string, point *Point) error {
@@ -80,12 +79,8 @@ func (t *table) insert(point *Point) {
 	}
 
 	key := bytemap.New(point.Dims)
-	vals, err := paramsAsBytes(point.Vals)
-	if err != nil {
-		t.log.Errorf("Unable to serialize value bytes: %v", err)
-		return
-	}
-	t.inserts <- &insert{keyWithTime(key, point.Ts), vals}
+	vals := newTSParams(point.Ts, bytemap.NewFloat(point.Vals))
+	t.inserts <- &insert{key, vals}
 	t.statsMutex.Lock()
 	t.stats.QueuedPoints++
 	t.statsMutex.Unlock()
@@ -93,13 +88,13 @@ func (t *table) insert(point *Point) {
 
 func (t *table) process() {
 	commitTicker := t.clock.NewTicker(t.Resolution)
-	archiveTicker := t.clock.NewTicker(t.Resolution * 2)
 	batch := gorocksdb.NewWriteBatch()
 	for {
 		select {
 		case i := <-t.inserts:
-			batch.PutCF(t.dirty, i.key, nil)
-			batch.MergeCF(t.accum, i.key, i.vals)
+			for _, field := range t.Fields {
+				batch.MergeCF(t.data, keyWithField(i.key, field.Name), i.vals)
+			}
 			t.statsMutex.Lock()
 			t.stats.QueuedPoints--
 			t.statsMutex.Unlock()
@@ -108,81 +103,13 @@ func (t *table) process() {
 			if err != nil {
 				t.log.Errorf("Unable to commit batch: %v", err)
 			}
-			count := int64(batch.Count() / 2)
+			count := int64(batch.Count() / len(t.Fields))
 			t.statsMutex.Lock()
 			t.stats.InsertedPoints += count
 			t.statsMutex.Unlock()
 			batch = gorocksdb.NewWriteBatch()
-		case <-archiveTicker.C:
-			t.archiveRequests <- t.rdb.NewSnapshot()
 		}
 	}
-}
-
-func (t *table) processArchiving() {
-	for snap := range t.archiveRequests {
-		t.archiveDirty(snap)
-	}
-}
-
-func (t *table) archiveDirty(snap *gorocksdb.Snapshot) {
-	t.log.Debug("Archiving dirty")
-	start := time.Now()
-	i := 0
-	defer func() {
-		t.log.Debugf("Done archiving %d dirty in %v", i, time.Now().Sub(start))
-	}()
-
-	var keysToFree []*gorocksdb.Slice
-	defer func() {
-		for _, key := range keysToFree {
-			key.Free()
-		}
-	}()
-
-	batch := gorocksdb.NewWriteBatch()
-	ro := gorocksdb.NewDefaultReadOptions()
-	ro.SetSnapshot(snap)
-	ro.SetFillCache(true)
-	acit := t.rdb.NewIteratorCF(ro, t.accum)
-	acit.SeekToFirst()
-	dit := t.rdb.NewIteratorCF(ro, t.dirty)
-	for dit.SeekToFirst(); dit.Valid(); dit.Next() {
-		i++
-		_k := dit.Key()
-		keysToFree = append(keysToFree, _k)
-		k := _k.Data()
-		batch.DeleteCF(t.dirty, k)
-		acit.Seek(k)
-		if !acit.Valid() {
-			t.log.Error("Skipping missing accumulator for dirty key, this should not happen!")
-			continue
-		}
-		_val := acit.Value()
-		val := _val.Data()
-		ts, key := timeAndKey(k)
-		acs := t.accumulators(val)
-		for i, ac := range acs {
-			field := t.Fields[i].Name
-			batch.MergeCF(t.archive, keyWithField(key, field), newTSValue(ts, ac.Get()))
-		}
-		_val.Free()
-	}
-
-	count := int64(batch.Count() / 2 / len(t.Fields))
-	err := t.rdb.Write(defaultWriteOptions, batch)
-	if err != nil {
-		t.log.Errorf("Write failed, discarding batch: %v", err)
-		t.statsMutex.Lock()
-		t.stats.DroppedPoints += count
-		t.statsMutex.Unlock()
-	} else {
-		t.statsMutex.Lock()
-		t.stats.ArchivedPoints += count
-		t.statsMutex.Unlock()
-	}
-
-	snap.Release()
 }
 
 func (t *table) retain() {
@@ -207,12 +134,12 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 	retainUntil := t.clock.Now().Add(-1 * t.retentionPeriod)
 	ro := gorocksdb.NewDefaultReadOptions()
 	ro.SetFillCache(false)
-	it := t.rdb.NewIteratorCF(ro, t.archive)
+	it := t.rdb.NewIteratorCF(ro, t.data)
 	defer it.Close()
 	for it.SeekToFirst(); it.Valid(); it.Next() {
 		v := it.Value()
 		vd := v.Data()
-		if vd == nil || len(vd) < size64bits || sequence(vd).start().Before(retainUntil) {
+		if vd == nil || len(vd) < width64bits || sequence(vd).start().Before(retainUntil) {
 			k := it.Key()
 			keysToFree = append(keysToFree, k)
 			batch.Delete(k.Data())
@@ -239,12 +166,4 @@ func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
 
 func (t *table) archivePeriod() time.Duration {
 	return t.hotPeriod / 10
-}
-
-func floatsToValues(in map[string]float64) map[string]expr.Value {
-	out := make(map[string]expr.Value, len(in))
-	for key, value := range in {
-		out[key] = expr.Float(value)
-	}
-	return out
 }

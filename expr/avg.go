@@ -1,7 +1,6 @@
 package expr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
 )
@@ -31,17 +30,20 @@ func (a *avgAccumulator) Get() float64 {
 	return a.total / a.count
 }
 
-func (a *avgAccumulator) Bytes() []byte {
-	b := make([]byte, size64bits*2)
-	binary.BigEndian.PutUint64(b, math.Float64bits(a.count))
-	binary.BigEndian.PutUint64(b[size64bits:], math.Float64bits(a.total))
-	return append(b, a.wrapped.Bytes()...)
+func (a *avgAccumulator) EncodedWidth() int {
+	return width64bits*2 + a.wrapped.EncodedWidth()
+}
+
+func (a *avgAccumulator) Encode(b []byte) int {
+	binaryEncoding.PutUint64(b, math.Float64bits(a.count))
+	binaryEncoding.PutUint64(b[width64bits:], math.Float64bits(a.total))
+	return width64bits*2 + a.wrapped.Encode(b[width64bits*2:])
 }
 
 func (a *avgAccumulator) InitFrom(b []byte) []byte {
-	a.count = math.Float64frombits(binary.BigEndian.Uint64(b))
-	a.total = math.Float64frombits(binary.BigEndian.Uint64(b[size64bits:]))
-	return a.wrapped.InitFrom(b[size64bits*2:])
+	a.count = math.Float64frombits(binaryEncoding.Uint64(b))
+	a.total = math.Float64frombits(binaryEncoding.Uint64(b[width64bits:]))
+	return a.wrapped.InitFrom(b[width64bits*2:])
 }
 
 type avg struct {

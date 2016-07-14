@@ -4,11 +4,6 @@ import (
 	"fmt"
 )
 
-var (
-	// Zero value
-	Zero = CONST(0).Accumulator()
-)
-
 // CONST returns an Accumulator that always has a constant value.
 func CONST(value float64) Expr {
 	return &constant{value}
@@ -25,8 +20,12 @@ func (a *constantAccumulator) Get() float64 {
 	return a.value
 }
 
-func (a *constantAccumulator) Bytes() []byte {
-	return nil
+func (a *constantAccumulator) EncodedWidth() int {
+	return 0
+}
+
+func (a *constantAccumulator) Encode(b []byte) int {
+	return 0
 }
 
 func (a *constantAccumulator) InitFrom(b []byte) []byte {

@@ -15,8 +15,13 @@ func (a *binaryAccumulator) Update(params Params) {
 	a.right.Update(params)
 }
 
-func (a *binaryAccumulator) Bytes() []byte {
-	return append(a.left.Bytes(), a.right.Bytes()...)
+func (a *binaryAccumulator) EncodedWidth() int {
+	return a.left.EncodedWidth() + a.right.EncodedWidth()
+}
+
+func (a *binaryAccumulator) Encode(b []byte) int {
+	n := a.left.Encode(b)
+	return n + a.right.Encode(b[n:])
 }
 
 func (a *binaryAccumulator) InitFrom(b []byte) []byte {

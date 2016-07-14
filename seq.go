@@ -1,38 +1,17 @@
 package tdb
 
 import (
-	"encoding/binary"
-	"fmt"
-	"math"
 	"time"
+
+	"github.com/getlantern/tdb/expr"
 )
 
-const (
-	size64bits = 8
-)
-
-var (
-	zeroTime = time.Time{}
-)
-
-type tsvalue []byte
-
-func newTSValue(ts time.Time, val float64) tsvalue {
-	out := make(sequence, size64bits*2)
-	out.setStart(ts)
-	out.setValueAtOffset(0, val)
-	return tsvalue(out)
-}
-
-// sequence represents a time-ordered sequence of values in descending time
-// order. The first 8 bytes are the timestamp at which the sequence starts, and
-// after that each 8 bytes are a floating point value for the next interval in
-// the sequence.
+// sequence represents a time-ordered sequence of accumulator states in
+// descending time order. The first 8 bytes are the timestamp at which the
+// sequence starts, and after that each n bytes are a floating point value for
+// the next interval in the sequence, where n is determined by the type of
+// accumulator.
 type sequence []byte
-
-func (seq sequence) isValid() bool {
-	return seq != nil && len(seq) >= size64bits*2
-}
 
 func (seq sequence) start() time.Time {
 	if seq == nil {
@@ -42,17 +21,22 @@ func (seq sequence) start() time.Time {
 }
 
 func (seq sequence) setStart(t time.Time) {
-	binary.BigEndian.PutUint64(seq, uint64(t.UnixNano()))
+	binaryEncoding.PutUint64(seq, uint64(t.UnixNano()))
 }
 
-func (seq sequence) numPeriods() int {
+func (seq sequence) numPeriods(periodWidth int) int {
 	if seq == nil {
 		return 0
 	}
-	return len(seq)/size64bits - 1
+	return seq.dataLength() / periodWidth
 }
 
-func (seq sequence) valueAtTime(t time.Time, resolution time.Duration) float64 {
+// length without start time
+func (seq sequence) dataLength() int {
+	return len(seq) - width64bits
+}
+
+func (seq sequence) valueAtTime(t time.Time, accum expr.Accumulator, resolution time.Duration) float64 {
 	if seq == nil {
 		return 0
 	}
@@ -61,59 +45,64 @@ func (seq sequence) valueAtTime(t time.Time, resolution time.Duration) float64 {
 		return 0
 	}
 	period := int(start.Sub(t) / resolution)
-	return seq.valueAt(period)
+	return seq.valueAt(period, accum)
 }
 
-func (seq sequence) valueAt(period int) float64 {
+func (seq sequence) valueAt(period int, accum expr.Accumulator) float64 {
 	if seq == nil {
 		return 0
 	}
-	return seq.valueAtOffset(period * size64bits)
+	return seq.valueAtOffset(period*accum.EncodedWidth(), accum)
 }
 
-func (seq sequence) valueAtOffset(offset int) float64 {
+func (seq sequence) valueAtOffset(offset int, accum expr.Accumulator) float64 {
 	if seq == nil {
 		return 0
 	}
-	offset = offset + size64bits
+	offset = offset + width64bits
 	if offset >= len(seq) {
 		return 0
 	}
-	return math.Float64frombits(binary.BigEndian.Uint64(seq[offset:]))
+	accum.InitFrom(seq[offset:])
+	return accum.Get()
 }
 
-func (seq sequence) setValueAtTime(t time.Time, resolution time.Duration, val float64) {
+func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, accum expr.Accumulator, params expr.Params) {
 	start := seq.start()
 	period := int(start.Sub(t) / resolution)
-	seq.setValueAt(period, val)
+	seq.updateValueAt(period, accum, params)
 }
 
-func (seq sequence) setValueAt(period int, val float64) {
-	seq.setValueAtOffset(period*size64bits, val)
+func (seq sequence) updateValueAt(period int, accum expr.Accumulator, params expr.Params) {
+	seq.updateValueAtOffset(period*accum.EncodedWidth(), accum, params)
 }
 
-func (seq sequence) setValueAtOffset(offset int, val float64) {
-	offset = offset + size64bits
-	binary.BigEndian.PutUint64(seq[offset:], math.Float64bits(val))
+func (seq sequence) updateValueAtOffset(offset int, accum expr.Accumulator, params expr.Params) {
+	offset = offset + width64bits
+	s := seq[offset:]
+	accum.InitFrom(s)
+	accum.Update(params)
+	accum.Encode(s)
 }
 
-func (seq sequence) plus(tsv tsvalue, resolution time.Duration, truncateBefore time.Time) sequence {
-	ts := sequence(tsv).start()
-	val := sequence(tsv).valueAtOffset(0)
+func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time.Duration, truncateBefore time.Time) sequence {
+	ts, params := tsp.timeAndParams()
+	periodWidth := accum.EncodedWidth()
 
 	if !ts.After(truncateBefore) {
-		// New value falls outside of truncation range, just truncate existing sequence
+		// New value falls outside of truncation range, just truncate existing
+		// sequence
 		if seq == nil {
 			return nil
 		}
-		return seq.truncate(resolution, truncateBefore)
+		return seq.truncate(periodWidth, resolution, truncateBefore)
 	}
 
 	if seq == nil {
 		// Create a new sequence
-		out := make(sequence, 2*size64bits)
+		out := make(sequence, width64bits+periodWidth)
 		out.setStart(ts)
-		out.setValueAt(0, val)
+		out.updateValueAt(0, accum, params)
 		return out
 	}
 
@@ -122,28 +111,28 @@ func (seq sequence) plus(tsv tsvalue, resolution time.Duration, truncateBefore t
 		// Prepend
 		delta := ts.Sub(start)
 		deltaPeriods := int(delta / resolution)
-		out := make(sequence, len(seq)+size64bits*deltaPeriods)
-		copy(out[(deltaPeriods+1)*size64bits:], seq[size64bits:])
+		out := make(sequence, len(seq)+periodWidth*deltaPeriods)
+		copy(out[width64bits+deltaPeriods*periodWidth:], seq[width64bits:])
 		out.setStart(ts)
-		out.setValueAt(0, val)
+		out.updateValueAt(0, accum, params)
 		// TODO: optimize this by applying truncation above
-		return out.truncate(resolution, truncateBefore)
+		return out.truncate(periodWidth, resolution, truncateBefore)
 	}
 
 	// Update existing entry
 	out := seq
 	period := int(start.Sub(ts) / resolution)
-	offset := period * size64bits
-	if offset >= len(seq)-size64bits {
+	offset := period * periodWidth
+	if offset+periodWidth >= len(seq) {
 		// Grow seq
-		out = make(sequence, offset+(2*size64bits))
+		out = make(sequence, offset+width64bits+periodWidth)
 		copy(out, seq)
 	}
-	out.setValueAtOffset(offset, val)
-	return out.truncate(resolution, truncateBefore)
+	out.updateValueAtOffset(offset, accum, params)
+	return out.truncate(periodWidth, resolution, truncateBefore)
 }
 
-func (seq sequence) truncate(resolution time.Duration, truncateBefore time.Time) sequence {
+func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncateBefore time.Time) sequence {
 	if seq == nil {
 		return nil
 	}
@@ -153,25 +142,9 @@ func (seq sequence) truncate(resolution time.Duration, truncateBefore time.Time)
 		// Entire sequence falls outside of truncation range
 		return nil
 	}
-	maxLength := (maxPeriods + 1) * size64bits
+	maxLength := width64bits + maxPeriods*periodWidth
 	if maxLength >= len(seq) {
 		return seq
 	}
 	return seq[:maxLength]
-}
-
-func (seq sequence) String() string {
-	if seq == nil {
-		return ""
-	}
-	values := ""
-
-	numPeriods := seq.numPeriods()
-	for i := 0; i < numPeriods; i++ {
-		if i > 0 {
-			values += " "
-		}
-		values += fmt.Sprint(seq.valueAt(i))
-	}
-	return fmt.Sprintf("%v: %v", seq.start(), values)
 }

@@ -69,17 +69,23 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	ro := gorocksdb.NewDefaultReadOptions()
 	// Go ahead and fill the cache
 	ro.SetFillCache(true)
-	it := t.rdb.NewIteratorCF(ro, t.archive)
+	it := t.rdb.NewIteratorCF(ro, t.data)
 	defer it.Close()
 
-	for _, fieldBytes := range fields {
+	accums := t.getAccumulators()
+	defer t.putAccumulators(accums)
+
+	for i, fieldBytes := range fields {
+		accum := accums[i]
+		encodedWidth := accum.EncodedWidth()
+
 		for it.Seek(fieldBytes); it.ValidForPrefix(fieldBytes); it.Next() {
 			stats.Scanned++
 			k := it.Key()
 			storedField, key := fieldAndKey(k.Data())
 
 			if q.filter != nil {
-				include, err := q.filter.Eval(byteMapParams(key))
+				include, err := q.filter.Eval(bytemapQueryParams(key))
 				if err != nil {
 					k.Free()
 					return stats, fmt.Errorf("Unable to apply filter: %v", err)
@@ -100,11 +106,12 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 			stats.ReadValue++
 			seq := sequence(v.Data())
 			vals := make([]float64, numPeriods)
-			if seq.isValid() {
+			if len(seq) > 0 {
 				stats.DataValid++
 				seqStart := seq.start()
+				copyPeriods := seq.numPeriods(encodedWidth)
 				if log.IsTraceEnabled() {
-					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), seq.numPeriods())
+					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), numPeriods)
 				}
 				includeKey := false
 				if !seqStart.Before(q.asOf) {
@@ -114,10 +121,9 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 					}
 					startOffset := int(seqStart.Sub(to) / t.Resolution)
 					log.Tracef("Start offset %d", startOffset)
-					copyPeriods := seq.numPeriods()
 					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
 						includeKey = true
-						val := seq.valueAt(i + startOffset)
+						val := seq.valueAt(i+startOffset, accum)
 						log.Tracef("Grabbing value %f", val)
 						vals[i] = val
 					}
@@ -134,16 +140,6 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 
 	stats.Runtime = time.Now().Sub(start)
 	return stats, nil
-}
-
-type byteMapParams bytemap.ByteMap
-
-func (bmp byteMapParams) Get(field string) (interface{}, error) {
-	result := bytemap.ByteMap(bmp).Get(field)
-	if result == nil {
-		return "", nil
-	}
-	return result, nil
 }
 
 type lexicographical [][]byte
