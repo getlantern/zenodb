@@ -69,7 +69,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 
 	ro := gorocksdb.NewDefaultReadOptions()
 	// Go ahead and fill the cache
-	ro.SetFillCache(true)
+	ro.SetFillCache(false)
 	it := t.rdb.NewIteratorCF(ro, t.data)
 	defer it.Close()
 

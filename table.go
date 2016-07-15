@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -22,8 +23,6 @@ type TableStats struct {
 	QueuedPoints   int64
 	InsertedPoints int64
 	DroppedPoints  int64
-	DirtyPoints    int64
-	ArchivedPoints int64
 	ExpiredPoints  int64
 }
 
@@ -45,6 +44,18 @@ type table struct {
 	stats           TableStats
 	statsMutex      sync.RWMutex
 	accums          *sync.Pool
+}
+
+var (
+	// use a single block cache for all databases
+	blockCache = gorocksdb.NewLRUCache(1024 * 1024 * 1024)
+
+	// use a single env for all databases
+	defaultEnv = gorocksdb.NewDefaultEnv()
+)
+
+func init() {
+	defaultEnv.SetBackgroundThreads(runtime.NumCPU())
 }
 
 func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string) error {
@@ -75,7 +86,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 		clock:           vtime.NewClock(time.Time{}),
 		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
-		inserts:         make(chan *insert, 1000),
+		inserts:         make(chan *insert, db.opts.BatchSize*2),
 	}
 	t.accums = &sync.Pool{New: t.newAccumulators}
 
@@ -139,16 +150,26 @@ func (t *table) createDatabase(dir string) error {
 }
 
 func (t *table) buildDBOpts(mergeOperator gorocksdb.MergeOperator) *gorocksdb.Options {
+	// See https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide
 	opts := gorocksdb.NewDefaultOptions()
 	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
 	// TODO: make this tunable or auto-adjust based on table resolution or
 	// something
-	bbtopts.SetBlockCache(gorocksdb.NewLRUCache(128 * 1024 * 1024))
+	bbtopts.SetBlockCache(blockCache)
+	// Use a large block size
+	bbtopts.SetBlockSize(65536)
 	filter := gorocksdb.NewBloomFilter(10)
 	bbtopts.SetFilterPolicy(filter)
 	opts.SetBlockBasedTableFactory(bbtopts)
 	opts.SetCreateIfMissing(true)
 	opts.SetCreateIfMissingColumnFamilies(true)
+	opts.EnableStatistics()
+	opts.SetStatsDumpPeriodSec(60) // dump stats every 60 seconds
+	opts.SetEnv(defaultEnv)
+	opts.SetMaxOpenFiles(-1) // don't limit number of open files
+	opts.SetWriteBufferSize(128 * 1024 * 1024)
+	opts.SetMaxWriteBufferNumber(5)
+	opts.SetMinWriteBufferNumberToMerge(2)
 	if mergeOperator != nil {
 		opts.SetMergeOperator(mergeOperator)
 	}

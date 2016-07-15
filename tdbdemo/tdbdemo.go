@@ -99,7 +99,7 @@ HeapAlloc pre/post GC %f/%f MiB
 SELECT COUNT(i) AS the_count
 FROM test ASOF '%v'
 GROUP BY period(168h)
-`, -2*hotPeriod))
+`, -100*resolution))
 				if err != nil {
 					log.Errorf("Unable to build query: %v", err)
 					continue

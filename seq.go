@@ -98,13 +98,13 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 	if !ts.After(truncateBefore) {
 		// New value falls outside of truncation range, just truncate existing
 		// sequence
-		if seq == nil {
+		if len(seq) == 0 {
 			return nil
 		}
 		return seq.truncate(periodWidth, resolution, truncateBefore)
 	}
 
-	if seq == nil {
+	if len(seq) == 0 {
 		log.Trace("Creating new sequence")
 		out := make(sequence, width64bits+periodWidth)
 		out.setStart(ts)

@@ -18,7 +18,6 @@ type DBOpts struct {
 	SchemaFile string
 	Dir        string
 	BatchSize  int64
-	QueueDepth int64
 }
 
 type DB struct {
@@ -34,13 +33,10 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.BatchSize == 0 {
 		opts.BatchSize = 1000
 	}
-	if opts.QueueDepth == 0 {
-		opts.QueueDepth = opts.BatchSize * 1000
-	}
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 	}
-	log.Debugf("Dir: %v    SchemaFile: %v    BatchSize: %d    QueueDepth: %d", opts.Dir, opts.SchemaFile, opts.BatchSize, opts.QueueDepth)
+	log.Debugf("Dir: %v    SchemaFile: %v    BatchSize: %d    ", opts.Dir, opts.SchemaFile, opts.BatchSize)
 	return db, err
 }
 
@@ -73,15 +69,13 @@ func (db *DB) AllTableStats() map[string]TableStats {
 func (db *DB) PrintTableStats(table string) string {
 	stats := db.TableStats(table)
 	now := db.Now(table)
-	return fmt.Sprintf("%v (%v)\tFiltered: %v    Queued: %v    Inserted: %v    Dropped: %v    Dirty: %v    Archived: %v",
+	return fmt.Sprintf("%v (%v)\tFiltered: %v    Queued: %v    Inserted: %v    Dropped: %v",
 		table,
 		now.In(time.UTC),
 		humanize.Comma(stats.FilteredPoints),
 		humanize.Comma(stats.QueuedPoints),
 		humanize.Comma(stats.InsertedPoints),
-		humanize.Comma(stats.DroppedPoints),
-		humanize.Comma(stats.DirtyPoints),
-		humanize.Comma(stats.ArchivedPoints))
+		humanize.Comma(stats.DroppedPoints))
 }
 
 func (db *DB) Now(table string) time.Time {
