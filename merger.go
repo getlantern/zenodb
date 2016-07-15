@@ -14,9 +14,11 @@ func (m *merger) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte
 	defer m.t.putAccumulators(acs)
 
 	field := fieldFor(key)
+	var e expr.Expr
 	var accum expr.Accumulator
 	for i, candidate := range m.t.Fields {
 		if candidate.Name == field {
+			e = m.t.Fields[i]
 			accum = acs[i]
 			break
 		}
@@ -35,7 +37,7 @@ func (m *merger) FullMerge(key, existingValue []byte, operands [][]byte) ([]byte
 	}
 
 	if log.IsTraceEnabled() {
-		log.Tracef("Merge result: %v", seq.String(accum))
+		log.Tracef("Merge result: %v", seq.String(e))
 	}
 
 	return []byte(seq), true

@@ -14,12 +14,10 @@ func keyWithField(keyBytes []byte, field string) []byte {
 	return b
 }
 
-func fieldAndKey(b []byte) (string, bytemap.ByteMap) {
+func keyFor(b []byte) bytemap.ByteMap {
 	fieldLen := int(binary.BigEndian.Uint16(b))
 	encodedFieldLen := 2 + fieldLen
-	field := string(b[2:encodedFieldLen])
-	bm := bytemap.ByteMap(b[encodedFieldLen:])
-	return field, bm
+	return bytemap.ByteMap(b[encodedFieldLen:])
 }
 
 func fieldFor(b []byte) string {

@@ -155,10 +155,12 @@ func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncate
 	return seq[:maxLength]
 }
 
-func (seq sequence) String(accum expr.Accumulator) string {
+func (seq sequence) String(e expr.Expr) string {
 	if seq == nil {
 		return ""
 	}
+
+	accum := e.Accumulator()
 	values := ""
 
 	numPeriods := seq.numPeriods(accum.EncodedWidth())
@@ -168,5 +170,5 @@ func (seq sequence) String(accum expr.Accumulator) string {
 		}
 		values += fmt.Sprint(seq.valueAt(i, accum))
 	}
-	return fmt.Sprintf("%v: %v", seq.start(), values)
+	return fmt.Sprintf("%v at %v: %v", e, seq.start(), values)
 }

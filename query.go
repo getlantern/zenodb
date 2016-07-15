@@ -8,6 +8,7 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/expr"
 	"github.com/tecbot/gorocksdb"
 )
 
@@ -76,13 +77,22 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	defer t.putAccumulators(accums)
 
 	for i, fieldBytes := range fields {
-		accum := accums[i]
+		field := q.fields[i]
+		var e expr.Expr
+		var accum expr.Accumulator
+		for i, candidate := range t.Fields {
+			if candidate.Name == field {
+				e = t.Fields[i]
+				accum = accums[i]
+				break
+			}
+		}
 		encodedWidth := accum.EncodedWidth()
 
 		for it.Seek(fieldBytes); it.ValidForPrefix(fieldBytes); it.Next() {
 			stats.Scanned++
 			k := it.Key()
-			storedField, key := fieldAndKey(k.Data())
+			key := keyFor(k.Data())
 
 			if q.filter != nil {
 				include, err := q.filter.Eval(bytemapQueryParams(key))
@@ -111,7 +121,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 				seqStart := seq.start()
 				copyPeriods := seq.numPeriods(encodedWidth)
 				if log.IsTraceEnabled() {
-					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), numPeriods)
+					log.Tracef("Reading sequence %v", seq.String(e))
 				}
 				includeKey := false
 				if !seqStart.Before(q.asOf) {
@@ -130,7 +140,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 				}
 				if includeKey {
 					stats.InTimeRange++
-					q.onValues(key, storedField, vals)
+					q.onValues(key, field, vals)
 				}
 			}
 			k.Free()
