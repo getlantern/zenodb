@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/rand"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"runtime"
 	"sync"
@@ -20,6 +22,10 @@ var (
 )
 
 func main() {
+	go func() {
+		log.Error(http.ListenAndServe("localhost:4000", nil))
+	}()
+
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	tmpDir, err := ioutil.TempDir("", "tdbtest")
