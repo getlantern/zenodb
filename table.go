@@ -158,8 +158,6 @@ func (t *table) buildDBOpts(mergeOperator gorocksdb.MergeOperator) *gorocksdb.Op
 	bbtopts.SetBlockCache(blockCache)
 	// Use a large block size
 	bbtopts.SetBlockSize(65536)
-	filter := gorocksdb.NewBloomFilter(10)
-	bbtopts.SetFilterPolicy(filter)
 	opts.SetBlockBasedTableFactory(bbtopts)
 	opts.SetCreateIfMissing(true)
 	opts.SetCreateIfMissingColumnFamilies(true)
@@ -173,6 +171,7 @@ func (t *table) buildDBOpts(mergeOperator gorocksdb.MergeOperator) *gorocksdb.Op
 	if mergeOperator != nil {
 		opts.SetMergeOperator(mergeOperator)
 	}
+	opts.SetPrefixExtractor(&prefixExtractor{})
 	return opts
 }
 

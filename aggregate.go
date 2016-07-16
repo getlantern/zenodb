@@ -96,9 +96,9 @@ func (aq *Query) Run() (*QueryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	if log.IsTraceEnabled() {
-		log.Trace(spew.Sdump(stats))
-	}
+	// if log.IsTraceEnabled() {
+	log.Debug(spew.Sdump(stats))
+	// }
 
 	resultEntries, err := aq.buildEntries(entries)
 	if err != nil {
