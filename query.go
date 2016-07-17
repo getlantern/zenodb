@@ -9,7 +9,6 @@ import (
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
-	"github.com/tecbot/gorocksdb"
 )
 
 type query struct {
@@ -47,11 +46,16 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	if t == nil {
 		return stats, fmt.Errorf("Unknown table %v", q.table)
 	}
+
+	// Sort fields lexicographically to match sorting in RocksDB so that we can
+	// scan in order.
 	fields := make([][]byte, 0, len(q.fields))
 	for _, field := range q.fields {
 		fields = append(fields, encodeField(field))
 	}
 	sort.Sort(lexicographical(fields))
+
+	// Set up time-based parameters
 	now := t.clock.Now()
 	if q.until.IsZero() {
 		q.until = now
@@ -67,10 +71,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	numPeriods := int(q.until.Sub(q.asOf) / t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	ro := gorocksdb.NewDefaultReadOptions()
-	// Go ahead and fill the cache
-	ro.SetFillCache(false)
-	it := t.rdb.NewIteratorCF(ro, t.data)
+	it := t.rdb.NewIterator(defaultReadOptions)
 	defer it.Close()
 
 	accums := t.getAccumulators()

@@ -35,7 +35,6 @@ type table struct {
 	batchSize       int64
 	clock           *vtime.Clock
 	rdb             *gorocksdb.DB
-	data            *gorocksdb.ColumnFamilyHandle
 	hotPeriod       time.Duration
 	retentionPeriod time.Duration
 	inserts         chan *insert
@@ -47,15 +46,15 @@ type table struct {
 }
 
 var (
-	// use a single block cache for all databases
-	blockCache = gorocksdb.NewLRUCache(1024 * 1024 * 1024)
-
 	// use a single env for all databases
 	defaultEnv = gorocksdb.NewDefaultEnv()
 )
 
 func init() {
-	defaultEnv.SetBackgroundThreads(runtime.NumCPU())
+	// Background threads are used for compaction, use cores - 1
+	defaultEnv.SetBackgroundThreads(runtime.NumCPU() - 1)
+	// High priority background threads are used for flushing, just need 1
+	defaultEnv.SetHighPriorityBackgroundThreads(1)
 }
 
 func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string) error {
@@ -113,7 +112,7 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 	db.tables[name] = t
 
 	go t.process()
-	go t.retain()
+	// go t.retain()
 
 	db.streams[q.From] = append(db.streams[q.From], t)
 
@@ -137,41 +136,64 @@ func (t *table) applyWhere(where string) error {
 }
 
 func (t *table) createDatabase(dir string) error {
-	opts := t.buildDBOpts(nil)
-	cfNames := []string{"default"}
-	cfOpts := []*gorocksdb.Options{t.buildDBOpts(&merger{t})}
-	rdb, cfs, err := gorocksdb.OpenDbColumnFamilies(opts, filepath.Join(dir, t.name), cfNames, cfOpts)
+	opts := t.buildDBOpts()
+	rdb, err := gorocksdb.OpenDb(opts, filepath.Join(dir, t.name))
 	if err != nil {
 		return err
 	}
 	t.rdb = rdb
-	t.data = cfs[0]
 	return nil
 }
 
-func (t *table) buildDBOpts(mergeOperator gorocksdb.MergeOperator) *gorocksdb.Options {
-	// See https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide
+func (t *table) buildDBOpts() *gorocksdb.Options {
+	/*********************** General Config *************************************/
 	opts := gorocksdb.NewDefaultOptions()
-	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
-	// TODO: make this tunable or auto-adjust based on table resolution or
-	// something
-	bbtopts.SetBlockCache(blockCache)
-	// Use a large block size
-	bbtopts.SetBlockSize(65536)
-	opts.SetBlockBasedTableFactory(bbtopts)
 	opts.SetCreateIfMissing(true)
 	opts.SetCreateIfMissingColumnFamilies(true)
-	opts.EnableStatistics()
-	opts.SetStatsDumpPeriodSec(60) // dump stats every 60 seconds
+	// All keys are prefixed by the field name, giving us something resembling a
+	// column-store optimized for querying one or a few fields.
+	opts.SetPrefixExtractor(&fieldPrefixExtractor{})
+	// Updates to existing values are handled as merges
+	opts.SetMergeOperator(&merger{t})
+	// On compaction, we filter out expired values
+	opts.SetCompactionFilter(&filterExpired{t})
+
+	/*********************** Tuning *********************************************/
+	// See https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide
+	// TODO: make this tunable or auto-adjust based on table resolution or
+	// something
+	bbtopts := gorocksdb.NewDefaultBlockBasedTableOptions()
+	// We're continuously just appending values and queries just do range scans,
+	// so there's no use for a block cache or bloom filters, and we might as well
+	// create large blocks because we'll scan most of their contents anyway.
+	bbtopts.SetBlockSize(65536)
+	bbtopts.SetNoBlockCache(true)
+	// Note - we don't set a bloom filter
+	// bbtopts.SetFilterPolicy(...)
+	opts.SetBlockBasedTableFactory(bbtopts)
+	// Use a shared environment for all column families (shares thread pool)
 	opts.SetEnv(defaultEnv)
-	opts.SetMaxOpenFiles(-1) // don't limit number of open files
-	opts.SetWriteBufferSize(128 * 1024 * 1024)
-	opts.SetMaxWriteBufferNumber(5)
-	opts.SetMinWriteBufferNumberToMerge(2)
-	if mergeOperator != nil {
-		opts.SetMergeOperator(mergeOperator)
-	}
-	opts.SetPrefixExtractor(&prefixExtractor{})
+	// Set background compactions to same number as threads in defaultEnv
+	opts.SetMaxBackgroundCompactions(runtime.NumCPU() - 1)
+	// Don't limit number of open files, avoids expensive table cache lookups
+	opts.SetMaxOpenFiles(-1)
+	// Use more write buffers in order to avoid stalling writes during flush/
+	// compaction.
+	opts.SetMaxWriteBufferNumber(20)
+	// Increase number of write buffers that get merged on flush in order to
+	// reduce read amplification.
+	opts.SetMinWriteBufferNumberToMerge(4)
+	// Compact aggressively to reduce the number of outstanding merge ops (speeds
+	// up queries).
+	opts.SetLevel0FileNumCompactionTrigger(1)
+
+	// Suggested by rocksdb documentation, allocate a memtable budget of 128 MiB
+	// opts.OptimizeLevelStyleCompaction(128 * 1024 * 1024)
+
+	// Print out statistics every 60 seconds so that we can see what's going on
+	opts.EnableStatistics()
+	opts.SetStatsDumpPeriodSec(60)
+
 	return opts
 }
 

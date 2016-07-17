@@ -3,14 +3,23 @@ package tdb
 import (
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/tecbot/gorocksdb"
 )
 
 var (
 	defaultWriteOptions = gorocksdb.NewDefaultWriteOptions()
+	defaultReadOptions  = gorocksdb.NewDefaultReadOptions()
 )
+
+func init() {
+	// Don't bother filling the cache, since we're always doing full scans anyway
+	defaultReadOptions.SetFillCache(false)
+	// Make it a tailing iterator so that it doesn't create a snapshot (which
+	// would have the effect of reducing the efficiency of applying merge ops
+	// during compaction)
+	defaultReadOptions.SetTailing(true)
+}
 
 type Point struct {
 	Ts   time.Time
@@ -93,7 +102,7 @@ func (t *table) process() {
 		select {
 		case i := <-t.inserts:
 			for _, field := range t.Fields {
-				batch.MergeCF(t.data, keyWithField(i.key, field.Name), i.vals)
+				batch.Merge(keyWithField(i.key, field.Name), i.vals)
 			}
 			t.statsMutex.Lock()
 			t.stats.QueuedPoints--
@@ -109,58 +118,6 @@ func (t *table) process() {
 			t.statsMutex.Unlock()
 			batch = gorocksdb.NewWriteBatch()
 		}
-	}
-}
-
-func (t *table) retain() {
-	retentionTicker := t.clock.NewTicker(t.retentionPeriod)
-	wo := gorocksdb.NewDefaultWriteOptions()
-	for range retentionTicker.C {
-		t.doRetain(wo)
-	}
-}
-
-func (t *table) doRetain(wo *gorocksdb.WriteOptions) {
-	t.log.Trace("Removing expired keys")
-	start := time.Now()
-	batch := gorocksdb.NewWriteBatch()
-	var keysToFree []*gorocksdb.Slice
-	defer func() {
-		for _, k := range keysToFree {
-			k.Free()
-		}
-	}()
-
-	retainUntil := t.clock.Now().Add(-1 * t.retentionPeriod)
-	ro := gorocksdb.NewDefaultReadOptions()
-	ro.SetFillCache(false)
-	it := t.rdb.NewIteratorCF(ro, t.data)
-	defer it.Close()
-	for it.SeekToFirst(); it.Valid(); it.Next() {
-		v := it.Value()
-		vd := v.Data()
-		if vd == nil || len(vd) < width64bits || sequence(vd).start().Before(retainUntil) {
-			k := it.Key()
-			keysToFree = append(keysToFree, k)
-			batch.Delete(k.Data())
-		}
-		v.Free()
-	}
-
-	if batch.Count() > 0 {
-		err := t.rdb.Write(wo, batch)
-		if err != nil {
-			t.log.Errorf("Unable to remove expired keys: %v", err)
-		} else {
-			delta := time.Now().Sub(start)
-			expiredPoints := int64(batch.Count() / len(t.Fields))
-			t.statsMutex.Lock()
-			t.stats.ExpiredPoints += expiredPoints
-			t.statsMutex.Unlock()
-			t.log.Tracef("Removed %v expired points in %v", humanize.Comma(expiredPoints), delta)
-		}
-	} else {
-		t.log.Trace("No expired keys to remove")
 	}
 }
 

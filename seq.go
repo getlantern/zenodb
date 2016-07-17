@@ -92,7 +92,7 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 	periodWidth := accum.EncodedWidth()
 
 	if log.IsTraceEnabled() {
-		log.Tracef("Updating sequence starting at %v to %v at %v", seq.start(), bytemap.ByteMap(bytemapParams(params)).AsMap(), ts)
+		log.Tracef("Updating sequence starting at %v to %v at %v", seq.start().In(time.UTC), bytemap.ByteMap(bytemapParams(params)).AsMap(), ts)
 	}
 
 	if !ts.After(truncateBefore) {
