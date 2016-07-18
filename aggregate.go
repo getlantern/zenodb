@@ -15,9 +15,6 @@ import (
 type Entry struct {
 	Dims          map[string]interface{}
 	Fields        map[string][]expr.Accumulator
-	NumPeriods    int
-	scalingFactor int
-	inPeriods     int
 	numSamples    int
 	inIdx         int
 	valuesIdx     int
@@ -57,6 +54,7 @@ type QueryResult struct {
 	GroupBy    []string
 	Entries    []*Entry
 	Stats      *QueryStats
+	NumPeriods int
 }
 
 // TODO: if expressions repeat across fields, or across orderBy and having,
@@ -92,15 +90,15 @@ func (aq *Query) Run() (*QueryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	stats, err := aq.db.runQuery(q)
+	stats, err := q.run(aq.db)
 	if err != nil {
 		return nil, err
 	}
-	if log.IsTraceEnabled() {
-		log.Trace(spew.Sdump(stats))
-	}
+	// if log.IsTraceEnabled() {
+	log.Debug(spew.Sdump(stats))
+	// }
 
-	resultEntries, err := aq.buildEntries(entries)
+	resultEntries, outPeriods, err := aq.buildEntries(q, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -111,6 +109,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		Resolution: aq.Resolution,
 		Fields:     aq.Fields,
 		GroupBy:    aq.GroupBy,
+		NumPeriods: outPeriods,
 		Entries:    resultEntries,
 		Stats:      stats,
 	}
@@ -125,11 +124,6 @@ func (aq *Query) Run() (*QueryResult, error) {
 }
 
 func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
-	t := aq.db.getTable(q.table)
-	if t == nil {
-		return nil, fmt.Errorf("Table %v not found", q.table)
-	}
-
 	// Figure out field dependencies
 	sortedFields := make(sortedFields, len(aq.Fields))
 	copy(sortedFields, aq.Fields)
@@ -155,6 +149,12 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		q.filter = where
 	}
 
+	err := q.init(aq.db)
+	if err != nil {
+		return nil, err
+	}
+
+	t := q.t
 	nativeResolution := t.Resolution
 	if aq.Resolution == 0 {
 		log.Trace("Defaulting to native resolution")
@@ -170,11 +170,6 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	if aq.Resolution%nativeResolution != 0 {
 		return nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", aq.Resolution, nativeResolution)
 	}
-	scalingFactor := int(aq.Resolution / nativeResolution)
-	log.Tracef("Scaling factor: %d", scalingFactor)
-	// we'll calculate periods lazily later
-	inPeriods := 0
-	outPeriods := 0
 
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(aq.GroupBy) == 0 {
@@ -218,19 +213,6 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 			}
 			entries[string(kb)] = entry
 		}
-		if entry.scalingFactor == 0 {
-			if inPeriods < 1 {
-				inPeriods = len(vals)
-				// Limit inPeriods based on what we can fit into outPeriods
-				inPeriods -= inPeriods % scalingFactor
-				outPeriods = (inPeriods / scalingFactor) + 1
-				inPeriods = outPeriods * scalingFactor
-				log.Tracef("In: %d   Out: %d", inPeriods, outPeriods)
-			}
-			entry.NumPeriods = outPeriods
-			entry.inPeriods = inPeriods
-			entry.scalingFactor = scalingFactor
-		}
 		rawValues := entry.rawValues[field]
 		if rawValues == nil {
 			rawValues = [][]float64{vals}
@@ -246,27 +228,38 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 	return entries, nil
 }
 
-func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
+func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, int, error) {
 	result := make([]*Entry, 0, len(entries))
 	if len(entries) == 0 {
-		return result, nil
+		return result, 0, nil
 	}
+
+	nativeResolution := q.t.Resolution
+	scalingFactor := int(aq.Resolution / nativeResolution)
+	log.Debugf("Scaling factor: %d", scalingFactor)
+
+	inPeriods := int(q.until.Sub(q.asOf) / nativeResolution)
+	// Limit inPeriods based on what we can fit into outPeriods
+	inPeriods -= inPeriods % scalingFactor
+	outPeriods := (inPeriods / scalingFactor) + 1
+	inPeriods = outPeriods * scalingFactor
+	log.Tracef("In: %d   Out: %d", inPeriods, outPeriods)
 
 	for _, entry := range entries {
 		// Don't get fields right now
 		entry.fieldsIdx = -1
 		for _, field := range aq.Fields {
 			// Initialize accumulators
-			vals := make([]expr.Accumulator, 0, entry.NumPeriods)
-			for i := 0; i < entry.NumPeriods; i++ {
+			vals := make([]expr.Accumulator, 0, outPeriods)
+			for i := 0; i < outPeriods; i++ {
 				vals = append(vals, field.Accumulator())
 			}
 			entry.Fields[field.Name] = vals
 
 			// Calculate per-period values
-			for i := 0; i < entry.inPeriods; i++ {
+			for i := 0; i < inPeriods; i++ {
 				entry.inIdx = i
-				outIdx := i / entry.scalingFactor
+				outIdx := i / scalingFactor
 				for j := 0; j < entry.numSamples; j++ {
 					entry.valuesIdx = j
 					vals[outIdx].Update(entry)
@@ -277,7 +270,7 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 		// Calculate order bys
 		for i := range aq.OrderBy {
 			accum := entry.orderByValues[i]
-			for j := 0; j < entry.inPeriods; j++ {
+			for j := 0; j < inPeriods; j++ {
 				entry.fieldsIdx = j
 				accum.Update(entry)
 			}
@@ -285,7 +278,7 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 
 		// Calculate havings
 		if entry.havingTest != nil {
-			for j := 0; j < entry.inPeriods; j++ {
+			for j := 0; j < inPeriods; j++ {
 				entry.fieldsIdx = j
 				entry.havingTest.Update(entry)
 			}
@@ -313,7 +306,7 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 	if aq.Offset > 0 {
 		offset := aq.Offset
 		if offset > len(result) {
-			return make([]*Entry, 0), nil
+			return make([]*Entry, 0), outPeriods, nil
 		}
 		result = result[offset:]
 	}
@@ -325,7 +318,7 @@ func (aq *Query) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 		result = result[:end]
 	}
 
-	return result, nil
+	return result, outPeriods, nil
 }
 
 type orderedEntries []*Entry

@@ -196,7 +196,7 @@ view_a:
 		fromOffset := from.Sub(now)
 		toOffset := to.Sub(now)
 		result := make(map[int][]float64, 0)
-		stats, err := db.runQuery(&query{
+		q := &query{
 			table:       table,
 			fields:      []string{field},
 			asOfOffset:  fromOffset,
@@ -209,7 +209,8 @@ view_a:
 					result[key[dim].(int)] = vals
 				}
 			},
-		})
+		}
+		stats, err := q.run(db)
 		log.Debugf("Query stats - scanned: %d    filterpass: %d    datavalid: %d    intimerange: %d", stats.Scanned, stats.FilterPass, stats.DataValid, stats.InTimeRange)
 		log.Debugf("Result: %v", result)
 		return result, err

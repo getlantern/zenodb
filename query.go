@@ -26,14 +26,16 @@ func init() {
 }
 
 type query struct {
-	table       string
-	fields      []string
-	filter      *govaluate.EvaluableExpression
-	asOf        time.Time
-	asOfOffset  time.Duration
-	until       time.Time
-	untilOffset time.Duration
-	onValues    func(key bytemap.ByteMap, field string, vals []float64)
+	table         string
+	fields        []string
+	filter        *govaluate.EvaluableExpression
+	asOf          time.Time
+	asOfOffset    time.Duration
+	until         time.Time
+	untilOffset   time.Duration
+	onValues      func(key bytemap.ByteMap, field string, vals []float64)
+	t             *table
+	encodedFields [][]byte
 }
 
 type QueryStats struct {
@@ -46,29 +48,26 @@ type QueryStats struct {
 	Runtime      time.Duration
 }
 
-func (db *DB) runQuery(q *query) (*QueryStats, error) {
-	start := time.Now()
-	stats := &QueryStats{}
-
+func (q *query) init(db *DB) error {
 	if len(q.fields) == 0 {
-		return stats, fmt.Errorf("Please specify at least one field")
+		return fmt.Errorf("Please specify at least one field")
 	}
-	t := db.getTable(q.table)
-	if t == nil {
-		return stats, fmt.Errorf("Unknown table %v", q.table)
+	q.t = db.getTable(q.table)
+	if q.t == nil {
+		return fmt.Errorf("Unknown table %v", q.table)
 	}
 
 	// Sort fields lexicographically to match sorting in RocksDB so that we can
 	// scan in order.
-	fields := make([][]byte, 0, len(q.fields))
+	q.encodedFields = make([][]byte, 0, len(q.fields))
 	for _, field := range q.fields {
-		fields = append(fields, encodeField(field))
+		q.encodedFields = append(q.encodedFields, encodeField(field))
 	}
-	sort.Sort(lexicographical(fields))
+	sort.Sort(lexicographical(q.encodedFields))
 
 	// Set up time-based parameters
-	now := t.clock.Now()
-	truncateBefore := t.truncateBefore()
+	now := q.t.clock.Now()
+	truncateBefore := q.t.truncateBefore()
 	if q.asOf.IsZero() && q.asOfOffset >= 0 {
 		log.Trace("No asOf and no positive asOfOffset, defaulting to retention period")
 		q.asOf = truncateBefore
@@ -86,31 +85,45 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 			q.until = q.until.Add(q.untilOffset)
 		}
 	}
-	q.until = roundTime(q.until, t.Resolution)
-	q.asOf = roundTime(q.asOf, t.Resolution)
-	numPeriods := int(q.until.Sub(q.asOf) / t.Resolution)
+	q.until = roundTime(q.until, q.t.Resolution)
+	q.asOf = roundTime(q.asOf, q.t.Resolution)
+
+	return nil
+}
+
+func (q *query) run(db *DB) (*QueryStats, error) {
+	start := time.Now()
+	stats := &QueryStats{}
+
+	if q.t == nil {
+		err := q.init(db)
+		if err != nil {
+			return nil, err
+		}
+	}
+	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	it := t.rdb.NewIterator(defaultReadOptions)
+	it := q.t.rdb.NewIterator(defaultReadOptions)
 	defer it.Close()
 
-	accums := t.getAccumulators()
-	defer t.putAccumulators(accums)
+	accums := q.t.getAccumulators()
+	defer q.t.putAccumulators(accums)
 
-	for i, fieldBytes := range fields {
+	for i, encodedField := range q.encodedFields {
 		field := q.fields[i]
 		var e expr.Expr
 		var accum expr.Accumulator
-		for i, candidate := range t.Fields {
+		for i, candidate := range q.t.Fields {
 			if candidate.Name == field {
-				e = t.Fields[i]
+				e = q.t.Fields[i]
 				accum = accums[i]
 				break
 			}
 		}
 		encodedWidth := accum.EncodedWidth()
 
-		for it.Seek(fieldBytes); it.ValidForPrefix(fieldBytes); it.Next() {
+		for it.Seek(encodedField); it.ValidForPrefix(encodedField); it.Next() {
 			stats.Scanned++
 			k := it.Key()
 			key := keyFor(k.Data())
@@ -150,7 +163,7 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 					if to.After(seqStart) {
 						to = seqStart
 					}
-					startOffset := int(seqStart.Sub(to) / t.Resolution)
+					startOffset := int(seqStart.Sub(to) / q.t.Resolution)
 					log.Tracef("Start offset %d", startOffset)
 					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
 						includeKey = true
