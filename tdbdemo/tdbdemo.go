@@ -109,7 +109,7 @@ HeapAlloc pre/post GC %f/%f MiB
 				q, err := db.SQLQuery(`
 SELECT COUNT(i) AS the_count
 FROM test
-GROUP BY r, u, period(168h)
+GROUP BY x, period(168h)
 `)
 				if err != nil {
 					log.Errorf("Unable to build query: %v", err)
@@ -148,6 +148,7 @@ GROUP BY r, u, period(168h)
 								"r": rand.Intn(numReporters),
 								"u": rand.Intn(uniquesPerReporter),
 								"b": rand.Float64() > 0.99,
+								"x": 1,
 							},
 							Vals: map[string]float64{
 								"i":  float64(rand.Intn(100000)),
