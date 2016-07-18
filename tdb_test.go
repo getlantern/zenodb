@@ -39,11 +39,9 @@ func TestIntegration(t *testing.T) {
 	tmpFile.Close()
 
 	resolution := time.Millisecond
-	hotPeriod := 2 * resolution
 
 	schemaA := `
 Test_a:
-  hotperiod: 2ms
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -189,8 +187,6 @@ view_a:
 			"ii": 40000,
 		},
 	})
-
-	advance(hotPeriod * 10)
 
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[int][]float64, error) {
 		filter, queryErr := govaluate.NewEvaluableExpression("!b")

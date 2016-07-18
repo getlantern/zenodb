@@ -42,18 +42,22 @@ func main() {
 	reportingPeriods := 1000
 	reportingInterval := time.Millisecond
 	resolution := reportingInterval * 5
-	hotPeriod := resolution * 10
-	retainPeriods := 2
-	retentionPeriod := time.Duration(retainPeriods) * reportingInterval
+	retainPeriods := 20
+	retentionPeriod := time.Duration(retainPeriods) * reportingInterval * 100
+	targetPointsPerSecond := 20000
 	numWriters := 4
+	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
+	targetDeltaFor100Points := 100 * time.Second / time.Duration(targetPointsPerSecondPerWriter)
+	log.Debugf("Target delta for 100 points: %v", targetDeltaFor100Points)
+
 	db, err := tdb.NewDB(&tdb.DBOpts{
 		Dir:       tmpDir,
-		BatchSize: 1000,
+		BatchSize: 100000,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = db.CreateTable("test", hotPeriod, retentionPeriod, fmt.Sprintf(`
+	err = db.CreateTable("test", retentionPeriod, fmt.Sprintf(`
 SELECT
 	SUM(i) AS i,
 	SUM(ii) AS ii,
@@ -101,11 +105,11 @@ HeapAlloc pre/post GC %f/%f MiB
 			tk := time.NewTicker(30 * time.Second)
 			for range tk.C {
 				now := db.Now("test")
-				q, err := db.SQLQuery(fmt.Sprintf(`
+				q, err := db.SQLQuery(`
 SELECT COUNT(i) AS the_count
-FROM test ASOF '%v'
-GROUP BY period(168h)
-`, -100*resolution))
+FROM test
+GROUP BY r, period(168h)
+`)
 				if err != nil {
 					log.Errorf("Unable to build query: %v", err)
 					continue
@@ -131,6 +135,8 @@ GROUP BY period(168h)
 	for _w := 0; _w < numWriters; _w++ {
 		go func() {
 			defer wg.Done()
+			c := 0
+			start := time.Now()
 			for i := 0; i < reportingPeriods; i++ {
 				ts := epoch.Add(time.Duration(i) * reportingInterval)
 				for r := 0; r < numReporters/numWriters; r++ {
@@ -153,6 +159,16 @@ GROUP BY period(168h)
 							return
 						}
 						atomic.AddInt64(&inserts, 1)
+						c++
+
+						// Control rate
+						if c > 0 && c%100 == 0 {
+							delta := time.Now().Sub(start)
+							if delta < targetDeltaFor100Points {
+								time.Sleep(targetDeltaFor100Points - delta)
+							}
+							start = time.Now()
+						}
 					}
 				}
 				fmt.Print(".")

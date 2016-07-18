@@ -50,5 +50,5 @@ func (m *merger) PartialMerge(key, leftOperand, rightOperand []byte) ([]byte, bo
 
 // Name implements method from gorocksdb.MergeOperator.
 func (m *merger) Name() string {
-	return "default"
+	return "merge_params"
 }

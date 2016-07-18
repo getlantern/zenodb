@@ -9,17 +9,7 @@ import (
 
 var (
 	defaultWriteOptions = gorocksdb.NewDefaultWriteOptions()
-	defaultReadOptions  = gorocksdb.NewDefaultReadOptions()
 )
-
-func init() {
-	// Don't bother filling the cache, since we're always doing full scans anyway
-	defaultReadOptions.SetFillCache(false)
-	// Make it a tailing iterator so that it doesn't create a snapshot (which
-	// would have the effect of reducing the efficiency of applying merge ops
-	// during compaction)
-	defaultReadOptions.SetTailing(true)
-}
 
 type Point struct {
 	Ts   time.Time
@@ -89,15 +79,41 @@ func (t *table) insert(point *Point) {
 
 	key := bytemap.New(point.Dims)
 	vals := newTSParams(point.Ts, bytemap.NewFloat(point.Vals))
-	t.inserts <- &insert{key, vals}
-	t.statsMutex.Lock()
-	t.stats.QueuedPoints++
-	t.statsMutex.Unlock()
+	select {
+	case t.inserts <- &insert{key, vals}:
+		t.statsMutex.Lock()
+		t.stats.QueuedPoints++
+		t.statsMutex.Unlock()
+	default:
+		t.statsMutex.Lock()
+		t.stats.DroppedPoints++
+		t.statsMutex.Unlock()
+	}
 }
 
 func (t *table) process() {
-	commitTicker := t.clock.NewTicker(t.Resolution)
+	// Commits are primarily driven by batch size, but the commitTicker makes sure
+	// that we're commiting at least every 5 seconds.
+	// TODO - make this tunable
+	commitTicker := time.NewTicker(5 * time.Second)
+
 	batch := gorocksdb.NewWriteBatch()
+	commit := func() {
+		count := int64(batch.Count() / len(t.Fields))
+		err := t.rdb.Write(defaultWriteOptions, batch)
+		batch = gorocksdb.NewWriteBatch()
+		if err != nil {
+			t.log.Errorf("Unable to commit batch: %v", err)
+			t.statsMutex.Lock()
+			t.stats.DroppedPoints += count
+			t.statsMutex.Unlock()
+		} else {
+			t.statsMutex.Lock()
+			t.stats.InsertedPoints += count
+			t.statsMutex.Unlock()
+		}
+	}
+
 	for {
 		select {
 		case i := <-t.inserts:
@@ -107,20 +123,11 @@ func (t *table) process() {
 			t.statsMutex.Lock()
 			t.stats.QueuedPoints--
 			t.statsMutex.Unlock()
-		case <-commitTicker.C:
-			err := t.rdb.Write(defaultWriteOptions, batch)
-			if err != nil {
-				t.log.Errorf("Unable to commit batch: %v", err)
+			if batch.Count() >= int(t.batchSize) {
+				commit()
 			}
-			count := int64(batch.Count() / len(t.Fields))
-			t.statsMutex.Lock()
-			t.stats.InsertedPoints += count
-			t.statsMutex.Unlock()
-			batch = gorocksdb.NewWriteBatch()
+		case <-commitTicker.C:
+			commit()
 		}
 	}
-}
-
-func (t *table) archivePeriod() time.Duration {
-	return t.hotPeriod / 10
 }

@@ -9,7 +9,21 @@ import (
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
+	"github.com/tecbot/gorocksdb"
 )
+
+var (
+	defaultReadOptions = gorocksdb.NewDefaultReadOptions()
+)
+
+func init() {
+	// Don't bother filling the cache, since we're always doing full scans anyway
+	defaultReadOptions.SetFillCache(false)
+	// Make it a tailing iterator so that it doesn't create a snapshot (which
+	// would have the effect of reducing the efficiency of applying merge ops
+	// during compaction)
+	defaultReadOptions.SetTailing(true)
+}
 
 type query struct {
 	table       string
@@ -36,9 +50,6 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 	start := time.Now()
 	stats := &QueryStats{}
 
-	if q.asOf.IsZero() && q.asOfOffset >= 0 {
-		return stats, fmt.Errorf("Please specify an asOf or a negative asOfOffset")
-	}
 	if len(q.fields) == 0 {
 		return stats, fmt.Errorf("Please specify at least one field")
 	}
@@ -57,14 +68,23 @@ func (db *DB) runQuery(q *query) (*QueryStats, error) {
 
 	// Set up time-based parameters
 	now := t.clock.Now()
+	truncateBefore := t.truncateBefore()
+	if q.asOf.IsZero() && q.asOfOffset >= 0 {
+		log.Trace("No asOf and no positive asOfOffset, defaulting to retention period")
+		q.asOf = truncateBefore
+	}
+	if q.asOf.IsZero() {
+		q.asOf = now.Add(q.asOfOffset)
+	}
+	if q.asOf.Before(truncateBefore) {
+		log.Tracef("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
+		q.asOf = truncateBefore
+	}
 	if q.until.IsZero() {
 		q.until = now
 		if q.untilOffset != 0 {
 			q.until = q.until.Add(q.untilOffset)
 		}
-	}
-	if q.asOf.IsZero() {
-		q.asOf = now.Add(q.asOfOffset)
 	}
 	q.until = roundTime(q.until, t.Resolution)
 	q.asOf = roundTime(q.asOf, t.Resolution)

@@ -69,13 +69,14 @@ func (db *DB) AllTableStats() map[string]TableStats {
 func (db *DB) PrintTableStats(table string) string {
 	stats := db.TableStats(table)
 	now := db.Now(table)
-	return fmt.Sprintf("%v (%v)\tFiltered: %v    Queued: %v    Inserted: %v    Dropped: %v",
+	return fmt.Sprintf("%v (%v)\tFiltered: %v    Queued: %v    Inserted: %v    Dropped: %v    Expired: %v",
 		table,
 		now.In(time.UTC),
 		humanize.Comma(stats.FilteredPoints),
 		humanize.Comma(stats.QueuedPoints),
 		humanize.Comma(stats.InsertedPoints),
-		humanize.Comma(stats.DroppedPoints))
+		humanize.Comma(stats.DroppedPoints),
+		humanize.Comma(stats.ExpiredValues))
 }
 
 func (db *DB) Now(table string) time.Time {

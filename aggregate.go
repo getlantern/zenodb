@@ -96,9 +96,9 @@ func (aq *Query) Run() (*QueryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	// if log.IsTraceEnabled() {
-	log.Debug(spew.Sdump(stats))
-	// }
+	if log.IsTraceEnabled() {
+		log.Trace(spew.Sdump(stats))
+	}
 
 	resultEntries, err := aq.buildEntries(entries)
 	if err != nil {
@@ -157,8 +157,12 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 
 	nativeResolution := t.Resolution
 	if aq.Resolution == 0 {
-		// Default to native resolution
+		log.Trace("Defaulting to native resolution")
 		aq.Resolution = nativeResolution
+	}
+	if aq.Resolution > t.retentionPeriod {
+		log.Trace("Not allowing resolution lower than retention period")
+		aq.Resolution = t.retentionPeriod
 	}
 	if aq.Resolution < nativeResolution {
 		return nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.Resolution, nativeResolution)

@@ -23,7 +23,7 @@ type TableStats struct {
 	QueuedPoints   int64
 	InsertedPoints int64
 	DroppedPoints  int64
-	ExpiredPoints  int64
+	ExpiredValues  int64
 }
 
 type table struct {
@@ -35,7 +35,6 @@ type table struct {
 	batchSize       int64
 	clock           *vtime.Clock
 	rdb             *gorocksdb.DB
-	hotPeriod       time.Duration
 	retentionPeriod time.Duration
 	inserts         chan *insert
 	where           *govaluate.EvaluableExpression
@@ -57,10 +56,7 @@ func init() {
 	defaultEnv.SetHighPriorityBackgroundThreads(1)
 }
 
-func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string) error {
-	if hotPeriod <= 0 {
-		return errors.New("Please specify a positive hot period")
-	}
+func (db *DB) CreateTable(name string, retentionPeriod time.Duration, sqlString string) error {
 	if retentionPeriod <= 0 {
 		return errors.New("Please specify a positive retention period")
 	}
@@ -69,10 +65,10 @@ func (db *DB) CreateTable(name string, hotPeriod time.Duration, retentionPeriod 
 		return err
 	}
 
-	return db.doCreateTable(name, hotPeriod, retentionPeriod, sqlString, q)
+	return db.doCreateTable(name, retentionPeriod, sqlString, q)
 }
 
-func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPeriod time.Duration, sqlString string, q *sql.Query) error {
+func (db *DB) doCreateTable(name string, retentionPeriod time.Duration, sqlString string, q *sql.Query) error {
 	name = strings.ToLower(name)
 
 	t := &table{
@@ -83,7 +79,6 @@ func (db *DB) doCreateTable(name string, hotPeriod time.Duration, retentionPerio
 		log:             golog.LoggerFor("tdb." + name),
 		batchSize:       db.opts.BatchSize,
 		clock:           vtime.NewClock(time.Time{}),
-		hotPeriod:       hotPeriod,
 		retentionPeriod: retentionPeriod,
 		inserts:         make(chan *insert, db.opts.BatchSize*2),
 	}

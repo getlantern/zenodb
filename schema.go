@@ -13,7 +13,6 @@ import (
 type Schema map[string]*TableDef
 
 type TableDef struct {
-	HotPeriod       time.Duration
 	RetentionPeriod time.Duration
 	SQL             string
 }
@@ -67,7 +66,7 @@ func (db *DB) ApplySchema(schema Schema) error {
 		t := db.getTable(name)
 		if t == nil {
 			log.Debugf("Creating table %v", name)
-			err := db.CreateTable(name, tdef.HotPeriod, tdef.RetentionPeriod, tdef.SQL)
+			err := db.CreateTable(name, tdef.RetentionPeriod, tdef.SQL)
 			if err != nil {
 				return err
 			}

@@ -92,12 +92,11 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 	periodWidth := accum.EncodedWidth()
 
 	if log.IsTraceEnabled() {
-		log.Tracef("Updating sequence starting at %v to %v at %v", seq.start().In(time.UTC), bytemap.ByteMap(bytemapParams(params)).AsMap(), ts)
+		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.start().In(time.UTC), bytemap.ByteMap(bytemapParams(params)).AsMap(), ts.In(time.UTC), truncateBefore.In(time.UTC))
 	}
 
 	if !ts.After(truncateBefore) {
-		// New value falls outside of truncation range, just truncate existing
-		// sequence
+		log.Trace("New value falls outside of truncation range, just truncate existing sequence")
 		if len(seq) == 0 {
 			return nil
 		}
