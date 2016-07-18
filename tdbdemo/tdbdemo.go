@@ -47,12 +47,13 @@ func main() {
 	targetPointsPerSecond := 20000
 	numWriters := 4
 	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
-	targetDeltaFor100Points := 100 * time.Second / time.Duration(targetPointsPerSecondPerWriter)
-	log.Debugf("Target delta for 100 points: %v", targetDeltaFor100Points)
+	targetDeltaFor1000Points := 1000 * time.Second / time.Duration(targetPointsPerSecondPerWriter)
+	log.Debugf("Target delta for 1000 points: %v", targetDeltaFor1000Points)
 
 	db, err := tdb.NewDB(&tdb.DBOpts{
-		Dir:       tmpDir,
-		BatchSize: 100000,
+		Dir:                  tmpDir,
+		BatchSize:            100000,
+		RocksDBStatsInterval: 60 * time.Second,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -108,7 +109,7 @@ HeapAlloc pre/post GC %f/%f MiB
 				q, err := db.SQLQuery(`
 SELECT COUNT(i) AS the_count
 FROM test
-GROUP BY r, period(168h)
+GROUP BY r, u, period(168h)
 `)
 				if err != nil {
 					log.Errorf("Unable to build query: %v", err)
@@ -162,10 +163,10 @@ GROUP BY r, period(168h)
 						c++
 
 						// Control rate
-						if c > 0 && c%100 == 0 {
+						if c > 0 && c%1000 == 0 {
 							delta := time.Now().Sub(start)
-							if delta < targetDeltaFor100Points {
-								time.Sleep(targetDeltaFor100Points - delta)
+							if delta < targetDeltaFor1000Points {
+								time.Sleep(targetDeltaFor1000Points - delta)
 							}
 							start = time.Now()
 						}

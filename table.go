@@ -185,9 +185,10 @@ func (t *table) buildDBOpts() *gorocksdb.Options {
 	// Suggested by rocksdb documentation, allocate a memtable budget of 128 MiB
 	// opts.OptimizeLevelStyleCompaction(128 * 1024 * 1024)
 
-	// Print out statistics every 60 seconds so that we can see what's going on
-	opts.EnableStatistics()
-	opts.SetStatsDumpPeriodSec(60)
+	if t.db.opts.RocksDBStatsInterval > 0 {
+		opts.EnableStatistics()
+		opts.SetStatsDumpPeriodSec(uint(t.db.opts.RocksDBStatsInterval / time.Second))
+	}
 
 	return opts
 }
