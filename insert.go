@@ -79,16 +79,26 @@ func (t *table) insert(point *Point) {
 
 	key := bytemap.New(point.Dims)
 	vals := newTSParams(point.Ts, bytemap.NewFloat(point.Vals))
-	select {
-	case t.inserts <- &insert{key, vals}:
-		t.statsMutex.Lock()
-		t.stats.QueuedPoints++
-		t.statsMutex.Unlock()
-	default:
-		t.statsMutex.Lock()
-		t.stats.DroppedPoints++
-		t.statsMutex.Unlock()
+
+	if t.db.opts.DiscardOnBackPressure {
+		select {
+		case t.inserts <- &insert{key, vals}:
+			t.recordQueued()
+		default:
+			t.statsMutex.Lock()
+			t.stats.DroppedPoints++
+			t.statsMutex.Unlock()
+		}
+	} else {
+		t.inserts <- &insert{key, vals}
+		t.recordQueued()
 	}
+}
+
+func (t *table) recordQueued() {
+	t.statsMutex.Lock()
+	t.stats.QueuedPoints++
+	t.statsMutex.Unlock()
 }
 
 func (t *table) process() {

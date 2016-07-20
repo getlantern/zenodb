@@ -236,7 +236,7 @@ func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, in
 
 	nativeResolution := q.t.Resolution
 	scalingFactor := int(aq.Resolution / nativeResolution)
-	log.Debugf("Scaling factor: %d", scalingFactor)
+	log.Tracef("Scaling factor: %d", scalingFactor)
 
 	inPeriods := int(q.until.Sub(q.asOf) / nativeResolution)
 	// Limit inPeriods based on what we can fit into outPeriods

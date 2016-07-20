@@ -15,10 +15,11 @@ var (
 )
 
 type DBOpts struct {
-	SchemaFile           string
-	Dir                  string
-	BatchSize            int64
-	RocksDBStatsInterval time.Duration
+	SchemaFile            string
+	Dir                   string
+	BatchSize             int64
+	DiscardOnBackPressure bool
+	RocksDBStatsInterval  time.Duration
 }
 
 type DB struct {
