@@ -47,7 +47,7 @@ Test_a:
     SELECT
       SUM(i) AS i,
       SUM(ii) AS ii,
-      AVG(i * ii) AS iii
+      SUM(i) * SUM(ii) / COUNT(ii) AS iii
     FROM inbound
     WHERE r = 'A'
     GROUP BY period(1ms)
@@ -74,7 +74,7 @@ view_a:
     SELECT
       SUM(i) AS i,
       SUM(ii) AS ii,
-      AVG(i * ii) AS iii
+      AVG(i) * AVG(ii) AS iii
     FROM inbound
     WHERE r = 'A'
     GROUP BY u, period(1ms)`
@@ -236,7 +236,7 @@ view_a:
 	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
-			assert.Equal(t, []float64{101}, result[1])
+			assert.Equal(t, []float64{121}, result[1])
 		}
 	}
 
