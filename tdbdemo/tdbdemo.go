@@ -38,7 +38,7 @@ func main() {
 
 	numReporters := 5000
 	uniquesPerReporter := 100
-	uniquesPerPeriod := 20
+	uniquesPerPeriod := 200
 	reportingPeriods := 1000
 	reportingInterval := time.Millisecond
 	resolution := reportingInterval * 5
@@ -62,7 +62,7 @@ func main() {
 SELECT
 	SUM(i) AS i,
 	SUM(ii) AS ii,
-	AVG(ii / i) AS iii
+	AVG(ii) / AVG(i) AS iii
 FROM inbound
 GROUP BY period(%v)`, resolution))
 	if err != nil {

@@ -110,11 +110,8 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	accums := q.t.getAccumulators()
 	defer q.t.putAccumulators(accums)
 
-	for it.SeekToFirst(); it.Valid(); it.Next() {
-		stats.Scanned++
-		k := it.Key()
-		key, field := keyAndFieldFor(k.Data())
-
+	for i, encodedField := range q.encodedFields {
+		field := q.fields[i]
 		var e expr.Expr
 		var accum expr.Accumulator
 		for i, candidate := range q.t.Fields {
@@ -124,62 +121,65 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 				break
 			}
 		}
-		if e == nil {
-			return stats, fmt.Errorf("Unknown field %v", field)
-		}
 		encodedWidth := accum.EncodedWidth()
 
-		if q.filter != nil {
-			include, err := q.filter.Eval(bytemapQueryParams(key))
-			if err != nil {
-				k.Free()
-				return stats, fmt.Errorf("Unable to apply filter: %v", err)
-			}
-			inc, ok := include.(bool)
-			if !ok {
-				k.Free()
-				return stats, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
-			}
-			if !inc {
-				stats.FilterReject++
-				continue
-			}
-			stats.FilterPass++
-		}
+		for it.Seek(encodedField); it.ValidForPrefix(encodedField); it.Next() {
+			stats.Scanned++
+			k := it.Key()
+			key := keyFor(k.Data())
 
-		v := it.Value()
-		stats.ReadValue++
-		seq := sequence(v.Data())
-		vals := make([]float64, numPeriods)
-		if len(seq) > 0 {
-			stats.DataValid++
-			seqStart := seq.start()
-			copyPeriods := seq.numPeriods(encodedWidth)
-			if log.IsTraceEnabled() {
-				log.Tracef("Reading sequence %v", seq.String(e))
-			}
-			includeKey := false
-			if !seqStart.Before(q.asOf) {
-				to := q.until
-				if to.After(seqStart) {
-					to = seqStart
+			if q.filter != nil {
+				include, err := q.filter.Eval(bytemapQueryParams(key))
+				if err != nil {
+					k.Free()
+					return stats, fmt.Errorf("Unable to apply filter: %v", err)
 				}
-				startOffset := int(seqStart.Sub(to) / q.t.Resolution)
-				log.Tracef("Start offset %d", startOffset)
-				for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
-					includeKey = true
-					val := seq.valueAt(i+startOffset, accum)
-					log.Tracef("Grabbing value %f", val)
-					vals[i] = val
+				inc, ok := include.(bool)
+				if !ok {
+					k.Free()
+					return stats, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
+				}
+				if !inc {
+					stats.FilterReject++
+					continue
+				}
+				stats.FilterPass++
+			}
+
+			v := it.Value()
+			stats.ReadValue++
+			seq := sequence(v.Data())
+			vals := make([]float64, numPeriods)
+			if len(seq) > 0 {
+				stats.DataValid++
+				seqStart := seq.start()
+				copyPeriods := seq.numPeriods(encodedWidth)
+				if log.IsTraceEnabled() {
+					log.Tracef("Reading sequence %v", seq.String(e))
+				}
+				includeKey := false
+				if !seqStart.Before(q.asOf) {
+					to := q.until
+					if to.After(seqStart) {
+						to = seqStart
+					}
+					startOffset := int(seqStart.Sub(to) / q.t.Resolution)
+					log.Tracef("Start offset %d", startOffset)
+					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
+						includeKey = true
+						val := seq.valueAt(i+startOffset, accum)
+						log.Tracef("Grabbing value %f", val)
+						vals[i] = val
+					}
+				}
+				if includeKey {
+					stats.InTimeRange++
+					q.onValues(key, field, vals)
 				}
 			}
-			if includeKey {
-				stats.InTimeRange++
-				q.onValues(key, field, vals)
-			}
+			k.Free()
+			v.Free()
 		}
-		k.Free()
-		v.Free()
 	}
 
 	stats.Runtime = time.Now().Sub(start)
