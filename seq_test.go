@@ -128,6 +128,8 @@ func TestSequenceMergeAB(t *testing.T) {
 	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 6})), accum1, res, truncateBefore)
 	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), accum1, res, truncateBefore)
 	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), accum1, res, truncateBefore)
+	seq2 = seq2.merge(nil, res, accum1, accum2)
+	seq2 = ((sequence)(nil)).merge(seq2, res, accum1, accum2)
 
 	checkMerge(t, epoch, res, seq1, seq2, accum1, accum2)
 	checkMerge(t, epoch, res, seq2, seq1, accum1, accum2)

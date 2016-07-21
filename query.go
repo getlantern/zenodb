@@ -3,39 +3,23 @@ package tdb
 import (
 	"bytes"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/tdb/expr"
-	"github.com/tecbot/gorocksdb"
 )
-
-var (
-	defaultReadOptions = gorocksdb.NewDefaultReadOptions()
-)
-
-func init() {
-	// Don't bother filling the cache, since we're always doing full scans anyway
-	defaultReadOptions.SetFillCache(false)
-	// Make it a tailing iterator so that it doesn't create a snapshot (which
-	// would have the effect of reducing the efficiency of applying merge ops
-	// during compaction)
-	defaultReadOptions.SetTailing(true)
-}
 
 type query struct {
-	table         string
-	fields        []string
-	filter        *govaluate.EvaluableExpression
-	asOf          time.Time
-	asOfOffset    time.Duration
-	until         time.Time
-	untilOffset   time.Duration
-	onValues      func(key bytemap.ByteMap, field string, vals []float64)
-	t             *table
-	encodedFields [][]byte
+	table        string
+	fields       []string
+	filter       *govaluate.EvaluableExpression
+	asOf         time.Time
+	asOfOffset   time.Duration
+	until        time.Time
+	untilOffset  time.Duration
+	onValues     func(key bytemap.ByteMap, field string, vals []float64)
+	t            *table
+	sortedFields []string
 }
 
 type QueryStats struct {
@@ -56,14 +40,6 @@ func (q *query) init(db *DB) error {
 	if q.t == nil {
 		return fmt.Errorf("Unknown table %v", q.table)
 	}
-
-	// Sort fields lexicographically to match sorting in RocksDB so that we can
-	// scan in order.
-	q.encodedFields = make([][]byte, 0, len(q.fields))
-	for _, field := range q.fields {
-		q.encodedFields = append(q.encodedFields, encodeField(field))
-	}
-	sort.Sort(lexicographical(q.encodedFields))
 
 	// Set up time-based parameters
 	now := q.t.clock.Now()
@@ -104,51 +80,47 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	it := q.t.rdb.NewIterator(defaultReadOptions)
-	defer it.Close()
-
 	accums := q.t.getAccumulators()
 	defer q.t.putAccumulators(accums)
 
-	for i, encodedField := range q.encodedFields {
-		field := q.fields[i]
-		var e expr.Expr
-		var accum expr.Accumulator
-		for i, candidate := range q.t.Fields {
-			if candidate.Name == field {
-				e = q.t.Fields[i]
-				accum = accums[i]
+	for i, field := range q.t.Fields {
+		includedInQuery := false
+		for _, f := range q.fields {
+			if f == field.Name {
+				includedInQuery = true
 				break
 			}
 		}
+		if !includedInQuery {
+			continue
+		}
+
+		e := field.Expr
+		accum := field.Accumulator()
 		encodedWidth := accum.EncodedWidth()
 
-		for it.Seek(encodedField); it.ValidForPrefix(encodedField); it.Next() {
+		q.t.columnStores[i].iterate(func(key bytemap.ByteMap, seq sequence) {
 			stats.Scanned++
-			k := it.Key()
-			key := keyFor(k.Data())
 
 			if q.filter != nil {
 				include, err := q.filter.Eval(bytemapQueryParams(key))
 				if err != nil {
-					k.Free()
-					return stats, fmt.Errorf("Unable to apply filter: %v", err)
+					log.Errorf("Unable to apply filter: %v", err)
+					return
 				}
 				inc, ok := include.(bool)
 				if !ok {
-					k.Free()
-					return stats, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
+					log.Errorf("Filter expression returned something other than a boolean: %v", include)
+					return
 				}
 				if !inc {
 					stats.FilterReject++
-					continue
+					return
 				}
 				stats.FilterPass++
 			}
 
-			v := it.Value()
 			stats.ReadValue++
-			seq := sequence(v.Data())
 			vals := make([]float64, numPeriods)
 			if len(seq) > 0 {
 				stats.DataValid++
@@ -174,12 +146,10 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 				}
 				if includeKey {
 					stats.InTimeRange++
-					q.onValues(key, field, vals)
+					q.onValues(key, field.Name, vals)
 				}
 			}
-			k.Free()
-			v.Free()
-		}
+		})
 	}
 
 	stats.Runtime = time.Now().Sub(start)

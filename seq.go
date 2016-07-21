@@ -138,6 +138,13 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 }
 
 func (seq sequence) merge(other sequence, resolution time.Duration, accum1 expr.Accumulator, accum2 expr.Accumulator) sequence {
+	if seq == nil {
+		return other
+	}
+	if other == nil {
+		return seq
+	}
+
 	sa := seq
 	sb := other
 	startA := sa.start()

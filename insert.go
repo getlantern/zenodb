@@ -4,11 +4,6 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
-	"github.com/tecbot/gorocksdb"
-)
-
-var (
-	defaultWriteOptions = gorocksdb.NewDefaultWriteOptions()
 )
 
 type Point struct {
@@ -27,7 +22,7 @@ func (p *Point) Get(name string) (interface{}, error) {
 }
 
 type insert struct {
-	key  bytemap.ByteMap
+	key  string
 	vals tsparams
 }
 
@@ -77,7 +72,7 @@ func (t *table) insert(point *Point) {
 		}
 	}
 
-	key := bytemap.New(point.Dims)
+	key := string(bytemap.New(point.Dims))
 	vals := newTSParams(point.Ts, bytemap.NewFloat(point.Vals))
 
 	if t.db.opts.DiscardOnBackPressure {
@@ -95,49 +90,16 @@ func (t *table) insert(point *Point) {
 	}
 }
 
+func (t *table) processInserts() {
+	for insert := range t.inserts {
+		for _, cs := range t.columnStores {
+			cs.insert(insert)
+		}
+	}
+}
+
 func (t *table) recordQueued() {
 	t.statsMutex.Lock()
 	t.stats.QueuedPoints++
 	t.statsMutex.Unlock()
-}
-
-func (t *table) process() {
-	// Commits are primarily driven by batch size, but the commitTicker makes sure
-	// that we're commiting at least every 5 seconds.
-	// TODO - make this tunable
-	commitTicker := time.NewTicker(5 * time.Second)
-
-	batch := gorocksdb.NewWriteBatch()
-	commit := func() {
-		count := int64(batch.Count() / len(t.Fields))
-		err := t.rdb.Write(defaultWriteOptions, batch)
-		batch = gorocksdb.NewWriteBatch()
-		if err != nil {
-			t.log.Errorf("Unable to commit batch: %v", err)
-			t.statsMutex.Lock()
-			t.stats.DroppedPoints += count
-			t.statsMutex.Unlock()
-		} else {
-			t.statsMutex.Lock()
-			t.stats.InsertedPoints += count
-			t.statsMutex.Unlock()
-		}
-	}
-
-	for {
-		select {
-		case i := <-t.inserts:
-			for _, field := range t.Fields {
-				batch.Merge(keyWithField(i.key, field.Name), i.vals)
-			}
-			t.statsMutex.Lock()
-			t.stats.QueuedPoints--
-			t.statsMutex.Unlock()
-			if batch.Count() >= int(t.batchSize) {
-				commit()
-			}
-		case <-commitTicker.C:
-			commit()
-		}
-	}
 }
