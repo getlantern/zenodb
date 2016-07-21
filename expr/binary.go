@@ -2,6 +2,7 @@ package expr
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 )
 
@@ -34,6 +35,28 @@ type binaryExpr struct {
 	right Expr
 }
 
+func (e *binaryExpr) Validate() error {
+	err := validateWrappedInBinary(e.left)
+	if err == nil {
+		err = validateWrappedInBinary(e.right)
+	}
+	return err
+}
+
+func validateWrappedInBinary(wrapped Expr) error {
+	if wrapped == nil {
+		return fmt.Errorf("Binary expression cannot wrap nil expression")
+	}
+	typeOfWrapped := reflect.TypeOf(wrapped)
+	if typeOfWrapped == aggregateType || typeOfWrapped == avgType || typeOfWrapped == constType {
+		return nil
+	}
+	if typeOfWrapped == calcType || typeOfWrapped == condType {
+		return wrapped.Validate()
+	}
+	return fmt.Errorf("Binary expression must wrap only aggregate and constant expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v", typeOfWrapped)
+}
+
 func (e *binaryExpr) DependsOn() []string {
 	m := make(map[string]bool, 0)
 	for _, param := range e.left.DependsOn() {
@@ -51,5 +74,5 @@ func (e *binaryExpr) DependsOn() []string {
 }
 
 func (e *binaryExpr) String() string {
-	return fmt.Sprintf("%v %v %v", e.left, e.op, e.right)
+	return fmt.Sprintf("(%v %v %v)", e.left, e.op, e.right)
 }

@@ -3,6 +3,7 @@ package expr
 import (
 	"fmt"
 	"math"
+	"reflect"
 )
 
 type updateFN func(current float64, next float64) float64
@@ -59,6 +60,21 @@ func (e *agg) Accumulator() Accumulator {
 		defaultValue: e.defaultValue,
 		value:        e.defaultValue,
 	}
+}
+
+func (e *agg) Validate() error {
+	return validateWrappedInAggregate(e.wrapped)
+}
+
+func validateWrappedInAggregate(wrapped Expr) error {
+	if wrapped == nil {
+		return fmt.Errorf("Aggregate cannot wrap nil expression")
+	}
+	typeOfWrapped := reflect.TypeOf(wrapped)
+	if typeOfWrapped != fieldType && typeOfWrapped != constType {
+		return fmt.Errorf("Aggregate can only wrap field and constant expressions, not %v", typeOfWrapped)
+	}
+	return wrapped.Validate()
 }
 
 func (e *agg) DependsOn() []string {

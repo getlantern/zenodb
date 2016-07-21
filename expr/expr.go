@@ -13,6 +13,13 @@ const (
 
 var (
 	binaryEncoding = binary.LittleEndian
+
+	fieldType     = reflect.TypeOf((*field)(nil))
+	constType     = reflect.TypeOf((*constant)(nil))
+	aggregateType = reflect.TypeOf((*agg)(nil))
+	avgType       = reflect.TypeOf((*avg)(nil))
+	calcType      = reflect.TypeOf((*calculator)(nil))
+	condType      = reflect.TypeOf((*conditional)(nil))
 )
 
 type Params interface {
@@ -48,6 +55,8 @@ func Encoded(accum Accumulator) []byte {
 
 type Expr interface {
 	Accumulator() Accumulator
+
+	Validate() error
 
 	DependsOn() []string
 

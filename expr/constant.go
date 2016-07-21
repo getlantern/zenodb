@@ -40,6 +40,10 @@ func (e *constant) Accumulator() Accumulator {
 	return &constantAccumulator{e.value}
 }
 
+func (e *constant) Validate() error {
+	return nil
+}
+
 func (e *constant) DependsOn() []string {
 	return []string{}
 }

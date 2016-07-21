@@ -10,7 +10,7 @@ import (
 
 func TestSQL(t *testing.T) {
 	q, err := Parse(`
-SELECT AVG(a / (A + b + C)) * 2 AS rate
+SELECT AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host'
 GROUP BY dim_A, period('5s') // period is a special function
@@ -21,9 +21,9 @@ LIMIT 100, 10
 	if !assert.NoError(t, err) {
 		return
 	}
-	if !assert.Len(t, q.Fields, 1) {
+	if assert.Len(t, q.Fields, 1) {
 		field := q.Fields[0]
-		expected := MULT(AVG(DIV("a", ADD(ADD("a", "b"), "c"))), 2).String()
+		expected := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2).String()
 		actual := field.String()
 		assert.Equal(t, expected, actual)
 		assert.Equal(t, "rate", field.Name)

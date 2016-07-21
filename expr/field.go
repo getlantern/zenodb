@@ -38,6 +38,10 @@ func (e *field) Accumulator() Accumulator {
 	return &fieldAccumulator{name: e.name}
 }
 
+func (e *field) Validate() error {
+	return nil
+}
+
 func (e *field) DependsOn() []string {
 	return []string{e.name}
 }

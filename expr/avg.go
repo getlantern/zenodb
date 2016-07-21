@@ -58,6 +58,10 @@ func (e *avg) DependsOn() []string {
 	return e.wrapped.DependsOn()
 }
 
+func (e *avg) Validate() error {
+	return validateWrappedInAggregate(e.wrapped)
+}
+
 func (e *avg) String() string {
 	return fmt.Sprintf("AVG(%v)", e.wrapped)
 }
