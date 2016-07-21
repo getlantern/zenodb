@@ -10,8 +10,12 @@ type fieldAccumulator struct {
 	value float64
 }
 
-func (a *fieldAccumulator) Update(params Params) {
-	a.value = params.Get(a.name)
+func (a *fieldAccumulator) Update(params Params) bool {
+	val, ok := params.Get(a.name)
+	if ok {
+		a.value = val
+	}
+	return ok
 }
 
 func (a *fieldAccumulator) Get() float64 {

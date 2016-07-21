@@ -11,9 +11,10 @@ type binaryAccumulator struct {
 	right Accumulator
 }
 
-func (a *binaryAccumulator) Update(params Params) {
-	a.left.Update(params)
-	a.right.Update(params)
+func (a *binaryAccumulator) Update(params Params) bool {
+	updatedLeft := a.left.Update(params)
+	updatedRight := a.right.Update(params)
+	return updatedLeft || updatedRight
 }
 
 func (a *binaryAccumulator) EncodedWidth() int {

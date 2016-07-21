@@ -17,10 +17,13 @@ type avgAccumulator struct {
 	total   float64
 }
 
-func (a *avgAccumulator) Update(params Params) {
-	a.wrapped.Update(params)
-	a.count++
-	a.total += a.wrapped.Get()
+func (a *avgAccumulator) Update(params Params) bool {
+	updated := a.wrapped.Update(params)
+	if updated {
+		a.count++
+		a.total += a.wrapped.Get()
+	}
+	return updated
 }
 
 func (a *avgAccumulator) Get() float64 {

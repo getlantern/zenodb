@@ -6,12 +6,12 @@ import (
 
 type bytemapParams bytemap.ByteMap
 
-func (bmp bytemapParams) Get(field string) float64 {
+func (bmp bytemapParams) Get(field string) (float64, bool) {
 	result := bytemap.ByteMap(bmp).Get(field)
 	if result == nil {
-		return 0
+		return 0, false
 	}
-	return result.(float64)
+	return result.(float64), true
 }
 
 type bytemapQueryParams bytemap.ByteMap

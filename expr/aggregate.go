@@ -20,9 +20,12 @@ type aggregateAccumulator struct {
 	value        float64
 }
 
-func (a *aggregateAccumulator) Update(params Params) {
-	a.wrapped.Update(params)
-	a.value = a.update(a.value, a.wrapped.Get())
+func (a *aggregateAccumulator) Update(params Params) bool {
+	updated := a.wrapped.Update(params)
+	if updated {
+		a.value = a.update(a.value, a.wrapped.Get())
+	}
+	return updated
 }
 
 func (a *aggregateAccumulator) Get() float64 {

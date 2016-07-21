@@ -13,7 +13,8 @@ type constantAccumulator struct {
 	value float64
 }
 
-func (a *constantAccumulator) Update(params Params) {
+func (a *constantAccumulator) Update(params Params) bool {
+	return false
 }
 
 func (a *constantAccumulator) Get() float64 {

@@ -22,7 +22,7 @@ func TestAVG(t *testing.T) {
 }
 
 func TestCOUNT(t *testing.T) {
-	doTestAggregate(t, COUNT("b"), []string{"b"}, 2)
+	doTestAggregate(t, COUNT("b"), []string{"b"}, 1)
 }
 
 func TestValidateAggregate(t *testing.T) {

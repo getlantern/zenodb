@@ -23,19 +23,20 @@ var (
 )
 
 type Params interface {
-	Get(name string) float64
+	Get(name string) (float64, bool)
 }
 
 // Map is an implementation of the Params interface using a map.
 type Map map[string]float64
 
 // Get implements the method from the Params interface
-func (p Map) Get(name string) float64 {
-	return p[name]
+func (p Map) Get(name string) (float64, bool) {
+	val, found := p[name]
+	return val, found
 }
 
 type Accumulator interface {
-	Update(params Params)
+	Update(params Params) bool
 
 	Get() float64
 
