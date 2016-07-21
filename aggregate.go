@@ -7,6 +7,7 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
 	"github.com/getlantern/tdb/sql"
@@ -85,7 +86,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		return nil, err
 	}
 	// if log.IsTraceEnabled() {
-	log.Debug(spew.Sdump(stats))
+	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(int64(aq.inPeriods)*stats.ReadValue))
 	// }
 
 	resultEntries, err := aq.buildEntries(q, entries)

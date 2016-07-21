@@ -37,9 +37,9 @@ func main() {
 	log.Debugf("Writing data to %v", tmpDir)
 
 	numReporters := 5000
-	uniquesPerReporter := 100
+	uniquesPerReporter := 200
 	uniquesPerPeriod := 200
-	reportingPeriods := 1000
+	reportingPeriods := 100000
 	reportingInterval := time.Millisecond
 	resolution := reportingInterval * 5
 	retainPeriods := 20
