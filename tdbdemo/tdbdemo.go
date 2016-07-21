@@ -105,9 +105,10 @@ HeapAlloc pre/post GC %f/%f MiB
 		for {
 			tk := time.NewTicker(30 * time.Second)
 			for range tk.C {
+				log.Debug("Running query")
 				now := db.Now("test")
 				q, err := db.SQLQuery(`
-SELECT SUM(iii) AS the_count
+SELECT COUNT(i) AS the_count
 FROM test
 GROUP BY x, period(168h)
 `)
