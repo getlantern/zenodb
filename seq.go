@@ -137,6 +137,82 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 	return out.truncate(periodWidth, resolution, truncateBefore)
 }
 
+func (seq sequence) merge(other sequence, resolution time.Duration, accum1 expr.Accumulator, accum2 expr.Accumulator) sequence {
+	sa := seq
+	sb := other
+	startA := sa.start()
+	startB := sb.start()
+	if startB.After(startA) {
+		// Switch
+		sa, startA, sb, startB = sb, startB, sa, startA
+	}
+
+	encodedWidth := accum1.EncodedWidth()
+	aPeriods := sa.numPeriods(encodedWidth)
+	bPeriods := sb.numPeriods(encodedWidth)
+	endA := startA.Add(-1 * time.Duration(aPeriods) * resolution)
+	endB := startB.Add(-1 * time.Duration(bPeriods) * resolution)
+	end := endB
+	if endA.Before(endB) {
+		end = endA
+	}
+	totalPeriods := int(startA.Sub(end) / resolution)
+
+	out := make(sequence, width64bits+totalPeriods*encodedWidth)
+	sout := out
+
+	// Set start
+	copy(sout, sa[:width64bits])
+	sout = sout[width64bits:]
+	sa = sa[width64bits:]
+	sb = sb[width64bits:]
+
+	// Handle starting window with no overlap
+	leadEnd := startB
+	if startB.Before(endA) {
+		leadEnd = endA
+	}
+	leadNoOverlapPeriods := int(startA.Sub(leadEnd) / resolution)
+	if leadNoOverlapPeriods > 0 {
+		l := leadNoOverlapPeriods * encodedWidth
+		copy(sout, sa[:l])
+		sout = sout[l:]
+		sa = sa[l:]
+	}
+
+	if startB.After(endA) {
+		// Handle middle window with overlap
+		overlapPeriods := 0
+		if endB.After(endA) {
+			overlapPeriods = int(startA.Sub(endB) / resolution)
+		} else {
+			overlapPeriods = int(startA.Sub(endA) / resolution)
+		}
+		overlapPeriods -= leadNoOverlapPeriods
+		for i := 0; i < overlapPeriods; i++ {
+			sa = accum1.InitFrom(sa)
+			sb = accum2.InitFrom(sb)
+			accum1.Merge(accum2)
+			n := accum1.Encode(sout)
+			sout = sout[n:]
+		}
+	} else if startB.Before(endA) {
+		// Handle gap
+		gapPeriods := int(endA.Sub(startB) / resolution)
+		gap := gapPeriods * encodedWidth
+		sout = sout[gap:]
+	}
+
+	// Handle end window with no overlap
+	if endA.Before(endB) {
+		copy(sout, sa)
+	} else if endB.Before(endA) {
+		copy(sout, sb)
+	}
+
+	return out
+}
+
 func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncateBefore time.Time) sequence {
 	if seq == nil {
 		return nil

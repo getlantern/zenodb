@@ -3,7 +3,6 @@ package tdb
 import (
 	"github.com/getlantern/tdb/expr"
 	"sync"
-	"time"
 )
 
 type columnStore interface {
