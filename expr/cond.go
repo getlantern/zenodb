@@ -1,5 +1,9 @@
 package expr
 
+import (
+	"fmt"
+)
+
 // Cond is a special kind of expression whose accumulators always return either
 // 1 or 0 for true/false.
 type Cond interface {
@@ -16,6 +20,14 @@ func cond(cond string, left interface{}, right interface{}, compare compareFN) E
 type condAccumulator struct {
 	binaryAccumulator
 	compare compareFN
+}
+
+func (a *condAccumulator) Merge(other Accumulator) {
+	o, ok := other.(*condAccumulator)
+	if !ok {
+		panic(fmt.Sprintf("%v is not a condAccumulator!", other))
+	}
+	a.doMerge(&o.binaryAccumulator)
 }
 
 func (a *condAccumulator) Get() float64 {

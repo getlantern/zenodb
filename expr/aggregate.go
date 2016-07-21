@@ -28,6 +28,14 @@ func (a *aggregateAccumulator) Update(params Params) bool {
 	return updated
 }
 
+func (a *aggregateAccumulator) Merge(other Accumulator) {
+	o, ok := other.(*aggregateAccumulator)
+	if !ok {
+		panic(fmt.Sprintf("%v is not an aggregateAccumulator!", other))
+	}
+	a.value = a.update(a.value, o.value)
+}
+
 func (a *aggregateAccumulator) Get() float64 {
 	if a.value == a.defaultValue {
 		return 0

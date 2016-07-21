@@ -26,6 +26,15 @@ func (a *avgAccumulator) Update(params Params) bool {
 	return updated
 }
 
+func (a *avgAccumulator) Merge(other Accumulator) {
+	o, ok := other.(*avgAccumulator)
+	if !ok {
+		panic(fmt.Sprintf("%v is not an avgAccumulator!", other))
+	}
+	a.count += o.count
+	a.total += o.total
+}
+
 func (a *avgAccumulator) Get() float64 {
 	if a.count == 0 {
 		return 0

@@ -17,6 +17,9 @@ func (a *constantAccumulator) Update(params Params) bool {
 	return false
 }
 
+func (a *constantAccumulator) Merge(other Accumulator) {
+}
+
 func (a *constantAccumulator) Get() float64 {
 	return a.value
 }

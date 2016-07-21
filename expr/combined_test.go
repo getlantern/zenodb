@@ -39,7 +39,9 @@ func TestCombined(t *testing.T) {
 	assertFloatEquals(t, 7, rtb.Get())
 
 	rta.Update(params3)
-	rtb.Update(params3)
+	rtc := e.Accumulator()
+	rtc.Update(params3)
+	rtb.Merge(rtc)
 	assertFloatEquals(t, 5, rta.Get())
 	assertFloatEquals(t, 5, rtb.Get())
 }

@@ -18,6 +18,9 @@ func (a *fieldAccumulator) Update(params Params) bool {
 	return ok
 }
 
+func (a *fieldAccumulator) Merge(other Accumulator) {
+}
+
 func (a *fieldAccumulator) Get() float64 {
 	return a.value
 }

@@ -17,6 +17,11 @@ func (a *binaryAccumulator) Update(params Params) bool {
 	return updatedLeft || updatedRight
 }
 
+func (a *binaryAccumulator) doMerge(o *binaryAccumulator) {
+	a.left.Merge(o.left)
+	a.right.Merge(o.right)
+}
+
 func (a *binaryAccumulator) EncodedWidth() int {
 	return a.left.EncodedWidth() + a.right.EncodedWidth()
 }

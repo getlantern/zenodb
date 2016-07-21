@@ -38,6 +38,8 @@ func (p Map) Get(name string) (float64, bool) {
 type Accumulator interface {
 	Update(params Params) bool
 
+	Merge(other Accumulator)
+
 	Get() float64
 
 	// Note - encoding to bytes is only valid for aggregate accumulators
