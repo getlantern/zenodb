@@ -44,7 +44,7 @@ func main() {
 	resolution := reportingInterval * 5
 	retainPeriods := 20
 	retentionPeriod := time.Duration(retainPeriods) * reportingInterval * 100
-	targetPointsPerSecond := 20000
+	targetPointsPerSecond := 200000
 	numWriters := 4
 	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
 	targetDeltaFor1000Points := 1000 * time.Second / time.Duration(targetPointsPerSecondPerWriter)

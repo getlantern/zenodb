@@ -42,6 +42,7 @@ func TestIntegration(t *testing.T) {
 
 	schemaA := `
 Test_a:
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -59,7 +60,6 @@ Test_a:
 
 	db, err := NewDB(&DBOpts{
 		Dir:        tmpDir,
-		BatchSize:  1,
 		SchemaFile: tmpFile.Name(),
 	})
 	if !assert.NoError(t, err, "Unable to create DB") {
@@ -68,7 +68,7 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
-  hotperiod: 2ms
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT

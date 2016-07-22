@@ -151,9 +151,9 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		log.Trace("Defaulting to native resolution")
 		aq.Resolution = nativeResolution
 	}
-	if aq.Resolution > t.retentionPeriod {
+	if aq.Resolution > t.RetentionPeriod {
 		log.Trace("Not allowing resolution lower than retention period")
-		aq.Resolution = t.retentionPeriod
+		aq.Resolution = t.RetentionPeriod
 	}
 	if aq.Resolution < nativeResolution {
 		return nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.Resolution, nativeResolution)

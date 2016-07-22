@@ -2,6 +2,7 @@ package tdb
 
 import (
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,49 +24,59 @@ type TableStats struct {
 	ExpiredValues  int64
 }
 
-type table struct {
-	sql.Query
-	db              *DB
-	columnStores    []*columnStore
-	name            string
-	sqlString       string
-	log             golog.Logger
-	batchSize       int64
-	clock           *vtime.Clock
-	retentionPeriod time.Duration
-	inserts         chan *insert
-	where           *govaluate.EvaluableExpression
-	whereMutex      sync.RWMutex
-	stats           TableStats
-	statsMutex      sync.RWMutex
-	accums          *sync.Pool
+type TableOpts struct {
+	Name             string
+	MaxMemStoreBytes int
+	MaxFlushLatency  time.Duration
+	RetentionPeriod  time.Duration
+	SQL              string
 }
 
-func (db *DB) CreateTable(name string, retentionPeriod time.Duration, sqlString string) error {
-	if retentionPeriod <= 0 {
-		return errors.New("Please specify a positive retention period")
+type table struct {
+	*TableOpts
+	sql.Query
+	db           *DB
+	columnStores []*columnStore
+	log          golog.Logger
+	clock        *vtime.Clock
+	where        *govaluate.EvaluableExpression
+	whereMutex   sync.RWMutex
+	stats        TableStats
+	statsMutex   sync.RWMutex
+	accums       *sync.Pool
+	inserts      chan (*insert)
+}
+
+func (db *DB) CreateTable(opts *TableOpts) error {
+	if opts.RetentionPeriod <= 0 {
+		return errors.New("Please specify a positive RetentionPeriod")
 	}
-	q, err := sql.Parse(sqlString)
+	if opts.MaxMemStoreBytes <= 0 {
+		opts.MaxMemStoreBytes = 10485760
+		log.Debugf("Defaulted MaxMemStoreBytes to %v", opts.MaxMemStoreBytes)
+	}
+	if opts.MaxFlushLatency <= 0 {
+		opts.MaxFlushLatency = time.Duration(math.MaxInt64)
+		log.Debug("MaxFlushLatency disabled")
+	}
+	q, err := sql.Parse(opts.SQL)
 	if err != nil {
 		return err
 	}
 
-	return db.doCreateTable(name, retentionPeriod, sqlString, q)
+	return db.doCreateTable(opts, q)
 }
 
-func (db *DB) doCreateTable(name string, retentionPeriod time.Duration, sqlString string, q *sql.Query) error {
-	name = strings.ToLower(name)
+func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
+	opts.Name = strings.ToLower(opts.Name)
 
 	t := &table{
-		Query:           *q,
-		db:              db,
-		name:            name,
-		sqlString:       sqlString,
-		log:             golog.LoggerFor("tdb." + name),
-		batchSize:       db.opts.BatchSize,
-		clock:           vtime.NewClock(time.Time{}),
-		retentionPeriod: retentionPeriod,
-		inserts:         make(chan *insert, db.opts.BatchSize*2),
+		TableOpts: opts,
+		Query:     *q,
+		db:        db,
+		log:       golog.LoggerFor("tdb." + opts.Name),
+		clock:     vtime.NewClock(time.Time{}),
+		inserts:   make(chan *insert, 1000),
 	}
 	t.accums = &sync.Pool{New: t.newAccumulators}
 
@@ -77,12 +88,13 @@ func (db *DB) doCreateTable(name string, retentionPeriod time.Duration, sqlStrin
 	t.columnStores = make([]*columnStore, 0, len(t.Fields))
 	for _, field := range t.Fields {
 		cs, csErr := openColumnStore(&columnStoreOptions{
-			dir:            filepath.Join(db.opts.Dir, field.Name),
-			ex:             field.Expr,
-			resolution:     t.Resolution,
-			truncateBefore: t.truncateBefore,
-			numMemStores:   2,
-			flushAt:        int(db.opts.BatchSize),
+			dir:              filepath.Join(db.opts.Dir, field.Name),
+			ex:               field.Expr,
+			resolution:       t.Resolution,
+			truncateBefore:   t.truncateBefore,
+			numMemStores:     2,
+			maxMemStoreBytes: t.MaxMemStoreBytes,
+			maxFlushLatency:  t.MaxFlushLatency,
 		})
 		if csErr != nil {
 			return csErr
@@ -95,10 +107,10 @@ func (db *DB) doCreateTable(name string, retentionPeriod time.Duration, sqlStrin
 	db.tablesMutex.Lock()
 	defer db.tablesMutex.Unlock()
 
-	if db.tables[name] != nil {
-		return fmt.Errorf("Table %v already exists", name)
+	if db.tables[t.Name] != nil {
+		return fmt.Errorf("Table %v already exists", t.Name)
 	}
-	db.tables[name] = t
+	db.tables[t.Name] = t
 	db.streams[q.From] = append(db.streams[q.From], t)
 
 	return nil
@@ -121,7 +133,7 @@ func (t *table) applyWhere(where string) error {
 }
 
 func (t *table) truncateBefore() time.Time {
-	return t.clock.Now().Add(-1 * t.retentionPeriod)
+	return t.clock.Now().Add(-1 * t.RetentionPeriod)
 }
 
 func (t *table) getAccumulators() []expr.Accumulator {

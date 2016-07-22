@@ -95,6 +95,9 @@ func (t *table) processInserts() {
 		for _, cs := range t.columnStores {
 			cs.insert(insert)
 		}
+		t.statsMutex.Lock()
+		t.stats.QueuedPoints--
+		t.statsMutex.Unlock()
 	}
 }
 

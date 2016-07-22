@@ -15,30 +15,33 @@ import (
 )
 
 type columnStoreOptions struct {
-	dir            string
-	ex             expr.Expr
-	resolution     time.Duration
-	truncateBefore func() time.Time
-	numMemStores   int
-	flushAt        int
+	dir              string
+	ex               expr.Expr
+	resolution       time.Duration
+	truncateBefore   func() time.Time
+	numMemStores     int
+	maxMemStoreBytes int
+	maxFlushLatency  time.Duration
+}
+
+type flushRequest struct {
+	idx int
+	ms  memStore
 }
 
 type columnStore struct {
 	opts          *columnStoreOptions
-	memStores     []memStore
+	memStores     map[int]memStore
 	fileStore     *fileStore
 	inserts       chan *insert
-	flushes       chan memStore
-	flushFinished chan memStore
+	flushes       chan *flushRequest
+	flushFinished chan int
 	mx            sync.RWMutex
 }
 
 func openColumnStore(opts *columnStoreOptions) (*columnStore, error) {
 	if opts.numMemStores == 0 {
-		opts.numMemStores = 2
-	}
-	if opts.flushAt == 0 {
-		opts.flushAt = 1000
+		opts.numMemStores = runtime.NumCPU()
 	}
 
 	err := os.MkdirAll(opts.dir, 0755)
@@ -48,17 +51,17 @@ func openColumnStore(opts *columnStoreOptions) (*columnStore, error) {
 
 	cs := &columnStore{
 		opts:          opts,
-		memStores:     make([]memStore, 0, opts.numMemStores),
+		memStores:     make(map[int]memStore, opts.numMemStores),
 		inserts:       make(chan *insert),
-		flushes:       make(chan memStore, opts.numMemStores),
-		flushFinished: make(chan memStore, 1),
+		flushes:       make(chan *flushRequest, opts.numMemStores-1),
+		flushFinished: make(chan int, opts.numMemStores),
 	}
 	cs.fileStore = &fileStore{
 		cs: cs,
 	}
 
 	go cs.processInserts()
-	for i := 0; i < runtime.NumCPU(); i++ {
+	for i := 0; i < runtime.NumCPU() && i < opts.numMemStores; i++ {
 		go cs.processFlushes()
 	}
 
@@ -69,6 +72,51 @@ func (cs *columnStore) insert(insert *insert) {
 	cs.inserts <- insert
 }
 
+func (cs *columnStore) processInserts() {
+	memStoreIdx := 0
+	currentMemStore := make(memStore)
+	cs.memStores[memStoreIdx] = currentMemStore
+	accum := cs.opts.ex.Accumulator()
+
+	flush := func() {
+		cs.flushes <- &flushRequest{memStoreIdx, currentMemStore.copy()}
+		currentMemStore = make(memStore, len(currentMemStore))
+		memStoreIdx++
+		cs.memStores[memStoreIdx] = currentMemStore
+	}
+
+	flushTicker := time.NewTicker(cs.opts.maxFlushLatency)
+
+	memStoreBytes := 0
+	for {
+		select {
+		case insert := <-cs.inserts:
+			current := currentMemStore[insert.key]
+			previousSize := len(current)
+			if current == nil {
+				memStoreBytes += len(insert.key)
+			}
+			cs.mx.Lock()
+			updated := current.update(insert.vals, accum, cs.opts.resolution, cs.opts.truncateBefore())
+			currentMemStore[insert.key] = updated
+			cs.mx.Unlock()
+			memStoreBytes += len(updated) - previousSize
+			if memStoreBytes >= cs.opts.maxMemStoreBytes {
+				flush()
+			}
+		case <-flushTicker.C:
+			flush()
+		case idx := <-cs.flushFinished:
+			cs.mx.Lock()
+			if false {
+				// TODO: enable
+				delete(cs.memStores, idx)
+			}
+			cs.mx.Unlock()
+		}
+	}
+}
+
 func (cs *columnStore) iterate(onValue func(bytemap.ByteMap, sequence)) error {
 	cs.mx.RLock()
 	fs := cs.fileStore
@@ -76,29 +124,16 @@ func (cs *columnStore) iterate(onValue func(bytemap.ByteMap, sequence)) error {
 	cs.mx.RUnlock()
 	memStoresCopy := make([]memStore, 0, len(memStores))
 	for _, ms := range memStores {
-		msCopy := make(map[string]sequence, len(ms))
-		for key, seq := range ms {
-			msCopy[key] = seq
-		}
-		memStoresCopy = append(memStoresCopy, msCopy)
+		memStoresCopy = append(memStoresCopy, ms.copy())
 	}
 	return fs.iterate(memStoresCopy, onValue)
 }
 
-func (cs *columnStore) processInserts() {
-	currentMemStore := make(memStore, cs.opts.flushAt)
-	cs.memStores = append(cs.memStores, currentMemStore)
-	accum := cs.opts.ex.Accumulator()
-	for {
-		select {
-		case insert := <-cs.inserts:
-			currentMemStore[insert.key] = currentMemStore[insert.key].update(insert.vals, accum, cs.opts.resolution, cs.opts.truncateBefore())
-		}
-	}
-}
-
 func (cs *columnStore) processFlushes() {
-
+	for req := range cs.flushes {
+		// TODO: write it to a file
+		cs.flushFinished <- req.idx
+	}
 }
 
 type memStore map[string]sequence
@@ -109,6 +144,14 @@ func (ms memStore) remove(key string) sequence {
 		delete(ms, key)
 	}
 	return seq
+}
+
+func (ms memStore) copy() memStore {
+	memStoreCopy := make(map[string]sequence, len(ms))
+	for key, seq := range ms {
+		memStoreCopy[key] = seq
+	}
+	return memStoreCopy
 }
 
 type fileStore struct {

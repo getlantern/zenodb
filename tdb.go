@@ -17,7 +17,6 @@ var (
 type DBOpts struct {
 	SchemaFile            string
 	Dir                   string
-	BatchSize             int64
 	DiscardOnBackPressure bool
 	RocksDBStatsInterval  time.Duration
 }
@@ -32,13 +31,10 @@ type DB struct {
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
 	db := &DB{opts: opts, tables: make(map[string]*table), streams: make(map[string][]*table)}
-	if opts.BatchSize == 0 {
-		opts.BatchSize = 1000
-	}
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 	}
-	log.Debugf("Dir: %v    SchemaFile: %v    BatchSize: %d    ", opts.Dir, opts.SchemaFile, opts.BatchSize)
+	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 	return db, err
 }
 

@@ -10,12 +10,7 @@ import (
 	"github.com/getlantern/yaml"
 )
 
-type Schema map[string]*TableDef
-
-type TableDef struct {
-	RetentionPeriod time.Duration
-	SQL             string
-}
+type Schema map[string]*TableOpts
 
 func (db *DB) pollForSchema(filename string) error {
 	stat, err := os.Stat(filename)
@@ -61,19 +56,20 @@ func (db *DB) ApplySchemaFromFile(filename string) error {
 }
 
 func (db *DB) ApplySchema(schema Schema) error {
-	for name, tdef := range schema {
+	for name, opts := range schema {
 		name = strings.ToLower(name)
+		opts.Name = name
 		t := db.getTable(name)
 		if t == nil {
 			log.Debugf("Creating table %v", name)
-			err := db.CreateTable(name, tdef.RetentionPeriod, tdef.SQL)
+			err := db.CreateTable(opts)
 			if err != nil {
 				return err
 			}
 		} else {
 			// TODO: support more comprehensive altering of tables (maybe)
 			log.Debugf("Cowardly altering where and nothing else on table %v", name)
-			q, err := sql.Parse(tdef.SQL)
+			q, err := sql.Parse(opts.SQL)
 			if err != nil {
 				return err
 			}
