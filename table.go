@@ -11,7 +11,6 @@ import (
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tdb/expr"
 	"github.com/getlantern/tdb/sql"
 	"github.com/getlantern/vtime"
 )
@@ -43,7 +42,6 @@ type table struct {
 	whereMutex   sync.RWMutex
 	stats        TableStats
 	statsMutex   sync.RWMutex
-	accums       *sync.Pool
 	inserts      chan (*insert)
 }
 
@@ -78,7 +76,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		clock:     vtime.NewClock(time.Time{}),
 		inserts:   make(chan *insert, 1000),
 	}
-	t.accums = &sync.Pool{New: t.newAccumulators}
 
 	err := t.applyWhere(q.Where)
 	if err != nil {
@@ -133,20 +130,4 @@ func (t *table) applyWhere(where string) error {
 
 func (t *table) truncateBefore() time.Time {
 	return t.clock.Now().Add(-1 * t.RetentionPeriod)
-}
-
-func (t *table) getAccumulators() []expr.Accumulator {
-	return t.accums.Get().([]expr.Accumulator)
-}
-
-func (t *table) putAccumulators(accums []expr.Accumulator) {
-	t.accums.Put(accums)
-}
-
-func (t *table) newAccumulators() interface{} {
-	accums := make([]expr.Accumulator, 0, len(t.Fields))
-	for _, field := range t.Fields {
-		accums = append(accums, field.Accumulator())
-	}
-	return accums
 }

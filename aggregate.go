@@ -15,20 +15,29 @@ import (
 
 type Entry struct {
 	Dims          map[string]interface{}
-	Fields        map[string][]expr.Accumulator
+	Fields        []sequence
+	q             Query
 	fieldsIdx     int
-	orderByValues []expr.Accumulator
-	havingTest    expr.Accumulator
+	orderByValues [][]byte
+	havingTest    []byte
 }
 
 // Get implements the method from interface govaluate.Parameters
 func (entry *Entry) Get(name string) (float64, bool) {
 	if entry.fieldsIdx >= 0 {
-		vals := entry.Fields[name]
-		if vals == nil || entry.fieldsIdx >= len(vals) {
+		var field sql.Field
+		var seq sequence
+		for i, candidate := range entry.q.Fields {
+			if candidate.Name == name {
+				field = candidate
+				seq = entry.Fields[i]
+				break
+			}
+		}
+		if seq == nil || entry.fieldsIdx > seq.numPeriods(field.EncodedWidth()) {
 			return 0, false
 		}
-		return vals[entry.fieldsIdx].Get(), true
+		return seq.valueAt(entry.fieldsIdx, field), true
 	}
 	return 0, false
 }
@@ -104,13 +113,14 @@ func (aq *Query) Run() (*QueryResult, error) {
 		Entries:    resultEntries,
 		Stats:      stats,
 	}
-	if result.GroupBy == nil || len(result.GroupBy) == 0 {
+	if len(result.GroupBy) == 0 {
 		result.GroupBy = make([]string, 0, len(aq.dimsMap))
 		for dim := range aq.dimsMap {
 			result.GroupBy = append(result.GroupBy, dim)
 		}
 		sort.Strings(result.GroupBy)
 	}
+
 	return result, nil
 }
 
@@ -196,7 +206,7 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		if entry == nil {
 			entry = &Entry{
 				Dims:   key.AsMap(),
-				Fields: make(map[string][]expr.Accumulator, len(aq.Fields)),
+				Fields: make([]sequence, len(aq.Fields)),
 			}
 			if len(aq.GroupBy) == 0 {
 				// Track dims
@@ -204,21 +214,15 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 					aq.dimsMap[dim] = true
 				}
 			}
-			// Initialize accumulators
-			for _, field := range aq.Fields {
-				accums := make([]expr.Accumulator, 0, aq.outPeriods)
-				for i := 0; i < aq.outPeriods; i++ {
-					accums = append(accums, field.Accumulator())
-				}
-				entry.Fields[field.Name] = accums
-			}
-			// Initialize orderBys
-			for _, orderBy := range aq.OrderBy {
-				entry.orderByValues = append(entry.orderByValues, orderBy.Accumulator())
-			}
+
 			// Initialize havings
 			if aq.Having != nil {
-				entry.havingTest = aq.Having.Accumulator()
+				entry.havingTest = make([]byte, aq.Having.EncodedWidth())
+			}
+
+			// Initialize order bys
+			for _, e := range aq.OrderBy {
+				entry.orderByValues = append(entry.orderByValues, make([]byte, e.EncodedWidth()))
 			}
 			entries[string(kb)] = entry
 		}
@@ -230,8 +234,8 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 			}
 			sfp.value = val
 			out := i / aq.scalingFactor
-			for _, accums := range entry.Fields {
-				accums[out].Update(sfp)
+			for j, seq := range entry.Fields {
+				seq.updateValueAt(out, aq.Fields[j], sfp)
 			}
 		}
 	}
@@ -250,11 +254,11 @@ func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, er
 		entry.fieldsIdx = -1
 
 		// Calculate order bys
-		for i := range aq.OrderBy {
-			accum := entry.orderByValues[i]
+		for i, e := range aq.OrderBy {
+			b := entry.orderByValues[i]
 			for j := 0; j < aq.inPeriods; j++ {
 				entry.fieldsIdx = j
-				accum.Update(entry)
+				e.Update(b, entry)
 			}
 		}
 
@@ -262,7 +266,7 @@ func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, er
 		if entry.havingTest != nil {
 			for j := 0; j < aq.inPeriods; j++ {
 				entry.fieldsIdx = j
-				entry.havingTest.Update(entry)
+				aq.Having.Update(entry.havingTest, entry)
 			}
 		}
 
@@ -270,14 +274,15 @@ func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, er
 	}
 
 	if len(aq.OrderBy) > 0 {
-		sort.Sort(orderedEntries(result))
+		sort.Sort(orderedEntries{aq.OrderBy, result})
 	}
 
 	if aq.Having != nil {
 		unfiltered := result
 		result = make([]*Entry, 0, len(result))
 		for _, entry := range unfiltered {
-			testResult := entry.havingTest.Get() == 1
+			_testResult, _ := aq.Having.Get(entry.havingTest)
+			testResult := _testResult == 1
 			log.Tracef("Testing %v : %v", aq.Having, testResult)
 			if testResult {
 				result = append(result, entry)
@@ -303,15 +308,21 @@ func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, er
 	return result, nil
 }
 
-type orderedEntries []*Entry
+type orderedEntries struct {
+	orderBy []expr.Expr
+	entries []*Entry
+}
 
-func (r orderedEntries) Len() int      { return len(r) }
-func (r orderedEntries) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
+func (r orderedEntries) Len() int      { return len(r.entries) }
+func (r orderedEntries) Swap(i, j int) { r.entries[i], r.entries[j] = r.entries[j], r.entries[i] }
 func (r orderedEntries) Less(i, j int) bool {
-	a := r[i]
-	b := r[j]
-	for i := 0; i < len(a.orderByValues); i++ {
-		diff := a.orderByValues[i].Get() - b.orderByValues[i].Get()
+	a := r.entries[i]
+	b := r.entries[j]
+	for o := 0; o < len(a.orderByValues); o++ {
+		orderBy := r.orderBy[o]
+		x, _ := orderBy.Get(a.orderByValues[i])
+		y, _ := orderBy.Get(b.orderByValues[i])
+		diff := x - y
 		if diff < 0 {
 			return true
 		}

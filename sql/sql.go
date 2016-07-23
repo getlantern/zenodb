@@ -26,8 +26,6 @@ var (
 
 var unaryFuncs = map[string]func(param interface{}) expr.Expr{
 	"SUM":   expr.SUM,
-	"MIN":   expr.MIN,
-	"MAX":   expr.MAX,
 	"COUNT": expr.COUNT,
 	"AVG":   expr.AVG,
 }
@@ -39,7 +37,7 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 	"/": expr.DIV,
 }
 
-var conditions = map[string]func(left interface{}, right interface{}) expr.Cond{
+var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 	"<":  expr.LT,
 	"<=": expr.LTE,
 	"=":  expr.EQ,
@@ -63,7 +61,7 @@ type Query struct {
 	Until       time.Time
 	UntilOffset time.Duration
 	GroupBy     []string
-	Having      expr.Cond
+	Having      expr.Expr
 	OrderBy     []expr.Expr
 	Offset      int
 	Limit       int
@@ -217,7 +215,7 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 	if stmt.Having != nil {
 		filter, _ := exprFor(stmt.Having.Expr)
 		log.Tracef("Applying having: %v", filter)
-		q.Having = filter.(expr.Cond)
+		q.Having = filter.(expr.Expr)
 		err := q.Having.Validate()
 		if err != nil {
 			return fmt.Errorf("Invalid expression for HAVING clause: %v", err)

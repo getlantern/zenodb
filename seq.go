@@ -38,7 +38,7 @@ func (seq sequence) dataLength() int {
 	return len(seq) - width64bits
 }
 
-func (seq sequence) valueAtTime(t time.Time, accum expr.Accumulator, resolution time.Duration) float64 {
+func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Duration) float64 {
 	if seq == nil {
 		return 0
 	}
@@ -47,17 +47,17 @@ func (seq sequence) valueAtTime(t time.Time, accum expr.Accumulator, resolution 
 		return 0
 	}
 	period := int(start.Sub(t) / resolution)
-	return seq.valueAt(period, accum)
+	return seq.valueAt(period, e)
 }
 
-func (seq sequence) valueAt(period int, accum expr.Accumulator) float64 {
+func (seq sequence) valueAt(period int, e expr.Expr) float64 {
 	if seq == nil {
 		return 0
 	}
-	return seq.valueAtOffset(period*accum.EncodedWidth(), accum)
+	return seq.valueAtOffset(period*e.EncodedWidth(), e)
 }
 
-func (seq sequence) valueAtOffset(offset int, accum expr.Accumulator) float64 {
+func (seq sequence) valueAtOffset(offset int, e expr.Expr) float64 {
 	if seq == nil {
 		return 0
 	}
@@ -65,31 +65,28 @@ func (seq sequence) valueAtOffset(offset int, accum expr.Accumulator) float64 {
 	if offset >= len(seq) {
 		return 0
 	}
-	accum.InitFrom(seq[offset:])
-	return accum.Get()
+	val, _ := e.Get(seq[offset:])
+	return val
 }
 
-func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, accum expr.Accumulator, params expr.Params) {
+func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params) {
 	start := seq.start()
 	period := int(start.Sub(t) / resolution)
-	seq.updateValueAt(period, accum, params)
+	seq.updateValueAt(period, e, params)
 }
 
-func (seq sequence) updateValueAt(period int, accum expr.Accumulator, params expr.Params) {
-	seq.updateValueAtOffset(period*accum.EncodedWidth(), accum, params)
+func (seq sequence) updateValueAt(period int, e expr.Expr, params expr.Params) {
+	seq.updateValueAtOffset(period*e.EncodedWidth(), e, params)
 }
 
-func (seq sequence) updateValueAtOffset(offset int, accum expr.Accumulator, params expr.Params) {
+func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Params) {
 	offset = offset + width64bits
-	s := seq[offset:]
-	accum.InitFrom(s)
-	accum.Update(params)
-	accum.Encode(s)
+	e.Update(seq[offset:], params)
 }
 
-func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time.Duration, truncateBefore time.Time) sequence {
+func (seq sequence) update(tsp tsparams, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
 	ts, params := tsp.timeAndParams()
-	periodWidth := accum.EncodedWidth()
+	periodWidth := e.EncodedWidth()
 
 	if log.IsTraceEnabled() {
 		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.start().In(time.UTC), bytemap.ByteMap(bytemapParams(params)).AsMap(), ts.In(time.UTC), truncateBefore.In(time.UTC))
@@ -107,7 +104,7 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 		log.Trace("Creating new sequence")
 		out := make(sequence, width64bits+periodWidth)
 		out.setStart(ts)
-		out.updateValueAt(0, accum, params)
+		out.updateValueAt(0, e, params)
 		return out
 	}
 
@@ -119,7 +116,7 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 		out := make(sequence, len(seq)+periodWidth*deltaPeriods)
 		copy(out[width64bits+deltaPeriods*periodWidth:], seq[width64bits:])
 		out.setStart(ts)
-		out.updateValueAt(0, accum, params)
+		out.updateValueAt(0, e, params)
 		// TODO: optimize this by applying truncation above
 		return out.truncate(periodWidth, resolution, truncateBefore)
 	}
@@ -133,11 +130,11 @@ func (seq sequence) update(tsp tsparams, accum expr.Accumulator, resolution time
 		out = make(sequence, offset+width64bits+periodWidth)
 		copy(out, seq)
 	}
-	out.updateValueAtOffset(offset, accum, params)
+	out.updateValueAtOffset(offset, e, params)
 	return out.truncate(periodWidth, resolution, truncateBefore)
 }
 
-func (seq sequence) merge(other sequence, resolution time.Duration, accum1 expr.Accumulator, accum2 expr.Accumulator) sequence {
+func (seq sequence) merge(other sequence, resolution time.Duration, e expr.Expr) sequence {
 	if seq == nil {
 		return other
 	}
@@ -154,7 +151,7 @@ func (seq sequence) merge(other sequence, resolution time.Duration, accum1 expr.
 		sa, startA, sb, startB = sb, startB, sa, startA
 	}
 
-	encodedWidth := accum1.EncodedWidth()
+	encodedWidth := e.EncodedWidth()
 	aPeriods := sa.numPeriods(encodedWidth)
 	bPeriods := sb.numPeriods(encodedWidth)
 	endA := startA.Add(-1 * time.Duration(aPeriods) * resolution)
@@ -197,11 +194,7 @@ func (seq sequence) merge(other sequence, resolution time.Duration, accum1 expr.
 		}
 		overlapPeriods -= leadNoOverlapPeriods
 		for i := 0; i < overlapPeriods; i++ {
-			sa = accum1.InitFrom(sa)
-			sb = accum2.InitFrom(sb)
-			accum1.Merge(accum2)
-			n := accum1.Encode(sout)
-			sout = sout[n:]
+			sout, sa, sb = e.Merge(sout, sa, sb)
 		}
 	} else if startB.Before(endA) {
 		// Handle gap
@@ -242,15 +235,14 @@ func (seq sequence) String(e expr.Expr) string {
 		return ""
 	}
 
-	accum := e.Accumulator()
 	values := ""
 
-	numPeriods := seq.numPeriods(accum.EncodedWidth())
+	numPeriods := seq.numPeriods(e.EncodedWidth())
 	for i := 0; i < numPeriods; i++ {
 		if i > 0 {
 			values += " "
 		}
-		values += fmt.Sprint(seq.valueAt(i, accum))
+		values += fmt.Sprint(seq.valueAt(i, e))
 	}
 	return fmt.Sprintf("%v at %v: %v", e, seq.start(), values)
 }
