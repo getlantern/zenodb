@@ -1,14 +1,16 @@
 package tdb
 
 import (
-	"encoding/binary"
+	"bufio"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
-	"runtime"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
 	"github.com/golang/snappy"
@@ -19,7 +21,6 @@ type columnStoreOptions struct {
 	ex               expr.Expr
 	resolution       time.Duration
 	truncateBefore   func() time.Time
-	numMemStores     int
 	maxMemStoreBytes int
 	maxFlushLatency  time.Duration
 }
@@ -29,21 +30,23 @@ type flushRequest struct {
 	ms  memStore
 }
 
+type flushResponse struct {
+	idx              int
+	newFileStoreName string
+	duration         time.Duration
+}
+
 type columnStore struct {
 	opts          *columnStoreOptions
 	memStores     map[int]memStore
 	fileStore     *fileStore
 	inserts       chan *insert
 	flushes       chan *flushRequest
-	flushFinished chan int
+	flushFinished chan *flushResponse
 	mx            sync.RWMutex
 }
 
 func openColumnStore(opts *columnStoreOptions) (*columnStore, error) {
-	if opts.numMemStores == 0 {
-		opts.numMemStores = runtime.NumCPU()
-	}
-
 	err := os.MkdirAll(opts.dir, 0755)
 	if err != nil && !os.IsExist(err) {
 		return nil, fmt.Errorf("Unable to create folder for column store: %v", err)
@@ -51,19 +54,17 @@ func openColumnStore(opts *columnStoreOptions) (*columnStore, error) {
 
 	cs := &columnStore{
 		opts:          opts,
-		memStores:     make(map[int]memStore, opts.numMemStores),
+		memStores:     make(map[int]memStore, 2),
 		inserts:       make(chan *insert),
-		flushes:       make(chan *flushRequest, opts.numMemStores-1),
-		flushFinished: make(chan int, opts.numMemStores),
+		flushes:       make(chan *flushRequest, 1),
+		flushFinished: make(chan *flushResponse, 1),
 	}
 	cs.fileStore = &fileStore{
 		cs: cs,
 	}
 
 	go cs.processInserts()
-	for i := 0; i < runtime.NumCPU() && i < opts.numMemStores; i++ {
-		go cs.processFlushes()
-	}
+	go cs.processFlushes()
 
 	return cs, nil
 }
@@ -74,20 +75,29 @@ func (cs *columnStore) insert(insert *insert) {
 
 func (cs *columnStore) processInserts() {
 	memStoreIdx := 0
+	memStoreBytes := 0
 	currentMemStore := make(memStore)
 	cs.memStores[memStoreIdx] = currentMemStore
 	accum := cs.opts.ex.Accumulator()
 
+	flushInterval := cs.opts.maxFlushLatency
+
 	flush := func() {
+		if memStoreBytes == 0 {
+			// nothing to flush
+			return
+		}
+		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(memStoreBytes)))
 		cs.flushes <- &flushRequest{memStoreIdx, currentMemStore.copy()}
 		currentMemStore = make(memStore, len(currentMemStore))
 		memStoreIdx++
 		cs.memStores[memStoreIdx] = currentMemStore
+		memStoreBytes = 0
+		log.Debug("Requested flush")
 	}
 
-	flushTicker := time.NewTicker(cs.opts.maxFlushLatency)
+	flushTimer := time.NewTimer(flushInterval)
 
-	memStoreBytes := 0
 	for {
 		select {
 		case insert := <-cs.inserts:
@@ -104,15 +114,21 @@ func (cs *columnStore) processInserts() {
 			if memStoreBytes >= cs.opts.maxMemStoreBytes {
 				flush()
 			}
-		case <-flushTicker.C:
+		case <-flushTimer.C:
 			flush()
-		case idx := <-cs.flushFinished:
+		case fr := <-cs.flushFinished:
+			oldFileStore := cs.fileStore.filename
 			cs.mx.Lock()
-			if false {
-				// TODO: enable
-				delete(cs.memStores, idx)
-			}
+			delete(cs.memStores, fr.idx)
+			cs.fileStore = &fileStore{cs, fr.newFileStoreName}
 			cs.mx.Unlock()
+			if oldFileStore != "" {
+				err := os.Remove(oldFileStore)
+				if err != nil {
+					log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
+				}
+			}
+			flushTimer.Reset(fr.duration * 2)
 		}
 	}
 }
@@ -126,13 +142,50 @@ func (cs *columnStore) iterate(onValue func(bytemap.ByteMap, sequence)) error {
 	for _, ms := range memStores {
 		memStoresCopy = append(memStoresCopy, ms.copy())
 	}
-	return fs.iterate(memStoresCopy, onValue)
+	return fs.iterate(onValue, memStoresCopy...)
 }
 
 func (cs *columnStore) processFlushes() {
 	for req := range cs.flushes {
-		// TODO: write it to a file
-		cs.flushFinished <- req.idx
+		start := time.Now()
+		out, err := ioutil.TempFile("", "nextcolumnstore")
+		if err != nil {
+			panic(err)
+		}
+		sout := snappy.NewWriter(out)
+		cout := bufio.NewWriterSize(sout, 65536)
+		b := make([]byte, 8)
+		write := func(key bytemap.ByteMap, seq sequence) {
+			binaryEncoding.PutUint16(b, uint16(len(key)))
+			_, err := cout.Write(b[:2])
+			if err != nil {
+				panic(err)
+			}
+			binaryEncoding.PutUint64(b, uint64(len(seq)))
+			_, err = cout.Write(b)
+			if err != nil {
+				panic(err)
+			}
+			_, err = cout.Write(key)
+			if err != nil {
+				panic(err)
+			}
+			_, err = cout.Write(seq)
+			if err != nil {
+				panic(err)
+			}
+		}
+		cs.fileStore.iterate(write, req.ms)
+		cout.Flush()
+		sout.Close()
+		newFileStoreName := filepath.Join(cs.opts.dir, fmt.Sprintf("filestore_%d.dat", time.Now().UnixNano()))
+		err = os.Rename(out.Name(), newFileStoreName)
+		if err != nil {
+			panic(err)
+		}
+		delta := time.Now().Sub(start)
+		cs.flushFinished <- &flushResponse{req.idx, newFileStoreName, delta}
+		log.Debugf("Flushed in %v", delta)
 	}
 }
 
@@ -159,7 +212,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(memStores []memStore, onValue func(bytemap.ByteMap, sequence)) error {
+func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores ...memStore) error {
 	accum1 := fs.cs.opts.ex.Accumulator()
 	accum2 := fs.cs.opts.ex.Accumulator()
 
@@ -168,23 +221,20 @@ func (fs *fileStore) iterate(memStores []memStore, onValue func(bytemap.ByteMap,
 		if err != nil {
 			return fmt.Errorf("Unable to open file %v: %v", fs.filename, err)
 		}
-		r := snappy.NewReader(file)
+		r := snappy.NewReader(bufio.NewReaderSize(file, 65536))
 
 		// Read from file
+		b := make([]byte, 10)
 		for {
-			keyLength := int16(0)
-			err := binary.Read(file, binaryEncoding, &keyLength)
+			_, err := io.ReadFull(r, b)
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				return fmt.Errorf("Unexpected error reading key length: %v", err)
+				return fmt.Errorf("Unexpected error reading lengths: %v", err)
 			}
-			seqLength := int64(0)
-			err = binary.Read(file, binaryEncoding, &seqLength)
-			if err != nil {
-				return fmt.Errorf("Unexpected error reading sequence length: %v", err)
-			}
+			keyLength := binaryEncoding.Uint16(b)
+			seqLength := binaryEncoding.Uint16(b[2:])
 			key := make(bytemap.ByteMap, keyLength)
 			seq := make(sequence, seqLength)
 			_, err = io.ReadFull(r, key)

@@ -155,21 +155,3 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	stats.Runtime = time.Now().Sub(start)
 	return stats, nil
 }
-
-type lexicographical [][]byte
-
-func (a lexicographical) Len() int           { return len(a) }
-func (a lexicographical) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a lexicographical) Less(i, j int) bool { return bytes.Compare(a[i], a[j]) < 0 }
-
-func keysEqual(a map[string]interface{}, b map[string]interface{}) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
-}

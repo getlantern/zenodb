@@ -52,19 +52,23 @@ func main() {
 
 	db, err := tdb.NewDB(&tdb.DBOpts{
 		Dir:                  tmpDir,
-		BatchSize:            100000,
 		RocksDBStatsInterval: 60 * time.Second,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = db.CreateTable("test", retentionPeriod, fmt.Sprintf(`
+	err = db.CreateTable(&tdb.TableOpts{
+		Name:            "test",
+		RetentionPeriod: retentionPeriod,
+		MaxFlushLatency: 10 * time.Second,
+		SQL: fmt.Sprintf(`
 SELECT
 	SUM(i) AS i,
 	SUM(ii) AS ii,
 	AVG(ii) / AVG(i) AS iii
 FROM inbound
-GROUP BY period(%v)`, resolution))
+GROUP BY period(%v)`, resolution),
+	})
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -52,7 +52,7 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 		return errors.New("Please specify a positive RetentionPeriod")
 	}
 	if opts.MaxMemStoreBytes <= 0 {
-		opts.MaxMemStoreBytes = 10485760
+		opts.MaxMemStoreBytes = 100000000
 		log.Debugf("Defaulted MaxMemStoreBytes to %v", opts.MaxMemStoreBytes)
 	}
 	if opts.MaxFlushLatency <= 0 {
@@ -92,7 +92,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 			ex:               field.Expr,
 			resolution:       t.Resolution,
 			truncateBefore:   t.truncateBefore,
-			numMemStores:     2,
 			maxMemStoreBytes: t.MaxMemStoreBytes,
 			maxFlushLatency:  t.MaxFlushLatency,
 		})
