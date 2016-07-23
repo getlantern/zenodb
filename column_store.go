@@ -122,16 +122,17 @@ func (cs *columnStore) processInserts() {
 		case <-flushTimer.C:
 			flush()
 		case fr := <-cs.flushFinished:
-			oldFileStore := cs.fileStore.filename
+			//oldFileStore := cs.fileStore.filename
 			cs.mx.Lock()
 			delete(cs.memStores, fr.idx)
 			cs.fileStore = &fileStore{cs, fr.newFileStoreName}
-			if oldFileStore != "" {
-				err := os.Remove(oldFileStore)
-				if err != nil {
-					log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
-				}
-			}
+			// TODO: add background process for cleaning up old file stores
+			// if oldFileStore != "" {
+			// 	err := os.Remove(oldFileStore)
+			// 	if err != nil {
+			// 		log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
+			// 	}
+			// }
 			cs.mx.Unlock()
 			flushTimer.Reset(fr.duration * 2)
 		}
@@ -260,8 +261,12 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 				return fmt.Errorf("Unexpected error reading seq: %v", err)
 			}
 			for _, ms := range memStores {
+				before := seq
 				seq2 := ms.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
+				if log.IsTraceEnabled() {
+					log.Tracef("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+				}
 			}
 			onValue(key, seq)
 		}
@@ -272,8 +277,12 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 		for key, seq := range ms {
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
+				before := seq
 				seq2 := ms2.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
+				if log.IsTraceEnabled() {
+					log.Tracef("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+				}
 			}
 			onValue(bytemap.ByteMap(key), seq)
 		}

@@ -107,7 +107,7 @@ HeapAlloc pre/post GC %f/%f MiB
 
 	go func() {
 		for {
-			tk := time.NewTicker(30 * time.Second)
+			tk := time.NewTicker(30 * time.Millisecond)
 			for range tk.C {
 				log.Debug("Running query")
 				now := db.Now("test")
