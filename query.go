@@ -1,7 +1,6 @@
 package tdb
 
 import (
-	"bytes"
 	"fmt"
 	"time"
 

@@ -16,6 +16,9 @@ import (
 	"github.com/golang/snappy"
 )
 
+// TODO: read existing filestore on startup (use one with most recent date)
+// TODO: add WAL
+
 type columnStoreOptions struct {
 	dir              string
 	ex               expr.Expr
@@ -178,7 +181,10 @@ func (cs *columnStore) processFlushes() {
 		cs.fileStore.iterate(write, req.ms)
 		cout.Flush()
 		sout.Close()
-		newFileStoreName := filepath.Join(cs.opts.dir, fmt.Sprintf("filestore_%d.dat", time.Now().UnixNano()))
+		// Note - we left pad the unix nano value to the widest possible length to
+		// ensure lexicographical sort matches time-based sort (e.g. on directory
+		// listing).
+		newFileStoreName := filepath.Join(cs.opts.dir, fmt.Sprintf("filestore_%020d.dat", time.Now().UnixNano()))
 		err = os.Rename(out.Name(), newFileStoreName)
 		if err != nil {
 			panic(err)
