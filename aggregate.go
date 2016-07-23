@@ -2,7 +2,9 @@ package tdb
 
 import (
 	"fmt"
+	"runtime"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/Knetic/govaluate"
@@ -96,19 +98,49 @@ func (aq *Query) Run() (*QueryResult, error) {
 		until:       aq.Until,
 		untilOffset: aq.UntilOffset,
 	}
-	entries, err := aq.prepare(q)
+	responses, entriesCh, wg, err := aq.prepare(q)
 	if err != nil {
 		return nil, err
 	}
+	log.Debug("A")
 	stats, err := q.run(aq.db)
 	if err != nil {
 		return nil, err
+	}
+	log.Debug("B")
+	close(responses)
+	log.Debug("C")
+	wg.Wait()
+	close(entriesCh)
+	log.Debug("D")
+	var entries []map[string]*Entry
+	for e := range entriesCh {
+		entries = append(entries, e)
+	}
+	// Merge entries
+	entriesOut := make(map[string]*Entry)
+	for i, e := range entries {
+		for k, v := range e {
+			for j := i; j < len(entries); j++ {
+				o := entries[j]
+				if j != i {
+					vo, ok := o[k]
+					if ok {
+						for x, os := range vo.Fields {
+							v.Fields[x] = v.Fields[x].merge(os, aq.Resolution, aq.Fields[x])
+						}
+						delete(o, k)
+					}
+				}
+			}
+			entriesOut[k] = v
+		}
 	}
 	// if log.IsTraceEnabled() {
 	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(int64(aq.inPeriods)*stats.ReadValue))
 	// }
 
-	resultEntries, err := aq.buildEntries(q, entries)
+	resultEntries, err := aq.buildEntries(q, entriesOut)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +166,13 @@ func (aq *Query) Run() (*QueryResult, error) {
 	return result, nil
 }
 
-func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
+type queryResponse struct {
+	key   bytemap.ByteMap
+	field string
+	vals  []float64
+}
+
+func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry, *sync.WaitGroup, error) {
 	// Figure out field dependencies
 	sortedFields := make(sortedFields, len(aq.Fields))
 	copy(sortedFields, aq.Fields)
@@ -155,14 +193,14 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		log.Tracef("Applying where: %v", aq.Where)
 		where, err := govaluate.NewEvaluableExpression(aq.Where)
 		if err != nil {
-			return nil, fmt.Errorf("Invalid where expression: %v", err)
+			return nil, nil, nil, fmt.Errorf("Invalid where expression: %v", err)
 		}
 		q.filter = where
 	}
 
 	err := q.init(aq.db)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	t := q.t
@@ -176,10 +214,10 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		aq.Resolution = t.RetentionPeriod
 	}
 	if aq.Resolution < nativeResolution {
-		return nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.Resolution, nativeResolution)
+		return nil, nil, nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.Resolution, nativeResolution)
 	}
 	if aq.Resolution%nativeResolution != 0 {
-		return nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", aq.Resolution, nativeResolution)
+		return nil, nil, nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", aq.Resolution, nativeResolution)
 	}
 
 	aq.scalingFactor = int(aq.Resolution / nativeResolution)
@@ -208,57 +246,76 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 		}
 	}
 
-	sfp := &singleFieldParams{}
-	entries := make(map[string]*Entry, 0)
-	q.onValues = func(key bytemap.ByteMap, field string, vals []float64) {
-		kb := sliceKey(key)
-		entry := entries[string(kb)]
-		if entry == nil {
-			entry = &Entry{
-				Dims:   key.AsMap(),
-				Fields: make([]sequence, len(aq.Fields)),
-				q:      aq,
+	numWorkers := runtime.NumCPU()
+	var wg sync.WaitGroup
+	wg.Add(numWorkers)
+	responses := make(chan *queryResponse, numWorkers)
+	entriesCh := make(chan map[string]*Entry, numWorkers)
+
+	worker := func() {
+		entries := make(map[string]*Entry, 0)
+		sfp := &singleFieldParams{}
+		for resp := range responses {
+			kb := sliceKey(resp.key)
+			entry := entries[string(kb)]
+			if entry == nil {
+				entry = &Entry{
+					Dims:   resp.key.AsMap(),
+					Fields: make([]sequence, len(aq.Fields)),
+					q:      aq,
+				}
+				if len(aq.GroupBy) == 0 {
+					// Track dims
+					for dim := range entry.Dims {
+						aq.dimsMap[dim] = true
+					}
+				}
+
+				// Initialize fields
+				for i, f := range aq.Fields {
+					seq := make(sequence, width64bits+aq.outPeriods*f.EncodedWidth())
+					seq.setStart(q.until)
+					entry.Fields[i] = seq
+				}
+
+				// Initialize havings
+				if aq.Having != nil {
+					entry.havingTest = make([]byte, aq.Having.EncodedWidth())
+				}
+
+				// Initialize order bys
+				for _, e := range aq.OrderBy {
+					entry.orderByValues = append(entry.orderByValues, make([]byte, e.EncodedWidth()))
+				}
+				entries[string(kb)] = entry
 			}
-			if len(aq.GroupBy) == 0 {
-				// Track dims
-				for dim := range entry.Dims {
-					aq.dimsMap[dim] = true
+
+			sfp.field = resp.field
+			for i, val := range resp.vals {
+				if i >= aq.inPeriods {
+					break
+				}
+				sfp.value = val
+				out := i / aq.scalingFactor
+				for j, seq := range entry.Fields {
+					seq.updateValueAt(out, aq.Fields[j], sfp)
 				}
 			}
-
-			// Initialize fields
-			for i, f := range aq.Fields {
-				seq := make(sequence, width64bits+aq.outPeriods*f.EncodedWidth())
-				seq.setStart(q.until)
-				entry.Fields[i] = seq
-			}
-
-			// Initialize havings
-			if aq.Having != nil {
-				entry.havingTest = make([]byte, aq.Having.EncodedWidth())
-			}
-
-			// Initialize order bys
-			for _, e := range aq.OrderBy {
-				entry.orderByValues = append(entry.orderByValues, make([]byte, e.EncodedWidth()))
-			}
-			entries[string(kb)] = entry
 		}
 
-		sfp.field = field
-		for i, val := range vals {
-			if i >= aq.inPeriods {
-				break
-			}
-			sfp.value = val
-			out := i / aq.scalingFactor
-			for j, seq := range entry.Fields {
-				seq.updateValueAt(out, aq.Fields[j], sfp)
-			}
-		}
+		entriesCh <- entries
+		wg.Done()
 	}
 
-	return entries, nil
+	for i := 0; i < numWorkers; i++ {
+		go worker()
+	}
+
+	q.onValues = func(key bytemap.ByteMap, field string, vals []float64) {
+		responses <- &queryResponse{key, field, vals}
+	}
+
+	return responses, entriesCh, &wg, nil
 }
 
 func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, error) {
