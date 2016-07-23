@@ -6,39 +6,13 @@ import (
 	"sort"
 )
 
-type binaryAccumulator struct {
-	left  Accumulator
-	right Accumulator
-}
-
-func (a *binaryAccumulator) Update(params Params) bool {
-	updatedLeft := a.left.Update(params)
-	updatedRight := a.right.Update(params)
-	return updatedLeft || updatedRight
-}
-
-func (a *binaryAccumulator) doMerge(o *binaryAccumulator) {
-	a.left.Merge(o.left)
-	a.right.Merge(o.right)
-}
-
-func (a *binaryAccumulator) EncodedWidth() int {
-	return a.left.EncodedWidth() + a.right.EncodedWidth()
-}
-
-func (a *binaryAccumulator) Encode(b []byte) int {
-	n := a.left.Encode(b)
-	return n + a.right.Encode(b[n:])
-}
-
-func (a *binaryAccumulator) InitFrom(b []byte) []byte {
-	return a.right.InitFrom(a.left.InitFrom(b))
-}
+type calcFN func(left float64, right float64) float64
 
 type binaryExpr struct {
 	op    string
 	left  Expr
 	right Expr
+	calc  calcFN
 }
 
 func (e *binaryExpr) Validate() error {
@@ -57,7 +31,7 @@ func validateWrappedInBinary(wrapped Expr) error {
 	if typeOfWrapped == aggregateType || typeOfWrapped == avgType || typeOfWrapped == constType {
 		return nil
 	}
-	if typeOfWrapped == calcType || typeOfWrapped == condType {
+	if typeOfWrapped == binaryType {
 		return wrapped.Validate()
 	}
 	return fmt.Errorf("Binary expression must wrap only aggregate and constant expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v", typeOfWrapped)
@@ -77,6 +51,28 @@ func (e *binaryExpr) DependsOn() []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func (e *binaryExpr) EncodedWidth() int {
+	return e.left.EncodedWidth() + e.right.EncodedWidth()
+}
+
+func (e *binaryExpr) Update(b []byte, params Params) ([]byte, float64, bool) {
+	remain, leftValue, updatedLeft := e.left.Update(b, params)
+	remain, rightValue, updatedRight := e.right.Update(remain, params)
+	updated := updatedLeft || updatedRight
+	return remain, e.calc(leftValue, rightValue), updated
+}
+
+func (e *binaryExpr) Merge(x []byte, y []byte) ([]byte, []byte) {
+	remainX, remainY := e.left.Merge(x, y)
+	return e.right.Merge(remainX, remainY)
+}
+
+func (e *binaryExpr) Get(b []byte) (float64, []byte) {
+	valueLeft, remain := e.left.Get(b)
+	valueRight, remain := e.right.Get(remain)
+	return e.calc(valueLeft, valueRight), remain
 }
 
 func (e *binaryExpr) String() string {

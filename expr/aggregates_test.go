@@ -9,20 +9,12 @@ func TestSUM(t *testing.T) {
 	doTestAggregate(t, SUM("a"), []string{"a"}, 13.2)
 }
 
-func TestMIN(t *testing.T) {
-	doTestAggregate(t, MIN("a"), []string{"a"}, 4.4)
-}
-
-func TestMAX(t *testing.T) {
-	doTestAggregate(t, MAX("a"), []string{"a"}, 8.8)
+func TestCOUNT(t *testing.T) {
+	doTestAggregate(t, COUNT("b"), []string{"b"}, 1)
 }
 
 func TestAVG(t *testing.T) {
 	doTestAggregate(t, AVG("a"), []string{"a"}, 6.6)
-}
-
-func TestCOUNT(t *testing.T) {
-	doTestAggregate(t, COUNT("b"), []string{"b"}, 1)
 }
 
 func TestValidateAggregate(t *testing.T) {
@@ -46,12 +38,9 @@ func doTestAggregate(t *testing.T, e Expr, expectedDepends []string, expected fl
 	}
 
 	assert.Equal(t, expectedDepends, e.DependsOn())
-	a := e.Accumulator()
-	a.Update(params1)
-	a.Update(params2)
-	assertFloatEquals(t, expected, a.Get())
-
-	rt := e.Accumulator()
-	rt.InitFrom(Encoded(a))
-	assertFloatEquals(t, expected, rt.Get())
+	b := make([]byte, e.EncodedWidth())
+	e.Update(b, params1)
+	e.Update(b, params2)
+	val, _ := e.Get(b)
+	assertFloatEquals(t, expected, val)
 }

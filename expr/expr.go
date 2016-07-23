@@ -16,10 +16,9 @@ var (
 
 	fieldType     = reflect.TypeOf((*field)(nil))
 	constType     = reflect.TypeOf((*constant)(nil))
-	aggregateType = reflect.TypeOf((*agg)(nil))
+	aggregateType = reflect.TypeOf((*aggregate)(nil))
 	avgType       = reflect.TypeOf((*avg)(nil))
-	calcType      = reflect.TypeOf((*calculator)(nil))
-	condType      = reflect.TypeOf((*conditional)(nil))
+	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
 )
 
 type Params interface {
@@ -35,33 +34,22 @@ func (p Map) Get(name string) (float64, bool) {
 	return val, found
 }
 
-type Accumulator interface {
-	Update(params Params) bool
+type Expr interface {
+	Validate() error
 
-	Merge(other Accumulator)
-
-	Get() float64
+	DependsOn() []string
 
 	// Note - encoding to bytes is only valid for aggregate accumulators
 	EncodedWidth() int
 
-	Encode(b []byte) int
+	// Update updates the value in buf by applying the given params.
+	Update(b []byte, params Params) (remain []byte, value float64, updated bool)
 
-	InitFrom(b []byte) []byte
-}
+	// Merge merges y into x, modifying it in place. It returns
+	Merge(x []byte, y []byte) (remainX []byte, remainY []byte)
 
-func Encoded(accum Accumulator) []byte {
-	b := make([]byte, accum.EncodedWidth())
-	accum.Encode(b)
-	return b
-}
-
-type Expr interface {
-	Accumulator() Accumulator
-
-	Validate() error
-
-	DependsOn() []string
+	// Get gets the value in buf
+	Get(b []byte) (value float64, remain []byte)
 
 	String() string
 }

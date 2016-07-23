@@ -11,59 +11,8 @@ func AVG(expr interface{}) Expr {
 	return &avg{exprFor(expr)}
 }
 
-type avgAccumulator struct {
-	wrapped Accumulator
-	count   float64
-	total   float64
-}
-
-func (a *avgAccumulator) Update(params Params) bool {
-	updated := a.wrapped.Update(params)
-	if updated {
-		a.count++
-		a.total += a.wrapped.Get()
-	}
-	return updated
-}
-
-func (a *avgAccumulator) Merge(other Accumulator) {
-	o, ok := other.(*avgAccumulator)
-	if !ok {
-		panic(fmt.Sprintf("%v is not an avgAccumulator!", other))
-	}
-	a.count += o.count
-	a.total += o.total
-}
-
-func (a *avgAccumulator) Get() float64 {
-	if a.count == 0 {
-		return 0
-	}
-	return a.total / a.count
-}
-
-func (a *avgAccumulator) EncodedWidth() int {
-	return width64bits*2 + a.wrapped.EncodedWidth()
-}
-
-func (a *avgAccumulator) Encode(b []byte) int {
-	binaryEncoding.PutUint64(b, math.Float64bits(a.count))
-	binaryEncoding.PutUint64(b[width64bits:], math.Float64bits(a.total))
-	return width64bits*2 + a.wrapped.Encode(b[width64bits*2:])
-}
-
-func (a *avgAccumulator) InitFrom(b []byte) []byte {
-	a.count = math.Float64frombits(binaryEncoding.Uint64(b))
-	a.total = math.Float64frombits(binaryEncoding.Uint64(b[width64bits:]))
-	return a.wrapped.InitFrom(b[width64bits*2:])
-}
-
 type avg struct {
 	wrapped Expr
-}
-
-func (e *avg) Accumulator() Accumulator {
-	return &avgAccumulator{wrapped: e.wrapped.Accumulator()}
 }
 
 func (e *avg) DependsOn() []string {
@@ -72,6 +21,54 @@ func (e *avg) DependsOn() []string {
 
 func (e *avg) Validate() error {
 	return validateWrappedInAggregate(e.wrapped)
+}
+
+func (e *avg) EncodedWidth() int {
+	return width64bits*2 + e.wrapped.EncodedWidth()
+}
+
+func (e *avg) Update(b []byte, params Params) ([]byte, float64, bool) {
+	count, total, more := e.load(b)
+	remain, wrappedValue, updated := e.wrapped.Update(more, params)
+	if updated {
+		count++
+		total += wrappedValue
+		e.save(b, count, total)
+	}
+	return remain, e.calc(count, total), updated
+}
+
+func (e *avg) Merge(x []byte, y []byte) ([]byte, []byte) {
+	countX, totalX, remainX := e.load(x)
+	countY, totalY, remainY := e.load(y)
+	countX += countY
+	totalX += totalY
+	e.save(x, countX, totalX)
+	return remainX, remainY
+}
+
+func (e *avg) Get(b []byte) (float64, []byte) {
+	count, total, remain := e.load(b)
+	return e.calc(count, total), remain
+}
+
+func (e *avg) calc(count float64, total float64) float64 {
+	if count == 0 {
+		return 0
+	}
+	return total / count
+}
+
+func (e *avg) load(b []byte) (float64, float64, []byte) {
+	count := math.Float64frombits(binaryEncoding.Uint64(b))
+	total := math.Float64frombits(binaryEncoding.Uint64(b[width64bits:]))
+	return count, total, b[width64bits*2:]
+}
+
+func (e *avg) save(b []byte, count float64, total float64) []byte {
+	binaryEncoding.PutUint64(b, math.Float64bits(count))
+	binaryEncoding.PutUint64(b[width64bits:], math.Float64bits(total))
+	return b[width64bits*2:]
 }
 
 func (e *avg) String() string {

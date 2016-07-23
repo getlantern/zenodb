@@ -47,7 +47,7 @@ func doTestCalc(t *testing.T, e Expr, expectedDepends []string, expected float64
 	}
 
 	assert.Equal(t, expectedDepends, e.DependsOn())
-	a := e.Accumulator()
-	a.Update(params)
-	assertFloatEquals(t, expected, a.Get())
+	b := make([]byte, e.EncodedWidth())
+	_, val, _ := e.Update(b, params)
+	assertFloatEquals(t, expected, val)
 }

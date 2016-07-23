@@ -54,18 +54,18 @@ func TestOR(t *testing.T) {
 	doTestCond(t, OR(GT("b", "a"), GT("b", "a")), []string{"a", "b"}, false)
 }
 
-func doTestCond(t *testing.T, e Cond, expectedDepends []string, expected bool) {
+func doTestCond(t *testing.T, e Expr, expectedDepends []string, expected bool) {
 	params := Map{
 		"a": 1.001,
 		"b": 1.0,
 	}
 
 	assert.Equal(t, expectedDepends, e.DependsOn())
-	a := e.Accumulator()
-	a.Update(params)
+	b := make([]byte, e.EncodedWidth())
+	_, val, _ := e.Update(b, params)
 	expectedFloat := float64(0)
 	if expected {
 		expectedFloat = 1
 	}
-	assertFloatEquals(t, expectedFloat, a.Get())
+	assertFloatEquals(t, expectedFloat, val)
 }

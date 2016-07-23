@@ -11,7 +11,7 @@ func TestField(t *testing.T) {
 	}
 	f := FIELD("a")
 	assert.Equal(t, []string{"a"}, f.DependsOn())
-	a := f.Accumulator()
-	a.Update(params)
-	assert.EqualValues(t, 4.4, a.Get())
+	b := make([]byte, f.EncodedWidth())
+	_, val, _ := f.Update(b, params)
+	assert.EqualValues(t, 4.4, val)
 }

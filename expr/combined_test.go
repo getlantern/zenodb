@@ -6,42 +6,33 @@ import (
 )
 
 func TestCombined(t *testing.T) {
-	e, err := JS(`MULT(AVG(SUB(ADD(DIV("a", "b"), 1), 0.5)), 2)`)
+	e, err := JS(`MULT(AVG("a"), AVG("b"))`)
 	if !assert.NoError(t, err, "Unable to parse JS expression") {
 		return
 	}
 	params1 := Map{
-		"a": 8.8,
-		"b": 4.4,
+		"a": 2,
+		"b": 10,
 	}
 	params2 := Map{
-		"a": 20,
-		"b": 5,
+		"a": 4,
+		"b": 20,
 	}
 	params3 := Map{
 		"a": 0,
-		"b": 1,
+		"b": 3,
 	}
 
 	assert.Equal(t, []string{"a", "b"}, e.DependsOn())
-	a := e.Accumulator()
-	a.Update(params1)
-	a.Update(params2)
-	assertFloatEquals(t, 7, a.Get())
+	b := make([]byte, e.EncodedWidth())
+	e.Update(b, params1)
+	e.Update(b, params2)
+	val, _ := e.Get(b)
+	assertFloatEquals(t, 45, val)
 
-	assert.Equal(t, a.EncodedWidth(), len(Encoded(a)))
-	b := append(Encoded(a), Encoded(a)...)
-	rta := e.Accumulator()
-	rtb := e.Accumulator()
-	b = rta.InitFrom(b)
-	rtb.InitFrom(b)
-	assertFloatEquals(t, 7, rta.Get())
-	assertFloatEquals(t, 7, rtb.Get())
-
-	rta.Update(params3)
-	rtc := e.Accumulator()
-	rtc.Update(params3)
-	rtb.Merge(rtc)
-	assertFloatEquals(t, 5, rta.Get())
-	assertFloatEquals(t, 5, rtb.Get())
+	b2 := make([]byte, e.EncodedWidth())
+	e.Update(b2, params3)
+	e.Merge(b, b2)
+	val, _ = e.Get(b)
+	assertFloatEquals(t, 22, val)
 }

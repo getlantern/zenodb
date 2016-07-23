@@ -13,7 +13,8 @@ func TestConstant(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{}, e.DependsOn())
-	a := e.Accumulator()
-	a.Update(params)
-	assertFloatEquals(t, 5.5, a.Get())
+	b := make([]byte, e.EncodedWidth())
+	e.Update(b, params)
+	val, _ := e.Get(b)
+	assertFloatEquals(t, 5.5, val)
 }

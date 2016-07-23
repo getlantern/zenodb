@@ -8,72 +8,13 @@ import (
 
 type updateFN func(current float64, next float64) float64
 
-// aggregate creates an Expr that obtains its value by doing aggregation
-func aggregate(name string, expr interface{}, defaultValue float64, update updateFN) Expr {
-	return &agg{name, exprFor(expr), defaultValue, update}
+type aggregate struct {
+	name    string
+	wrapped Expr
+	update  updateFN
 }
 
-type aggregateAccumulator struct {
-	wrapped      Accumulator
-	update       updateFN
-	defaultValue float64
-	value        float64
-}
-
-func (a *aggregateAccumulator) Update(params Params) bool {
-	updated := a.wrapped.Update(params)
-	if updated {
-		a.value = a.update(a.value, a.wrapped.Get())
-	}
-	return updated
-}
-
-func (a *aggregateAccumulator) Merge(other Accumulator) {
-	o, ok := other.(*aggregateAccumulator)
-	if !ok {
-		panic(fmt.Sprintf("%v is not an aggregateAccumulator!", other))
-	}
-	a.value = a.update(a.value, o.value)
-}
-
-func (a *aggregateAccumulator) Get() float64 {
-	if a.value == a.defaultValue {
-		return 0
-	}
-	return a.value
-}
-
-func (a *aggregateAccumulator) EncodedWidth() int {
-	return width64bits + a.wrapped.EncodedWidth()
-}
-
-func (a *aggregateAccumulator) Encode(b []byte) int {
-	binaryEncoding.PutUint64(b, math.Float64bits(a.value))
-	return width64bits + a.wrapped.Encode(b[width64bits:])
-}
-
-func (a *aggregateAccumulator) InitFrom(b []byte) []byte {
-	a.value = math.Float64frombits(binaryEncoding.Uint64(b))
-	return a.wrapped.InitFrom(b[width64bits:])
-}
-
-type agg struct {
-	name         string
-	wrapped      Expr
-	defaultValue float64
-	update       updateFN
-}
-
-func (e *agg) Accumulator() Accumulator {
-	return &aggregateAccumulator{
-		wrapped:      e.wrapped.Accumulator(),
-		update:       e.update,
-		defaultValue: e.defaultValue,
-		value:        e.defaultValue,
-	}
-}
-
-func (e *agg) Validate() error {
+func (e *aggregate) Validate() error {
 	return validateWrappedInAggregate(e.wrapped)
 }
 
@@ -88,10 +29,46 @@ func validateWrappedInAggregate(wrapped Expr) error {
 	return wrapped.Validate()
 }
 
-func (e *agg) DependsOn() []string {
+func (e *aggregate) DependsOn() []string {
 	return e.wrapped.DependsOn()
 }
 
-func (e *agg) String() string {
+func (e *aggregate) EncodedWidth() int {
+	return width64bits + e.wrapped.EncodedWidth()
+}
+
+func (e *aggregate) Update(b []byte, params Params) ([]byte, float64, bool) {
+	value, more := e.load(b)
+	remain, wrappedValue, updated := e.wrapped.Update(more, params)
+	if updated {
+		value = e.update(value, wrappedValue)
+		e.save(b, value)
+	}
+	return remain, value, updated
+}
+
+func (e *aggregate) Merge(x []byte, y []byte) ([]byte, []byte) {
+	valueX, remainX := e.load(x)
+	valueY, remainY := e.load(y)
+	valueX = e.update(valueX, valueY)
+	e.save(x, valueX)
+	return remainX, remainY
+}
+
+func (e *aggregate) Get(b []byte) (float64, []byte) {
+	return e.load(b)
+}
+
+func (e *aggregate) load(b []byte) (float64, []byte) {
+	value := math.Float64frombits(binaryEncoding.Uint64(b))
+	remain := b[width64bits:]
+	return value, remain
+}
+
+func (e *aggregate) save(b []byte, value float64) {
+	binaryEncoding.PutUint64(b, math.Float64bits(value))
+}
+
+func (e *aggregate) String() string {
 	return fmt.Sprintf("%v(%v)", e.name, e.wrapped)
 }
