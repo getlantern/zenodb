@@ -16,7 +16,7 @@ import (
 type Entry struct {
 	Dims          map[string]interface{}
 	Fields        []sequence
-	q             Query
+	q             *Query
 	fieldsIdx     int
 	orderByValues [][]byte
 	havingTest    []byte
@@ -25,21 +25,31 @@ type Entry struct {
 // Get implements the method from interface govaluate.Parameters
 func (entry *Entry) Get(name string) (float64, bool) {
 	if entry.fieldsIdx >= 0 {
-		var field sql.Field
-		var seq sequence
-		for i, candidate := range entry.q.Fields {
-			if candidate.Name == name {
-				field = candidate
-				seq = entry.Fields[i]
-				break
-			}
-		}
-		if seq == nil || entry.fieldsIdx > seq.numPeriods(field.EncodedWidth()) {
-			return 0, false
-		}
-		return seq.valueAt(entry.fieldsIdx, field), true
+		return entry.value(name, entry.fieldsIdx)
 	}
 	return 0, false
+}
+
+func (entry *Entry) Value(name string, period int) float64 {
+	log.Debugf("Getting value for %v at %d", name, period)
+	v, _ := entry.value(name, period)
+	return v
+}
+
+func (entry *Entry) value(name string, period int) (float64, bool) {
+	var field sql.Field
+	var seq sequence
+	for i, candidate := range entry.q.Fields {
+		if candidate.Name == name {
+			field = candidate
+			seq = entry.Fields[i]
+			break
+		}
+	}
+	if seq == nil || period > seq.numPeriods(field.EncodedWidth()) {
+		return 0, false
+	}
+	return seq.valueAt(period, field), true
 }
 
 type QueryResult struct {
@@ -207,12 +217,20 @@ func (aq *Query) prepare(q *query) (map[string]*Entry, error) {
 			entry = &Entry{
 				Dims:   key.AsMap(),
 				Fields: make([]sequence, len(aq.Fields)),
+				q:      aq,
 			}
 			if len(aq.GroupBy) == 0 {
 				// Track dims
 				for dim := range entry.Dims {
 					aq.dimsMap[dim] = true
 				}
+			}
+
+			// Initialize fields
+			for i, f := range aq.Fields {
+				seq := make(sequence, width64bits+aq.outPeriods*f.EncodedWidth())
+				seq.setStart(q.until)
+				entry.Fields[i] = seq
 			}
 
 			// Initialize havings

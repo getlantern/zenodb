@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Knetic/govaluate"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	. "github.com/getlantern/tdb/expr"
 	"github.com/getlantern/tdb/sql"
@@ -42,7 +41,7 @@ func TestIntegration(t *testing.T) {
 
 	schemaA := `
 Test_a:
-  maxmemstorebytes: 1
+  maxmemstorebytes: 10000000
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -68,7 +67,7 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
-  maxmemstorebytes: 1
+  maxmemstorebytes: 10000000
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -267,13 +266,12 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 SELECT
 	SUM(ii) AS sum_ii,
 	COUNT(ii) AS count_ii,
-	AVG(ii) * 2 AS avg_ii,
-	MIN(ii) AS min_ii
+	AVG(ii) * 2 AS avg_ii
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, period('%v')
-HAVING SUM(sum_ii) = 286
+-- HAVING SUM(sum_ii) = 286
 ORDER BY AVG(avg_ii) DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
@@ -293,20 +291,22 @@ ORDER BY AVG(avg_ii) DESC
 	if !assert.EqualValues(t, "A", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 		return
 	}
-	if !assert.Len(t, entry.Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
+	if !assert.Equal(t, 1, result.NumPeriods, "Wrong number of periods, bucketing may not be working correctly") {
 		return
 	}
 	avg := float64(286) / float64(4) // 4 is the number of unique keys that have a value for ii
-	assert.EqualValues(t, 286, entry.Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-	if !assert.EqualValues(t, avg, entry.Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
-		t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
-	}
-	assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+	log.Debug(entry.Dims)
+	log.Debug(result.NumPeriods)
+	log.Debugf("sum_ii: %v", entry.Fields[0])
+	log.Debugf("count_ii: %v", entry.Fields[1])
+	log.Debugf("avg_ii: %v", entry.Fields[2])
+	assert.EqualValues(t, 286, entry.Value("sum_ii", 0), "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, avg, entry.Value("avg_ii", 0), "Wrong derived value, bucketing may not be working correctly")
 	fields := make([]string, 0, len(result.Fields))
 	for _, field := range result.Fields {
 		fields = append(fields, field.Name)
 	}
-	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii", "min_ii"}, fields)
+	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii"}, fields)
 
 	// Test defaults
 	aq = db.Query(&sql.Query{

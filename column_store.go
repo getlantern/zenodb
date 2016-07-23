@@ -81,7 +81,6 @@ func (cs *columnStore) processInserts() {
 	memStoreBytes := 0
 	currentMemStore := make(memStore)
 	cs.memStores[memStoreIdx] = currentMemStore
-	accum := cs.opts.ex.Accumulator()
 
 	flushInterval := cs.opts.maxFlushLatency
 
@@ -110,7 +109,7 @@ func (cs *columnStore) processInserts() {
 				memStoreBytes += len(insert.key)
 			}
 			cs.mx.Lock()
-			updated := current.update(insert.vals, accum, cs.opts.resolution, cs.opts.truncateBefore())
+			updated := current.update(insert.vals, cs.opts.ex, cs.opts.resolution, cs.opts.truncateBefore())
 			currentMemStore[insert.key] = updated
 			cs.mx.Unlock()
 			memStoreBytes += len(updated) - previousSize
@@ -219,9 +218,6 @@ type fileStore struct {
 }
 
 func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores ...memStore) error {
-	accum1 := fs.cs.opts.ex.Accumulator()
-	accum2 := fs.cs.opts.ex.Accumulator()
-
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if !os.IsNotExist(err) {
 		if err != nil {
@@ -252,7 +248,7 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 				return fmt.Errorf("Unexpected error reading seq: %v", err)
 			}
 			for _, ms := range memStores {
-				seq = seq.merge(ms.remove(string(key)), fs.cs.opts.resolution, accum1, accum2)
+				seq = seq.merge(ms.remove(string(key)), fs.cs.opts.resolution, fs.cs.opts.ex)
 			}
 			onValue(key, seq)
 		}
@@ -263,7 +259,7 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 		for key, seq := range ms {
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
-				seq = seq.merge(ms2.remove(string(key)), fs.cs.opts.resolution, accum1, accum2)
+				seq = seq.merge(ms2.remove(string(key)), fs.cs.opts.resolution, fs.cs.opts.ex)
 			}
 			onValue(bytemap.ByteMap(key), seq)
 		}

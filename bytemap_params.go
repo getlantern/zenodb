@@ -1,6 +1,7 @@
 package tdb
 
 import (
+	"fmt"
 	"github.com/getlantern/bytemap"
 )
 
@@ -14,6 +15,10 @@ func (bmp bytemapParams) Get(field string) (float64, bool) {
 	return result.(float64), true
 }
 
+func (bmp bytemapParams) String() string {
+	return fmt.Sprint(bytemap.ByteMap(bmp).AsMap())
+}
+
 type bytemapQueryParams bytemap.ByteMap
 
 func (bmp bytemapQueryParams) Get(field string) (interface{}, error) {
@@ -22,4 +27,8 @@ func (bmp bytemapQueryParams) Get(field string) (interface{}, error) {
 		return "", nil
 	}
 	return result, nil
+}
+
+func (bmp bytemapQueryParams) String() string {
+	return fmt.Sprint(bytemap.ByteMap(bmp).AsMap())
 }

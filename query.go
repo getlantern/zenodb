@@ -79,9 +79,6 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	accums := q.t.getAccumulators()
-	defer q.t.putAccumulators(accums)
-
 	for i, field := range q.t.Fields {
 		includedInQuery := false
 		for _, f := range q.fields {
@@ -95,8 +92,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 		}
 
 		e := field.Expr
-		accum := field.Accumulator()
-		encodedWidth := accum.EncodedWidth()
+		encodedWidth := e.EncodedWidth()
 
 		q.t.columnStores[i].iterate(func(key bytemap.ByteMap, seq sequence) {
 			stats.Scanned++
@@ -138,7 +134,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 					log.Tracef("Start offset %d", startOffset)
 					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
 						includeKey = true
-						val := seq.valueAt(i+startOffset, accum)
+						val := seq.valueAt(i+startOffset, e)
 						log.Tracef("Grabbing value %f", val)
 						vals[i] = val
 					}

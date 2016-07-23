@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
 )
 
@@ -86,10 +85,14 @@ func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Par
 
 func (seq sequence) update(tsp tsparams, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
 	ts, params := tsp.timeAndParams()
+	return seq.updateValue(ts, params, e, resolution, truncateBefore)
+}
+
+func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
 	periodWidth := e.EncodedWidth()
 
 	if log.IsTraceEnabled() {
-		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.start().In(time.UTC), bytemap.ByteMap(bytemapParams(params)).AsMap(), ts.In(time.UTC), truncateBefore.In(time.UTC))
+		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.start().In(time.UTC), params, ts.In(time.UTC), truncateBefore.In(time.UTC))
 	}
 
 	if !ts.After(truncateBefore) {
