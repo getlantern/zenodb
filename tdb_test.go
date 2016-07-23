@@ -41,7 +41,7 @@ func TestIntegration(t *testing.T) {
 
 	schemaA := `
 Test_a:
-  maxmemstorebytes: 10000000
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -67,7 +67,7 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
-  maxmemstorebytes: 10000000
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -218,6 +218,7 @@ view_a:
 	// Give archiver time to catch up
 	time.Sleep(2 * time.Second)
 
+	log.Debug("A")
 	result, err := query("Test_A", epoch.Add(-1*resolution), epoch, "u", "i")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
@@ -225,6 +226,7 @@ view_a:
 		}
 	}
 
+	log.Debug("B")
 	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "ii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
@@ -232,6 +234,7 @@ view_a:
 		}
 	}
 
+	log.Debug("C")
 	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
@@ -239,6 +242,7 @@ view_a:
 		}
 	}
 
+	log.Debug("D")
 	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
@@ -247,6 +251,7 @@ view_a:
 		}
 	}
 
+	log.Debug("E")
 	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
 	log.Debug(result)
 	if assert.NoError(t, err, "Unable to run query") {

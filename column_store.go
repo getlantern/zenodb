@@ -90,11 +90,14 @@ func (cs *columnStore) processInserts() {
 			return
 		}
 		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(memStoreBytes)))
-		cs.flushes <- &flushRequest{memStoreIdx, currentMemStore.copy()}
+		memStoreCopy := currentMemStore.copy()
+		cs.mx.Lock()
 		currentMemStore = make(memStore, len(currentMemStore))
 		memStoreIdx++
 		cs.memStores[memStoreIdx] = currentMemStore
 		memStoreBytes = 0
+		cs.mx.Unlock()
+		cs.flushes <- &flushRequest{memStoreIdx, memStoreCopy}
 		log.Debug("Requested flush")
 	}
 
@@ -123,13 +126,13 @@ func (cs *columnStore) processInserts() {
 			cs.mx.Lock()
 			delete(cs.memStores, fr.idx)
 			cs.fileStore = &fileStore{cs, fr.newFileStoreName}
-			cs.mx.Unlock()
 			if oldFileStore != "" {
 				err := os.Remove(oldFileStore)
 				if err != nil {
 					log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
 				}
 			}
+			cs.mx.Unlock()
 			flushTimer.Reset(fr.duration * 2)
 		}
 	}
@@ -138,12 +141,11 @@ func (cs *columnStore) processInserts() {
 func (cs *columnStore) iterate(onValue func(bytemap.ByteMap, sequence)) error {
 	cs.mx.RLock()
 	fs := cs.fileStore
-	memStores := cs.memStores
-	cs.mx.RUnlock()
-	memStoresCopy := make([]memStore, 0, len(memStores))
-	for _, ms := range memStores {
+	memStoresCopy := make([]memStore, 0, len(cs.memStores))
+	for _, ms := range cs.memStores {
 		memStoresCopy = append(memStoresCopy, ms.copy())
 	}
+	cs.mx.RUnlock()
 	return fs.iterate(onValue, memStoresCopy...)
 }
 
@@ -156,6 +158,7 @@ func (cs *columnStore) processFlushes() {
 		}
 		sout := snappy.NewWriter(out)
 		cout := bufio.NewWriterSize(sout, 65536)
+
 		b := make([]byte, 8)
 		write := func(key bytemap.ByteMap, seq sequence) {
 			binaryEncoding.PutUint16(b, uint16(len(key)))
@@ -177,10 +180,19 @@ func (cs *columnStore) processFlushes() {
 				panic(err)
 			}
 		}
-		cs.fileStore.iterate(write, req.ms)
-		cout.Flush()
-		sout.Close()
-		// Note - we left pad the unix nano value to the widest possible length to
+		cs.mx.RLock()
+		fs := cs.fileStore
+		cs.mx.RUnlock()
+		fs.iterate(write, req.ms)
+		err = cout.Flush()
+		if err != nil {
+			panic(err)
+		}
+		err = sout.Close()
+		if err != nil {
+			panic(err)
+		}
+		// Note - we left-pad the unix nano value to the widest possible length to
 		// ensure lexicographical sort matches time-based sort (e.g. on directory
 		// listing).
 		newFileStoreName := filepath.Join(cs.opts.dir, fmt.Sprintf("filestore_%020d.dat", time.Now().UnixNano()))
@@ -248,7 +260,10 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 				return fmt.Errorf("Unexpected error reading seq: %v", err)
 			}
 			for _, ms := range memStores {
-				seq = seq.merge(ms.remove(string(key)), fs.cs.opts.resolution, fs.cs.opts.ex)
+				before := seq
+				seq2 := ms.remove(string(key))
+				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
+				log.Debugf("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
 			}
 			onValue(key, seq)
 		}
@@ -259,7 +274,10 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 		for key, seq := range ms {
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
-				seq = seq.merge(ms2.remove(string(key)), fs.cs.opts.resolution, fs.cs.opts.ex)
+				before := seq
+				seq2 := ms2.remove(string(key))
+				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
+				log.Debugf("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
 			}
 			onValue(bytemap.ByteMap(key), seq)
 		}
