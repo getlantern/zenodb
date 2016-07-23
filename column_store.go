@@ -260,10 +260,8 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 				return fmt.Errorf("Unexpected error reading seq: %v", err)
 			}
 			for _, ms := range memStores {
-				before := seq
 				seq2 := ms.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
-				log.Debugf("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
 			}
 			onValue(key, seq)
 		}
@@ -274,10 +272,8 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 		for key, seq := range ms {
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
-				before := seq
 				seq2 := ms2.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
-				log.Debugf("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
 			}
 			onValue(bytemap.ByteMap(key), seq)
 		}
