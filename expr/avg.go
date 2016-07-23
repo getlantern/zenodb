@@ -38,13 +38,13 @@ func (e *avg) Update(b []byte, params Params) ([]byte, float64, bool) {
 	return remain, e.calc(count, total), updated
 }
 
-func (e *avg) Merge(x []byte, y []byte) ([]byte, []byte) {
+func (e *avg) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	countX, totalX, remainX := e.load(x)
 	countY, totalY, remainY := e.load(y)
 	countX += countY
 	totalX += totalY
-	e.save(x, countX, totalX)
-	return remainX, remainY
+	b = e.save(b, countX, totalX)
+	return b, remainX, remainY
 }
 
 func (e *avg) Get(b []byte) (float64, []byte) {

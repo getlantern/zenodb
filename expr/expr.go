@@ -45,8 +45,9 @@ type Expr interface {
 	// Update updates the value in buf by applying the given params.
 	Update(b []byte, params Params) (remain []byte, value float64, updated bool)
 
-	// Merge merges y into x, modifying it in place. It returns
-	Merge(x []byte, y []byte) (remainX []byte, remainY []byte)
+	// Merge merges x and y, writing the result to b. It returns the remaining
+	// portions of x and y.
+	Merge(b []byte, x []byte, y []byte) (remainB []byte, remainX []byte, remainY []byte)
 
 	// Get gets the value in buf
 	Get(b []byte) (value float64, remain []byte)

@@ -29,8 +29,8 @@ func (e *constant) Update(b []byte, params Params) ([]byte, float64, bool) {
 	return b, 0, false
 }
 
-func (e *constant) Merge(x []byte, y []byte) ([]byte, []byte) {
-	return x, y
+func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	return b, x, y
 }
 
 func (e *constant) Get(b []byte) (float64, []byte) {

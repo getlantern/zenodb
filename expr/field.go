@@ -31,8 +31,8 @@ func (e *field) Update(b []byte, params Params) ([]byte, float64, bool) {
 	return b, val, ok
 }
 
-func (e *field) Merge(x []byte, y []byte) ([]byte, []byte) {
-	return x, y
+func (e *field) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	return b, x, y
 }
 
 func (e *field) Get(b []byte) (float64, []byte) {

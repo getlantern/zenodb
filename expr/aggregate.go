@@ -47,12 +47,12 @@ func (e *aggregate) Update(b []byte, params Params) ([]byte, float64, bool) {
 	return remain, value, updated
 }
 
-func (e *aggregate) Merge(x []byte, y []byte) ([]byte, []byte) {
+func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	valueX, remainX := e.load(x)
 	valueY, remainY := e.load(y)
 	valueX = e.update(valueX, valueY)
-	e.save(x, valueX)
-	return remainX, remainY
+	b = e.save(b, valueX)
+	return b, remainX, remainY
 }
 
 func (e *aggregate) Get(b []byte) (float64, []byte) {
@@ -65,8 +65,9 @@ func (e *aggregate) load(b []byte) (float64, []byte) {
 	return value, remain
 }
 
-func (e *aggregate) save(b []byte, value float64) {
+func (e *aggregate) save(b []byte, value float64) []byte {
 	binaryEncoding.PutUint64(b, math.Float64bits(value))
+	return b[width64bits:]
 }
 
 func (e *aggregate) String() string {

@@ -64,9 +64,9 @@ func (e *binaryExpr) Update(b []byte, params Params) ([]byte, float64, bool) {
 	return remain, e.calc(leftValue, rightValue), updated
 }
 
-func (e *binaryExpr) Merge(x []byte, y []byte) ([]byte, []byte) {
-	remainX, remainY := e.left.Merge(x, y)
-	return e.right.Merge(remainX, remainY)
+func (e *binaryExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	remainB, remainX, remainY := e.left.Merge(b, x, y)
+	return e.right.Merge(remainB, remainX, remainY)
 }
 
 func (e *binaryExpr) Get(b []byte) (float64, []byte) {
