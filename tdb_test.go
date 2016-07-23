@@ -271,7 +271,7 @@ FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, period('%v')
--- HAVING SUM(sum_ii) = 286
+HAVING SUM(sum_ii) = 286
 ORDER BY AVG(avg_ii) DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
