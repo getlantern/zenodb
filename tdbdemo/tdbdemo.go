@@ -129,7 +129,7 @@ GROUP BY x, period(168h)
 				}
 				count := float64(0)
 				if len(result.Entries) > 0 {
-					count = result.Entries[0].Fields["the_count"][0].Get()
+					count = result.Entries[0].Value("the_count", 0)
 				}
 				fmt.Printf("\nQuery at %v returned %v in %v\n", now, humanize.Comma(int64(count)), delta)
 			}
