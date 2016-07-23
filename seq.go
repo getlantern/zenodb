@@ -220,7 +220,6 @@ func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncate
 	if seq == nil {
 		return nil
 	}
-	// New value falls outside of truncation range, truncate existing sequence
 	maxPeriods := int(seq.start().Sub(truncateBefore) / resolution)
 	if maxPeriods <= 0 {
 		// Entire sequence falls outside of truncation range

@@ -160,8 +160,15 @@ func (cs *columnStore) processFlushes() {
 		sout := snappy.NewWriter(out)
 		cout := bufio.NewWriterSize(sout, 65536)
 
+		periodWidth := cs.opts.ex.EncodedWidth()
+		truncateBefore := cs.opts.truncateBefore()
 		b := make([]byte, 8)
 		write := func(key bytemap.ByteMap, seq sequence) {
+			seq = seq.truncate(periodWidth, cs.opts.resolution, truncateBefore)
+			if seq == nil {
+				// entire sequence is expired, remove it
+				return
+			}
 			binaryEncoding.PutUint16(b, uint16(len(key)))
 			_, err := cout.Write(b[:2])
 			if err != nil {
