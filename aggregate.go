@@ -165,7 +165,8 @@ func (aq *Query) Run() (*QueryResult, error) {
 type queryResponse struct {
 	key   bytemap.ByteMap
 	field string
-	vals  []float64
+	e     expr.Expr
+	seq   sequence
 }
 
 func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry, *sync.WaitGroup, error) {
@@ -287,14 +288,15 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 			}
 
 			sfp.field = resp.field
-			for i, val := range resp.vals {
-				if i >= aq.inPeriods {
-					break
-				}
-				sfp.value = val
-				out := i / aq.scalingFactor
-				for j, seq := range entry.Fields {
-					seq.updateValueAt(out, aq.Fields[j], sfp)
+			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth())
+			for i := 0; i < inPeriods && i < aq.inPeriods; i++ {
+				val, wasSet := resp.seq.valueAt(i, resp.e)
+				if wasSet {
+					sfp.value = val
+					out := i / aq.scalingFactor
+					for j, seq := range entry.Fields {
+						seq.updateValueAt(out, aq.Fields[j], sfp)
+					}
 				}
 			}
 		}
@@ -307,8 +309,8 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 		go worker()
 	}
 
-	q.onValues = func(key bytemap.ByteMap, field string, vals []float64) {
-		responses <- &queryResponse{key, field, vals}
+	q.onValues = func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence) {
+		responses <- &queryResponse{key, field, e, seq}
 	}
 
 	return responses, entriesCh, &wg, nil

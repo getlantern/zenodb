@@ -6,6 +6,7 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/expr"
 )
 
 type query struct {
@@ -16,7 +17,7 @@ type query struct {
 	asOfOffset   time.Duration
 	until        time.Time
 	untilOffset  time.Duration
-	onValues     func(key bytemap.ByteMap, field string, vals []float64)
+	onValues     func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence)
 	t            *table
 	sortedFields []string
 }
@@ -116,32 +117,15 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			}
 
 			stats.ReadValue++
-			vals := make([]float64, numPeriods)
 			if len(seq) > 0 {
 				stats.DataValid++
-				seqStart := seq.start()
-				copyPeriods := seq.numPeriods(encodedWidth)
 				if log.IsTraceEnabled() {
 					log.Tracef("Reading sequence %v", seq.String(e))
 				}
-				includeKey := false
-				if !seqStart.Before(q.asOf) {
-					to := q.until
-					if to.After(seqStart) {
-						to = seqStart
-					}
-					startOffset := int(seqStart.Sub(to) / q.t.Resolution)
-					log.Tracef("Start offset %d", startOffset)
-					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
-						includeKey = true
-						val, _ := seq.valueAt(i+startOffset, e)
-						log.Tracef("Grabbing value %f", val)
-						vals[i] = val
-					}
-				}
-				if includeKey {
+				seq = seq.truncate(encodedWidth, q.t.Resolution, q.asOf).startingAt(encodedWidth, q.t.Resolution, q.until)
+				if seq != nil {
 					stats.InTimeRange++
-					q.onValues(key, field.Name, vals)
+					q.onValues(key, field.Name, e, seq)
 				}
 			}
 		})
