@@ -102,17 +102,13 @@ func (aq *Query) Run() (*QueryResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Debug("A")
 	stats, err := q.run(aq.db)
 	if err != nil {
 		return nil, err
 	}
-	log.Debug("B")
 	close(responses)
-	log.Debug("C")
 	wg.Wait()
 	close(entriesCh)
-	log.Debug("D")
 	var entries []map[string]*Entry
 	for e := range entriesCh {
 		entries = append(entries, e)

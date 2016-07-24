@@ -97,6 +97,7 @@ func (t *table) processInserts() {
 		}
 		t.statsMutex.Lock()
 		t.stats.QueuedPoints--
+		t.stats.InsertedPoints++
 		t.statsMutex.Unlock()
 	}
 }
