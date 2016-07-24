@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Knetic/govaluate"
@@ -33,7 +34,6 @@ func (entry *Entry) Get(name string) (float64, bool) {
 }
 
 func (entry *Entry) Value(name string, period int) float64 {
-	log.Debugf("Getting value for %v at %d", name, period)
 	v, _ := entry.value(name, period)
 	return v
 }
@@ -55,15 +55,16 @@ func (entry *Entry) value(name string, period int) (float64, bool) {
 }
 
 type QueryResult struct {
-	Table      string
-	AsOf       time.Time
-	Until      time.Time
-	Resolution time.Duration
-	Fields     []sql.Field
-	GroupBy    []string
-	Entries    []*Entry
-	Stats      *QueryStats
-	NumPeriods int
+	Table         string
+	AsOf          time.Time
+	Until         time.Time
+	Resolution    time.Duration
+	Fields        []sql.Field
+	GroupBy       []string
+	Entries       []*Entry
+	Stats         *QueryStats
+	NumPeriods    int
+	ScannedPoints int64
 }
 
 // TODO: if expressions repeat across fields, or across orderBy and having,
@@ -98,7 +99,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		until:       aq.Until,
 		untilOffset: aq.UntilOffset,
 	}
-	responses, entriesCh, wg, err := aq.prepare(q)
+	responses, entriesCh, wg, scannedPoints, err := aq.prepare(q)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +134,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		}
 	}
 	// if log.IsTraceEnabled() {
-	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(int64(aq.inPeriods)*stats.ReadValue))
+	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(*scannedPoints))
 	// }
 
 	resultEntries, err := aq.buildEntries(q, entriesOut)
@@ -141,15 +142,16 @@ func (aq *Query) Run() (*QueryResult, error) {
 		return nil, err
 	}
 	result := &QueryResult{
-		Table:      aq.From,
-		AsOf:       q.asOf,
-		Until:      q.until,
-		Resolution: aq.Resolution,
-		Fields:     aq.Fields,
-		GroupBy:    aq.GroupBy,
-		NumPeriods: aq.outPeriods,
-		Entries:    resultEntries,
-		Stats:      stats,
+		Table:         aq.From,
+		AsOf:          q.asOf,
+		Until:         q.until,
+		Resolution:    aq.Resolution,
+		Fields:        aq.Fields,
+		GroupBy:       aq.GroupBy,
+		NumPeriods:    aq.outPeriods,
+		Entries:       resultEntries,
+		Stats:         stats,
+		ScannedPoints: *scannedPoints,
 	}
 	if len(result.GroupBy) == 0 {
 		result.GroupBy = make([]string, 0, len(aq.dimsMap))
@@ -170,7 +172,7 @@ type queryResponse struct {
 	startOffset int
 }
 
-func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry, *sync.WaitGroup, error) {
+func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry, *sync.WaitGroup, *int64, error) {
 	// Figure out field dependencies
 	sortedFields := make(sortedFields, len(aq.Fields))
 	copy(sortedFields, aq.Fields)
@@ -191,14 +193,14 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 		log.Tracef("Applying where: %v", aq.Where)
 		where, err := govaluate.NewEvaluableExpression(aq.Where)
 		if err != nil {
-			return nil, nil, nil, fmt.Errorf("Invalid where expression: %v", err)
+			return nil, nil, nil, nil, fmt.Errorf("Invalid where expression: %v", err)
 		}
 		q.filter = where
 	}
 
 	err := q.init(aq.db)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	t := q.t
@@ -212,10 +214,10 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 		aq.Resolution = t.RetentionPeriod
 	}
 	if aq.Resolution < nativeResolution {
-		return nil, nil, nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.Resolution, nativeResolution)
+		return nil, nil, nil, nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.Resolution, nativeResolution)
 	}
 	if aq.Resolution%nativeResolution != 0 {
-		return nil, nil, nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", aq.Resolution, nativeResolution)
+		return nil, nil, nil, nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", aq.Resolution, nativeResolution)
 	}
 
 	aq.scalingFactor = int(aq.Resolution / nativeResolution)
@@ -229,11 +231,20 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 	log.Tracef("In: %d   Out: %d", aq.inPeriods, aq.outPeriods)
 
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
-	if len(aq.GroupBy) == 0 {
+	if aq.GroupByAll {
+		// Use all original dimensions in grouping
 		aq.dimsMap = make(map[string]bool, 0)
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
 			// Original key is fine
 			return key
+		}
+	} else if len(aq.GroupBy) == 0 {
+		defaultKey := bytemap.New(map[string]interface{}{
+			"default": "",
+		})
+		// No grouping, put everything under a single key
+		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+			return defaultKey
 		}
 	} else {
 		groupBy := make([]string, len(aq.GroupBy))
@@ -249,6 +260,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 	wg.Add(numWorkers)
 	responses := make(chan *queryResponse, numWorkers)
 	entriesCh := make(chan map[string]*Entry, numWorkers)
+	scannedPoints := int64(0)
 
 	worker := func() {
 		entries := make(map[string]*Entry, 0)
@@ -258,11 +270,11 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 			entry := entries[string(kb)]
 			if entry == nil {
 				entry = &Entry{
-					Dims:   resp.key.AsMap(),
+					Dims:   kb.AsMap(),
 					Fields: make([]sequence, len(aq.Fields)),
 					q:      aq,
 				}
-				if len(aq.GroupBy) == 0 {
+				if aq.GroupByAll {
 					// Track dims
 					for dim := range entry.Dims {
 						aq.dimsMap[dim] = true
@@ -293,6 +305,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 			for i := 0; i < inPeriods && i < aq.inPeriods; i++ {
 				val, wasSet := resp.seq.valueAt(i+resp.startOffset, resp.e)
 				if wasSet {
+					atomic.AddInt64(&scannedPoints, 1)
 					sfp.value = val
 					out := i / aq.scalingFactor
 					for j, seq := range entry.Fields {
@@ -314,7 +327,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 		responses <- &queryResponse{key, field, e, seq, startOffset}
 	}
 
-	return responses, entriesCh, &wg, nil
+	return responses, entriesCh, &wg, &scannedPoints, nil
 }
 
 func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, error) {

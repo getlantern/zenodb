@@ -53,7 +53,7 @@ func TestSQLDefaults(t *testing.T) {
 	q, err := Parse(`
 SELECT SUM(a) AS the_sum
 FROM Table_A
-GROUP BY period('5s') // period is a special function
+GROUP BY *, period('5s') // period is a special function
 `)
 	if !assert.NoError(t, err) {
 		return

@@ -113,9 +113,9 @@ HeapAlloc pre/post GC %f/%f MiB
 				log.Debug("Running query")
 				now := db.Now("test")
 				q, err := db.SQLQuery(`
-SELECT COUNT(i) AS the_count
+SELECT SUM(ii) AS the_count
 FROM test
-GROUP BY x, period(168h)
+GROUP BY period(168h)
 `)
 				if err != nil {
 					log.Errorf("Unable to build query: %v", err)
@@ -129,9 +129,10 @@ GROUP BY x, period(168h)
 					continue
 				}
 				count := float64(0)
-				if len(result.Entries) > 0 {
-					count = result.Entries[0].Value("the_count", 0)
+				if len(result.Entries) != 1 {
+					log.Fatalf("Unexpected result entries: %d", len(result.Entries))
 				}
+				count = result.Entries[0].Value("the_count", 0)
 				fmt.Printf("\nQuery at %v returned %v in %v\n", now, humanize.Comma(int64(count)), delta)
 			}
 		}
@@ -146,11 +147,11 @@ GROUP BY x, period(168h)
 			start := time.Now()
 			for i := 0; i < reportingPeriods; i++ {
 				ts := epoch.Add(time.Duration(i) * reportingInterval)
+				uniques := make([]int, 0, uniquesPerPeriod)
+				for u := 0; u < uniquesPerPeriod; u++ {
+					uniques = append(uniques, rand.Intn(uniquesPerReporter))
+				}
 				for r := 0; r < numReporters/numWriters; r++ {
-					uniques := make([]int, 0, uniquesPerPeriod)
-					for u := 0; u < uniquesPerPeriod; u++ {
-						uniques = append(uniques, rand.Intn(uniquesPerReporter))
-					}
 					for v := 0; v < valuesPerPeriod; v++ {
 						p := &tdb.Point{
 							Ts: ts,
@@ -161,9 +162,8 @@ GROUP BY x, period(168h)
 								"x": 1,
 							},
 							Vals: map[string]float64{
-								"i":   float64(rand.Intn(100000)),
-								"ii":  float64(rand.Intn(100)),
-								"iii": 1,
+								"i":  float64(rand.Intn(100000)),
+								"ii": 1,
 							},
 						}
 						ierr := db.Insert("inbound", p)

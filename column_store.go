@@ -126,6 +126,7 @@ func (cs *columnStore) processInserts() {
 			cs.mx.Lock()
 			delete(cs.memStores, fr.idx)
 			cs.fileStore = &fileStore{cs, fr.newFileStoreName}
+			cs.mx.Unlock()
 			// TODO: add background process for cleaning up old file stores
 			if oldFileStore != "" {
 				go func() {
@@ -136,7 +137,6 @@ func (cs *columnStore) processInserts() {
 					}
 				}()
 			}
-			cs.mx.Unlock()
 			flushTimer.Reset(fr.duration * 10)
 		}
 	}

@@ -41,7 +41,7 @@ func TestIntegration(t *testing.T) {
 
 	schemaA := `
 Test_a:
-  maxmemstorebytes: 1
+  maxmemstorebytes: 100000000
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -67,7 +67,7 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
-  maxmemstorebytes: 1
+  maxmemstorebytes: 1000000000
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -327,6 +327,7 @@ ORDER BY AVG(avg_ii) DESC
 	aq = db.Query(&sql.Query{
 		From:       "test_a",
 		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "sum_ii"}},
+		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})
 
