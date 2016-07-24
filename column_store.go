@@ -49,15 +49,26 @@ func openColumnStore(opts *columnStoreOptions) (*columnStore, error) {
 		return nil, fmt.Errorf("Unable to create folder for column store: %v", err)
 	}
 
+	existingFileName := ""
+	files, err := ioutil.ReadDir(opts.dir)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to read contents of directory: %v", err)
+	}
+	if len(files) > 0 {
+		existingFileName = filepath.Join(opts.dir, files[len(files)-1].Name())
+		log.Debugf("Initializing column store from %v", existingFileName)
+	}
+
 	cs := &columnStore{
 		opts:          opts,
 		memStores:     make(map[int]memStore, 2),
 		inserts:       make(chan *insert),
 		flushes:       make(chan *flushRequest, 1),
 		flushFinished: make(chan time.Duration, 1),
-	}
-	cs.fileStore = &fileStore{
-		cs: cs,
+		fileStore: &fileStore{
+			opts:     opts,
+			filename: existingFileName,
+		},
 	}
 
 	go cs.processInserts()
@@ -195,7 +206,7 @@ func (cs *columnStore) processFlushes() {
 		oldFileStore := cs.fileStore.filename
 		cs.mx.Lock()
 		delete(cs.memStores, req.idx)
-		cs.fileStore = &fileStore{cs, newFileStoreName}
+		cs.fileStore = &fileStore{cs.opts, newFileStoreName}
 		cs.mx.Unlock()
 
 		// TODO: add background process for cleaning up old file stores
@@ -238,7 +249,7 @@ func (ms memStore) copy() memStore {
 }
 
 type fileStore struct {
-	cs       *columnStore
+	opts     *columnStoreOptions
 	filename string
 }
 
@@ -277,14 +288,14 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 				return fmt.Errorf("Unexpected error reading seq: %v", err)
 			}
 			if log.IsTraceEnabled() {
-				log.Tracef("File Read: %v", seq.String(fs.cs.opts.ex))
+				log.Tracef("File Read: %v", seq.String(fs.opts.ex))
 			}
 			for _, ms := range memStores {
 				before := seq
 				seq2 := ms.remove(string(key))
-				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
+				seq = seq.merge(seq2, fs.opts.resolution, fs.opts.ex)
 				if log.IsTraceEnabled() {
-					log.Tracef("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+					log.Tracef("File Merged: %v + %v -> %v", before.String(fs.opts.ex), seq2.String(fs.opts.ex), seq.String(fs.opts.ex))
 				}
 			}
 			onValue(key, seq)
@@ -295,15 +306,15 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 	for i, ms := range memStores {
 		for key, seq := range ms {
 			if log.IsTraceEnabled() {
-				log.Tracef("Mem Read: %v", seq.String(fs.cs.opts.ex))
+				log.Tracef("Mem Read: %v", seq.String(fs.opts.ex))
 			}
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
 				before := seq
 				seq2 := ms2.remove(string(key))
-				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
+				seq = seq.merge(seq2, fs.opts.resolution, fs.opts.ex)
 				if log.IsTraceEnabled() {
-					log.Tracef("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+					log.Tracef("Mem Merged: %v + %v -> %v", before.String(fs.opts.ex), seq2.String(fs.opts.ex), seq.String(fs.opts.ex))
 				}
 			}
 			onValue(bytemap.ByteMap(key), seq)
