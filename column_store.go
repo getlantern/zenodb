@@ -270,14 +270,16 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 			if err != nil {
 				return fmt.Errorf("Unexpected error reading seq: %v", err)
 			}
-			log.Debugf("File Read: %v", seq.String(fs.cs.opts.ex))
+			if log.IsTraceEnabled() {
+				log.Tracef("File Read: %v", seq.String(fs.cs.opts.ex))
+			}
 			for _, ms := range memStores {
 				before := seq
 				seq2 := ms.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
-				// if log.IsTraceEnabled() {
-				log.Debugf("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
-				// }
+				if log.IsTraceEnabled() {
+					log.Tracef("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+				}
 			}
 			onValue(key, seq)
 		}
@@ -286,15 +288,17 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 	// Read remaining stuff from mem stores
 	for i, ms := range memStores {
 		for key, seq := range ms {
-			log.Debugf("Mem Read: %v", seq.String(fs.cs.opts.ex))
+			if log.IsTraceEnabled() {
+				log.Tracef("Mem Read: %v", seq.String(fs.cs.opts.ex))
+			}
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
 				before := seq
 				seq2 := ms2.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
-				// if log.IsTraceEnabled() {
-				log.Debugf("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
-				// }
+				if log.IsTraceEnabled() {
+					log.Tracef("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+				}
 			}
 			onValue(bytemap.ByteMap(key), seq)
 		}
