@@ -41,7 +41,7 @@ func TestIntegration(t *testing.T) {
 
 	schemaA := `
 Test_a:
-  maxmemstorebytes: 1
+  maxmemstorebytes: 100000000
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -67,7 +67,7 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
-  maxmemstorebytes: 1
+  maxmemstorebytes: 1000000000
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -201,11 +201,21 @@ view_a:
 			asOfOffset:  fromOffset,
 			untilOffset: toOffset,
 			filter:      filter,
-			onValues: func(keybytes bytemap.ByteMap, resultField string, vals []float64) {
+			onValues: func(keybytes bytemap.ByteMap, resultField string, e Expr, seq sequence, startOffset int) {
 				key := keybytes.AsMap()
-				log.Debugf("%v : %v : %v", key, field, vals)
+				log.Debugf("%v : %v : %d : %v", key, field, startOffset, seq.String(e))
 				if field == resultField {
-					result[key[dim].(int)] = vals
+					numPeriods := seq.numPeriods(e.EncodedWidth())
+					vals := make([]float64, 0, numPeriods-startOffset)
+					for i := 0; i < numPeriods-startOffset; i++ {
+						val, wasSet := seq.valueAt(i+startOffset, e)
+						if wasSet {
+							vals = append(vals, val)
+						}
+					}
+					if len(vals) > 0 {
+						result[key[dim].(int)] = vals
+					}
 				}
 			},
 		}
@@ -246,8 +256,8 @@ view_a:
 	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
-			assert.Equal(t, []float64{222, 22, 0, 0}, result[1])
-			assert.Equal(t, []float64{42, 0, 0, 0}, result[2])
+			assert.Equal(t, []float64{222, 22}, result[1])
+			assert.Equal(t, []float64{42}, result[2])
 		}
 	}
 
@@ -256,8 +266,8 @@ view_a:
 	log.Debug(result)
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
-			assert.Equal(t, []float64{222, 22, 0, 0}, result[1])
-			assert.Equal(t, []float64{42, 0, 0, 0}, result[2])
+			assert.Equal(t, []float64{222, 22}, result[1])
+			assert.Equal(t, []float64{42}, result[2])
 		}
 	}
 
@@ -299,7 +309,7 @@ ORDER BY AVG(avg_ii) DESC
 	if !assert.Equal(t, 1, result.NumPeriods, "Wrong number of periods, bucketing may not be working correctly") {
 		return
 	}
-	avg := float64(286) / float64(4) // 4 is the number of unique keys that have a value for ii
+	avg := float64(286) / float64(3) * 2 // 3 is the number of unique periods that have values for ii
 	log.Debug(entry.Dims)
 	log.Debug(result.NumPeriods)
 	log.Debugf("sum_ii: %v", entry.Fields[0])

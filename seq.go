@@ -57,6 +57,9 @@ func (seq sequence) valueAt(period int, e expr.Expr) (float64, bool) {
 	if seq == nil {
 		return 0, false
 	}
+	if period < 0 {
+		return 0, false
+	}
 	return seq.valueAtOffset(period*e.EncodedWidth(), e)
 }
 
@@ -234,27 +237,6 @@ func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncate
 		return seq
 	}
 	return seq[:maxLength]
-}
-
-func (seq sequence) startingAt(periodWidth int, resolution time.Duration, start time.Time) sequence {
-	if seq == nil {
-		return nil
-	}
-	originalStart := seq.start()
-	deltaPeriods := int(start.Sub(originalStart) / resolution)
-	if deltaPeriods == 0 {
-		return seq
-	}
-	numPeriods := seq.numPeriods(periodWidth) + deltaPeriods
-	if numPeriods <= 0 {
-		return nil
-	}
-	out := newSequence(periodWidth, numPeriods)
-	sout := out
-	sout.setStart(start)
-	sout = sout[width64bits:]
-	copy(sout, seq[len(seq)-numPeriods*periodWidth:])
-	return out
 }
 
 func (seq sequence) String(e expr.Expr) string {
