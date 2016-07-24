@@ -37,8 +37,9 @@ func main() {
 	log.Debugf("Writing data to %v", tmpDir)
 
 	numReporters := 5000
-	uniquesPerReporter := 200
-	uniquesPerPeriod := 5000
+	uniquesPerReporter := 1000
+	uniquesPerPeriod := 100
+	valuesPerPeriod := 5000
 	reportingPeriods := 100000
 	reportingInterval := time.Millisecond
 	resolution := reportingInterval * 5
@@ -146,12 +147,16 @@ GROUP BY x, period(168h)
 			for i := 0; i < reportingPeriods; i++ {
 				ts := epoch.Add(time.Duration(i) * reportingInterval)
 				for r := 0; r < numReporters/numWriters; r++ {
+					uniques := make([]int, 0, uniquesPerPeriod)
 					for u := 0; u < uniquesPerPeriod; u++ {
+						uniques = append(uniques, rand.Intn(uniquesPerReporter))
+					}
+					for v := 0; v < valuesPerPeriod; v++ {
 						p := &tdb.Point{
 							Ts: ts,
 							Dims: map[string]interface{}{
 								"r": rand.Intn(numReporters),
-								"u": rand.Intn(uniquesPerReporter),
+								"u": uniques[rand.Intn(uniquesPerPeriod)],
 								"b": rand.Float64() > 0.99,
 								"x": 1,
 							},

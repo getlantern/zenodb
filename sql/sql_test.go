@@ -13,7 +13,7 @@ func TestSQL(t *testing.T) {
 SELECT AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host'
-GROUP BY dim_A, period('5s') // period is a special function
+GROUP BY dim_a, period('5s') // period is a special function
 HAVING AVG(Rate) > 15
 ORDER BY AVG(Rate) DESC
 LIMIT 100, 10
@@ -32,6 +32,7 @@ LIMIT 100, 10
 	if assert.Len(t, q.GroupBy, 1) {
 		assert.Equal(t, "dim_a", q.GroupBy[0])
 	}
+	assert.False(t, q.GroupByAll)
 	assert.Equal(t, -60*time.Minute, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
 	if assert.Len(t, q.OrderBy, 1) {
@@ -46,4 +47,16 @@ LIMIT 100, 10
 	assert.Equal(t, expectedHaving, actualHaving)
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
+}
+
+func TestSQLDefaults(t *testing.T) {
+	q, err := Parse(`
+SELECT SUM(a) AS the_sum
+FROM Table_A
+GROUP BY period('5s') // period is a special function
+`)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.True(t, q.GroupByAll)
 }

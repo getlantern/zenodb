@@ -122,17 +122,20 @@ func (cs *columnStore) processInserts() {
 		case <-flushTimer.C:
 			flush()
 		case fr := <-cs.flushFinished:
-			//oldFileStore := cs.fileStore.filename
+			oldFileStore := cs.fileStore.filename
 			cs.mx.Lock()
 			delete(cs.memStores, fr.idx)
 			cs.fileStore = &fileStore{cs, fr.newFileStoreName}
 			// TODO: add background process for cleaning up old file stores
-			// if oldFileStore != "" {
-			// 	err := os.Remove(oldFileStore)
-			// 	if err != nil {
-			// 		log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
-			// 	}
-			// }
+			if oldFileStore != "" {
+				go func() {
+					time.Sleep(5 * time.Minute)
+					err := os.Remove(oldFileStore)
+					if err != nil {
+						log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
+					}
+				}()
+			}
 			cs.mx.Unlock()
 			flushTimer.Reset(fr.duration * 10)
 		}

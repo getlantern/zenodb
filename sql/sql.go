@@ -61,6 +61,7 @@ type Query struct {
 	Until       time.Time
 	UntilOffset time.Duration
 	GroupBy     []string
+	GroupByAll  bool
 	Having      expr.Expr
 	OrderBy     []expr.Expr
 	Offset      int
@@ -190,6 +191,7 @@ func (q *Query) applyTimeRange(stmt *sqlparser.Select) error {
 }
 
 func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
+	foundDimension := false
 	for _, e := range stmt.GroupBy {
 		fn, ok := e.(*sqlparser.FuncExpr)
 		if ok && strings.EqualFold("period", string(fn.Name)) {
@@ -206,7 +208,12 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 		} else {
 			log.Trace("Dimension specified in group by")
 			q.GroupBy = append(q.GroupBy, strings.ToLower(exprToString(e)))
+			foundDimension = true
 		}
+	}
+
+	if !foundDimension {
+		q.GroupByAll = true
 	}
 	return nil
 }
