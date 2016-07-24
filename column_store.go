@@ -178,6 +178,11 @@ func (cs *columnStore) processFlushes() {
 		if err != nil {
 			panic(err)
 		}
+
+		fi, err := out.Stat()
+		if err != nil {
+			log.Errorf("Unable to stat output file to get size: %v", err)
+		}
 		// Note - we left-pad the unix nano value to the widest possible length to
 		// ensure lexicographical sort matches time-based sort (e.g. on directory
 		// listing).
@@ -206,7 +211,11 @@ func (cs *columnStore) processFlushes() {
 
 		flushDuration := time.Now().Sub(start)
 		cs.flushFinished <- flushDuration
-		log.Debugf("Flushed to %v in %v", newFileStoreName, flushDuration)
+		if fi != nil {
+			log.Debugf("Flushed to %v in %v, size %v", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())))
+		} else {
+			log.Debugf("Flushed to %v in %v", newFileStoreName, flushDuration)
+		}
 	}
 }
 
