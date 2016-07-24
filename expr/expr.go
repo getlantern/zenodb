@@ -49,8 +49,10 @@ type Expr interface {
 	// portions of x and y.
 	Merge(b []byte, x []byte, y []byte) (remainB []byte, remainX []byte, remainY []byte)
 
-	// Get gets the value in buf
-	Get(b []byte) (value float64, remain []byte)
+	// Get gets the value in buf, returning the value, a boolean indicating
+	// whether or not the value was actually set, and the remaining byte array
+	// after consuming the underlying data.
+	Get(b []byte) (value float64, ok bool, remain []byte)
 
 	String() string
 }

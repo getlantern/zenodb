@@ -33,8 +33,8 @@ func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) 
 	return b, x, y
 }
 
-func (e *constant) Get(b []byte) (float64, []byte) {
-	return e.value, b
+func (e *constant) Get(b []byte) (float64, bool, []byte) {
+	return e.value, true, b
 }
 
 func (e *constant) String() string {

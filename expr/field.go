@@ -35,8 +35,8 @@ func (e *field) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, x, y
 }
 
-func (e *field) Get(b []byte) (float64, []byte) {
-	return 0, b
+func (e *field) Get(b []byte) (float64, bool, []byte) {
+	return 0, false, b
 }
 
 func (e *field) String() string {

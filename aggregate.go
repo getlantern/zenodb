@@ -51,7 +51,7 @@ func (entry *Entry) value(name string, period int) (float64, bool) {
 	if seq == nil || period > seq.numPeriods(field.EncodedWidth()) {
 		return 0, false
 	}
-	return seq.valueAt(period, field), true
+	return seq.valueAt(period, field)
 }
 
 type QueryResult struct {
@@ -273,7 +273,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 
 				// Initialize fields
 				for i, f := range aq.Fields {
-					seq := make(sequence, width64bits+aq.outPeriods*f.EncodedWidth())
+					seq := newSequence(f.EncodedWidth(), aq.outPeriods)
 					seq.setStart(q.until)
 					entry.Fields[i] = seq
 				}
@@ -356,7 +356,7 @@ func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, er
 		unfiltered := result
 		result = make([]*Entry, 0, len(result))
 		for _, entry := range unfiltered {
-			_testResult, _ := aq.Having.Get(entry.havingTest)
+			_testResult, _, _ := aq.Having.Get(entry.havingTest)
 			testResult := _testResult == 1
 			log.Tracef("Testing %v : %v", aq.Having, testResult)
 			if testResult {
@@ -395,8 +395,8 @@ func (r orderedEntries) Less(i, j int) bool {
 	b := r.entries[j]
 	for o := 0; o < len(a.orderByValues); o++ {
 		orderBy := r.orderBy[o]
-		x, _ := orderBy.Get(a.orderByValues[i])
-		y, _ := orderBy.Get(b.orderByValues[i])
+		x, _, _ := orderBy.Get(a.orderByValues[i])
+		y, _, _ := orderBy.Get(b.orderByValues[i])
 		diff := x - y
 		if diff < 0 {
 			return true

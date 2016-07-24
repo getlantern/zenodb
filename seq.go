@@ -14,6 +14,10 @@ import (
 // accumulator.
 type sequence []byte
 
+func newSequence(periodWidth int, numPeriods int) sequence {
+	return make(sequence, width64bits+numPeriods*periodWidth)
+}
+
 func (seq sequence) start() time.Time {
 	if seq == nil {
 		return zeroTime
@@ -37,35 +41,35 @@ func (seq sequence) dataLength() int {
 	return len(seq) - width64bits
 }
 
-func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Duration) float64 {
+func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Duration) (float64, bool) {
 	if seq == nil {
-		return 0
+		return 0, false
 	}
 	start := seq.start()
 	if t.After(start) {
-		return 0
+		return 0, false
 	}
 	period := int(start.Sub(t) / resolution)
 	return seq.valueAt(period, e)
 }
 
-func (seq sequence) valueAt(period int, e expr.Expr) float64 {
+func (seq sequence) valueAt(period int, e expr.Expr) (float64, bool) {
 	if seq == nil {
-		return 0
+		return 0, false
 	}
 	return seq.valueAtOffset(period*e.EncodedWidth(), e)
 }
 
-func (seq sequence) valueAtOffset(offset int, e expr.Expr) float64 {
+func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
 	if seq == nil {
-		return 0
+		return 0, false
 	}
 	offset = offset + width64bits
 	if offset >= len(seq) {
-		return 0
+		return 0, false
 	}
-	val, _ := e.Get(seq[offset:])
-	return val
+	val, wasSet, _ := e.Get(seq[offset:])
+	return val, wasSet
 }
 
 func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params) {

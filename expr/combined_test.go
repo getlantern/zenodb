@@ -27,13 +27,13 @@ func TestCombined(t *testing.T) {
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params1)
 	e.Update(b, params2)
-	val, _ := e.Get(b)
+	val, _, _ := e.Get(b)
 	assertFloatEquals(t, 22.5, val)
 
 	b2 := make([]byte, e.EncodedWidth())
 	e.Update(b2, params3)
 	b3 := make([]byte, e.EncodedWidth())
 	e.Merge(b3, b, b2)
-	val, _ = e.Get(b3)
+	val, _, _ = e.Get(b3)
 	assertFloatEquals(t, 7.33333333, val)
 }

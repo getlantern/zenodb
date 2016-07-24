@@ -15,6 +15,6 @@ func TestConstant(t *testing.T) {
 	assert.Equal(t, []string{}, e.DependsOn())
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params)
-	val, _ := e.Get(b)
+	val, _, _ := e.Get(b)
 	assertFloatEquals(t, 5.5, val)
 }

@@ -41,6 +41,8 @@ func doTestAggregate(t *testing.T, e Expr, expectedDepends []string, expected fl
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params1)
 	e.Update(b, params2)
-	val, _ := e.Get(b)
-	assertFloatEquals(t, expected, val)
+	val, wasSet, _ := e.Get(b)
+	if assert.True(t, wasSet) {
+		assertFloatEquals(t, expected, val)
+	}
 }

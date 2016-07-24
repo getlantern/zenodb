@@ -134,7 +134,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 					log.Tracef("Start offset %d", startOffset)
 					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
 						includeKey = true
-						val := seq.valueAt(i+startOffset, e)
+						val, _ := seq.valueAt(i+startOffset, e)
 						log.Tracef("Grabbing value %f", val)
 						vals[i] = val
 					}

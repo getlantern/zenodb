@@ -64,7 +64,11 @@ func TestSequenceUpdate(t *testing.T) {
 func checkUpdatedValues(t *testing.T, e Expr, seq sequence, expected []float64) {
 	if assert.Equal(t, len(expected), seq.numPeriods(e.EncodedWidth())) {
 		for i, v := range expected {
-			assert.EqualValues(t, v, seq.valueAt(i, e))
+			actual, wasSet := seq.valueAt(i, e)
+			assert.EqualValues(t, v, actual)
+			if v == 0 {
+				assert.False(t, wasSet)
+			}
 		}
 	}
 }
@@ -132,9 +136,14 @@ func TestSequenceMergeAB(t *testing.T) {
 func checkMerge(t *testing.T, epoch time.Time, res time.Duration, seq1 sequence, seq2 sequence, e Expr) {
 	merged := seq1.merge(seq2, res, e)
 	assert.Equal(t, 5, merged.numPeriods(e.EncodedWidth()))
-	assert.EqualValues(t, 1, merged.valueAtTime(epoch.Add(-1*res), e, res))
-	assert.EqualValues(t, 0, merged.valueAtTime(epoch.Add(-2*res), e, res))
-	assert.EqualValues(t, 6, merged.valueAtTime(epoch.Add(-3*res), e, res))
-	assert.EqualValues(t, 4, merged.valueAtTime(epoch.Add(-4*res), e, res))
-	assert.EqualValues(t, 5, merged.valueAtTime(epoch.Add(-5*res), e, res))
+	val, _ := merged.valueAtTime(epoch.Add(-1*res), e, res)
+	assert.EqualValues(t, 1, val)
+	val, _ = merged.valueAtTime(epoch.Add(-2*res), e, res)
+	assert.EqualValues(t, 0, val)
+	val, _ = merged.valueAtTime(epoch.Add(-3*res), e, res)
+	assert.EqualValues(t, 6, val)
+	val, _ = merged.valueAtTime(epoch.Add(-4*res), e, res)
+	assert.EqualValues(t, 4, val)
+	val, _ = merged.valueAtTime(epoch.Add(-5*res), e, res)
+	assert.EqualValues(t, 5, val)
 }

@@ -69,10 +69,13 @@ func (e *binaryExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte
 	return e.right.Merge(remainB, remainX, remainY)
 }
 
-func (e *binaryExpr) Get(b []byte) (float64, []byte) {
-	valueLeft, remain := e.left.Get(b)
-	valueRight, remain := e.right.Get(remain)
-	return e.calc(valueLeft, valueRight), remain
+func (e *binaryExpr) Get(b []byte) (float64, bool, []byte) {
+	valueLeft, leftWasSet, remain := e.left.Get(b)
+	valueRight, rightWasSet, remain := e.right.Get(remain)
+	if !leftWasSet || !rightWasSet {
+		return 0, false, remain
+	}
+	return e.calc(valueLeft, valueRight), true, remain
 }
 
 func (e *binaryExpr) String() string {
