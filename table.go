@@ -85,7 +85,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	t.columnStores = make([]*columnStore, 0, len(t.Fields))
 	for _, field := range t.Fields {
 		cs, csErr := openColumnStore(&columnStoreOptions{
-			dir:              filepath.Join(db.opts.Dir, field.Name),
+			dir:              filepath.Join(db.opts.Dir, t.Name, field.Name),
 			ex:               field.Expr,
 			resolution:       t.Resolution,
 			truncateBefore:   t.truncateBefore,
