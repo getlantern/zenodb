@@ -37,7 +37,7 @@ func main() {
 	log.Debugf("Writing data to %v", tmpDir)
 
 	numReporters := 5000
-	uniquesPerReporter := 200
+	uniquesPerReporter := 1000
 	uniquesPerPeriod := 200
 	reportingPeriods := 100000
 	reportingInterval := time.Millisecond
@@ -107,7 +107,7 @@ HeapAlloc pre/post GC %f/%f MiB
 
 	go func() {
 		for {
-			tk := time.NewTicker(30 * time.Millisecond)
+			tk := time.NewTicker(1 * time.Minute)
 			for range tk.C {
 				log.Debug("Running query")
 				now := db.Now("test")

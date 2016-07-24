@@ -134,7 +134,7 @@ func (cs *columnStore) processInserts() {
 			// 	}
 			// }
 			cs.mx.Unlock()
-			flushTimer.Reset(fr.duration * 2)
+			flushTimer.Reset(fr.duration * 10)
 		}
 	}
 }
