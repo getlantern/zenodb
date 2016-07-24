@@ -53,15 +53,20 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 	if !xWasSet {
 		if yWasSet {
 			// Use valueY
+			fmt.Printf("Using value %f\n", valueY)
 			b = e.save(b, valueY)
 		} else {
+			fmt.Printf("Nothing to save")
 			// Nothing to save, just advance
 			b = b[width64bits+1:]
 		}
 	} else {
 		if yWasSet {
+			originalX := valueX
 			// Update valueX from valueY
 			valueX = e.update(true, valueX, valueY)
+			fmt.Printf("%f updated with %f yielded %f\n", originalX, valueY, valueX)
+
 		}
 		b = e.save(b, valueX)
 	}

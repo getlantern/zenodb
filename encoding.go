@@ -5,6 +5,7 @@ import (
 )
 
 const (
+	width16bits = 2
 	width64bits = 8
 )
 

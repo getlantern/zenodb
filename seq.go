@@ -251,7 +251,8 @@ func (seq sequence) String(e expr.Expr) string {
 		if i > 0 {
 			values += " "
 		}
-		values += fmt.Sprint(seq.valueAt(i, e))
+		val, _ := seq.valueAt(i, e)
+		values += fmt.Sprint(val)
 	}
 	return fmt.Sprintf("%v at %v: %v", e, seq.start(), values)
 }

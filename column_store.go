@@ -33,19 +33,13 @@ type flushRequest struct {
 	ms  memStore
 }
 
-type flushResponse struct {
-	idx              int
-	newFileStoreName string
-	duration         time.Duration
-}
-
 type columnStore struct {
 	opts          *columnStoreOptions
 	memStores     map[int]memStore
 	fileStore     *fileStore
 	inserts       chan *insert
 	flushes       chan *flushRequest
-	flushFinished chan *flushResponse
+	flushFinished chan time.Duration
 	mx            sync.RWMutex
 }
 
@@ -60,7 +54,7 @@ func openColumnStore(opts *columnStoreOptions) (*columnStore, error) {
 		memStores:     make(map[int]memStore, 2),
 		inserts:       make(chan *insert),
 		flushes:       make(chan *flushRequest, 1),
-		flushFinished: make(chan *flushResponse, 1),
+		flushFinished: make(chan time.Duration, 1),
 	}
 	cs.fileStore = &fileStore{
 		cs: cs,
@@ -91,13 +85,14 @@ func (cs *columnStore) processInserts() {
 		}
 		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(memStoreBytes)))
 		memStoreCopy := currentMemStore.copy()
+		fr := &flushRequest{memStoreIdx, memStoreCopy}
 		cs.mx.Lock()
 		currentMemStore = make(memStore, len(currentMemStore))
 		memStoreIdx++
 		cs.memStores[memStoreIdx] = currentMemStore
 		memStoreBytes = 0
 		cs.mx.Unlock()
-		cs.flushes <- &flushRequest{memStoreIdx, memStoreCopy}
+		cs.flushes <- fr
 		log.Debug("Requested flush")
 	}
 
@@ -121,23 +116,8 @@ func (cs *columnStore) processInserts() {
 			}
 		case <-flushTimer.C:
 			flush()
-		case fr := <-cs.flushFinished:
-			oldFileStore := cs.fileStore.filename
-			cs.mx.Lock()
-			delete(cs.memStores, fr.idx)
-			cs.fileStore = &fileStore{cs, fr.newFileStoreName}
-			cs.mx.Unlock()
-			// TODO: add background process for cleaning up old file stores
-			if oldFileStore != "" {
-				go func() {
-					time.Sleep(5 * time.Minute)
-					err := os.Remove(oldFileStore)
-					if err != nil {
-						log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
-					}
-				}()
-			}
-			flushTimer.Reset(fr.duration * 10)
+		case flushDuration := <-cs.flushFinished:
+			flushTimer.Reset(flushDuration * 10)
 		}
 	}
 }
@@ -165,7 +145,7 @@ func (cs *columnStore) processFlushes() {
 
 		periodWidth := cs.opts.ex.EncodedWidth()
 		truncateBefore := cs.opts.truncateBefore()
-		b := make([]byte, 8)
+		b := make([]byte, width16bits+width64bits)
 		write := func(key bytemap.ByteMap, seq sequence) {
 			seq = seq.truncate(periodWidth, cs.opts.resolution, truncateBefore)
 			if seq == nil {
@@ -173,11 +153,7 @@ func (cs *columnStore) processFlushes() {
 				return
 			}
 			binaryEncoding.PutUint16(b, uint16(len(key)))
-			_, err := cout.Write(b[:2])
-			if err != nil {
-				panic(err)
-			}
-			binaryEncoding.PutUint64(b, uint64(len(seq)))
+			binaryEncoding.PutUint64(b[width16bits:], uint64(len(seq)))
 			_, err = cout.Write(b)
 			if err != nil {
 				panic(err)
@@ -211,9 +187,32 @@ func (cs *columnStore) processFlushes() {
 		if err != nil {
 			panic(err)
 		}
-		delta := time.Now().Sub(start)
-		cs.flushFinished <- &flushResponse{req.idx, newFileStoreName, delta}
-		log.Debugf("Flushed in %v", delta)
+		log.Debugf("Flushed to %v", newFileStoreName)
+
+		oldFileStore := cs.fileStore.filename
+		cs.mx.Lock()
+		preDelete := len(cs.memStores)
+		delete(cs.memStores, req.idx)
+		postDelete := len(cs.memStores)
+		log.Debugf("Memstores went from %d -> %d", preDelete, postDelete)
+		cs.fileStore = &fileStore{cs, newFileStoreName}
+		cs.mx.Unlock()
+
+		log.Debugf("Updated filestore to %v", newFileStoreName)
+		// TODO: add background process for cleaning up old file stores
+		if oldFileStore != "" {
+			go func() {
+				time.Sleep(5 * time.Minute)
+				err := os.Remove(oldFileStore)
+				if err != nil {
+					log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
+				}
+			}()
+		}
+
+		flushDuration := time.Now().Sub(start)
+		cs.flushFinished <- flushDuration
+		log.Debugf("Flushed in %v", flushDuration)
 	}
 }
 
@@ -241,6 +240,7 @@ type fileStore struct {
 }
 
 func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores ...memStore) error {
+	log.Debugf("Iterating with %d memstores from file %v", len(memStores), fs.filename)
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if !os.IsNotExist(err) {
 		if err != nil {
@@ -249,7 +249,7 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 		r := snappy.NewReader(bufio.NewReaderSize(file, 65536))
 
 		// Read from file
-		b := make([]byte, 10)
+		b := make([]byte, width16bits+width64bits)
 		for {
 			_, err := io.ReadFull(r, b)
 			if err == io.EOF {
@@ -259,7 +259,7 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 				return fmt.Errorf("Unexpected error reading lengths: %v", err)
 			}
 			keyLength := binaryEncoding.Uint16(b)
-			seqLength := binaryEncoding.Uint16(b[2:])
+			seqLength := binaryEncoding.Uint64(b[width16bits:])
 			key := make(bytemap.ByteMap, keyLength)
 			seq := make(sequence, seqLength)
 			_, err = io.ReadFull(r, key)
@@ -270,13 +270,14 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 			if err != nil {
 				return fmt.Errorf("Unexpected error reading seq: %v", err)
 			}
+			log.Debugf("File Read: %v", seq.String(fs.cs.opts.ex))
 			for _, ms := range memStores {
 				before := seq
 				seq2 := ms.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
-				if log.IsTraceEnabled() {
-					log.Tracef("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
-				}
+				// if log.IsTraceEnabled() {
+				log.Debugf("File Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+				// }
 			}
 			onValue(key, seq)
 		}
@@ -285,14 +286,15 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 	// Read remaining stuff from mem stores
 	for i, ms := range memStores {
 		for key, seq := range ms {
+			log.Debugf("Mem Read: %v", seq.String(fs.cs.opts.ex))
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
 				before := seq
 				seq2 := ms2.remove(string(key))
 				seq = seq.merge(seq2, fs.cs.opts.resolution, fs.cs.opts.ex)
-				if log.IsTraceEnabled() {
-					log.Tracef("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
-				}
+				// if log.IsTraceEnabled() {
+				log.Debugf("Mem Merged: %v + %v -> %v", before.String(fs.cs.opts.ex), seq2.String(fs.cs.opts.ex), seq.String(fs.cs.opts.ex))
+				// }
 			}
 			onValue(bytemap.ByteMap(key), seq)
 		}

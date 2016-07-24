@@ -41,7 +41,7 @@ func TestIntegration(t *testing.T) {
 
 	schemaA := `
 Test_a:
-  maxmemstorebytes: 100000000
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
@@ -67,7 +67,7 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
-  maxmemstorebytes: 1000000000
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
