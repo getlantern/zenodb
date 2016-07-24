@@ -187,18 +187,15 @@ func (cs *columnStore) processFlushes() {
 		if err != nil {
 			panic(err)
 		}
-		log.Debugf("Flushed to %v", newFileStoreName)
 
 		oldFileStore := cs.fileStore.filename
 		cs.mx.Lock()
-		preDelete := len(cs.memStores)
 		delete(cs.memStores, req.idx)
-		postDelete := len(cs.memStores)
-		log.Debugf("Memstores went from %d -> %d", preDelete, postDelete)
 		cs.fileStore = &fileStore{cs, newFileStoreName}
 		cs.mx.Unlock()
 
-		log.Debugf("Updated filestore to %v", newFileStoreName)
+		log.Debugf("Flushed to %v", newFileStoreName)
+
 		// TODO: add background process for cleaning up old file stores
 		if oldFileStore != "" {
 			go func() {
@@ -240,7 +237,10 @@ type fileStore struct {
 }
 
 func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores ...memStore) error {
-	log.Debugf("Iterating with %d memstores from file %v", len(memStores), fs.filename)
+	if log.IsTraceEnabled() {
+		log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
+	}
+
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if !os.IsNotExist(err) {
 		if err != nil {
