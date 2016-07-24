@@ -93,7 +93,6 @@ func (cs *columnStore) processInserts() {
 		memStoreBytes = 0
 		cs.mx.Unlock()
 		cs.flushes <- fr
-		log.Debug("Requested flush")
 	}
 
 	flushTimer := time.NewTimer(flushInterval)
@@ -194,8 +193,6 @@ func (cs *columnStore) processFlushes() {
 		cs.fileStore = &fileStore{cs, newFileStoreName}
 		cs.mx.Unlock()
 
-		log.Debugf("Flushed to %v", newFileStoreName)
-
 		// TODO: add background process for cleaning up old file stores
 		if oldFileStore != "" {
 			go func() {
@@ -209,7 +206,7 @@ func (cs *columnStore) processFlushes() {
 
 		flushDuration := time.Now().Sub(start)
 		cs.flushFinished <- flushDuration
-		log.Debugf("Flushed in %v", flushDuration)
+		log.Debugf("Flushed to %v in %v", newFileStoreName, flushDuration)
 	}
 }
 
