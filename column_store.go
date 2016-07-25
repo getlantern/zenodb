@@ -2,6 +2,7 @@ package tdb
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -347,6 +348,19 @@ func (sd *sortData) Read(r io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	return b2, nil
+}
+
+func (sd *sortData) Less(a []byte, b []byte) bool {
+	// We compare key/value pairs by doing a lexicographical comparison on the
+	// longest portion of the key that's available in both values.
+	keyLength := binaryEncoding.Uint16(a)
+	bKeyLength := binaryEncoding.Uint16(b)
+	if bKeyLength < keyLength {
+		keyLength = bKeyLength
+	}
+	s := width16bits + width64bits // exclude key and seq length header
+	e := s + int(keyLength)
+	return bytes.Compare(a[s:e], b[s:e]) < 0
 }
 
 func (sd *sortData) OnSorted(b []byte) error {
