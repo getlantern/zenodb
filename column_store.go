@@ -31,8 +31,9 @@ type columnStoreOptions struct {
 }
 
 type flushRequest struct {
-	idx int
-	ms  memStore
+	idx  int
+	ms   memStore
+	sort bool
 }
 
 type columnStore struct {
@@ -90,7 +91,7 @@ func (cs *columnStore) processInserts() {
 	cs.memStores[memStoreIdx] = currentMemStore
 
 	flushInterval := cs.opts.maxFlushLatency
-
+	flushIdx := 0
 	flush := func() {
 		if memStoreBytes == 0 {
 			// nothing to flush
@@ -98,8 +99,10 @@ func (cs *columnStore) processInserts() {
 		}
 		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(memStoreBytes)))
 		memStoreCopy := currentMemStore.copy()
-		fr := &flushRequest{memStoreIdx, memStoreCopy}
+		shouldSort := flushIdx%10 == 0
+		fr := &flushRequest{memStoreIdx, memStoreCopy, shouldSort}
 		cs.mx.Lock()
+		flushIdx++
 		currentMemStore = make(memStore, len(currentMemStore))
 		memStoreIdx++
 		cs.memStores[memStoreIdx] = currentMemStore
@@ -155,7 +158,12 @@ func (cs *columnStore) processFlushes() {
 		sout := snappy.NewWriter(out)
 		cout := bufio.NewWriterSize(sout, 65536)
 
-		err = emsort.Sorted(&sortData{cs, req.ms, cout}, cs.opts.maxMemStoreBytes/2)
+		sd := &sortData{cs, req.ms, cout}
+		if req.sort {
+			err = emsort.Sorted(sd, cs.opts.maxMemStoreBytes/2)
+		} else {
+			err = sd.Fill(sd.OnSorted)
+		}
 		if err != nil {
 			panic(fmt.Errorf("Unable to process flush: %v", err))
 		}
