@@ -10,5 +10,5 @@ const (
 )
 
 var (
-	binaryEncoding = binary.LittleEndian
+	binaryEncoding = binary.BigEndian
 )

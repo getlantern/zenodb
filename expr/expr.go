@@ -12,7 +12,7 @@ const (
 )
 
 var (
-	binaryEncoding = binary.LittleEndian
+	binaryEncoding = binary.BigEndian
 
 	fieldType     = reflect.TypeOf((*field)(nil))
 	constType     = reflect.TypeOf((*constant)(nil))
