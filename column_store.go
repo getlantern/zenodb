@@ -158,14 +158,42 @@ func (cs *columnStore) processFlushes() {
 		sout := snappy.NewWriter(out)
 		cout := bufio.NewWriterSize(sout, 65536)
 
-		sd := &sortData{cs, req.ms, cout}
 		if req.sort {
+			sd := &sortData{cs, req.ms, cout}
 			err = emsort.Sorted(sd, cs.opts.maxMemStoreBytes/2)
+			if err != nil {
+				panic(fmt.Errorf("Unable to process flush: %v", err))
+			}
 		} else {
-			err = sd.Fill(sd.OnSorted)
-		}
-		if err != nil {
-			panic(fmt.Errorf("Unable to process flush: %v", err))
+			// TODO: DRY violation with sortData.Fill sortData.OnSorted
+			periodWidth := cs.opts.ex.EncodedWidth()
+			truncateBefore := cs.opts.truncateBefore()
+			b := make([]byte, width16bits+width64bits)
+			write := func(key bytemap.ByteMap, seq sequence) {
+				seq = seq.truncate(periodWidth, cs.opts.resolution, truncateBefore)
+				if seq == nil {
+					// entire sequence is expired, remove it
+					return
+				}
+				binaryEncoding.PutUint16(b, uint16(len(key)))
+				binaryEncoding.PutUint64(b[width16bits:], uint64(len(seq)))
+				_, err = cout.Write(b)
+				if err != nil {
+					panic(err)
+				}
+				_, err = cout.Write(key)
+				if err != nil {
+					panic(err)
+				}
+				_, err = cout.Write(seq)
+				if err != nil {
+					panic(err)
+				}
+			}
+			cs.mx.RLock()
+			fs := cs.fileStore
+			cs.mx.RUnlock()
+			fs.iterate(write, req.ms)
 		}
 		err = cout.Flush()
 		if err != nil {
@@ -208,10 +236,14 @@ func (cs *columnStore) processFlushes() {
 
 		flushDuration := time.Now().Sub(start)
 		cs.flushFinished <- flushDuration
+		wasSorted := "not sorted"
+		if req.sort {
+			wasSorted = "sorted"
+		}
 		if fi != nil {
-			log.Debugf("Flushed to %v in %v, size %v", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())))
+			log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), wasSorted)
 		} else {
-			log.Debugf("Flushed to %v in %v", newFileStoreName, flushDuration)
+			log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, wasSorted)
 		}
 	}
 }
