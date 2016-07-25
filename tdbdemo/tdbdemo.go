@@ -2,11 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -28,14 +26,6 @@ func main() {
 
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-	tmpDir, err := ioutil.TempDir("", "tdbtest")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	log.Debugf("Writing data to %v", tmpDir)
-
 	numReporters := 5000
 	uniquesPerReporter := 1000
 	uniquesPerPeriod := 100
@@ -52,7 +42,7 @@ func main() {
 	log.Debugf("Target delta for 1000 points: %v", targetDeltaFor1000Points)
 
 	db, err := tdb.NewDB(&tdb.DBOpts{
-		Dir:                  tmpDir,
+		Dir:                  "/tmp/tdbdemo",
 		RocksDBStatsInterval: 60 * time.Second,
 	})
 	if err != nil {
