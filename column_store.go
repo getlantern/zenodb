@@ -14,6 +14,7 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
 	"github.com/golang/snappy"
+	"github.com/oxtoacart/emsort"
 )
 
 // TODO: read existing filestore on startup (use one with most recent date)
@@ -153,34 +154,10 @@ func (cs *columnStore) processFlushes() {
 		sout := snappy.NewWriter(out)
 		cout := bufio.NewWriterSize(sout, 65536)
 
-		periodWidth := cs.opts.ex.EncodedWidth()
-		truncateBefore := cs.opts.truncateBefore()
-		b := make([]byte, width16bits+width64bits)
-		write := func(key bytemap.ByteMap, seq sequence) {
-			seq = seq.truncate(periodWidth, cs.opts.resolution, truncateBefore)
-			if seq == nil {
-				// entire sequence is expired, remove it
-				return
-			}
-			binaryEncoding.PutUint16(b, uint16(len(key)))
-			binaryEncoding.PutUint64(b[width16bits:], uint64(len(seq)))
-			_, err = cout.Write(b)
-			if err != nil {
-				panic(err)
-			}
-			_, err = cout.Write(key)
-			if err != nil {
-				panic(err)
-			}
-			_, err = cout.Write(seq)
-			if err != nil {
-				panic(err)
-			}
+		err = emsort.Sorted(&sortData{cs, req.ms, cout}, cs.opts.maxMemStoreBytes/2)
+		if err != nil {
+			panic(fmt.Errorf("Unable to process flush: %v", err))
 		}
-		cs.mx.RLock()
-		fs := cs.fileStore
-		cs.mx.RUnlock()
-		fs.iterate(write, req.ms)
 		err = cout.Flush()
 		if err != nil {
 			panic(err)
@@ -322,4 +299,57 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 	}
 
 	return nil
+}
+
+type sortData struct {
+	cs  *columnStore
+	ms  memStore
+	out io.Writer
+}
+
+func (sd *sortData) Fill(fn func([]byte) error) error {
+	periodWidth := sd.cs.opts.ex.EncodedWidth()
+	truncateBefore := sd.cs.opts.truncateBefore()
+	doFill := func(key bytemap.ByteMap, seq sequence) {
+		seq = seq.truncate(periodWidth, sd.cs.opts.resolution, truncateBefore)
+		if seq == nil {
+			// entire sequence is expired, remove it
+			return
+		}
+		b := make([]byte, width16bits+width64bits+len(key)+len(seq))
+		binaryEncoding.PutUint16(b, uint16(len(key)))
+		binaryEncoding.PutUint64(b[width16bits:], uint64(len(seq)))
+		copy(b[width16bits+width64bits:], key)
+		copy(b[width16bits+width64bits+len(key):], seq)
+		fn(b)
+	}
+	sd.cs.mx.RLock()
+	fs := sd.cs.fileStore
+	sd.cs.mx.RUnlock()
+	fs.iterate(doFill, sd.ms)
+	return nil
+}
+
+func (sd *sortData) Read(r io.Reader) ([]byte, error) {
+	b := make([]byte, width16bits+width64bits)
+	_, err := io.ReadFull(r, b)
+	if err != nil {
+		return nil, err
+	}
+	keyLength := binaryEncoding.Uint16(b)
+	seqLength := binaryEncoding.Uint64(b[width16bits:])
+	b2 := make([]byte, len(b)+int(keyLength)+int(seqLength))
+	_b2 := b2
+	copy(_b2, b)
+	_b2 = _b2[width16bits+width64bits:]
+	_, err = io.ReadFull(r, _b2)
+	if err != nil {
+		return nil, err
+	}
+	return b2, nil
+}
+
+func (sd *sortData) OnSorted(b []byte) error {
+	_, err := sd.out.Write(b)
+	return err
 }
