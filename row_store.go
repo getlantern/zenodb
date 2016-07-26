@@ -2,6 +2,7 @@ package tdb
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/golang/snappy"
+	"github.com/oxtoacart/emsort"
 )
 
 // TODO: add WAL
@@ -97,7 +99,6 @@ func (rs *rowStore) processInserts() {
 		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(memStoreBytes)))
 		memStoreCopy := currentMemStore.copy()
 		shouldSort := flushIdx%10 == 0
-		shouldSort = false
 		fr := &flushRequest{memStoreIdx, memStoreCopy, shouldSort}
 		rs.mx.Lock()
 		flushIdx++
@@ -163,17 +164,39 @@ func (rs *rowStore) processFlushes() {
 			panic(err)
 		}
 		sout := snappy.NewWriter(out)
-		cout := bufio.NewWriterSize(sout, 65536)
+		bout := bufio.NewWriterSize(sout, 65536)
+		var cout io.WriteCloser
+		if !req.sort {
+			cout = &closerAdapter{bout}
+		} else {
+			chunk := func(r io.Reader) ([]byte, error) {
+				rowLength := uint64(0)
+				readErr := binary.Read(r, binaryEncoding, &rowLength)
+				if readErr != nil {
+					return nil, readErr
+				}
+				_row := make([]byte, rowLength)
+				row := _row
+				binaryEncoding.PutUint64(row, rowLength)
+				row = row[width64bits:]
+				_, err = io.ReadFull(r, row)
+				return _row, err
+			}
 
-		// if req.sort {
-		// 	sd := &sortData{rs, req.ms, cout}
-		// 	err = emsort.Sorted(sd, rs.opts.maxMemStoreBytes/2)
-		// 	if err != nil {
-		// 		panic(fmt.Errorf("Unable to process flush: %v", err))
-		// 	}
-		// } else {
+			less := func(a []byte, b []byte) bool {
+				return bytes.Compare(a, b) < 0
+			}
+
+			var sortErr error
+			cout, sortErr = emsort.New(bout, chunk, less, rs.opts.maxMemStoreBytes/2)
+			if sortErr != nil {
+				panic(sortErr)
+			}
+		}
+
 		// TODO: DRY violation with sortData.Fill sortData.OnSorted
 		truncateBefore := rs.t.truncateBefore()
+		var b []byte
 		write := func(key bytemap.ByteMap, columns []sequence) {
 			hasActiveSequence := false
 			for i, seq := range columns {
@@ -194,44 +217,35 @@ func (rs *rowStore) processFlushes() {
 			for _, seq := range columns {
 				rowLength += width64bits + len(seq)
 			}
-			err = binary.Write(cout, binaryEncoding, uint64(rowLength))
-			if err != nil {
-				panic(err)
-			}
 
-			err = binary.Write(cout, binaryEncoding, uint16(len(key)))
-			if err != nil {
-				panic(err)
+			if rowLength > len(b) {
+				b = make([]byte, rowLength)
 			}
-			_, err = cout.Write(key)
-			if err != nil {
-				panic(err)
-			}
-
-			err = binary.Write(cout, binaryEncoding, uint16(len(columns)))
-			if err != nil {
-				panic(err)
+			_b := b
+			b = writeInt64(b, rowLength)
+			b = writeInt16(b, len(key))
+			b = write(b, key)
+			b = writeInt16(b, len(columns))
+			for _, seq := range columns {
+				b = writeInt64(b, len(seq))
 			}
 			for _, seq := range columns {
-				err = binary.Write(cout, binaryEncoding, uint64(len(seq)))
-				if err != nil {
-					panic(err)
-				}
+				b = write(b, seq)
 			}
-
-			for _, seq := range columns {
-				_, err = cout.Write(seq)
-				if err != nil {
-					panic(err)
-				}
+			_, writeErr := cout.Write(_b)
+			if writeErr != nil {
+				panic(writeErr)
 			}
 		}
 		rs.mx.RLock()
 		fs := rs.fileStore
 		rs.mx.RUnlock()
 		fs.iterate(write, req.ms)
-		// }
-		err = cout.Flush()
+		err = cout.Close()
+		if err != nil {
+			panic(err)
+		}
+		err = bout.Flush()
 		if err != nil {
 			panic(err)
 		}
@@ -341,8 +355,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 				return fmt.Errorf("Unexpected error reading row length: %v", err)
 			}
 
-			_row := make([]byte, rowLength)
-			row := _row
+			row := make([]byte, rowLength)
 			binaryEncoding.PutUint64(row, rowLength)
 			row = row[width64bits:]
 			_, err = io.ReadFull(r, row)
@@ -417,68 +430,14 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 	return nil
 }
 
-// type sortData struct {
-// 	rs  *rowStore
-// 	ms  memStore
-// 	out io.Writer
-// }
-//
-// func (sd *sortData) Fill(fn func([]byte) error) error {
-// 	periodWidth := sd.rs.opts.ex.EncodedWidth()
-// 	truncateBefore := sd.rs.opts.truncateBefore()
-// 	doFill := func(key bytemap.ByteMap, seq sequence) {
-// 		seq = seq.truncate(periodWidth, sd.rs.opts.resolution, truncateBefore)
-// 		if seq == nil {
-// 			// entire sequence is expired, remove it
-// 			return
-// 		}
-// 		b := make([]byte, width16bits+width64bits+len(key)+len(seq))
-// 		binaryEncoding.PutUint16(b, uint16(len(key)))
-// 		binaryEncoding.PutUint64(b[width16bits:], uint64(len(seq)))
-// 		copy(b[width16bits+width64bits:], key)
-// 		copy(b[width16bits+width64bits+len(key):], seq)
-// 		fn(b)
-// 	}
-// 	sd.rs.mx.RLock()
-// 	fs := sd.rs.fileStore
-// 	sd.rs.mx.RUnlock()
-// 	fs.iterate(doFill, sd.ms)
-// 	return nil
-// }
-//
-// func (sd *sortData) Read(r io.Reader) ([]byte, error) {
-// 	b := make([]byte, width16bits+width64bits)
-// 	_, err := io.ReadFull(r, b)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	keyLength := binaryEncoding.Uint16(b)
-// 	seqLength := binaryEncoding.Uint64(b[width16bits:])
-// 	b2 := make([]byte, len(b)+int(keyLength)+int(seqLength))
-// 	_b2 := b2
-// 	copy(_b2, b)
-// 	_b2 = _b2[width16bits+width64bits:]
-// 	_, err = io.ReadFull(r, _b2)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return b2, nil
-// }
-//
-// func (sd *sortData) Less(a []byte, b []byte) bool {
-// 	// We compare key/value pairs by doing a lexicographical comparison on the
-// 	// longest portion of the key that's available in both values.
-// 	keyLength := binaryEncoding.Uint16(a)
-// 	bKeyLength := binaryEncoding.Uint16(b)
-// 	if bKeyLength < keyLength {
-// 		keyLength = bKeyLength
-// 	}
-// 	s := width16bits + width64bits // exclude key and seq length header
-// 	e := s + int(keyLength)
-// 	return bytes.Compare(a[s:e], b[s:e]) < 0
-// }
-//
-// func (sd *sortData) OnSorted(b []byte) error {
-// 	_, err := sd.out.Write(b)
-// 	return err
-// }
+type closerAdapter struct {
+	w io.Writer
+}
+
+func (ca *closerAdapter) Write(b []byte) (int, error) {
+	return ca.w.Write(b)
+}
+
+func (ca *closerAdapter) Close() error {
+	return nil
+}
