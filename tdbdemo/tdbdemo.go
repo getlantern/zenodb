@@ -61,7 +61,7 @@ func main() {
 		Name:             "test",
 		RetentionPeriod:  retentionPeriod,
 		MaxMemStoreBytes: 500 * 1024 * 1024,
-		MaxFlushLatency:  1 * time.Minute,
+		MaxFlushLatency:  5 * time.Minute,
 		SQL: fmt.Sprintf(`
 SELECT
 	SUM(i) AS i,

@@ -91,8 +91,12 @@ func (rs *rowStore) processInserts() {
 	rs.memStores[memStoreIdx] = currentMemStore
 
 	flushInterval := rs.opts.maxFlushLatency
+	flushTimer := time.NewTimer(flushInterval)
+
 	flushIdx := 0
 	flush := func() {
+		// Temporarily disable flush timer while we're flushing
+		flushTimer.Reset(100000 * time.Hour)
 		if memStoreBytes == 0 {
 			// nothing to flush
 			return
@@ -110,8 +114,6 @@ func (rs *rowStore) processInserts() {
 		rs.mx.Unlock()
 		rs.flushes <- fr
 	}
-
-	flushTimer := time.NewTimer(flushInterval)
 
 	for {
 		select {

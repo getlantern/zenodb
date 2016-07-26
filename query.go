@@ -100,9 +100,9 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			}
 			stats.FilterPass++
 		}
-		stats.ReadValue++
 
 		for i := 0; i < len(columns); i++ {
+			stats.ReadValue++
 			field := q.t.Fields[i]
 			e := field.Expr
 			encodedWidth := e.EncodedWidth()
