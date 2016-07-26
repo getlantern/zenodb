@@ -34,15 +34,15 @@ type TableOpts struct {
 type table struct {
 	*TableOpts
 	sql.Query
-	db           *DB
-	columnStores []*columnStore
-	log          golog.Logger
-	clock        *vtime.Clock
-	where        *govaluate.EvaluableExpression
-	whereMutex   sync.RWMutex
-	stats        TableStats
-	statsMutex   sync.RWMutex
-	inserts      chan (*insert)
+	db         *DB
+	rowStore   *rowStore
+	log        golog.Logger
+	clock      *vtime.Clock
+	where      *govaluate.EvaluableExpression
+	whereMutex sync.RWMutex
+	stats      TableStats
+	statsMutex sync.RWMutex
+	inserts    chan (*insert)
 }
 
 func (db *DB) CreateTable(opts *TableOpts) error {
@@ -82,20 +82,14 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		return err
 	}
 
-	t.columnStores = make([]*columnStore, 0, len(t.Fields))
-	for _, field := range t.Fields {
-		cs, csErr := openColumnStore(&columnStoreOptions{
-			dir:              filepath.Join(db.opts.Dir, t.Name, field.Name),
-			ex:               field.Expr,
-			resolution:       t.Resolution,
-			truncateBefore:   t.truncateBefore,
-			maxMemStoreBytes: t.MaxMemStoreBytes,
-			maxFlushLatency:  t.MaxFlushLatency,
-		})
-		if csErr != nil {
-			return csErr
-		}
-		t.columnStores = append(t.columnStores, cs)
+	var rsErr error
+	t.rowStore, rsErr = t.openRowStore(&rowStoreOptions{
+		dir:              filepath.Join(db.opts.Dir, t.Name),
+		maxMemStoreBytes: t.MaxMemStoreBytes,
+		maxFlushLatency:  t.MaxFlushLatency,
+	})
+	if rsErr != nil {
+		return rsErr
 	}
 
 	go t.processInserts()

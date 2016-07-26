@@ -4,9 +4,7 @@ import (
 	"io/ioutil"
 	"os"
 	"testing"
-	"time"
 
-	"github.com/getlantern/tdb/expr"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -17,10 +15,9 @@ func TestStorage(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	cs, err := openColumnStore(&columnStoreOptions{
+	tb := &table{}
+	cs, err := tb.openRowStore(&rowStoreOptions{
 		dir:              tmpDir,
-		ex:               expr.SUM("i"),
-		resolution:       1 * time.Millisecond,
 		maxMemStoreBytes: 1,
 	})
 	if !assert.NoError(t, err) {

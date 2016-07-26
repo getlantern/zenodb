@@ -92,9 +92,7 @@ func (t *table) insert(point *Point) {
 
 func (t *table) processInserts() {
 	for insert := range t.inserts {
-		for _, cs := range t.columnStores {
-			cs.insert(insert)
-		}
+		t.rowStore.insert(insert)
 		t.statsMutex.Lock()
 		t.stats.QueuedPoints--
 		t.stats.InsertedPoints++

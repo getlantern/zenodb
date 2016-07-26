@@ -80,23 +80,24 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	for i, field := range q.t.Fields {
-		includedInQuery := false
-		for _, f := range q.fields {
-			if f == field.Name {
-				includedInQuery = true
-				break
-			}
-		}
-		if !includedInQuery {
-			continue
-		}
-
-		e := field.Expr
-		encodedWidth := e.EncodedWidth()
-
-		q.t.columnStores[i].iterate(func(key bytemap.ByteMap, seq sequence) {
+	q.t.rowStore.iterate(func(key bytemap.ByteMap, columns []sequence) {
+		// TODO: filter out fields in iterate
+		for i := 0; i < len(columns); i++ {
 			stats.Scanned++
+			field := q.t.Fields[i]
+			includedInQuery := false
+			for _, f := range q.fields {
+				if f == field.Name {
+					includedInQuery = true
+					break
+				}
+			}
+			if !includedInQuery {
+				continue
+			}
+
+			e := field.Expr
+			encodedWidth := e.EncodedWidth()
 
 			if q.filter != nil {
 				include, err := q.filter.Eval(bytemapQueryParams(key))
@@ -117,6 +118,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			}
 
 			stats.ReadValue++
+			seq := columns[i]
 			if len(seq) > 0 {
 				stats.DataValid++
 				if log.IsTraceEnabled() {
@@ -129,8 +131,8 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 					q.onValues(key, field.Name, e, seq, startOffset)
 				}
 			}
-		})
-	}
+		}
+	})
 
 	stats.Runtime = time.Now().Sub(start)
 	return stats, nil
