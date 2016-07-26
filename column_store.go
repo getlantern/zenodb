@@ -18,7 +18,6 @@ import (
 	"github.com/oxtoacart/emsort"
 )
 
-// TODO: read existing filestore on startup (use one with most recent date)
 // TODO: add WAL
 
 type columnStoreOptions struct {
