@@ -110,7 +110,16 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, r
 		return seq.truncate(periodWidth, resolution, truncateBefore)
 	}
 
-	if len(seq) == 0 {
+	sequenceEmpty := len(seq) == 0
+	var start time.Time
+	var gapPeriods int
+	var maxPeriods int
+	if !sequenceEmpty {
+		start = seq.start()
+		gapPeriods = int(ts.Sub(start) / resolution)
+		maxPeriods = int(ts.Sub(truncateBefore) / resolution)
+	}
+	if sequenceEmpty || start.Before(truncateBefore) || gapPeriods > maxPeriods {
 		log.Trace("Creating new sequence")
 		out := make(sequence, width64bits+periodWidth)
 		out.setStart(ts)
@@ -118,17 +127,20 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, r
 		return out
 	}
 
-	start := seq.start()
 	if ts.After(start) {
 		log.Trace("Prepending to sequence")
-		delta := ts.Sub(start)
-		deltaPeriods := int(delta / resolution)
-		out := make(sequence, len(seq)+periodWidth*deltaPeriods)
-		copy(out[width64bits+deltaPeriods*periodWidth:], seq[width64bits:])
+		numPeriods := seq.numPeriods(periodWidth) + gapPeriods
+		origEnd := len(seq)
+		if numPeriods > maxPeriods {
+			log.Trace("Truncating existing sequence")
+			numPeriods = maxPeriods
+			origEnd = width64bits + periodWidth*(numPeriods-gapPeriods)
+		}
+		out := newSequence(periodWidth, numPeriods)
+		copy(out[width64bits+gapPeriods*periodWidth:], seq[width64bits:origEnd])
 		out.setStart(ts)
 		out.updateValueAt(0, e, params)
-		// TODO: optimize this by applying truncation above
-		return out.truncate(periodWidth, resolution, truncateBefore)
+		return out
 	}
 
 	log.Trace("Updating existing entry on sequence")
@@ -141,10 +153,10 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, r
 		copy(out, seq)
 	}
 	out.updateValueAtOffset(offset, e, params)
-	return out.truncate(periodWidth, resolution, truncateBefore)
+	return out
 }
 
-func (seq sequence) merge(other sequence, resolution time.Duration, e expr.Expr) sequence {
+func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
 	if seq == nil {
 		return other
 	}
@@ -159,6 +171,10 @@ func (seq sequence) merge(other sequence, resolution time.Duration, e expr.Expr)
 	if startB.After(startA) {
 		// Switch
 		sa, startA, sb, startB = sb, startB, sa, startA
+	}
+
+	if startB.Before(truncateBefore) {
+		return sa
 	}
 
 	encodedWidth := e.EncodedWidth()

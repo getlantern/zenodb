@@ -24,17 +24,14 @@ func main() {
 		log.Error(http.ListenAndServe("localhost:4000", nil))
 	}()
 
-	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
-
 	numReporters := 5000
 	uniquesPerReporter := 1000
 	uniquesPerPeriod := 100
 	valuesPerPeriod := 5000
 	reportingPeriods := 100000
-	reportingInterval := time.Millisecond
-	resolution := reportingInterval * 5
-	retainPeriods := 20
-	retentionPeriod := time.Duration(retainPeriods) * reportingInterval * 100
+	resolution := 5 * time.Minute
+	retainPeriods := 24
+	retentionPeriod := time.Duration(retainPeriods) * resolution
 	targetPointsPerSecond := 200000
 	numWriters := 4
 	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
@@ -49,9 +46,10 @@ func main() {
 		log.Fatal(err)
 	}
 	err = db.CreateTable(&tdb.TableOpts{
-		Name:            "test",
-		RetentionPeriod: retentionPeriod,
-		MaxFlushLatency: 10 * time.Second,
+		Name:             "test",
+		RetentionPeriod:  retentionPeriod,
+		MaxMemStoreBytes: 250 * 1024 * 1024,
+		MaxFlushLatency:  1 * time.Minute,
 		SQL: fmt.Sprintf(`
 SELECT
 	SUM(i) AS i,
@@ -136,7 +134,7 @@ GROUP BY period(168h)
 			c := 0
 			start := time.Now()
 			for i := 0; i < reportingPeriods; i++ {
-				ts := epoch.Add(time.Duration(i) * reportingInterval)
+				ts := time.Now()
 				uniques := make([]int, 0, uniquesPerPeriod)
 				for u := 0; u < uniquesPerPeriod; u++ {
 					uniques = append(uniques, rand.Intn(uniquesPerReporter))

@@ -126,15 +126,15 @@ func TestSequenceMergeAB(t *testing.T) {
 	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 6})), e, res, truncateBefore)
 	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), e, res, truncateBefore)
 	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), e, res, truncateBefore)
-	seq2 = seq2.merge(nil, res, e)
-	seq2 = ((sequence)(nil)).merge(seq2, res, e)
+	seq2 = seq2.merge(nil, e, res, zeroTime)
+	seq2 = ((sequence)(nil)).merge(seq2, e, res, zeroTime)
 
 	checkMerge(t, epoch, res, seq1, seq2, e)
 	checkMerge(t, epoch, res, seq2, seq1, e)
 }
 
 func checkMerge(t *testing.T, epoch time.Time, res time.Duration, seq1 sequence, seq2 sequence, e Expr) {
-	merged := seq1.merge(seq2, res, e)
+	merged := seq1.merge(seq2, e, res, zeroTime)
 	assert.Equal(t, 5, merged.numPeriods(e.EncodedWidth()))
 	val, _ := merged.valueAtTime(epoch.Add(-1*res), e, res)
 	assert.EqualValues(t, 1, val)

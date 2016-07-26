@@ -276,6 +276,7 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 		log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
 	}
 
+	truncateBefore := fs.opts.truncateBefore()
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if !os.IsNotExist(err) {
 		if err != nil {
@@ -311,7 +312,7 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 			for _, ms := range memStores {
 				before := seq
 				seq2 := ms.remove(string(key))
-				seq = seq.merge(seq2, fs.opts.resolution, fs.opts.ex)
+				seq = seq.merge(seq2, fs.opts.ex, fs.opts.resolution, truncateBefore)
 				if log.IsTraceEnabled() {
 					log.Tracef("File Merged: %v + %v -> %v", before.String(fs.opts.ex), seq2.String(fs.opts.ex), seq.String(fs.opts.ex))
 				}
@@ -330,7 +331,7 @@ func (fs *fileStore) iterate(onValue func(bytemap.ByteMap, sequence), memStores 
 				ms2 := memStores[j]
 				before := seq
 				seq2 := ms2.remove(string(key))
-				seq = seq.merge(seq2, fs.opts.resolution, fs.opts.ex)
+				seq = seq.merge(seq2, fs.opts.ex, fs.opts.resolution, truncateBefore)
 				if log.IsTraceEnabled() {
 					log.Tracef("Mem Merged: %v + %v -> %v", before.String(fs.opts.ex), seq2.String(fs.opts.ex), seq.String(fs.opts.ex))
 				}

@@ -124,7 +124,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 					vo, ok := o[k]
 					if ok {
 						for x, os := range vo.Fields {
-							v.Fields[x] = v.Fields[x].merge(os, aq.Resolution, aq.Fields[x])
+							v.Fields[x] = v.Fields[x].merge(os, aq.Fields[x], aq.Resolution, aq.AsOf)
 						}
 						delete(o, k)
 					}
@@ -230,6 +230,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 	aq.inPeriods = aq.outPeriods * aq.scalingFactor
 	log.Tracef("In: %d   Out: %d", aq.inPeriods, aq.outPeriods)
 
+	var dimsMapMutex sync.Mutex
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if aq.GroupByAll {
 		// Use all original dimensions in grouping
@@ -277,7 +278,11 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 				if aq.GroupByAll {
 					// Track dims
 					for dim := range entry.Dims {
+						// TODO: instead of locking on this shared state, have the workers
+						// return their own dimsMaps and merge them
+						dimsMapMutex.Lock()
 						aq.dimsMap[dim] = true
+						dimsMapMutex.Unlock()
 					}
 				}
 
