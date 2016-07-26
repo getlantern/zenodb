@@ -13,6 +13,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tdb"
+	"github.com/jmcvetta/randutil"
 )
 
 var (
@@ -37,6 +38,17 @@ func main() {
 	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
 	targetDeltaFor1000Points := 1000 * time.Second / time.Duration(targetPointsPerSecondPerWriter)
 	log.Debugf("Target delta for 1000 points: %v", targetDeltaFor1000Points)
+
+	reporters := make([]string, 0)
+	for i := 0; i < numReporters; i++ {
+		reporter, _ := randutil.AlphaStringRange(15, 25)
+		reporters = append(reporters, reporter)
+	}
+	uniques := make([]string, 0)
+	for i := 0; i < uniquesPerReporter; i++ {
+		unique, _ := randutil.AlphaStringRange(150, 250)
+		uniques = append(uniques, unique)
+	}
 
 	db, err := tdb.NewDB(&tdb.DBOpts{
 		Dir:                  "/tmp/tdbdemo",
@@ -135,17 +147,17 @@ GROUP BY period(168h)
 			start := time.Now()
 			for i := 0; i < reportingPeriods; i++ {
 				ts := time.Now()
-				uniques := make([]int, 0, uniquesPerPeriod)
+				uqs := make([]int, 0, uniquesPerPeriod)
 				for u := 0; u < uniquesPerPeriod; u++ {
-					uniques = append(uniques, rand.Intn(uniquesPerReporter))
+					uqs = append(uqs, rand.Intn(uniquesPerReporter))
 				}
 				for r := 0; r < numReporters/numWriters; r++ {
 					for v := 0; v < valuesPerPeriod; v++ {
 						p := &tdb.Point{
 							Ts: ts,
 							Dims: map[string]interface{}{
-								"r": rand.Intn(numReporters),
-								"u": uniques[rand.Intn(uniquesPerPeriod)],
+								"r": reporters[rand.Intn(len(reporters))],
+								"u": uniques[uqs[rand.Intn(uniquesPerPeriod)]],
 								"b": rand.Float64() > 0.99,
 								"x": 1,
 							},
