@@ -194,8 +194,8 @@ func (rs *rowStore) processFlushes() {
 			}
 		}
 
+		// TODO: DRY violation with sortData.Fill sortData.OnSorted
 		truncateBefore := rs.t.truncateBefore()
-		var b []byte
 		write := func(key bytemap.ByteMap, columns []sequence) {
 			hasActiveSequence := false
 			for i, seq := range columns {
@@ -223,10 +223,8 @@ func (rs *rowStore) processFlushes() {
 				// When sorting, we need to write the entire row as a single byte array,
 				// so use a ByteBuffer. We don't do this otherwise because we're already
 				// using a buffered writer, so we can avoid the copying
-				if rowLength > len(b) {
-					b = make([]byte, rowLength)
-				}
-				buf = bytes.NewBuffer(b[:0])
+				b := make([]byte, 0, rowLength)
+				buf = bytes.NewBuffer(b)
 				o = buf
 			}
 
@@ -264,6 +262,9 @@ func (rs *rowStore) processFlushes() {
 			if req.sort {
 				// flush buffer
 				_b := buf.Bytes()
+				if rowLength != len(_b) {
+					log.Debugf("%d <> %d", rowLength, len(_b))
+				}
 				_, writeErr := cout.Write(_b)
 				if writeErr != nil {
 					panic(writeErr)
