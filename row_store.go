@@ -194,7 +194,6 @@ func (rs *rowStore) processFlushes() {
 			}
 		}
 
-		// TODO: DRY violation with sortData.Fill sortData.OnSorted
 		truncateBefore := rs.t.truncateBefore()
 		var b []byte
 		write := func(key bytemap.ByteMap, columns []sequence) {
@@ -218,23 +217,57 @@ func (rs *rowStore) processFlushes() {
 				rowLength += width64bits + len(seq)
 			}
 
-			if rowLength > len(b) {
-				b = make([]byte, rowLength)
+			var o io.Writer = cout
+			var buf *bytes.Buffer
+			if req.sort {
+				// When sorting, we need to write the entire row as a single byte array,
+				// so use a ByteBuffer. We don't do this otherwise because we're already
+				// using a buffered writer, so we can avoid the copying
+				if rowLength > len(b) {
+					b = make([]byte, rowLength)
+				}
+				buf = bytes.NewBuffer(b[:0])
+				o = buf
 			}
-			_b := b
-			b = writeInt64(b, rowLength)
-			b = writeInt16(b, len(key))
-			b = write(b, key)
-			b = writeInt16(b, len(columns))
+
+			err = binary.Write(o, binaryEncoding, uint64(rowLength))
+			if err != nil {
+				panic(err)
+			}
+
+			err = binary.Write(o, binaryEncoding, uint16(len(key)))
+			if err != nil {
+				panic(err)
+			}
+			_, err = o.Write(key)
+			if err != nil {
+				panic(err)
+			}
+
+			err = binary.Write(o, binaryEncoding, uint16(len(columns)))
+			if err != nil {
+				panic(err)
+			}
 			for _, seq := range columns {
-				b = writeInt64(b, len(seq))
+				err = binary.Write(o, binaryEncoding, uint64(len(seq)))
+				if err != nil {
+					panic(err)
+				}
 			}
 			for _, seq := range columns {
-				b = write(b, seq)
+				_, err = o.Write(seq)
+				if err != nil {
+					panic(err)
+				}
 			}
-			_, writeErr := cout.Write(_b)
-			if writeErr != nil {
-				panic(writeErr)
+
+			if req.sort {
+				// flush buffer
+				_b := buf.Bytes()
+				_, writeErr := cout.Write(_b)
+				if writeErr != nil {
+					panic(writeErr)
+				}
 			}
 		}
 		rs.mx.RLock()
