@@ -189,7 +189,16 @@ func (rs *rowStore) processFlushes() {
 				return
 			}
 
-			// keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
+			// rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
+			rowLength := width64bits + width16bits + len(key) + width16bits
+			for _, seq := range columns {
+				rowLength += width64bits + len(seq)
+			}
+			err = binary.Write(cout, binaryEncoding, uint64(rowLength))
+			if err != nil {
+				panic(err)
+			}
+
 			err = binary.Write(cout, binaryEncoding, uint16(len(key)))
 			if err != nil {
 				panic(err)
@@ -294,12 +303,13 @@ func (ms memStore) copy() memStore {
 }
 
 // fileStore stores rows on disk, encoding them as:
-//   keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
+//   rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
 //
-// keylength is 16 bits
+// rowLength is 64 bits and includes itself
+// keylength is 16 bits and does not include itself
 // key can be up to 64KB
 // numcolumns is 16 bits (i.e. 65,536 columns allowed)
-// col*end is 64 bits
+// col*len is 64 bits
 type fileStore struct {
 	t        *table
 	opts     *rowStoreOptions
@@ -321,45 +331,40 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 
 		// Read from file
 		for {
-			// keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
-			keyLength := uint16(0)
-			err := binary.Read(r, binaryEncoding, &keyLength)
+			// rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
+			rowLength := uint64(0)
+			err := binary.Read(r, binaryEncoding, &rowLength)
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
-				return fmt.Errorf("Unexpected error reading key length: %v", err)
+				return fmt.Errorf("Unexpected error reading row length: %v", err)
 			}
 
-			key := make(bytemap.ByteMap, keyLength)
-			_, err = io.ReadFull(r, key)
+			_row := make([]byte, rowLength)
+			row := _row
+			binaryEncoding.PutUint64(row, rowLength)
+			row = row[width64bits:]
+			_, err = io.ReadFull(r, row)
 			if err != nil {
-				return fmt.Errorf("Unexpected error reading key: %v", err)
+				return fmt.Errorf("Unexpected error while reading row: %v", err)
 			}
 
-			numColumns := uint16(0)
-			err = binary.Read(r, binaryEncoding, &numColumns)
-			if err != nil {
-				return fmt.Errorf("Unable to read numColumns: %v", err)
-			}
+			keyLength, row := readInt16(row)
+			key, row := readByteMap(row, keyLength)
 
+			numColumns, row := readInt16(row)
 			colLengths := make([]int, 0, numColumns)
-			for i := uint16(0); i < numColumns; i++ {
-				colLength := uint64(0)
-				err = binary.Read(r, binaryEncoding, &colLength)
-				if err != nil {
-					return fmt.Errorf("Unable to read colLength: %v", err)
-				}
+			for i := 0; i < numColumns; i++ {
+				var colLength int
+				colLength, row = readInt64(row)
 				colLengths = append(colLengths, int(colLength))
 			}
 
 			columns := make([]sequence, 0, numColumns)
 			for i, colLength := range colLengths {
-				seq := make(sequence, colLength)
-				_, err = io.ReadFull(r, seq)
-				if err != nil {
-					return fmt.Errorf("Unexpected error reading seq: %v", err)
-				}
+				var seq sequence
+				seq, row = readSequence(row, colLength)
 				columns = append(columns, seq)
 				if log.IsTraceEnabled() {
 					log.Tracef("File Read: %v", seq.String(fs.t.Fields[i]))
