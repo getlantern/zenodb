@@ -203,7 +203,7 @@ view_a:
 			filter:      filter,
 			onValues: func(keybytes bytemap.ByteMap, resultField string, e Expr, seq sequence, startOffset int) {
 				key := keybytes.AsMap()
-				log.Debugf("%v : %v : %d : %v", key, field, startOffset, seq.String(e))
+				log.Debugf("%v : %v : %v : %d : %v", key, field, resultField, startOffset, seq.String(e))
 				if field == resultField {
 					numPeriods := seq.numPeriods(e.EncodedWidth())
 					vals := make([]float64, 0, numPeriods-startOffset)

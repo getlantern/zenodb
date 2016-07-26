@@ -60,7 +60,7 @@ func main() {
 	err = db.CreateTable(&tdb.TableOpts{
 		Name:             "test",
 		RetentionPeriod:  retentionPeriod,
-		MaxMemStoreBytes: 250 * 1024 * 1024,
+		MaxMemStoreBytes: 500 * 1024 * 1024,
 		MaxFlushLatency:  1 * time.Minute,
 		SQL: fmt.Sprintf(`
 SELECT

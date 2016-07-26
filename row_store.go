@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -140,12 +141,16 @@ func (rs *rowStore) processInserts() {
 		case <-flushTimer.C:
 			flush()
 		case flushDuration := <-rs.flushFinished:
-			flushTimer.Reset(flushDuration * 10)
+			flushWait := flushDuration * 10
+			if flushWait > rs.opts.maxFlushLatency {
+				flushWait = rs.opts.maxFlushLatency
+			}
+			flushTimer.Reset(flushWait)
 		}
 	}
 }
 
-func (rs *rowStore) iterate(onValue func(bytemap.ByteMap, []sequence)) error {
+func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	memStoresCopy := make([]memStore, 0, len(rs.memStores))
@@ -153,7 +158,7 @@ func (rs *rowStore) iterate(onValue func(bytemap.ByteMap, []sequence)) error {
 		memStoresCopy = append(memStoresCopy, ms.copy())
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(onValue, memStoresCopy...)
+	return fs.iterate(onValue, memStoresCopy, fields...)
 }
 
 func (rs *rowStore) processFlushes() {
@@ -274,7 +279,7 @@ func (rs *rowStore) processFlushes() {
 		rs.mx.RLock()
 		fs := rs.fileStore
 		rs.mx.RUnlock()
-		fs.iterate(write, req.ms)
+		fs.iterate(write, []memStore{req.ms})
 		err = cout.Close()
 		if err != nil {
 			panic(err)
@@ -364,9 +369,41 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores ...memStore) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores []memStore, fields ...string) error {
 	if log.IsTraceEnabled() {
 		log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
+	}
+
+	var includedFields []int
+	for i, field := range fs.t.Fields {
+		for _, f := range fields {
+			if f == field.Name {
+				includedFields = append(includedFields, i)
+				break
+			}
+		}
+	}
+
+	var shouldInclude func(i int) bool
+	if len(fields) == 0 {
+		shouldInclude = func(i int) bool {
+			return true
+		}
+	} else {
+		if len(includedFields) == 0 {
+			return errors.New("Non of specified fields exists on table!")
+		}
+		shouldInclude = func(i int) bool {
+			for _, x := range includedFields {
+				if x == i {
+					return true
+				}
+				if x > i {
+					return false
+				}
+			}
+			return false
+		}
 	}
 
 	truncateBefore := fs.t.truncateBefore()
@@ -408,11 +445,17 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 				colLengths = append(colLengths, int(colLength))
 			}
 
-			columns := make([]sequence, 0, numColumns)
+			includesAtLeastOneColumn := false
+			columns := make([]sequence, numColumns)
 			for i, colLength := range colLengths {
 				var seq sequence
 				seq, row = readSequence(row, colLength)
-				columns = append(columns, seq)
+				if shouldInclude(i) {
+					columns[i] = seq
+					if seq != nil {
+						includesAtLeastOneColumn = true
+					}
+				}
 				if log.IsTraceEnabled() {
 					log.Tracef("File Read: %v", seq.String(fs.t.Fields[i]))
 				}
@@ -421,20 +464,29 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			for _, ms := range memStores {
 				columns2 := ms.remove(string(key))
 				for i := 0; i < len(columns) || i < len(columns2); i++ {
-					if i >= len(columns2) {
-						// nothing to merge
-						continue
+					if shouldInclude(i) {
+						if i >= len(columns2) {
+							// nothing to merge
+							continue
+						}
+						if i >= len(columns) {
+							// nothing to merge, just add new column
+							seq2 := columns2[i]
+							columns[i] = seq2
+							if seq2 != nil {
+								includesAtLeastOneColumn = true
+							}
+							continue
+						}
+						// merge
+						columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
 					}
-					if i >= len(columns) {
-						// nothing to merge, just add new column
-						columns = append(columns, columns2[i])
-						continue
-					}
-					columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
 				}
 			}
 
-			onRow(key, columns)
+			if includesAtLeastOneColumn {
+				onRow(key, columns)
+			}
 		}
 	}
 

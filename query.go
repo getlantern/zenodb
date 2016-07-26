@@ -80,44 +80,32 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	q.t.rowStore.iterate(func(key bytemap.ByteMap, columns []sequence) {
-		// TODO: filter out fields in iterate
-		for i := 0; i < len(columns); i++ {
-			stats.Scanned++
-			field := q.t.Fields[i]
-			includedInQuery := false
-			for _, f := range q.fields {
-				if f == field.Name {
-					includedInQuery = true
-					break
-				}
-			}
-			if !includedInQuery {
-				continue
-			}
+	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []sequence) {
+		stats.Scanned++
 
+		if q.filter != nil {
+			include, err := q.filter.Eval(bytemapQueryParams(key))
+			if err != nil {
+				log.Errorf("Unable to apply filter: %v", err)
+				return
+			}
+			inc, ok := include.(bool)
+			if !ok {
+				log.Errorf("Filter expression returned something other than a boolean: %v", include)
+				return
+			}
+			if !inc {
+				stats.FilterReject++
+				return
+			}
+			stats.FilterPass++
+		}
+		stats.ReadValue++
+
+		for i := 0; i < len(columns); i++ {
+			field := q.t.Fields[i]
 			e := field.Expr
 			encodedWidth := e.EncodedWidth()
-
-			if q.filter != nil {
-				include, err := q.filter.Eval(bytemapQueryParams(key))
-				if err != nil {
-					log.Errorf("Unable to apply filter: %v", err)
-					return
-				}
-				inc, ok := include.(bool)
-				if !ok {
-					log.Errorf("Filter expression returned something other than a boolean: %v", include)
-					return
-				}
-				if !inc {
-					stats.FilterReject++
-					return
-				}
-				stats.FilterPass++
-			}
-
-			stats.ReadValue++
 			seq := columns[i]
 			if len(seq) > 0 {
 				stats.DataValid++
