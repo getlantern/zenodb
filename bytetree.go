@@ -6,15 +6,17 @@ import (
 
 // see https://en.wikipedia.org/wiki/Radix_tree
 type tree struct {
-	root   *node
-	bytes  int
-	length int
+	root        *node
+	_bytes      int
+	_length     int
+	ctxRemovals map[int64]int
 }
 
 type node struct {
-	key   []byte
-	edges edges
-	data  []sequence
+	key        []byte
+	edges      edges
+	data       []sequence
+	removedFor []int64
 }
 
 type edge struct {
@@ -23,11 +25,19 @@ type edge struct {
 }
 
 func newByteTree() *tree {
-	return &tree{&node{}, 0, 0}
+	return &tree{&node{}, 0, 0, make(map[int64]int)}
 }
 
-func (bt *tree) walk(fn func(key []byte, data []sequence) bool) {
-	nodes := make([]*node, 0, bt.length)
+func (bt *tree) bytes() int {
+	return bt._bytes
+}
+
+func (bt *tree) length(ctx int64) int {
+	return bt._length - bt.ctxRemovals[ctx]
+}
+
+func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
+	nodes := make([]*node, 0, bt._length)
 	nodes = append(nodes, bt.root)
 	for {
 		if len(nodes) == 0 {
@@ -36,11 +46,14 @@ func (bt *tree) walk(fn func(key []byte, data []sequence) bool) {
 		n := nodes[0]
 		nodes = nodes[1:]
 		if n.data != nil {
-			keep := fn(n.key, n.data)
-			if !keep {
-				n.key = nil
-				n.data = nil
-				bt.length--
+			alreadyRemoved := n.wasRemovedFor(ctx)
+			if !alreadyRemoved {
+				keep := fn(n.key, n.data)
+				if !keep {
+					if n.doRemoveFor(ctx) {
+						bt.ctxRemovals[ctx]++
+					}
+				}
 			}
 		}
 		for _, e := range n.edges {
@@ -49,33 +62,7 @@ func (bt *tree) walk(fn func(key []byte, data []sequence) bool) {
 	}
 }
 
-func (bt *tree) copy() *tree {
-	cp := &tree{bytes: bt.bytes, length: bt.length, root: &node{}}
-	nodes := make([]*node, 0, bt.length)
-	nodeCopies := make([]*node, 0, bt.length)
-	nodes = append(nodes, bt.root)
-	nodeCopies = append(nodeCopies, cp.root)
-
-	for {
-		if len(nodes) == 0 {
-			break
-		}
-		n := nodes[0]
-		cpn := nodeCopies[0]
-		nodes = nodes[1:]
-		nodeCopies = nodeCopies[1:]
-		for _, e := range n.edges {
-			cpt := &node{key: e.target.key, data: e.target.data}
-			cpn.edges = append(cpn.edges, &edge{label: e.label, target: cpt})
-			nodes = append(nodes, e.target)
-			nodeCopies = append(nodeCopies, cpt)
-		}
-	}
-
-	return cp
-}
-
-func (bt *tree) remove(fullKey []byte) []sequence {
+func (bt *tree) remove(ctx int64, fullKey []byte) []sequence {
 	// TODO: basic shape of this is very similar to update, dry violation
 	n := bt.root
 	key := fullKey
@@ -93,11 +80,14 @@ nodeLoop:
 			}
 			if i == keyLength && keyLength == labelLength {
 				// found it
-				data := edge.target.data
-				edge.target.key = nil
-				edge.target.data = nil
-				bt.length--
-				return data
+				alreadyRemoved := edge.target.wasRemovedFor(ctx)
+				if alreadyRemoved {
+					return nil
+				}
+				if edge.target.doRemoveFor(ctx) {
+					bt.ctxRemovals[ctx]++
+				}
+				return edge.target.data
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
 				n = edge.target
@@ -113,9 +103,9 @@ nodeLoop:
 
 func (bt *tree) update(t *table, truncateBefore time.Time, key []byte, vals tsparams) int {
 	bytesAdded, newNode := bt.doUpdate(t, truncateBefore, key, vals)
-	bt.bytes += bytesAdded
+	bt._bytes += bytesAdded
 	if newNode {
-		bt.length++
+		bt._length++
 	}
 	return bytesAdded
 }
@@ -170,6 +160,26 @@ func (n *node) doUpdate(t *table, truncateBefore time.Time, vals tsparams) int {
 		bytesAdded += len(updated) - previousSize
 	}
 	return bytesAdded
+}
+
+func (n *node) wasRemovedFor(ctx int64) bool {
+	if ctx == 0 {
+		return false
+	}
+	for _, _ctx := range n.removedFor {
+		if _ctx == ctx {
+			return true
+		}
+	}
+	return false
+}
+
+func (n *node) doRemoveFor(ctx int64) bool {
+	if ctx == 0 {
+		return false
+	}
+	n.removedFor = append(n.removedFor, ctx)
+	return true
 }
 
 func (e *edge) split(t *table, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals tsparams) int {

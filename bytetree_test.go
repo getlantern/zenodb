@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+const ctx = 56
+
 func TestByteTree(t *testing.T) {
 	e := expr.SUM("a")
 
@@ -30,51 +32,51 @@ func TestByteTree(t *testing.T) {
 	bt := newByteTree()
 	bytesAdded := bt.update(tb, truncateBefore, []byte("test"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 1})))
 	assert.Equal(t, 21, bytesAdded)
-	assert.Equal(t, 1, bt.length)
+	assert.Equal(t, 1, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 2})))
 	assert.Equal(t, 21, bytesAdded)
-	assert.Equal(t, 2, bt.length)
+	assert.Equal(t, 2, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 3})))
 	assert.Equal(t, 22, bytesAdded)
-	assert.Equal(t, 3, bt.length)
+	assert.Equal(t, 3, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 4})))
 	assert.Equal(t, 19, bytesAdded)
-	assert.Equal(t, 4, bt.length)
+	assert.Equal(t, 4, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 5})))
 	assert.Equal(t, 19, bytesAdded)
-	assert.Equal(t, 5, bt.length)
+	assert.Equal(t, 5, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 6})))
 	assert.Equal(t, 21, bytesAdded)
-	assert.Equal(t, 6, bt.length)
+	assert.Equal(t, 6, bt.length(ctx))
 
 	bytesAdded = bt.update(tb, truncateBefore, []byte("test"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
-	assert.Equal(t, 6, bt.length)
+	assert.Equal(t, 6, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
-	assert.Equal(t, 6, bt.length)
+	assert.Equal(t, 6, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
-	assert.Equal(t, 6, bt.length)
+	assert.Equal(t, 6, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
-	assert.Equal(t, 6, bt.length)
+	assert.Equal(t, 6, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
-	assert.Equal(t, 6, bt.length)
+	assert.Equal(t, 6, bt.length(ctx))
 	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
-	assert.Equal(t, 6, bt.length)
+	assert.Equal(t, 6, bt.length(ctx))
 
-	btc := bt.copy()
-
-	checkTree(t, bt, e)
-	checkTree(t, btc, e)
+	// Check tree twice with different contexts to make sure removals don't affect
+	// other contexts.
+	checkTree(ctx, t, bt, e)
+	checkTree(98, t, bt, e)
 }
 
-func checkTree(t *testing.T, bt *tree, e expr.Expr) {
+func checkTree(ctx int64, t *testing.T, bt *tree, e expr.Expr) {
 	walkedValues := 0
-	bt.walk(func(key []byte, data []sequence) bool {
+	bt.walk(ctx, func(key []byte, data []sequence) bool {
 		if assert.Len(t, data, 1) {
 			walkedValues++
 			val, _ := data[0].valueAt(0, e)
@@ -99,18 +101,20 @@ func checkTree(t *testing.T, bt *tree, e expr.Expr) {
 	})
 	assert.Equal(t, 6, walkedValues)
 
-	val, _ := bt.remove([]byte("test"))[0].valueAt(0, e)
+	assert.Equal(t, 6, bt.length(ctx))
+	val, _ := bt.remove(ctx, []byte("test"))[0].valueAt(0, e)
 	assert.EqualValues(t, 11, val)
-	val, _ = bt.remove([]byte("slow"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("slow"))[0].valueAt(0, e)
 	assert.EqualValues(t, 12, val)
-	val, _ = bt.remove([]byte("water"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("water"))[0].valueAt(0, e)
 	assert.EqualValues(t, 13, val)
-	val, _ = bt.remove([]byte("slower"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("slower"))[0].valueAt(0, e)
 	assert.EqualValues(t, 14, val)
-	val, _ = bt.remove([]byte("team"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("team"))[0].valueAt(0, e)
 	assert.EqualValues(t, 15, val)
-	val, _ = bt.remove([]byte("toast"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("toast"))[0].valueAt(0, e)
 	assert.EqualValues(t, 16, val)
-	assert.Nil(t, bt.remove([]byte("unknown")))
-	assert.Equal(t, 0, bt.length)
+	assert.Nil(t, bt.remove(ctx, []byte("unknown")))
+	assert.Equal(t, 0, bt.length(ctx))
+	assert.Equal(t, 6, bt.length(0))
 }
