@@ -11,13 +11,15 @@ import (
 )
 
 func TestByteTree(t *testing.T) {
+	e := expr.SUM("a")
+
 	tb := &table{
 		Query: sql.Query{
 			Resolution: 5 * time.Second,
 			Fields: []sql.Field{
 				sql.Field{
 					Name: "myfield",
-					Expr: expr.SUM("a"),
+					Expr: e,
 				},
 			},
 		},
@@ -28,41 +30,80 @@ func TestByteTree(t *testing.T) {
 	bt := newByteTree()
 	bytesAdded := bt.update(tb, truncateBefore, []byte("test"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 1})))
 	assert.Equal(t, 21, bytesAdded)
+	assert.Equal(t, 1, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 2})))
 	assert.Equal(t, 21, bytesAdded)
+	assert.Equal(t, 2, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 3})))
 	assert.Equal(t, 22, bytesAdded)
+	assert.Equal(t, 3, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 4})))
 	assert.Equal(t, 19, bytesAdded)
+	assert.Equal(t, 4, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 5})))
 	assert.Equal(t, 19, bytesAdded)
+	assert.Equal(t, 5, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 6})))
 	assert.Equal(t, 21, bytesAdded)
+	assert.Equal(t, 6, bt.length)
 
 	bytesAdded = bt.update(tb, truncateBefore, []byte("test"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
+	assert.Equal(t, 6, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
+	assert.Equal(t, 6, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
+	assert.Equal(t, 6, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
+	assert.Equal(t, 6, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
+	assert.Equal(t, 6, bt.length)
 	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
+	assert.Equal(t, 6, bt.length)
 
-	val, _ := bt.root.edges[0].target.edges[0].target.edges[0].target.data[0].valueAt(0, tb.Fields[0])
-	assert.EqualValues(t, 11, val, "Wrong value for 'test'")
-	val, _ = bt.root.edges[0].target.edges[0].target.edges[1].target.data[0].valueAt(0, tb.Fields[0])
-	assert.EqualValues(t, 15, val, "Wrong value for 'team'")
-	val, _ = bt.root.edges[0].target.edges[1].target.data[0].valueAt(0, tb.Fields[0])
-	assert.EqualValues(t, 16, val, "Wrong value for 'toast'")
-	val, _ = bt.root.edges[1].target.data[0].valueAt(0, tb.Fields[0])
-	assert.EqualValues(t, 12, val, "Wrong value for 'slow'")
-	val, _ = bt.root.edges[1].target.edges[0].target.data[0].valueAt(0, tb.Fields[0])
-	assert.EqualValues(t, 14, val, "Wrong value for 'slower'")
-	val, _ = bt.root.edges[2].target.data[0].valueAt(0, tb.Fields[0])
-	assert.EqualValues(t, 13, val, "Wrong value for 'water'")
+	walkedValues := 0
+	bt.walk(func(key []byte, data []sequence) bool {
+		if assert.Len(t, data, 1) {
+			walkedValues++
+			val, _ := data[0].valueAt(0, e)
+			switch string(key) {
+			case "test":
+				assert.EqualValues(t, 11, val)
+			case "slow":
+				assert.EqualValues(t, 12, val)
+			case "water":
+				assert.EqualValues(t, 13, val)
+			case "slower":
+				assert.EqualValues(t, 14, val)
+			case "team":
+				assert.EqualValues(t, 15, val)
+			case "toast":
+				assert.EqualValues(t, 16, val)
+			default:
+				assert.Fail(t, "Unknown key", string(key))
+			}
+		}
+		return true
+	})
+	assert.Equal(t, 6, walkedValues)
 
+	val, _ := bt.remove([]byte("test"))[0].valueAt(0, e)
+	assert.EqualValues(t, 11, val)
+	val, _ = bt.remove([]byte("slow"))[0].valueAt(0, e)
+	assert.EqualValues(t, 12, val)
+	val, _ = bt.remove([]byte("water"))[0].valueAt(0, e)
+	assert.EqualValues(t, 13, val)
+	val, _ = bt.remove([]byte("slower"))[0].valueAt(0, e)
+	assert.EqualValues(t, 14, val)
+	val, _ = bt.remove([]byte("team"))[0].valueAt(0, e)
+	assert.EqualValues(t, 15, val)
+	val, _ = bt.remove([]byte("toast"))[0].valueAt(0, e)
+	assert.EqualValues(t, 16, val)
+	assert.Nil(t, bt.remove([]byte("unknown")))
+	assert.Equal(t, 0, bt.length)
 }
