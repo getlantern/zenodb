@@ -49,6 +49,32 @@ func (bt *tree) walk(fn func(key []byte, data []sequence) bool) {
 	}
 }
 
+func (bt *tree) copy() *tree {
+	cp := &tree{bytes: bt.bytes, length: bt.length, root: &node{}}
+	nodes := make([]*node, 0, bt.length)
+	nodeCopies := make([]*node, 0, bt.length)
+	nodes = append(nodes, bt.root)
+	nodeCopies = append(nodeCopies, cp.root)
+
+	for {
+		if len(nodes) == 0 {
+			break
+		}
+		n := nodes[0]
+		cpn := nodeCopies[0]
+		nodes = nodes[1:]
+		nodeCopies = nodeCopies[1:]
+		for _, e := range n.edges {
+			cpt := &node{key: e.target.key, data: e.target.data}
+			cpn.edges = append(cpn.edges, &edge{label: e.label, target: cpt})
+			nodes = append(nodes, e.target)
+			nodeCopies = append(nodeCopies, cpt)
+		}
+	}
+
+	return cp
+}
+
 func (bt *tree) remove(fullKey []byte) []sequence {
 	// TODO: basic shape of this is very similar to update, dry violation
 	n := bt.root

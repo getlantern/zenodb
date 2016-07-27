@@ -66,6 +66,13 @@ func TestByteTree(t *testing.T) {
 	assert.Equal(t, 0, bytesAdded)
 	assert.Equal(t, 6, bt.length)
 
+	btc := bt.copy()
+
+	checkTree(t, bt, e)
+	checkTree(t, btc, e)
+}
+
+func checkTree(t *testing.T, bt *tree, e expr.Expr) {
 	walkedValues := 0
 	bt.walk(func(key []byte, data []sequence) bool {
 		if assert.Len(t, data, 1) {
