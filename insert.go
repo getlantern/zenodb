@@ -22,7 +22,7 @@ func (p *Point) Get(name string) (interface{}, error) {
 }
 
 type insert struct {
-	key  string
+	key  bytemap.ByteMap
 	vals tsparams
 }
 
@@ -72,7 +72,7 @@ func (t *table) insert(point *Point) {
 		}
 	}
 
-	key := string(bytemap.New(point.Dims))
+	key := bytemap.New(point.Dims)
 	vals := newTSParams(point.Ts, bytemap.NewFloat(point.Vals))
 
 	if t.db.opts.DiscardOnBackPressure {

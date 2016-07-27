@@ -119,7 +119,7 @@ func (rs *rowStore) processInserts() {
 		select {
 		case insert := <-rs.inserts:
 			truncateBefore := rs.t.truncateBefore()
-			seqs := currentMemStore[insert.key]
+			seqs := currentMemStore[string(insert.key)]
 			if seqs == nil {
 				memStoreBytes += len(insert.key)
 			}
@@ -135,7 +135,7 @@ func (rs *rowStore) processInserts() {
 				seqs[i] = updated
 				memStoreBytes += len(updated) - previousSize
 			}
-			currentMemStore[insert.key] = seqs
+			currentMemStore[string(insert.key)] = seqs
 			rs.mx.Unlock()
 			if memStoreBytes >= rs.opts.maxMemStoreBytes {
 				flush()
