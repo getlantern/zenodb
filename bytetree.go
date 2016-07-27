@@ -1,6 +1,7 @@
 package tdb
 
 import (
+	"sync"
 	"time"
 )
 
@@ -10,6 +11,7 @@ type tree struct {
 	_bytes      int
 	_length     int
 	ctxRemovals map[int64]int
+	removalMx   sync.RWMutex
 }
 
 type node struct {
@@ -25,7 +27,7 @@ type edge struct {
 }
 
 func newByteTree() *tree {
-	return &tree{&node{}, 0, 0, make(map[int64]int)}
+	return &tree{root: &node{}, ctxRemovals: make(map[int64]int)}
 }
 
 func (bt *tree) bytes() int {
@@ -46,13 +48,11 @@ func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
 		n := nodes[0]
 		nodes = nodes[1:]
 		if n.data != nil {
-			alreadyRemoved := n.wasRemovedFor(ctx)
+			alreadyRemoved := n.wasRemovedFor(bt, ctx)
 			if !alreadyRemoved {
 				keep := fn(n.key, n.data)
 				if !keep {
-					if n.doRemoveFor(ctx) {
-						bt.ctxRemovals[ctx]++
-					}
+					n.doRemoveFor(bt, ctx)
 				}
 			}
 		}
@@ -80,13 +80,11 @@ nodeLoop:
 			}
 			if i == keyLength && keyLength == labelLength {
 				// found it
-				alreadyRemoved := edge.target.wasRemovedFor(ctx)
+				alreadyRemoved := edge.target.wasRemovedFor(bt, ctx)
 				if alreadyRemoved {
 					return nil
 				}
-				if edge.target.doRemoveFor(ctx) {
-					bt.ctxRemovals[ctx]++
-				}
+				edge.target.doRemoveFor(bt, ctx)
 				return edge.target.data
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
@@ -162,24 +160,29 @@ func (n *node) doUpdate(t *table, truncateBefore time.Time, vals tsparams) int {
 	return bytesAdded
 }
 
-func (n *node) wasRemovedFor(ctx int64) bool {
+func (n *node) wasRemovedFor(bt *tree, ctx int64) bool {
 	if ctx == 0 {
 		return false
 	}
+	bt.removalMx.RLock()
 	for _, _ctx := range n.removedFor {
 		if _ctx == ctx {
+			bt.removalMx.RUnlock()
 			return true
 		}
 	}
+	bt.removalMx.RUnlock()
 	return false
 }
 
-func (n *node) doRemoveFor(ctx int64) bool {
+func (n *node) doRemoveFor(bt *tree, ctx int64) {
 	if ctx == 0 {
-		return false
+		return
 	}
+	bt.removalMx.Lock()
 	n.removedFor = append(n.removedFor, ctx)
-	return true
+	bt.ctxRemovals[ctx]++
+	bt.removalMx.Unlock()
 }
 
 func (e *edge) split(t *table, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals tsparams) int {
