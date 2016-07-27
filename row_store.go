@@ -28,15 +28,15 @@ type rowStoreOptions struct {
 }
 
 type flushRequest struct {
-	idx  int
-	ms   memStore
-	sort bool
+	idx      int
+	memstore *tree
+	sort     bool
 }
 
 type rowStore struct {
 	t             *table
 	opts          *rowStoreOptions
-	memStores     map[int]memStore
+	memStores     map[int]*tree
 	fileStore     *fileStore
 	inserts       chan *insert
 	flushes       chan *flushRequest
@@ -63,7 +63,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
 	rs := &rowStore{
 		opts:          opts,
 		t:             t,
-		memStores:     make(map[int]memStore, 2),
+		memStores:     make(map[int]*tree, 2),
 		inserts:       make(chan *insert),
 		flushes:       make(chan *flushRequest, 1),
 		flushFinished: make(chan time.Duration, 1),
@@ -86,8 +86,7 @@ func (rs *rowStore) insert(insert *insert) {
 
 func (rs *rowStore) processInserts() {
 	memStoreIdx := 0
-	memStoreBytes := 0
-	currentMemStore := make(memStore)
+	currentMemStore := newByteTree()
 	rs.memStores[memStoreIdx] = currentMemStore
 
 	flushInterval := rs.opts.maxFlushLatency
@@ -97,20 +96,19 @@ func (rs *rowStore) processInserts() {
 	flush := func() {
 		// Temporarily disable flush timer while we're flushing
 		flushTimer.Reset(100000 * time.Hour)
-		if memStoreBytes == 0 {
+		if currentMemStore.length == 0 {
 			// nothing to flush
 			return
 		}
-		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(memStoreBytes)))
+		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.bytes)))
 		memStoreCopy := currentMemStore.copy()
 		shouldSort := flushIdx%10 == 0
 		fr := &flushRequest{memStoreIdx, memStoreCopy, shouldSort}
 		rs.mx.Lock()
 		flushIdx++
-		currentMemStore = make(memStore, len(currentMemStore))
+		currentMemStore = newByteTree()
 		memStoreIdx++
 		rs.memStores[memStoreIdx] = currentMemStore
-		memStoreBytes = 0
 		rs.mx.Unlock()
 		rs.flushes <- fr
 	}
@@ -119,25 +117,10 @@ func (rs *rowStore) processInserts() {
 		select {
 		case insert := <-rs.inserts:
 			truncateBefore := rs.t.truncateBefore()
-			seqs := currentMemStore[string(insert.key)]
-			if seqs == nil {
-				memStoreBytes += len(insert.key)
-			}
 			rs.mx.Lock()
-			// Grow sequences to match number of fields in table
-			for i := len(seqs); i < len(rs.t.Fields); i++ {
-				seqs = append(seqs, nil)
-			}
-			for i, field := range rs.t.Fields {
-				current := seqs[i]
-				previousSize := len(current)
-				updated := current.update(insert.vals, field, rs.t.Resolution, truncateBefore)
-				seqs[i] = updated
-				memStoreBytes += len(updated) - previousSize
-			}
-			currentMemStore[string(insert.key)] = seqs
+			currentMemStore.update(rs.t, truncateBefore, insert.key, insert.vals)
 			rs.mx.Unlock()
-			if memStoreBytes >= rs.opts.maxMemStoreBytes {
+			if currentMemStore.bytes >= rs.opts.maxMemStoreBytes {
 				flush()
 			}
 		case <-flushTimer.C:
@@ -155,7 +138,7 @@ func (rs *rowStore) processInserts() {
 func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
-	memStoresCopy := make([]memStore, 0, len(rs.memStores))
+	memStoresCopy := make([]*tree, 0, len(rs.memStores))
 	for _, ms := range rs.memStores {
 		memStoresCopy = append(memStoresCopy, ms.copy())
 	}
@@ -281,7 +264,7 @@ func (rs *rowStore) processFlushes() {
 		rs.mx.RLock()
 		fs := rs.fileStore
 		rs.mx.RUnlock()
-		fs.iterate(write, []memStore{req.ms})
+		fs.iterate(write, []*tree{req.memstore})
 		err = cout.Close()
 		if err != nil {
 			panic(err)
@@ -339,24 +322,6 @@ func (rs *rowStore) processFlushes() {
 	}
 }
 
-type memStore map[string][]sequence
-
-func (ms memStore) remove(key string) []sequence {
-	seqs, found := ms[key]
-	if found {
-		delete(ms, key)
-	}
-	return seqs
-}
-
-func (ms memStore) copy() memStore {
-	memStoreCopy := make(map[string][]sequence, len(ms))
-	for key, seqs := range ms {
-		memStoreCopy[key] = seqs
-	}
-	return memStoreCopy
-}
-
 // fileStore stores rows on disk, encoding them as:
 //   rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
 //
@@ -371,7 +336,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores []memStore, fields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores []*tree, fields ...string) error {
 	if log.IsTraceEnabled() {
 		log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
 	}
@@ -464,7 +429,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			}
 
 			for _, ms := range memStores {
-				columns2 := ms.remove(string(key))
+				columns2 := ms.remove(key)
 				for i := 0; i < len(columns) || i < len(columns2); i++ {
 					if shouldInclude(i) {
 						if i >= len(columns2) {
@@ -494,10 +459,10 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 
 	// Read remaining stuff from mem stores
 	for i, ms := range memStores {
-		for key, columns := range ms {
+		ms.walk(func(key []byte, columns []sequence) bool {
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
-				columns2 := ms2.remove(string(key))
+				columns2 := ms2.remove(key)
 				for i := 0; i < len(columns) || i < len(columns2); i++ {
 					if i >= len(columns2) {
 						// nothing to merge
@@ -512,7 +477,9 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 				}
 			}
 			onRow(bytemap.ByteMap(key), columns)
-		}
+
+			return false
+		})
 	}
 
 	return nil
