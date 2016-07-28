@@ -10,6 +10,7 @@ type tree struct {
 	root    *node
 	_bytes  int
 	_length int
+	mx      sync.RWMutex
 }
 
 type node struct {
@@ -17,7 +18,6 @@ type node struct {
 	edges      edges
 	data       []sequence
 	removedFor []int64
-	mx         sync.RWMutex
 }
 
 type edge struct {
@@ -49,11 +49,9 @@ func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
 		if n.data != nil {
 			alreadyRemoved := n.wasRemovedFor(bt, ctx)
 			if !alreadyRemoved {
-				n.mx.RLock()
 				keep := fn(n.key, n.data)
-				n.mx.RUnlock()
 				if !keep {
-					n.doRemoveFor(ctx)
+					n.doRemoveFor(bt, ctx)
 				}
 			}
 		}
@@ -85,7 +83,7 @@ nodeLoop:
 				if alreadyRemoved {
 					return nil
 				}
-				edge.target.doRemoveFor(ctx)
+				edge.target.doRemoveFor(bt, ctx)
 				return edge.target.data
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
@@ -147,7 +145,6 @@ nodeLoop:
 
 func (n *node) doUpdate(t *table, truncateBefore time.Time, vals tsparams) int {
 	bytesAdded := 0
-	n.mx.Lock()
 	// Grow sequences to match number of fields in table
 	for i := len(n.data); i < len(t.Fields); i++ {
 		n.data = append(n.data, nil)
@@ -159,7 +156,6 @@ func (n *node) doUpdate(t *table, truncateBefore time.Time, vals tsparams) int {
 		n.data[i] = updated
 		bytesAdded += len(updated) - previousSize
 	}
-	n.mx.Unlock()
 	return bytesAdded
 }
 
@@ -167,24 +163,24 @@ func (n *node) wasRemovedFor(bt *tree, ctx int64) bool {
 	if ctx == 0 {
 		return false
 	}
-	n.mx.RLock()
+	bt.mx.RLock()
 	for _, _ctx := range n.removedFor {
 		if _ctx == ctx {
-			n.mx.RUnlock()
+			bt.mx.RUnlock()
 			return true
 		}
 	}
-	n.mx.RUnlock()
+	bt.mx.RUnlock()
 	return false
 }
 
-func (n *node) doRemoveFor(ctx int64) {
+func (n *node) doRemoveFor(bt *tree, ctx int64) {
 	if ctx == 0 {
 		return
 	}
-	n.mx.Lock()
+	bt.mx.Lock()
 	n.removedFor = append(n.removedFor, ctx)
-	n.mx.Unlock()
+	bt.mx.Unlock()
 }
 
 func (e *edge) split(bt *tree, t *table, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals tsparams) int {

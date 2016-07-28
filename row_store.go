@@ -139,6 +139,8 @@ func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []seq
 	fs := rs.fileStore
 	// We exclude the current memstore to avoid reading from something that is
 	// currently getting writes.
+	// TODO: provide option to allow querying active memstore too, which requires
+	// us to copy that one.
 	memStoresCopy := make([]*tree, 0, len(rs.memStores)-1)
 	for i := 0; i < len(memStoresCopy); i++ {
 		memStoresCopy = append(memStoresCopy, rs.memStores[i])
