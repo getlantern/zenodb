@@ -26,8 +26,6 @@ var (
 
 var unaryFuncs = map[string]func(param interface{}) expr.Expr{
 	"SUM":   expr.SUM,
-	"MIN":   expr.MIN,
-	"MAX":   expr.MAX,
 	"COUNT": expr.COUNT,
 	"AVG":   expr.AVG,
 }
@@ -39,7 +37,7 @@ var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
 	"/": expr.DIV,
 }
 
-var conditions = map[string]func(left interface{}, right interface{}) expr.Cond{
+var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 	"<":  expr.LT,
 	"<=": expr.LTE,
 	"=":  expr.EQ,
@@ -63,7 +61,8 @@ type Query struct {
 	Until       time.Time
 	UntilOffset time.Duration
 	GroupBy     []string
-	Having      expr.Cond
+	GroupByAll  bool
+	Having      expr.Expr
 	OrderBy     []expr.Expr
 	Offset      int
 	Limit       int
@@ -130,9 +129,17 @@ func (q *Query) applySelect(stmt *sqlparser.Select) error {
 		if len(e.As) == 0 {
 			return ErrSelectInvalidExpression
 		}
-		fe, err := exprFor(e.Expr)
+		_fe, err := exprFor(e.Expr)
 		if err != nil {
 			return err
+		}
+		fe, ok := _fe.(expr.Expr)
+		if !ok {
+			return fmt.Errorf("Not an Expr: %v", _fe)
+		}
+		err = fe.Validate()
+		if err != nil {
+			return fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
 		}
 		q.Fields = append(q.Fields, Field{fe.(expr.Expr), strings.ToLower(string(e.As))})
 	}
@@ -185,6 +192,11 @@ func (q *Query) applyTimeRange(stmt *sqlparser.Select) error {
 
 func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	for _, e := range stmt.GroupBy {
+		_, ok := e.(*sqlparser.StarExpr)
+		if ok {
+			q.GroupByAll = true
+			continue
+		}
 		fn, ok := e.(*sqlparser.FuncExpr)
 		if ok && strings.EqualFold("period", string(fn.Name)) {
 			log.Trace("Detected period in group by")
@@ -209,7 +221,11 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 	if stmt.Having != nil {
 		filter, _ := exprFor(stmt.Having.Expr)
 		log.Tracef("Applying having: %v", filter)
-		q.Having = filter.(expr.Cond)
+		q.Having = filter.(expr.Expr)
+		err := q.Having.Validate()
+		if err != nil {
+			return fmt.Errorf("Invalid expression for HAVING clause: %v", err)
+		}
 	}
 	return nil
 }
@@ -320,7 +336,7 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 	case sqlparser.ValTuple:
 		// For some reason addition comes through as a single element ValTuple, just
 		// extract the first expression and continue.
-		log.Tracef("Returning wrapped expression for ValTuple")
+		log.Tracef("Returning wrapped expression for ValTuple: %s", _e)
 		return exprFor(e[0])
 	default:
 		str := exprToString(_e)

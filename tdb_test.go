@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Knetic/govaluate"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	. "github.com/getlantern/tdb/expr"
 	"github.com/getlantern/tdb/sql"
@@ -39,17 +38,16 @@ func TestIntegration(t *testing.T) {
 	tmpFile.Close()
 
 	resolution := time.Millisecond
-	hotPeriod := 2 * resolution
 
 	schemaA := `
 Test_a:
-  hotperiod: 2ms
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
       SUM(i) AS i,
       SUM(ii) AS ii,
-      AVG(i * ii) AS iii
+      SUM(i) * SUM(ii) / COUNT(ii) AS iii
     FROM inbound
     WHERE r = 'A'
     GROUP BY period(1ms)
@@ -61,7 +59,6 @@ Test_a:
 
 	db, err := NewDB(&DBOpts{
 		Dir:        tmpDir,
-		BatchSize:  1,
 		SchemaFile: tmpFile.Name(),
 	})
 	if !assert.NoError(t, err, "Unable to create DB") {
@@ -70,13 +67,13 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
-  hotperiod: 2ms
+  maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
       SUM(i) AS i,
       SUM(ii) AS ii,
-      AVG(i * ii) AS iii
+      AVG(i) * AVG(ii) AS iii
     FROM inbound
     WHERE r = 'A'
     GROUP BY u, period(1ms)`
@@ -105,8 +102,7 @@ view_a:
 		db.getTable("view_a").clock.Advance(now)
 		time.Sleep(250 * time.Millisecond)
 		for _, table := range []string{"test_a", "view_a"} {
-			stats := db.TableStats(table)
-			log.Debugf("%v (%v)\tFiltered Out Points: %d\tInserted Points: %d\tDropped Points: %d\tHot Keys: %d\tArchived Buckets: %d", table, db.Now(table).In(time.UTC), stats.FilteredPoints, stats.InsertedPoints, stats.DroppedPoints, stats.HotKeys, stats.ArchivedBuckets)
+			log.Debug(db.PrintTableStats(table))
 		}
 	}
 
@@ -191,8 +187,6 @@ view_a:
 		},
 	})
 
-	advance(hotPeriod * 10)
-
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[int][]float64, error) {
 		filter, queryErr := govaluate.NewEvaluableExpression("!b")
 		if queryErr != nil {
@@ -201,23 +195,40 @@ view_a:
 		fromOffset := from.Sub(now)
 		toOffset := to.Sub(now)
 		result := make(map[int][]float64, 0)
-		_, err = db.runQuery(&query{
+		q := &query{
 			table:       table,
 			fields:      []string{field},
 			asOfOffset:  fromOffset,
 			untilOffset: toOffset,
 			filter:      filter,
-			onValues: func(keybytes bytemap.ByteMap, resultField string, vals []float64) {
+			onValues: func(keybytes bytemap.ByteMap, resultField string, e Expr, seq sequence, startOffset int) {
 				key := keybytes.AsMap()
-				log.Debugf("%v : %v : %v", key, field, vals)
+				log.Debugf("%v : %v : %v : %d : %v", key, field, resultField, startOffset, seq.String(e))
 				if field == resultField {
-					result[key[dim].(int)] = vals
+					numPeriods := seq.numPeriods(e.EncodedWidth())
+					vals := make([]float64, 0, numPeriods-startOffset)
+					for i := 0; i < numPeriods-startOffset; i++ {
+						val, wasSet := seq.ValueAt(i+startOffset, e)
+						if wasSet {
+							vals = append(vals, val)
+						}
+					}
+					if len(vals) > 0 {
+						result[key[dim].(int)] = vals
+					}
 				}
 			},
-		})
+		}
+		stats, err := q.run(db)
+		log.Debugf("Query stats - scanned: %d    filterpass: %d    datavalid: %d    intimerange: %d", stats.Scanned, stats.FilterPass, stats.DataValid, stats.InTimeRange)
+		log.Debugf("Result: %v", result)
 		return result, err
 	}
 
+	// Give archiver time to catch up
+	time.Sleep(2 * time.Second)
+
+	log.Debug("A")
 	result, err := query("Test_A", epoch.Add(-1*resolution), epoch, "u", "i")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
@@ -225,27 +236,38 @@ view_a:
 		}
 	}
 
+	log.Debug("B")
+	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "ii")
+	if assert.NoError(t, err, "Unable to run query") {
+		if assert.Len(t, result, 1) {
+			assert.Equal(t, []float64{22}, result[1])
+		}
+	}
+
+	log.Debug("C")
 	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "iii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 1) {
-			assert.Equal(t, []float64{101}, result[1])
+			assert.Equal(t, []float64{121}, result[1])
 		}
 	}
 
+	log.Debug("D")
 	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
-			assert.Equal(t, []float64{222, 22, 0, 0}, result[1])
-			assert.Equal(t, []float64{42, 0, 0, 0}, result[2])
+			assert.Equal(t, []float64{222, 22}, result[1])
+			assert.Equal(t, []float64{42}, result[2])
 		}
 	}
 
+	log.Debug("E")
 	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
 	log.Debug(result)
 	if assert.NoError(t, err, "Unable to run query") {
 		if assert.Len(t, result, 2) {
-			assert.Equal(t, []float64{222, 22, 0, 0}, result[1])
-			assert.Equal(t, []float64{42, 0, 0, 0}, result[2])
+			assert.Equal(t, []float64{222, 22}, result[1])
+			assert.Equal(t, []float64{42}, result[2])
 		}
 	}
 
@@ -259,8 +281,7 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 SELECT
 	SUM(ii) AS sum_ii,
 	COUNT(ii) AS count_ii,
-	AVG(ii) * 2 AS avg_ii,
-	MIN(ii) AS min_ii
+	AVG(ii) * 2 AS avg_ii
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
@@ -285,25 +306,28 @@ ORDER BY AVG(avg_ii) DESC
 	if !assert.EqualValues(t, "A", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
 		return
 	}
-	if !assert.Len(t, entry.Fields["avg_ii"], 1, "Wrong number of periods, bucketing may not be working correctly") {
+	if !assert.Equal(t, 1, result.NumPeriods, "Wrong number of periods, bucketing may not be working correctly") {
 		return
 	}
-	avg := float64(286) / float64(scalingFactor)
-	assert.EqualValues(t, 286, entry.Fields["sum_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
-	if !assert.EqualValues(t, avg, entry.Fields["avg_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly") {
-		t.Log(spew.Sprint(entry.Fields["avg_ii"][0]))
-	}
-	assert.EqualValues(t, 0, entry.Fields["min_ii"][0].Get(), "Wrong derived value, bucketing may not be working correctly")
+	avg := float64(286) / float64(3) * 2 // 3 is the number of unique periods that have values for ii
+	log.Debug(entry.Dims)
+	log.Debug(result.NumPeriods)
+	log.Debugf("sum_ii: %v", entry.Fields[0])
+	log.Debugf("count_ii: %v", entry.Fields[1])
+	log.Debugf("avg_ii: %v", entry.Fields[2])
+	assert.EqualValues(t, 286, entry.Value("sum_ii", 0), "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, avg, entry.Value("avg_ii", 0), "Wrong derived value, bucketing may not be working correctly")
 	fields := make([]string, 0, len(result.Fields))
 	for _, field := range result.Fields {
 		fields = append(fields, field.Name)
 	}
-	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii", "min_ii"}, fields)
+	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii"}, fields)
 
 	// Test defaults
 	aq = db.Query(&sql.Query{
 		From:       "test_a",
 		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "sum_ii"}},
+		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})
 

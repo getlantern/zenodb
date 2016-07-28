@@ -12,14 +12,6 @@ log metrics at [Lantern](https://www.getlantern.org).
  * Reasonably efficient storage model
  * Seems pretty fast
 
-## Missing Features
-
- * Write-ahead-log to avoid data loss if process ends
-
-## Design Constraints
-
- * Measurements for historical periods cannot be modified
-
 ## Acknowledgements
 
  * [RocksDB](http://rocksdb.org/) - The storage engine

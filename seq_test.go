@@ -1,84 +1,149 @@
 package tdb
 
 import (
-	. "github.com/getlantern/tdb/expr"
 	"time"
 
+	"github.com/getlantern/bytemap"
+	. "github.com/getlantern/tdb/expr"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
-func TestBuildSequence(t *testing.T) {
+func TestSequenceUpdate(t *testing.T) {
 	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	res := time.Minute
-	b := &bucket{
-		start: epoch.Add(10 * res),
-		vals:  []Accumulator{CONST(6).Accumulator()},
-		prev: &bucket{
-			start: epoch.Add(7 * res),
-			vals:  []Accumulator{CONST(5).Accumulator()},
-			prev: &bucket{
-				start: epoch.Add(5 * res),
-				vals:  []Accumulator{CONST(4).Accumulator()},
-			},
-		},
-	}
+	e := SUM(MULT(FIELD("a"), FIELD("b")))
 
-	b2 := &bucket{
-		start: epoch.Add(3 * res),
-		vals:  []Accumulator{CONST(3).Accumulator()},
-		prev: &bucket{
-			start: epoch.Add(1 * res),
-			vals:  []Accumulator{CONST(2).Accumulator()},
-			prev: &bucket{
-				start: epoch,
-				vals:  []Accumulator{CONST(1).Accumulator()},
-			},
-		},
-	}
-
-	seq := b.toSequences(res)[0].append(b2.toSequences(res)[0], res, epoch)
-	assert.Equal(t, epoch.Add(10*res), seq.start().In(time.UTC))
-	assert.Equal(t, 11, seq.numPeriods())
-	for i := time.Duration(-1); i <= 12; i++ {
-		actual := int(seq.valueAtTime(epoch.Add(i*res), res))
-		t.Logf("%d -> %d", i, actual)
-		expected := 0
-		switch i {
-		case 10:
-			expected = 6
-		case 7:
-			expected = 5
-		case 5:
-			expected = 4
-		case 3:
-			expected = 3
-		case 1:
-			expected = 2
-		case 0:
-			expected = 1
+	checkWithTruncation := func(retainPeriods int) {
+		t.Logf("Retention periods: %d", retainPeriods)
+		retentionPeriod := res * time.Duration(retainPeriods)
+		trunc := func(vals []float64, ignoreTrailingIndex int) []float64 {
+			if len(vals) > retainPeriods {
+				vals = vals[:retainPeriods]
+				if len(vals)-1 == ignoreTrailingIndex {
+					// Remove trailing zero to deal with append deep
+					vals = vals[:retainPeriods-1]
+				}
+			}
+			return vals
 		}
-		assert.Equal(t, expected, actual)
+
+		start := epoch
+		var seq sequence
+
+		doIt := func(ts time.Time, params map[string]float64, expected []float64) {
+			if ts.After(start) {
+				start = ts
+			}
+			truncateBefore := start.Add(-1 * retentionPeriod)
+			seq = seq.update(newTSParams(ts, bytemap.NewFloat(params)), e, res, truncateBefore)
+			checkUpdatedValues(t, e, seq, trunc(expected, 4))
+		}
+
+		// Set something on an empty sequence
+		doIt(epoch, map[string]float64{"a": 1, "b": 2}, []float64{2})
+
+		// Prepend
+		doIt(epoch.Add(2*res), map[string]float64{"a": 1, "b": 1}, []float64{1, 0, 2})
+
+		// Append
+		doIt(epoch.Add(-1*res), map[string]float64{"a": 1, "b": 3}, []float64{1, 0, 2, 3})
+
+		// Append deep
+		doIt(epoch.Add(-3*res), map[string]float64{"a": 1, "b": 4}, []float64{1, 0, 2, 3, 0, 4})
+
+		// Update value
+		doIt(epoch, map[string]float64{"a": 1, "b": 5}, []float64{1, 0, 7, 3, 0, 4})
 	}
 
-	checkTruncation := func(offset time.Duration, length int, msg string) {
-		merged := b.toSequences(res)[0].append(b2.toSequences(res)[0], res, epoch.Add(offset*res))
-		if length == 0 {
-			assert.Equal(t, emptySequence, merged, msg)
-		} else {
-			assert.Equal(t, length, merged.numPeriods(), msg)
+	for i := 6; i >= 0; i-- {
+		checkWithTruncation(i)
+	}
+}
+
+func checkUpdatedValues(t *testing.T, e Expr, seq sequence, expected []float64) {
+	if assert.Equal(t, len(expected), seq.numPeriods(e.EncodedWidth())) {
+		for i, v := range expected {
+			actual, wasSet := seq.ValueAt(i, e)
+			assert.EqualValues(t, v, actual)
+			if v == 0 {
+				assert.False(t, wasSet)
+			}
 		}
 	}
+}
 
-	checkTruncation(1, 10, "Should partially truncate earlier sequence")
-	checkTruncation(2, 9, "Should partially truncate earlier sequence")
-	checkTruncation(3, 8, "Should partially truncate earlier sequence")
-	checkTruncation(4, 6, "Should omit gap")
-	checkTruncation(5, 6, "Should omit gap")
-	checkTruncation(6, 5, "Should partially truncate later sequence")
-	checkTruncation(7, 4, "Should partially truncate later sequence")
-	checkTruncation(8, 3, "Should partially truncate later sequence")
-	checkTruncation(9, 2, "Should partially truncate later sequence")
-	checkTruncation(10, 1, "Should partially truncate later sequence")
-	checkTruncation(11, 0, "Should omit empty sequence")
+func TestSequenceMergeAOB(t *testing.T) {
+	res := time.Minute
+	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
+	truncateBefore := epoch.Add(-1000 * res)
+	e := SUM("a")
+
+	var seq1 sequence
+	var seq2 sequence
+
+	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
+	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+
+	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), e, res, truncateBefore)
+	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), e, res, truncateBefore)
+
+	checkMerge(t, epoch, res, seq1, seq2, e)
+	checkMerge(t, epoch, res, seq2, seq1, e)
+}
+
+func TestSequenceMergeAOA(t *testing.T) {
+	res := time.Minute
+	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
+	truncateBefore := epoch.Add(-1000 * res)
+	e := SUM("a")
+
+	var seq1 sequence
+	var seq2 sequence
+
+	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
+	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+	seq1 = seq1.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), e, res, truncateBefore)
+	seq1 = seq1.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), e, res, truncateBefore)
+
+	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+
+	checkMerge(t, epoch, res, seq1, seq2, e)
+	checkMerge(t, epoch, res, seq2, seq1, e)
+}
+
+func TestSequenceMergeAB(t *testing.T) {
+	res := time.Minute
+	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
+	truncateBefore := epoch.Add(-1000 * res)
+	e := SUM("a")
+
+	var seq1 sequence
+	var seq2 sequence
+
+	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
+	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 6})), e, res, truncateBefore)
+	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), e, res, truncateBefore)
+	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), e, res, truncateBefore)
+	seq2 = seq2.merge(nil, e, res, zeroTime)
+	seq2 = ((sequence)(nil)).merge(seq2, e, res, zeroTime)
+
+	checkMerge(t, epoch, res, seq1, seq2, e)
+	checkMerge(t, epoch, res, seq2, seq1, e)
+}
+
+func checkMerge(t *testing.T, epoch time.Time, res time.Duration, seq1 sequence, seq2 sequence, e Expr) {
+	merged := seq1.merge(seq2, e, res, zeroTime)
+	assert.Equal(t, 5, merged.numPeriods(e.EncodedWidth()))
+	val, _ := merged.valueAtTime(epoch.Add(-1*res), e, res)
+	assert.EqualValues(t, 1, val)
+	val, _ = merged.valueAtTime(epoch.Add(-2*res), e, res)
+	assert.EqualValues(t, 0, val)
+	val, _ = merged.valueAtTime(epoch.Add(-3*res), e, res)
+	assert.EqualValues(t, 6, val)
+	val, _ = merged.valueAtTime(epoch.Add(-4*res), e, res)
+	assert.EqualValues(t, 4, val)
+	val, _ = merged.valueAtTime(epoch.Add(-5*res), e, res)
+	assert.EqualValues(t, 5, val)
 }

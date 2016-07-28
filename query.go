@@ -1,25 +1,25 @@
 package tdb
 
 import (
-	"bytes"
 	"fmt"
-	"sort"
 	"time"
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
-	"github.com/tecbot/gorocksdb"
+	"github.com/getlantern/tdb/expr"
 )
 
 type query struct {
-	table       string
-	fields      []string
-	filter      *govaluate.EvaluableExpression
-	asOf        time.Time
-	asOfOffset  time.Duration
-	until       time.Time
-	untilOffset time.Duration
-	onValues    func(key bytemap.ByteMap, field string, vals []float64)
+	table        string
+	fields       []string
+	filter       *govaluate.EvaluableExpression
+	asOf         time.Time
+	asOfOffset   time.Duration
+	until        time.Time
+	untilOffset  time.Duration
+	onValues     func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int)
+	t            *table
+	sortedFields []string
 }
 
 type QueryStats struct {
@@ -32,134 +32,96 @@ type QueryStats struct {
 	Runtime      time.Duration
 }
 
-func (db *DB) runQuery(q *query) (*QueryStats, error) {
-	start := time.Now()
-	stats := &QueryStats{}
-
-	if q.asOf.IsZero() && q.asOfOffset >= 0 {
-		return stats, fmt.Errorf("Please specify an asOf or a negative asOfOffset")
-	}
+func (q *query) init(db *DB) error {
 	if len(q.fields) == 0 {
-		return stats, fmt.Errorf("Please specify at least one field")
+		return fmt.Errorf("Please specify at least one field")
 	}
-	t := db.getTable(q.table)
-	if t == nil {
-		return stats, fmt.Errorf("Unknown table %v", q.table)
+	q.t = db.getTable(q.table)
+	if q.t == nil {
+		return fmt.Errorf("Unknown table %v", q.table)
 	}
-	fields := make([][]byte, 0, len(q.fields))
-	for _, field := range q.fields {
-		fields = append(fields, encodeField(field))
+
+	// Set up time-based parameters
+	now := q.t.clock.Now()
+	truncateBefore := q.t.truncateBefore()
+	if q.asOf.IsZero() && q.asOfOffset >= 0 {
+		log.Trace("No asOf and no positive asOfOffset, defaulting to retention period")
+		q.asOf = truncateBefore
 	}
-	sort.Sort(lexicographical(fields))
-	now := t.clock.Now()
+	if q.asOf.IsZero() {
+		q.asOf = now.Add(q.asOfOffset)
+	}
+	if q.asOf.Before(truncateBefore) {
+		log.Tracef("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
+		q.asOf = truncateBefore
+	}
 	if q.until.IsZero() {
 		q.until = now
 		if q.untilOffset != 0 {
 			q.until = q.until.Add(q.untilOffset)
 		}
 	}
-	if q.asOf.IsZero() {
-		q.asOf = now.Add(q.asOfOffset)
-	}
-	q.until = roundTime(q.until, t.Resolution)
-	q.asOf = roundTime(q.asOf, t.Resolution)
-	numPeriods := int(q.until.Sub(q.asOf) / t.Resolution)
-	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
+	q.until = roundTime(q.until, q.t.Resolution)
+	q.asOf = roundTime(q.asOf, q.t.Resolution)
 
-	ro := gorocksdb.NewDefaultReadOptions()
-	// Go ahead and fill the cache
-	ro.SetFillCache(true)
-	it := t.archiveByKey.NewIterator(ro)
-	defer it.Close()
+	return nil
+}
 
-	for _, fieldBytes := range fields {
-		for it.Seek(fieldBytes); it.ValidForPrefix(fieldBytes); it.Next() {
-			stats.Scanned++
-			k := it.Key()
-			storedField, key := fieldAndKey(k.Data())
+func (q *query) run(db *DB) (*QueryStats, error) {
+	start := time.Now()
+	stats := &QueryStats{}
 
-			if q.filter != nil {
-				include, err := q.filter.Eval(byteMapParams(key))
-				if err != nil {
-					k.Free()
-					return stats, fmt.Errorf("Unable to apply filter: %v", err)
-				}
-				inc, ok := include.(bool)
-				if !ok {
-					k.Free()
-					return stats, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
-				}
-				if !inc {
-					stats.FilterReject++
-					continue
-				}
-				stats.FilterPass++
-			}
-
-			v := it.Value()
-			stats.ReadValue++
-			seq := sequence(v.Data())
-			vals := make([]float64, numPeriods)
-			if seq.isValid() {
-				stats.DataValid++
-				seqStart := seq.start()
-				if log.IsTraceEnabled() {
-					log.Tracef("Sequence starts at %v and has %d periods", seqStart.In(time.UTC), seq.numPeriods())
-				}
-				includeKey := false
-				if !seqStart.Before(q.asOf) {
-					to := q.until
-					if to.After(seqStart) {
-						to = seqStart
-					}
-					startOffset := int(seqStart.Sub(to) / t.Resolution)
-					log.Tracef("Start offset %d", startOffset)
-					copyPeriods := seq.numPeriods()
-					for i := 0; i+startOffset < copyPeriods && i < numPeriods; i++ {
-						includeKey = true
-						val := seq.valueAt(i + startOffset)
-						log.Tracef("Grabbing value %f", val)
-						vals[i] = val
-					}
-				}
-				if includeKey {
-					stats.InTimeRange++
-					q.onValues(key, storedField, vals)
-				}
-			}
-			k.Free()
-			v.Free()
+	if q.t == nil {
+		err := q.init(db)
+		if err != nil {
+			return nil, err
 		}
 	}
+	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
+	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
+
+	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []sequence) {
+		stats.Scanned++
+
+		if q.filter != nil {
+			include, err := q.filter.Eval(bytemapQueryParams(key))
+			if err != nil {
+				log.Errorf("Unable to apply filter: %v", err)
+				return
+			}
+			inc, ok := include.(bool)
+			if !ok {
+				log.Errorf("Filter expression returned something other than a boolean: %v", include)
+				return
+			}
+			if !inc {
+				stats.FilterReject++
+				return
+			}
+			stats.FilterPass++
+		}
+
+		for i := 0; i < len(columns); i++ {
+			stats.ReadValue++
+			field := q.t.Fields[i]
+			e := field.Expr
+			encodedWidth := e.EncodedWidth()
+			seq := columns[i]
+			if len(seq) > 0 {
+				stats.DataValid++
+				if log.IsTraceEnabled() {
+					log.Tracef("Reading sequence %v", seq.String(e))
+				}
+				seq = seq.truncate(encodedWidth, q.t.Resolution, q.asOf)
+				if seq != nil {
+					stats.InTimeRange++
+					startOffset := int(seq.start().Sub(q.until) / q.t.Resolution)
+					q.onValues(key, field.Name, e, seq, startOffset)
+				}
+			}
+		}
+	})
 
 	stats.Runtime = time.Now().Sub(start)
 	return stats, nil
-}
-
-type byteMapParams bytemap.ByteMap
-
-func (bmp byteMapParams) Get(field string) (interface{}, error) {
-	result := bytemap.ByteMap(bmp).Get(field)
-	if result == nil {
-		return "", nil
-	}
-	return result, nil
-}
-
-type lexicographical [][]byte
-
-func (a lexicographical) Len() int           { return len(a) }
-func (a lexicographical) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a lexicographical) Less(i, j int) bool { return bytes.Compare(a[i], a[j]) < 0 }
-
-func keysEqual(a map[string]interface{}, b map[string]interface{}) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if b[k] != v {
-			return false
-		}
-	}
-	return true
 }

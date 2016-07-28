@@ -11,8 +11,6 @@ var (
 		New: func() interface{} {
 			vm := otto.New()
 			vm.Set("SUM", SUM)
-			vm.Set("MIN", MIN)
-			vm.Set("MAX", MAX)
 			vm.Set("COUNT", COUNT)
 			vm.Set("AVG", AVG)
 			vm.Set("ADD", ADD)

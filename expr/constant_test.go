@@ -8,12 +8,13 @@ import (
 func TestConstant(t *testing.T) {
 	e := CONST(5.5)
 	params := Map{
-		"a": Float(8.8),
-		"b": Float(4.4),
+		"a": 8.8,
+		"b": 4.4,
 	}
 
 	assert.Equal(t, []string{}, e.DependsOn())
-	a := e.Accumulator()
-	a.Update(params)
-	assertFloatEquals(t, 5.5, a.Get())
+	b := make([]byte, e.EncodedWidth())
+	e.Update(b, params)
+	val, _, _ := e.Get(b)
+	assertFloatEquals(t, 5.5, val)
 }

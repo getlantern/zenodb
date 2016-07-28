@@ -2,9 +2,9 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"math/rand"
-	"os"
+	"net/http"
+	_ "net/http/pprof"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -13,7 +13,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tdb"
-	. "github.com/getlantern/tdb/expr"
+	"github.com/jmcvetta/randutil"
 )
 
 var (
@@ -21,34 +21,54 @@ var (
 )
 
 func main() {
-	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
+	go func() {
+		log.Error(http.ListenAndServe("localhost:4000", nil))
+	}()
 
-	tmpDir, err := ioutil.TempDir("", "tdbtest")
+	numReporters := 5000
+	uniquesPerReporter := 1000
+	uniquesPerPeriod := 100
+	valuesPerPeriod := 5000
+	reportingPeriods := 100000
+	resolution := 5 * time.Minute
+	retainPeriods := 24
+	retentionPeriod := time.Duration(retainPeriods) * resolution
+	targetPointsPerSecond := 200000
+	numWriters := 4
+	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
+	targetDeltaFor1000Points := 1000 * time.Second / time.Duration(targetPointsPerSecondPerWriter)
+	log.Debugf("Target delta for 1000 points: %v", targetDeltaFor1000Points)
+
+	reporters := make([]string, 0)
+	for i := 0; i < numReporters; i++ {
+		reporter, _ := randutil.AlphaStringRange(15, 25)
+		reporters = append(reporters, reporter)
+	}
+	uniques := make([]string, 0)
+	for i := 0; i < uniquesPerReporter; i++ {
+		unique, _ := randutil.AlphaStringRange(150, 250)
+		uniques = append(uniques, unique)
+	}
+
+	db, err := tdb.NewDB(&tdb.DBOpts{
+		Dir:                  "/tmp/tdbdemo",
+		RocksDBStatsInterval: 60 * time.Second,
+	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer os.RemoveAll(tmpDir)
-
-	log.Debugf("Writing data to %v", tmpDir)
-
-	numReporters := 5000
-	uniquesPerReporter := 100
-	uniquesPerPeriod := 20
-	reportingPeriods := 1000
-	reportingInterval := time.Millisecond
-	resolution := reportingInterval * 5
-	hotPeriod := resolution * 10
-	retainPeriods := 2
-	retentionPeriod := time.Duration(retainPeriods) * reportingInterval
-	numWriters := 4
-	db := tdb.NewDB(&tdb.DBOpts{
-		Dir:       tmpDir,
-		BatchSize: 1000,
-	})
-	err = db.CreateTable("test", resolution, hotPeriod, retentionPeriod, map[string]Expr{
-		"i":   SUM("i"),
-		"ii":  SUM("ii"),
-		"iii": AVG(DIV("ii", "i")),
+	err = db.CreateTable(&tdb.TableOpts{
+		Name:             "test",
+		RetentionPeriod:  retentionPeriod,
+		MaxMemStoreBytes: 500 * 1024 * 1024,
+		MaxFlushLatency:  5 * time.Minute,
+		SQL: fmt.Sprintf(`
+SELECT
+	SUM(i) AS i,
+	SUM(ii) AS ii,
+	AVG(ii) / AVG(i) AS iii
+FROM inbound
+GROUP BY period(%v)`, resolution),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -58,7 +78,6 @@ func main() {
 	start := time.Now()
 
 	report := func() {
-		stats := db.TableStats("test")
 		delta := time.Now().Sub(start)
 		start = time.Now()
 		i := atomic.SwapInt64(&inserts, 0)
@@ -70,11 +89,11 @@ func main() {
 		postGC := float64(ms.HeapAlloc) / 1024.0 / 1024.0
 		fmt.Printf(`
 %s inserts at %s inserts per second
-Hot Keys: %s     Archived Buckets: %s     Expired Keys: %s
+%v
 HeapAlloc pre/post GC %f/%f MiB
 `,
 			humanize.Comma(i), humanize.Comma(i/int64(delta.Seconds())),
-			humanize.Comma(stats.HotKeys), humanize.Comma(stats.ArchivedBuckets), humanize.Comma(stats.ExpiredKeys),
+			db.PrintTableStats("test"),
 			preGC, postGC)
 	}
 
@@ -89,14 +108,15 @@ HeapAlloc pre/post GC %f/%f MiB
 
 	go func() {
 		for {
-			tk := time.NewTicker(10 * time.Second)
+			tk := time.NewTicker(1 * time.Minute)
 			for range tk.C {
+				log.Debug("Running query")
 				now := db.Now("test")
-				q, err := db.SQLQuery(fmt.Sprintf(`
-SELECT COUNT(i) AS the_count
-FROM test ASOF '%v'
+				q, err := db.SQLQuery(`
+SELECT SUM(ii) AS the_count
+FROM test
 GROUP BY period(168h)
-`, -2*hotPeriod))
+`)
 				if err != nil {
 					log.Errorf("Unable to build query: %v", err)
 					continue
@@ -109,9 +129,11 @@ GROUP BY period(168h)
 					continue
 				}
 				count := float64(0)
-				if len(result.Entries) > 0 {
-					count = result.Entries[0].Fields["the_count"][0].Get()
+				if len(result.Entries) != 1 {
+					log.Errorf("Unexpected result entries: %d", len(result.Entries))
+					continue
 				}
+				count = result.Entries[0].Value("the_count", 0)
 				fmt.Printf("\nQuery at %v returned %v in %v\n", now, humanize.Comma(int64(count)), delta)
 			}
 		}
@@ -122,28 +144,45 @@ GROUP BY period(168h)
 	for _w := 0; _w < numWriters; _w++ {
 		go func() {
 			defer wg.Done()
+			c := 0
+			start := time.Now()
 			for i := 0; i < reportingPeriods; i++ {
-				ts := epoch.Add(time.Duration(i) * reportingInterval)
+				ts := time.Now()
+				uqs := make([]int, 0, uniquesPerPeriod)
+				for u := 0; u < uniquesPerPeriod; u++ {
+					uqs = append(uqs, rand.Intn(uniquesPerReporter))
+				}
 				for r := 0; r < numReporters/numWriters; r++ {
-					for u := 0; u < uniquesPerPeriod; u++ {
+					for v := 0; v < valuesPerPeriod; v++ {
 						p := &tdb.Point{
 							Ts: ts,
 							Dims: map[string]interface{}{
-								"r": rand.Intn(numReporters),
-								"u": rand.Intn(uniquesPerReporter),
+								"r": reporters[rand.Intn(len(reporters))],
+								"u": uniques[uqs[rand.Intn(uniquesPerPeriod)]],
 								"b": rand.Float64() > 0.99,
+								"x": 1,
 							},
 							Vals: map[string]float64{
 								"i":  float64(rand.Intn(100000)),
-								"ii": float64(rand.Intn(100)),
+								"ii": 1,
 							},
 						}
-						ierr := db.Insert("test", p)
+						ierr := db.Insert("inbound", p)
 						if ierr != nil {
 							log.Errorf("Unable to insert: %v", err)
 							return
 						}
 						atomic.AddInt64(&inserts, 1)
+						c++
+
+						// Control rate
+						if c > 0 && c%1000 == 0 {
+							delta := time.Now().Sub(start)
+							if delta < targetDeltaFor1000Points {
+								time.Sleep(targetDeltaFor1000Points - delta)
+							}
+							start = time.Now()
+						}
 					}
 				}
 				fmt.Print(".")

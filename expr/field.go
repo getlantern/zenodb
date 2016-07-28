@@ -7,27 +7,36 @@ func FIELD(name string) Expr {
 
 type fieldAccumulator struct {
 	name  string
-	value Value
-}
-
-func (a *fieldAccumulator) Update(params Params) {
-	a.value = params.Get(a.name)
-}
-
-func (a *fieldAccumulator) Get() float64 {
-	return a.value.Get()
+	value float64
 }
 
 type field struct {
 	name string
 }
 
-func (e *field) Accumulator() Accumulator {
-	return &fieldAccumulator{name: e.name}
+func (e *field) Validate() error {
+	return nil
 }
 
 func (e *field) DependsOn() []string {
 	return []string{e.name}
+}
+
+func (e *field) EncodedWidth() int {
+	return 0
+}
+
+func (e *field) Update(b []byte, params Params) ([]byte, float64, bool) {
+	val, ok := params.Get(e.name)
+	return b, val, ok
+}
+
+func (e *field) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	return b, x, y
+}
+
+func (e *field) Get(b []byte) (float64, bool, []byte) {
+	return 0, false, b
 }
 
 func (e *field) String() string {

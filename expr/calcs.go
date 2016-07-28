@@ -1,5 +1,10 @@
 package expr
 
+// calc creates an Expr that obtains its value by applying the given calcFN
+func calc(op string, left interface{}, right interface{}, calc calcFN) Expr {
+	return &binaryExpr{op, exprFor(left), exprFor(right), calc}
+}
+
 // ADD creates an Expr that obtains its value by adding right and left.
 func ADD(left interface{}, right interface{}) Expr {
 	return calc("+", left, right, func(left float64, right float64) float64 {
