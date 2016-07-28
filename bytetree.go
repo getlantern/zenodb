@@ -7,11 +7,9 @@ import (
 
 // see https://en.wikipedia.org/wiki/Radix_tree
 type tree struct {
-	root        *node
-	_bytes      int
-	_length     int
-	ctxRemovals map[int64]int
-	mx          sync.RWMutex
+	root    *node
+	_bytes  int
+	_length int
 }
 
 type node struct {
@@ -28,25 +26,19 @@ type edge struct {
 }
 
 func newByteTree() *tree {
-	return &tree{root: &node{}, ctxRemovals: make(map[int64]int)}
+	return &tree{root: &node{}}
 }
 
 func (bt *tree) bytes() int {
-	bt.mx.RLock()
-	result := bt._bytes
-	bt.mx.RUnlock()
-	return result
+	return bt._bytes
 }
 
-func (bt *tree) length(ctx int64) int {
-	bt.mx.RLock()
-	result := bt._length - bt.ctxRemovals[ctx]
-	bt.mx.RUnlock()
-	return result
+func (bt *tree) length() int {
+	return bt._length
 }
 
 func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
-	nodes := make([]*node, 0, bt.length(ctx))
+	nodes := make([]*node, 0, bt._length)
 	nodes = append(nodes, bt.root)
 	for {
 		if len(nodes) == 0 {
@@ -61,15 +53,13 @@ func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
 				keep := fn(n.key, n.data)
 				n.mx.RUnlock()
 				if !keep {
-					n.doRemoveFor(bt, ctx)
+					n.doRemoveFor(ctx)
 				}
 			}
 		}
-		bt.mx.RLock()
 		for _, e := range n.edges {
 			nodes = append(nodes, e.target)
 		}
-		bt.mx.RUnlock()
 	}
 }
 
@@ -95,7 +85,7 @@ nodeLoop:
 				if alreadyRemoved {
 					return nil
 				}
-				edge.target.doRemoveFor(bt, ctx)
+				edge.target.doRemoveFor(ctx)
 				return edge.target.data
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
@@ -112,12 +102,10 @@ nodeLoop:
 
 func (bt *tree) update(t *table, truncateBefore time.Time, key []byte, vals tsparams) int {
 	bytesAdded, newNode := bt.doUpdate(t, truncateBefore, key, vals)
-	bt.mx.Lock()
 	bt._bytes += bytesAdded
 	if newNode {
 		bt._length++
 	}
-	bt.mx.Unlock()
 	return bytesAdded
 }
 
@@ -152,9 +140,7 @@ nodeLoop:
 
 		// Create new edge
 		target := &node{key: fullKey}
-		bt.mx.Lock()
 		n.edges = append(n.edges, &edge{key, target})
-		bt.mx.Unlock()
 		return target.doUpdate(t, truncateBefore, vals) + len(key), true
 	}
 }
@@ -192,29 +178,24 @@ func (n *node) wasRemovedFor(bt *tree, ctx int64) bool {
 	return false
 }
 
-func (n *node) doRemoveFor(bt *tree, ctx int64) {
+func (n *node) doRemoveFor(ctx int64) {
 	if ctx == 0 {
 		return
 	}
 	n.mx.Lock()
 	n.removedFor = append(n.removedFor, ctx)
 	n.mx.Unlock()
-	bt.mx.Lock()
-	bt.ctxRemovals[ctx]++
-	bt.mx.Unlock()
 }
 
 func (e *edge) split(bt *tree, t *table, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals tsparams) int {
 	newNode := &node{edges: edges{&edge{e.label[splitOn:], e.target}}}
 	newLeaf := newNode
-	bt.mx.Lock()
 	if splitOn != len(key) {
 		newLeaf = &node{key: fullKey}
 		newNode.edges = append(newNode.edges, &edge{key[splitOn:], newLeaf})
 	}
 	e.label = e.label[:splitOn]
 	e.target = newNode
-	bt.mx.Unlock()
 	return len(key) - splitOn + newLeaf.doUpdate(t, truncateBefore, vals)
 }
 

@@ -130,7 +130,8 @@ GROUP BY period(168h)
 				}
 				count := float64(0)
 				if len(result.Entries) != 1 {
-					log.Fatalf("Unexpected result entries: %d", len(result.Entries))
+					log.Errorf("Unexpected result entries: %d", len(result.Entries))
+					continue
 				}
 				count = result.Entries[0].Value("the_count", 0)
 				fmt.Printf("\nQuery at %v returned %v in %v\n", now, humanize.Comma(int64(count)), delta)

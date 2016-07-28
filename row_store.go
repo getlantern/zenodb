@@ -96,7 +96,7 @@ func (rs *rowStore) processInserts() {
 	flush := func() {
 		// Temporarily disable flush timer while we're flushing
 		flushTimer.Reset(100000 * time.Hour)
-		if currentMemStore.length(0) == 0 {
+		if currentMemStore.length() == 0 {
 			// nothing to flush
 			return
 		}
@@ -137,9 +137,11 @@ func (rs *rowStore) processInserts() {
 func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
-	memStoresCopy := make([]*tree, 0, len(rs.memStores))
-	for _, ms := range rs.memStores {
-		memStoresCopy = append(memStoresCopy, ms)
+	// We exclude the current memstore to avoid reading from something that is
+	// currently getting writes.
+	memStoresCopy := make([]*tree, 0, len(rs.memStores)-1)
+	for i := 0; i < len(memStoresCopy); i++ {
+		memStoresCopy = append(memStoresCopy, rs.memStores[i])
 	}
 	rs.mx.RUnlock()
 	return fs.iterate(onValue, memStoresCopy, fields...)
