@@ -51,7 +51,7 @@ func (entry *Entry) value(name string, period int) (float64, bool) {
 	if seq == nil || period > seq.numPeriods(field.EncodedWidth()) {
 		return 0, false
 	}
-	return seq.valueAt(period, field)
+	return seq.ValueAt(period, field)
 }
 
 type QueryResult struct {
@@ -308,7 +308,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 			sfp.field = resp.field
 			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
 			for i := 0; i < inPeriods && i < aq.inPeriods; i++ {
-				val, wasSet := resp.seq.valueAt(i+resp.startOffset, resp.e)
+				val, wasSet := resp.seq.ValueAt(i+resp.startOffset, resp.e)
 				if wasSet {
 					atomic.AddInt64(&scannedPoints, 1)
 					sfp.value = val

@@ -208,7 +208,7 @@ view_a:
 					numPeriods := seq.numPeriods(e.EncodedWidth())
 					vals := make([]float64, 0, numPeriods-startOffset)
 					for i := 0; i < numPeriods-startOffset; i++ {
-						val, wasSet := seq.valueAt(i+startOffset, e)
+						val, wasSet := seq.ValueAt(i+startOffset, e)
 						if wasSet {
 							vals = append(vals, val)
 						}

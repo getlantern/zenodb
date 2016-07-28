@@ -50,10 +50,10 @@ func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Durati
 		return 0, false
 	}
 	period := int(start.Sub(t) / resolution)
-	return seq.valueAt(period, e)
+	return seq.ValueAt(period, e)
 }
 
-func (seq sequence) valueAt(period int, e expr.Expr) (float64, bool) {
+func (seq sequence) ValueAt(period int, e expr.Expr) (float64, bool) {
 	if seq == nil {
 		return 0, false
 	}
@@ -267,7 +267,7 @@ func (seq sequence) String(e expr.Expr) string {
 		if i > 0 {
 			values += " "
 		}
-		val, _ := seq.valueAt(i, e)
+		val, _ := seq.ValueAt(i, e)
 		values += fmt.Sprint(val)
 	}
 	return fmt.Sprintf("%v at %v: %v", e, seq.start(), values)

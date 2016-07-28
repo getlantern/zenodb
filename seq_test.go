@@ -64,7 +64,7 @@ func TestSequenceUpdate(t *testing.T) {
 func checkUpdatedValues(t *testing.T, e Expr, seq sequence, expected []float64) {
 	if assert.Equal(t, len(expected), seq.numPeriods(e.EncodedWidth())) {
 		for i, v := range expected {
-			actual, wasSet := seq.valueAt(i, e)
+			actual, wasSet := seq.ValueAt(i, e)
 			assert.EqualValues(t, v, actual)
 			if v == 0 {
 				assert.False(t, wasSet)

@@ -79,7 +79,7 @@ func checkTree(ctx int64, t *testing.T, bt *tree, e expr.Expr) {
 	bt.walk(ctx, func(key []byte, data []sequence) bool {
 		if assert.Len(t, data, 1) {
 			walkedValues++
-			val, _ := data[0].valueAt(0, e)
+			val, _ := data[0].ValueAt(0, e)
 			switch string(key) {
 			case "test":
 				assert.EqualValues(t, 11, val)
@@ -101,17 +101,17 @@ func checkTree(ctx int64, t *testing.T, bt *tree, e expr.Expr) {
 	})
 	assert.Equal(t, 6, walkedValues)
 
-	val, _ := bt.remove(ctx, []byte("test"))[0].valueAt(0, e)
+	val, _ := bt.remove(ctx, []byte("test"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 11, val)
-	val, _ = bt.remove(ctx, []byte("slow"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("slow"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 12, val)
-	val, _ = bt.remove(ctx, []byte("water"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("water"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 13, val)
-	val, _ = bt.remove(ctx, []byte("slower"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("slower"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 14, val)
-	val, _ = bt.remove(ctx, []byte("team"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("team"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 15, val)
-	val, _ = bt.remove(ctx, []byte("toast"))[0].valueAt(0, e)
+	val, _ = bt.remove(ctx, []byte("toast"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 16, val)
 	assert.Nil(t, bt.remove(ctx, []byte("unknown")))
 }
