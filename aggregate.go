@@ -412,8 +412,8 @@ func (r orderedEntries) Less(i, j int) bool {
 	b := r.entries[j]
 	for o := 0; o < len(a.orderByValues); o++ {
 		orderBy := r.orderBy[o]
-		x, _, _ := orderBy.Get(a.orderByValues[i])
-		y, _, _ := orderBy.Get(b.orderByValues[i])
+		x, _, _ := orderBy.Get(a.orderByValues[o])
+		y, _, _ := orderBy.Get(b.orderByValues[o])
 		diff := x - y
 		if diff < 0 {
 			return true
