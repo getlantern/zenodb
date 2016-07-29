@@ -6,6 +6,7 @@ import (
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tdb/sequence"
 	"github.com/getlantern/tdb/sql"
 	"github.com/stretchr/testify/assert"
 )
@@ -76,7 +77,7 @@ func TestByteTree(t *testing.T) {
 
 func checkTree(ctx int64, t *testing.T, bt *tree, e expr.Expr) {
 	walkedValues := 0
-	bt.walk(ctx, func(key []byte, data []sequence) bool {
+	bt.walk(ctx, func(key []byte, data []sequence.Seq) bool {
 		if assert.Len(t, data, 1) {
 			walkedValues++
 			val, _ := data[0].ValueAt(0, e)

@@ -13,12 +13,13 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tdb/sequence"
 	"github.com/getlantern/tdb/sql"
 )
 
 type Entry struct {
 	Dims          map[string]interface{}
-	Fields        []sequence
+	Fields        []sequence.Seq
 	q             *Query
 	fieldsIdx     int
 	orderByValues [][]byte
@@ -40,7 +41,7 @@ func (entry *Entry) Value(name string, period int) float64 {
 
 func (entry *Entry) value(name string, period int) (float64, bool) {
 	var field sql.Field
-	var seq sequence
+	var seq sequence.Seq
 	for i, candidate := range entry.q.Fields {
 		if candidate.Name == name {
 			field = candidate
@@ -48,7 +49,7 @@ func (entry *Entry) value(name string, period int) (float64, bool) {
 			break
 		}
 	}
-	if seq == nil || period > seq.numPeriods(field.EncodedWidth()) {
+	if seq == nil || period > seq.NumPeriods(field.EncodedWidth()) {
 		return 0, false
 	}
 	return seq.ValueAt(period, field)
@@ -124,7 +125,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 					vo, ok := o[k]
 					if ok {
 						for x, os := range vo.Fields {
-							v.Fields[x] = v.Fields[x].merge(os, aq.Fields[x], aq.Resolution, aq.AsOf)
+							v.Fields[x] = v.Fields[x].Merge(os, aq.Fields[x], aq.Resolution, aq.AsOf)
 						}
 						delete(o, k)
 					}
@@ -168,7 +169,7 @@ type queryResponse struct {
 	key         bytemap.ByteMap
 	field       string
 	e           expr.Expr
-	seq         sequence
+	seq         sequence.Seq
 	startOffset int
 }
 
@@ -272,7 +273,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 			if entry == nil {
 				entry = &Entry{
 					Dims:   kb.AsMap(),
-					Fields: make([]sequence, len(aq.Fields)),
+					Fields: make([]sequence.Seq, len(aq.Fields)),
 					q:      aq,
 				}
 				if aq.GroupByAll {
@@ -288,8 +289,8 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 
 				// Initialize fields
 				for i, f := range aq.Fields {
-					seq := newSequence(f.EncodedWidth(), aq.outPeriods)
-					seq.setStart(q.until)
+					seq := sequence.New(f.EncodedWidth(), aq.outPeriods)
+					seq.SetStart(q.until)
 					entry.Fields[i] = seq
 				}
 
@@ -306,7 +307,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 			}
 
 			sfp.field = resp.field
-			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
+			inPeriods := resp.seq.NumPeriods(resp.e.EncodedWidth()) - resp.startOffset
 			for i := 0; i < inPeriods && i < aq.inPeriods; i++ {
 				val, wasSet := resp.seq.ValueAt(i+resp.startOffset, resp.e)
 				if wasSet {
@@ -314,7 +315,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 					sfp.value = val
 					out := i / aq.scalingFactor
 					for j, seq := range entry.Fields {
-						seq.updateValueAt(out, aq.Fields[j], sfp)
+						seq.UpdateValueAt(out, aq.Fields[j], sfp)
 					}
 				}
 			}
@@ -328,7 +329,7 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 		go worker()
 	}
 
-	q.onValues = func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int) {
+	q.onValues = func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence.Seq, startOffset int) {
 		responses <- &queryResponse{key, field, e, seq, startOffset}
 	}
 

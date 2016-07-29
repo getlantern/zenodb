@@ -8,7 +8,9 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/enc"
 	. "github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tdb/sequence"
 	"github.com/getlantern/tdb/sql"
 
 	"github.com/stretchr/testify/assert"
@@ -17,7 +19,7 @@ import (
 
 func TestRoundTime(t *testing.T) {
 	ts := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
-	rounded := roundTime(ts, time.Second)
+	rounded := enc.RoundTime(ts, time.Second)
 	expected := time.Date(2015, 5, 6, 7, 8, 9, 0, time.UTC)
 	assert.Equal(t, expected, rounded)
 }
@@ -201,11 +203,11 @@ view_a:
 			asOfOffset:  fromOffset,
 			untilOffset: toOffset,
 			filter:      filter,
-			onValues: func(keybytes bytemap.ByteMap, resultField string, e Expr, seq sequence, startOffset int) {
+			onValues: func(keybytes bytemap.ByteMap, resultField string, e Expr, seq sequence.Seq, startOffset int) {
 				key := keybytes.AsMap()
 				log.Debugf("%v : %v : %v : %d : %v", key, field, resultField, startOffset, seq.String(e))
 				if field == resultField {
-					numPeriods := seq.numPeriods(e.EncodedWidth())
+					numPeriods := seq.NumPeriods(e.EncodedWidth())
 					vals := make([]float64, 0, numPeriods-startOffset)
 					for i := 0; i < numPeriods-startOffset; i++ {
 						val, wasSet := seq.ValueAt(i+startOffset, e)

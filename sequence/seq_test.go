@@ -1,9 +1,11 @@
-package tdb
+package sequence
 
 import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/bmp"
+	"github.com/getlantern/tdb/enc"
 	. "github.com/getlantern/tdb/expr"
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -29,14 +31,14 @@ func TestSequenceUpdate(t *testing.T) {
 		}
 
 		start := epoch
-		var seq sequence
+		var seq Seq
 
 		doIt := func(ts time.Time, params map[string]float64, expected []float64) {
 			if ts.After(start) {
 				start = ts
 			}
 			truncateBefore := start.Add(-1 * retentionPeriod)
-			seq = seq.update(newTSParams(ts, bytemap.NewFloat(params)), e, res, truncateBefore)
+			seq = seq.Update(ts, bmp.Params(bytemap.NewFloat(params)), e, res, truncateBefore)
 			checkUpdatedValues(t, e, seq, trunc(expected, 4))
 		}
 
@@ -61,8 +63,8 @@ func TestSequenceUpdate(t *testing.T) {
 	}
 }
 
-func checkUpdatedValues(t *testing.T, e Expr, seq sequence, expected []float64) {
-	if assert.Equal(t, len(expected), seq.numPeriods(e.EncodedWidth())) {
+func checkUpdatedValues(t *testing.T, e Expr, seq Seq, expected []float64) {
+	if assert.Equal(t, len(expected), seq.NumPeriods(e.EncodedWidth())) {
 		for i, v := range expected {
 			actual, wasSet := seq.ValueAt(i, e)
 			assert.EqualValues(t, v, actual)
@@ -79,15 +81,15 @@ func TestSequenceMergeAOB(t *testing.T) {
 	truncateBefore := epoch.Add(-1000 * res)
 	e := SUM("a")
 
-	var seq1 sequence
-	var seq2 sequence
+	var seq1 Seq
+	var seq2 Seq
 
-	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+	seq1 = seq1.Update(epoch.Add(-1*res), bmparams(1), e, res, truncateBefore)
+	seq1 = seq1.Update(epoch.Add(-3*res), bmparams(3), e, res, truncateBefore)
 
-	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), e, res, truncateBefore)
+	seq2 = seq2.Update(epoch.Add(-3*res), bmparams(3), e, res, truncateBefore)
+	seq2 = seq2.Update(epoch.Add(-4*res), bmparams(4), e, res, truncateBefore)
+	seq2 = seq2.Update(epoch.Add(-5*res), bmparams(5), e, res, truncateBefore)
 
 	checkMerge(t, epoch, res, seq1, seq2, e)
 	checkMerge(t, epoch, res, seq2, seq1, e)
@@ -99,15 +101,15 @@ func TestSequenceMergeAOA(t *testing.T) {
 	truncateBefore := epoch.Add(-1000 * res)
 	e := SUM("a")
 
-	var seq1 sequence
-	var seq2 sequence
+	var seq1 Seq
+	var seq2 Seq
 
-	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), e, res, truncateBefore)
+	seq1 = seq1.Update(epoch.Add(-1*res), bmparams(1), e, res, truncateBefore)
+	seq1 = seq1.Update(epoch.Add(-3*res), bmparams(3), e, res, truncateBefore)
+	seq1 = seq1.Update(epoch.Add(-4*res), bmparams(4), e, res, truncateBefore)
+	seq1 = seq1.Update(epoch.Add(-5*res), bmparams(5), e, res, truncateBefore)
 
-	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+	seq2 = seq2.Update(epoch.Add(-3*res), bmparams(3), e, res, truncateBefore)
 
 	checkMerge(t, epoch, res, seq1, seq2, e)
 	checkMerge(t, epoch, res, seq2, seq1, e)
@@ -119,31 +121,35 @@ func TestSequenceMergeAB(t *testing.T) {
 	truncateBefore := epoch.Add(-1000 * res)
 	e := SUM("a")
 
-	var seq1 sequence
-	var seq2 sequence
+	var seq1 Seq
+	var seq2 Seq
 
-	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 6})), e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), e, res, truncateBefore)
-	seq2 = seq2.merge(nil, e, res, zeroTime)
-	seq2 = ((sequence)(nil)).merge(seq2, e, res, zeroTime)
+	seq1 = seq1.Update(epoch.Add(-1*res), bmparams(1), e, res, truncateBefore)
+	seq2 = seq2.Update(epoch.Add(-3*res), bmparams(6), e, res, truncateBefore)
+	seq2 = seq2.Update(epoch.Add(-4*res), bmparams(4), e, res, truncateBefore)
+	seq2 = seq2.Update(epoch.Add(-5*res), bmparams(5), e, res, truncateBefore)
+	seq2 = seq2.Merge(nil, e, res, enc.ZeroTime)
+	seq2 = ((Seq)(nil)).Merge(seq2, e, res, enc.ZeroTime)
 
 	checkMerge(t, epoch, res, seq1, seq2, e)
 	checkMerge(t, epoch, res, seq2, seq1, e)
 }
 
-func checkMerge(t *testing.T, epoch time.Time, res time.Duration, seq1 sequence, seq2 sequence, e Expr) {
-	merged := seq1.merge(seq2, e, res, zeroTime)
-	assert.Equal(t, 5, merged.numPeriods(e.EncodedWidth()))
-	val, _ := merged.valueAtTime(epoch.Add(-1*res), e, res)
+func checkMerge(t *testing.T, epoch time.Time, res time.Duration, seq1 Seq, seq2 Seq, e Expr) {
+	merged := seq1.Merge(seq2, e, res, enc.ZeroTime)
+	assert.Equal(t, 5, merged.NumPeriods(e.EncodedWidth()))
+	val, _ := merged.ValueAtTime(epoch.Add(-1*res), e, res)
 	assert.EqualValues(t, 1, val)
-	val, _ = merged.valueAtTime(epoch.Add(-2*res), e, res)
+	val, _ = merged.ValueAtTime(epoch.Add(-2*res), e, res)
 	assert.EqualValues(t, 0, val)
-	val, _ = merged.valueAtTime(epoch.Add(-3*res), e, res)
+	val, _ = merged.ValueAtTime(epoch.Add(-3*res), e, res)
 	assert.EqualValues(t, 6, val)
-	val, _ = merged.valueAtTime(epoch.Add(-4*res), e, res)
+	val, _ = merged.ValueAtTime(epoch.Add(-4*res), e, res)
 	assert.EqualValues(t, 4, val)
-	val, _ = merged.valueAtTime(epoch.Add(-5*res), e, res)
+	val, _ = merged.ValueAtTime(epoch.Add(-5*res), e, res)
 	assert.EqualValues(t, 5, val)
+}
+
+func bmparams(val float64) Params {
+	return bmp.Params(bytemap.NewFloat(map[string]float64{"a": val}))
 }

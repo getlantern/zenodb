@@ -15,6 +15,8 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/enc"
+	"github.com/getlantern/tdb/sequence"
 	"github.com/golang/snappy"
 	"github.com/oxtoacart/emsort"
 )
@@ -134,7 +136,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence)) error {
+func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence.Seq)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	// We exclude the current memstore to avoid reading from something that is
@@ -164,14 +166,14 @@ func (rs *rowStore) processFlushes() {
 		} else {
 			chunk := func(r io.Reader) ([]byte, error) {
 				rowLength := uint64(0)
-				readErr := binary.Read(r, binaryEncoding, &rowLength)
+				readErr := binary.Read(r, enc.Binary, &rowLength)
 				if readErr != nil {
 					return nil, readErr
 				}
 				_row := make([]byte, rowLength)
 				row := _row
-				binaryEncoding.PutUint64(row, rowLength)
-				row = row[width64bits:]
+				enc.Binary.PutUint64(row, rowLength)
+				row = row[enc.Width64Bits:]
 				_, err = io.ReadFull(r, row)
 				return _row, err
 			}
@@ -189,10 +191,10 @@ func (rs *rowStore) processFlushes() {
 
 		// TODO: DRY violation with sortData.Fill sortData.OnSorted
 		truncateBefore := rs.t.truncateBefore()
-		write := func(key bytemap.ByteMap, columns []sequence) {
+		write := func(key bytemap.ByteMap, columns []sequence.Seq) {
 			hasActiveSequence := false
 			for i, seq := range columns {
-				seq = seq.truncate(rs.t.Fields[i].EncodedWidth(), rs.t.Resolution, truncateBefore)
+				seq = seq.Truncate(rs.t.Fields[i].EncodedWidth(), rs.t.Resolution, truncateBefore)
 				columns[i] = seq
 				if seq != nil {
 					hasActiveSequence = true
@@ -205,9 +207,9 @@ func (rs *rowStore) processFlushes() {
 			}
 
 			// rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
-			rowLength := width64bits + width16bits + len(key) + width16bits
+			rowLength := enc.Width64Bits + enc.Width16Bits + len(key) + enc.Width16Bits
 			for _, seq := range columns {
-				rowLength += width64bits + len(seq)
+				rowLength += enc.Width64Bits + len(seq)
 			}
 
 			var o io.Writer = cout
@@ -221,12 +223,12 @@ func (rs *rowStore) processFlushes() {
 				o = buf
 			}
 
-			err = binary.Write(o, binaryEncoding, uint64(rowLength))
+			err = binary.Write(o, enc.Binary, uint64(rowLength))
 			if err != nil {
 				panic(err)
 			}
 
-			err = binary.Write(o, binaryEncoding, uint16(len(key)))
+			err = binary.Write(o, enc.Binary, uint16(len(key)))
 			if err != nil {
 				panic(err)
 			}
@@ -235,12 +237,12 @@ func (rs *rowStore) processFlushes() {
 				panic(err)
 			}
 
-			err = binary.Write(o, binaryEncoding, uint16(len(columns)))
+			err = binary.Write(o, enc.Binary, uint16(len(columns)))
 			if err != nil {
 				panic(err)
 			}
 			for _, seq := range columns {
-				err = binary.Write(o, binaryEncoding, uint64(len(seq)))
+				err = binary.Write(o, enc.Binary, uint64(len(seq)))
 				if err != nil {
 					panic(err)
 				}
@@ -339,7 +341,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores []*tree, fields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence.Seq), memStores []*tree, fields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if log.IsTraceEnabled() {
@@ -390,7 +392,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 		for {
 			// rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
 			rowLength := uint64(0)
-			err := binary.Read(r, binaryEncoding, &rowLength)
+			err := binary.Read(r, enc.Binary, &rowLength)
 			if err == io.EOF {
 				break
 			}
@@ -399,8 +401,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			}
 
 			row := make([]byte, rowLength)
-			binaryEncoding.PutUint64(row, rowLength)
-			row = row[width64bits:]
+			enc.Binary.PutUint64(row, rowLength)
+			row = row[enc.Width64Bits:]
 			_, err = io.ReadFull(r, row)
 			if err != nil {
 				return fmt.Errorf("Unexpected error while reading row: %v", err)
@@ -418,9 +420,9 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			}
 
 			includesAtLeastOneColumn := false
-			columns := make([]sequence, numColumns)
+			columns := make([]sequence.Seq, numColumns)
 			for i, colLength := range colLengths {
-				var seq sequence
+				var seq sequence.Seq
 				seq, row = readSequence(row, colLength)
 				if shouldInclude(i) {
 					columns[i] = seq
@@ -451,7 +453,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 							continue
 						}
 						// merge
-						columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
+						columns[i] = columns[i].Merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
 					}
 				}
 			}
@@ -464,7 +466,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 
 	// Read remaining stuff from mem stores
 	for i, ms := range memStores {
-		ms.walk(ctx, func(key []byte, columns []sequence) bool {
+		ms.walk(ctx, func(key []byte, columns []sequence.Seq) bool {
 			for j := i + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
 				columns2 := ms2.remove(ctx, key)
@@ -478,7 +480,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 						columns = append(columns, columns2[i])
 						continue
 					}
-					columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
+					columns[i] = columns[i].Merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
 				}
 			}
 			onRow(bytemap.ByteMap(key), columns)

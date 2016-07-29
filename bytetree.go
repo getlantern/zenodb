@@ -3,6 +3,8 @@ package tdb
 import (
 	"sync"
 	"time"
+
+	"github.com/getlantern/tdb/sequence"
 )
 
 // see https://en.wikipedia.org/wiki/Radix_tree
@@ -16,7 +18,7 @@ type tree struct {
 type node struct {
 	key        []byte
 	edges      edges
-	data       []sequence
+	data       []sequence.Seq
 	removedFor []int64
 }
 
@@ -37,7 +39,7 @@ func (bt *tree) length() int {
 	return bt._length
 }
 
-func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
+func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence.Seq) bool) {
 	nodes := make([]*node, 0, bt._length)
 	nodes = append(nodes, bt.root)
 	for {
@@ -61,7 +63,7 @@ func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
 	}
 }
 
-func (bt *tree) remove(ctx int64, fullKey []byte) []sequence {
+func (bt *tree) remove(ctx int64, fullKey []byte) []sequence.Seq {
 	// TODO: basic shape of this is very similar to update, dry violation
 	n := bt.root
 	key := fullKey
@@ -152,7 +154,8 @@ func (n *node) doUpdate(t *table, truncateBefore time.Time, vals tsparams) int {
 	for i, field := range t.Fields {
 		current := n.data[i]
 		previousSize := len(current)
-		updated := current.update(vals, field, t.Resolution, truncateBefore)
+		ts, params := vals.timeAndParams()
+		updated := current.Update(ts, params, field, t.Resolution, truncateBefore)
 		n.data[i] = updated
 		bytesAdded += len(updated) - previousSize
 	}

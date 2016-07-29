@@ -6,7 +6,10 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/tdb/bmp"
+	"github.com/getlantern/tdb/enc"
 	"github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tdb/sequence"
 )
 
 type query struct {
@@ -17,7 +20,7 @@ type query struct {
 	asOfOffset   time.Duration
 	until        time.Time
 	untilOffset  time.Duration
-	onValues     func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int)
+	onValues     func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence.Seq, startOffset int)
 	t            *table
 	sortedFields []string
 }
@@ -61,8 +64,8 @@ func (q *query) init(db *DB) error {
 			q.until = q.until.Add(q.untilOffset)
 		}
 	}
-	q.until = roundTime(q.until, q.t.Resolution)
-	q.asOf = roundTime(q.asOf, q.t.Resolution)
+	q.until = enc.RoundTime(q.until, q.t.Resolution)
+	q.asOf = enc.RoundTime(q.asOf, q.t.Resolution)
 
 	return nil
 }
@@ -80,11 +83,11 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []sequence) {
+	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []sequence.Seq) {
 		stats.Scanned++
 
 		if q.filter != nil {
-			include, err := q.filter.Eval(bytemapQueryParams(key))
+			include, err := q.filter.Eval(bmp.QueryParams(key))
 			if err != nil {
 				log.Errorf("Unable to apply filter: %v", err)
 				return
@@ -112,10 +115,10 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 				if log.IsTraceEnabled() {
 					log.Tracef("Reading sequence %v", seq.String(e))
 				}
-				seq = seq.truncate(encodedWidth, q.t.Resolution, q.asOf)
+				seq = seq.Truncate(encodedWidth, q.t.Resolution, q.asOf)
 				if seq != nil {
 					stats.InTimeRange++
-					startOffset := int(seq.start().Sub(q.until) / q.t.Resolution)
+					startOffset := int(seq.Start().Sub(q.until) / q.t.Resolution)
 					q.onValues(key, field.Name, e, seq, startOffset)
 				}
 			}

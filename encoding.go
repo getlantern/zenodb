@@ -1,46 +1,37 @@
 package tdb
 
 import (
-	"encoding/binary"
-
 	"github.com/getlantern/bytemap"
-)
-
-const (
-	width16bits = 2
-	width64bits = 8
-)
-
-var (
-	binaryEncoding = binary.BigEndian
+	"github.com/getlantern/tdb/enc"
+	"github.com/getlantern/tdb/sequence"
 )
 
 func readInt16(b []byte) (int, []byte) {
-	i := binaryEncoding.Uint16(b)
-	return int(i), b[width16bits:]
+	i := enc.Binary.Uint16(b)
+	return int(i), b[enc.Width16Bits:]
 }
 
 func writeInt16(b []byte, i int) []byte {
-	binaryEncoding.PutUint16(b, uint16(i))
-	return b[width16bits:]
+	enc.Binary.PutUint16(b, uint16(i))
+	return b[enc.Width16Bits:]
 }
 
 func readInt64(b []byte) (int, []byte) {
-	i := binaryEncoding.Uint64(b)
-	return int(i), b[width64bits:]
+	i := enc.Binary.Uint64(b)
+	return int(i), b[enc.Width64Bits:]
 }
 
 func writeInt64(b []byte, i int) []byte {
-	binaryEncoding.PutUint64(b, uint64(i))
-	return b[width64bits:]
+	enc.Binary.PutUint64(b, uint64(i))
+	return b[enc.Width64Bits:]
 }
 
 func readByteMap(b []byte, l int) (bytemap.ByteMap, []byte) {
 	return bytemap.ByteMap(b[:l]), b[l:]
 }
 
-func readSequence(b []byte, l int) (sequence, []byte) {
-	return sequence(b[:l]), b[l:]
+func readSequence(b []byte, l int) (sequence.Seq, []byte) {
+	return sequence.Seq(b[:l]), b[l:]
 }
 
 func write(b []byte, d []byte) []byte {
