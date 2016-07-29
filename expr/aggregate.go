@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+
+	"github.com/getlantern/tdb/enc"
 )
 
 type updateFN func(wasSet bool, current float64, next float64) float64
@@ -34,7 +36,7 @@ func (e *aggregate) DependsOn() []string {
 }
 
 func (e *aggregate) EncodedWidth() int {
-	return 1 + width64bits + e.wrapped.EncodedWidth()
+	return 1 + enc.Width64Bits + e.wrapped.EncodedWidth()
 }
 
 func (e *aggregate) Update(b []byte, params Params) ([]byte, float64, bool) {
@@ -56,7 +58,7 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 			b = e.save(b, valueY)
 		} else {
 			// Nothing to save, just advance
-			b = b[width64bits+1:]
+			b = b[enc.Width64Bits+1:]
 		}
 	} else {
 		if yWasSet {
@@ -73,19 +75,19 @@ func (e *aggregate) Get(b []byte) (float64, bool, []byte) {
 }
 
 func (e *aggregate) load(b []byte) (float64, bool, []byte) {
-	remain := b[width64bits+1:]
+	remain := b[enc.Width64Bits+1:]
 	value := float64(0)
 	wasSet := b[0] == 1
 	if wasSet {
-		value = math.Float64frombits(binaryEncoding.Uint64(b[1:]))
+		value = math.Float64frombits(enc.Binary.Uint64(b[1:]))
 	}
 	return value, wasSet, remain
 }
 
 func (e *aggregate) save(b []byte, value float64) []byte {
 	b[0] = 1
-	binaryEncoding.PutUint64(b[1:], math.Float64bits(value))
-	return b[width64bits+1:]
+	enc.Binary.PutUint64(b[1:], math.Float64bits(value))
+	return b[enc.Width64Bits+1:]
 }
 
 func (e *aggregate) String() string {

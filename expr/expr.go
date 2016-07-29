@@ -1,19 +1,12 @@
 package expr
 
 import (
-	"encoding/binary"
 	"fmt"
 	"reflect"
 	"strconv"
 )
 
-const (
-	width64bits = 8
-)
-
 var (
-	binaryEncoding = binary.BigEndian
-
 	fieldType     = reflect.TypeOf((*field)(nil))
 	constType     = reflect.TypeOf((*constant)(nil))
 	aggregateType = reflect.TypeOf((*aggregate)(nil))

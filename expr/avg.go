@@ -3,6 +3,8 @@ package expr
 import (
 	"fmt"
 	"math"
+
+	"github.com/getlantern/tdb/enc"
 )
 
 // AVG creates an Expr that obtains its value by averaging the values of the
@@ -24,7 +26,7 @@ func (e *avg) Validate() error {
 }
 
 func (e *avg) EncodedWidth() int {
-	return width64bits*2 + 1 + e.wrapped.EncodedWidth()
+	return enc.Width64Bits*2 + 1 + e.wrapped.EncodedWidth()
 }
 
 func (e *avg) Update(b []byte, params Params) ([]byte, float64, bool) {
@@ -47,7 +49,7 @@ func (e *avg) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 			b = e.save(b, countY, totalY)
 		} else {
 			// Nothing to save, just advance
-			b = b[width64bits*2+1:]
+			b = b[enc.Width64Bits*2+1:]
 		}
 	} else {
 		if yWasSet {
@@ -75,22 +77,22 @@ func (e *avg) calc(count float64, total float64) float64 {
 }
 
 func (e *avg) load(b []byte) (float64, float64, bool, []byte) {
-	remain := b[width64bits*2+1:]
+	remain := b[enc.Width64Bits*2+1:]
 	wasSet := b[0] == 1
 	count := float64(0)
 	total := float64(0)
 	if wasSet {
-		count = math.Float64frombits(binaryEncoding.Uint64(b[1:]))
-		total = math.Float64frombits(binaryEncoding.Uint64(b[width64bits+1:]))
+		count = math.Float64frombits(enc.Binary.Uint64(b[1:]))
+		total = math.Float64frombits(enc.Binary.Uint64(b[enc.Width64Bits+1:]))
 	}
 	return count, total, wasSet, remain
 }
 
 func (e *avg) save(b []byte, count float64, total float64) []byte {
 	b[0] = 1
-	binaryEncoding.PutUint64(b[1:], math.Float64bits(count))
-	binaryEncoding.PutUint64(b[width64bits+1:], math.Float64bits(total))
-	return b[width64bits*2+1:]
+	enc.Binary.PutUint64(b[1:], math.Float64bits(count))
+	enc.Binary.PutUint64(b[enc.Width64Bits+1:], math.Float64bits(total))
+	return b[enc.Width64Bits*2+1:]
 }
 
 func (e *avg) String() string {
