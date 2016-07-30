@@ -1,9 +1,9 @@
-package tdb
+package tibsdb
 
 import (
 	"fmt"
 
-	"github.com/getlantern/tdb/sql"
+	"github.com/getlantern/tibsdb/sql"
 )
 
 type sortedFields []sql.Field

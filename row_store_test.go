@@ -1,4 +1,4 @@
-package tdb
+package tibsdb
 
 import (
 	"io/ioutil"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestStorage(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "tdbtest")
+	tmpDir, err := ioutil.TempDir("", "tibsdbtest")
 	if !assert.NoError(t, err, "Unable to create temp directory") {
 		return
 	}

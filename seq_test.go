@@ -1,10 +1,10 @@
-package tdb
+package tibsdb
 
 import (
 	"time"
 
 	"github.com/getlantern/bytemap"
-	. "github.com/getlantern/tdb/expr"
+	. "github.com/getlantern/tibsdb/expr"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )

@@ -1,7 +1,7 @@
-package tdb
+package tibsdb
 
 import (
-	"github.com/getlantern/tdb/expr"
+	"github.com/getlantern/tibsdb/expr"
 	"math"
 )
 

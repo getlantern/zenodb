@@ -1,4 +1,4 @@
-package tdb
+package tibsdb
 
 import (
 	"io/ioutil"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/getlantern/tdb/sql"
+	"github.com/getlantern/tibsdb/sql"
 	"github.com/getlantern/yaml"
 )
 

@@ -1,6 +1,6 @@
-# TDB
+# tibsdb
 
-TDB is an embeddable time series database optimized for performing aggregating
+tibsdb is an embeddable time series database optimized for performing aggregating
 analytical queries on dimensional data.  It was developed to replace
 [influxdb](https://github.com/influxdata/influxdb/) as a repository for error
 log metrics at [Lantern](https://www.getlantern.org).
@@ -12,6 +12,10 @@ log metrics at [Lantern](https://www.getlantern.org).
  * Reasonably efficient storage model
  * Seems pretty fast
 
+## Still Missing
+
+ * Write Ahead Log
+ 
 ## Acknowledgements
 
  * [RocksDB](http://rocksdb.org/) - The storage engine

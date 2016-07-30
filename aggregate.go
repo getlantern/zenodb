@@ -1,4 +1,4 @@
-package tdb
+package tibsdb
 
 import (
 	"fmt"
@@ -12,8 +12,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/tdb/expr"
-	"github.com/getlantern/tdb/sql"
+	"github.com/getlantern/tibsdb/expr"
+	"github.com/getlantern/tibsdb/sql"
 )
 
 type Entry struct {

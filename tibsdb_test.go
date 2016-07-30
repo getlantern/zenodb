@@ -1,4 +1,4 @@
-package tdb
+package tibsdb
 
 import (
 	"fmt"
@@ -8,8 +8,8 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
-	. "github.com/getlantern/tdb/expr"
-	"github.com/getlantern/tdb/sql"
+	. "github.com/getlantern/tibsdb/expr"
+	"github.com/getlantern/tibsdb/sql"
 
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -25,13 +25,13 @@ func TestRoundTime(t *testing.T) {
 func TestIntegration(t *testing.T) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
-	tmpDir, err := ioutil.TempDir("", "tdbtest")
+	tmpDir, err := ioutil.TempDir("", "tibsdbtest")
 	if !assert.NoError(t, err, "Unable to create temp directory") {
 		return
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tmpFile, err := ioutil.TempFile("", "tdbschema")
+	tmpFile, err := ioutil.TempFile("", "tibsdbschema")
 	if !assert.NoError(t, err, "Unable to create temp file") {
 		return
 	}

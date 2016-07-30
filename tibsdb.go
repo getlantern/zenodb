@@ -1,4 +1,4 @@
-package tdb
+package tibsdb
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 )
 
 var (
-	log = golog.LoggerFor("tdb")
+	log = golog.LoggerFor("tibsdb")
 )
 
 type DBOpts struct {

@@ -1,4 +1,4 @@
-package tdb
+package tibsdb
 
 import (
 	"bytes"

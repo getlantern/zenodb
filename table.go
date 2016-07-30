@@ -1,4 +1,4 @@
-package tdb
+package tibsdb
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tdb/sql"
+	"github.com/getlantern/tibsdb/sql"
 	"github.com/getlantern/vtime"
 )
 
@@ -76,7 +76,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		TableOpts: opts,
 		Query:     *q,
 		db:        db,
-		log:       golog.LoggerFor("tdb." + opts.Name),
+		log:       golog.LoggerFor("tibsdb." + opts.Name),
 		clock:     vtime.NewClock(time.Time{}),
 		inserts:   make(chan *insert, 1000),
 	}

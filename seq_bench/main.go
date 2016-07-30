@@ -4,7 +4,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 
-	"github.com/getlantern/tdb"
+	"github.com/getlantern/tibsdb"
 )
 
 func main() {
@@ -12,5 +12,5 @@ func main() {
 		http.ListenAndServe("localhost:4000", nil)
 	}()
 
-	tdb.BenchmarkSeq()
+	tibsdb.BenchmarkSeq()
 }

@@ -12,12 +12,12 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tdb"
+	"github.com/getlantern/tibsdb"
 	"github.com/jmcvetta/randutil"
 )
 
 var (
-	log = golog.LoggerFor("tdbdemo")
+	log = golog.LoggerFor("tibsdbdemo")
 )
 
 func main() {
@@ -50,14 +50,14 @@ func main() {
 		uniques = append(uniques, unique)
 	}
 
-	db, err := tdb.NewDB(&tdb.DBOpts{
-		Dir:                  "/tmp/tdbdemo",
+	db, err := tibsdb.NewDB(&tibsdb.DBOpts{
+		Dir:                  "/tmp/tibsdbdemo",
 		RocksDBStatsInterval: 60 * time.Second,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	err = db.CreateTable(&tdb.TableOpts{
+	err = db.CreateTable(&tibsdb.TableOpts{
 		Name:             "test",
 		RetentionPeriod:  retentionPeriod,
 		MaxMemStoreBytes: 500 * 1024 * 1024,
@@ -154,7 +154,7 @@ GROUP BY period(168h)
 				}
 				for r := 0; r < numReporters/numWriters; r++ {
 					for v := 0; v < valuesPerPeriod; v++ {
-						p := &tdb.Point{
+						p := &tibsdb.Point{
 							Ts: ts,
 							Dims: map[string]interface{}{
 								"r": reporters[rand.Intn(len(reporters))],
