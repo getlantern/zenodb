@@ -26,6 +26,7 @@ type TableStats struct {
 type TableOpts struct {
 	Name             string
 	MaxMemStoreBytes int
+	MinFlushLatency  time.Duration
 	MaxFlushLatency  time.Duration
 	RetentionPeriod  time.Duration
 	SQL              string
@@ -52,6 +53,9 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 	if opts.MaxMemStoreBytes <= 0 {
 		opts.MaxMemStoreBytes = 100000000
 		log.Debugf("Defaulted MaxMemStoreBytes to %v", opts.MaxMemStoreBytes)
+	}
+	if opts.MinFlushLatency <= 0 {
+		log.Debug("MinFlushLatency disabled")
 	}
 	if opts.MaxFlushLatency <= 0 {
 		opts.MaxFlushLatency = time.Duration(math.MaxInt64)
@@ -86,6 +90,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	t.rowStore, rsErr = t.openRowStore(&rowStoreOptions{
 		dir:              filepath.Join(db.opts.Dir, t.Name),
 		maxMemStoreBytes: t.MaxMemStoreBytes,
+		minFlushLatency:  t.MinFlushLatency,
 		maxFlushLatency:  t.MaxFlushLatency,
 	})
 	if rsErr != nil {

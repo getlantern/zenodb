@@ -24,6 +24,7 @@ import (
 type rowStoreOptions struct {
 	dir              string
 	maxMemStoreBytes int
+	minFlushLatency  time.Duration
 	maxFlushLatency  time.Duration
 }
 
@@ -57,7 +58,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
 	}
 	if len(files) > 0 {
 		existingFileName = filepath.Join(opts.dir, files[len(files)-1].Name())
-		log.Debugf("Initializing row store from %v", existingFileName)
+		t.log.Debugf("Initializing row store from %v", existingFileName)
 	}
 
 	rs := &rowStore{
@@ -100,7 +101,7 @@ func (rs *rowStore) processInserts() {
 			// nothing to flush
 			return
 		}
-		log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.bytes())))
+		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.bytes())))
 		shouldSort := flushIdx%10 == 0
 		fr := &flushRequest{memStoreIdx, currentMemStore, shouldSort}
 		rs.mx.Lock()
@@ -128,6 +129,8 @@ func (rs *rowStore) processInserts() {
 			flushWait := flushDuration * 10
 			if flushWait > rs.opts.maxFlushLatency {
 				flushWait = rs.opts.maxFlushLatency
+			} else if flushWait < rs.opts.minFlushLatency {
+				flushWait = rs.opts.minFlushLatency
 			}
 			flushTimer.Reset(flushWait)
 		}
@@ -256,7 +259,7 @@ func (rs *rowStore) processFlushes() {
 				// flush buffer
 				_b := buf.Bytes()
 				if rowLength != len(_b) {
-					log.Debugf("%d <> %d", rowLength, len(_b))
+					rs.t.log.Debugf("%d <> %d", rowLength, len(_b))
 				}
 				_, writeErr := cout.Write(_b)
 				if writeErr != nil {
@@ -283,7 +286,7 @@ func (rs *rowStore) processFlushes() {
 
 		fi, err := out.Stat()
 		if err != nil {
-			log.Errorf("Unable to stat output file to get size: %v", err)
+			rs.t.log.Errorf("Unable to stat output file to get size: %v", err)
 		}
 		// Note - we left-pad the unix nano value to the widest possible length to
 		// ensure lexicographical sort matches time-based sort (e.g. on directory
@@ -306,7 +309,7 @@ func (rs *rowStore) processFlushes() {
 				time.Sleep(5 * time.Minute)
 				err := os.Remove(oldFileStore)
 				if err != nil {
-					log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
+					rs.t.log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
 				}
 			}()
 		}
@@ -318,9 +321,9 @@ func (rs *rowStore) processFlushes() {
 			wasSorted = "sorted"
 		}
 		if fi != nil {
-			log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), wasSorted)
+			rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), wasSorted)
 		} else {
-			log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, wasSorted)
+			rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, wasSorted)
 		}
 	}
 }
@@ -342,8 +345,8 @@ type fileStore struct {
 func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores []*tree, fields ...string) error {
 	ctx := time.Now().UnixNano()
 
-	if log.IsTraceEnabled() {
-		log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
+	if fs.t.log.IsTraceEnabled() {
+		fs.t.log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
 	}
 
 	var includedFields []int
@@ -428,8 +431,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 						includesAtLeastOneColumn = true
 					}
 				}
-				if log.IsTraceEnabled() {
-					log.Tracef("File Read: %v", seq.String(fs.t.Fields[i]))
+				if fs.t.log.IsTraceEnabled() {
+					fs.t.log.Tracef("File Read: %v", seq.String(fs.t.Fields[i]))
 				}
 			}
 
