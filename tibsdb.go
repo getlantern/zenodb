@@ -8,17 +8,19 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
+	"github.com/getlantern/vtime"
 )
 
 var (
 	log = golog.LoggerFor("tibsdb")
+
+	clock = vtime.RealClock
 )
 
 type DBOpts struct {
 	SchemaFile            string
 	Dir                   string
 	DiscardOnBackPressure bool
-	RocksDBStatsInterval  time.Duration
 }
 
 type DB struct {
@@ -66,7 +68,7 @@ func (db *DB) AllTableStats() map[string]TableStats {
 
 func (db *DB) PrintTableStats(table string) string {
 	stats := db.TableStats(table)
-	now := db.Now(table)
+	now := clock.Now()
 	return fmt.Sprintf("%v (%v)\tFiltered: %v    Queued: %v    Inserted: %v    Dropped: %v    Expired: %v",
 		table,
 		now.In(time.UTC),
@@ -75,14 +77,6 @@ func (db *DB) PrintTableStats(table string) string {
 		humanize.Comma(stats.InsertedPoints),
 		humanize.Comma(stats.DroppedPoints),
 		humanize.Comma(stats.ExpiredValues))
-}
-
-func (db *DB) Now(table string) time.Time {
-	t := db.getTable(table)
-	if t == nil {
-		return time.Time{}
-	}
-	return t.clock.Now()
 }
 
 func (db *DB) getTable(table string) *table {

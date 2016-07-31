@@ -12,7 +12,6 @@ import (
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tibsdb/sql"
-	"github.com/getlantern/vtime"
 )
 
 type TableStats struct {
@@ -38,7 +37,6 @@ type table struct {
 	db         *DB
 	rowStore   *rowStore
 	log        golog.Logger
-	clock      *vtime.Clock
 	where      *govaluate.EvaluableExpression
 	whereMutex sync.RWMutex
 	stats      TableStats
@@ -77,7 +75,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		Query:     *q,
 		db:        db,
 		log:       golog.LoggerFor("tibsdb." + opts.Name),
-		clock:     vtime.NewClock(time.Time{}),
 		inserts:   make(chan *insert, 1000),
 	}
 
@@ -128,5 +125,5 @@ func (t *table) applyWhere(where string) error {
 }
 
 func (t *table) truncateBefore() time.Time {
-	return t.clock.Now().Add(-1 * t.RetentionPeriod)
+	return clock.Now().Add(-1 * t.RetentionPeriod)
 }

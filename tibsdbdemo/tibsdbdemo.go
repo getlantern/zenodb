@@ -51,8 +51,7 @@ func main() {
 	}
 
 	db, err := tibsdb.NewDB(&tibsdb.DBOpts{
-		Dir:                  "/tmp/tibsdbdemo",
-		RocksDBStatsInterval: 60 * time.Second,
+		Dir: "/tmp/tibsdbdemo",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -61,7 +60,7 @@ func main() {
 		Name:             "test",
 		RetentionPeriod:  retentionPeriod,
 		MaxMemStoreBytes: 500 * 1024 * 1024,
-		MaxFlushLatency:  5 * time.Minute,
+		MaxFlushLatency:  30 * time.Second,
 		SQL: fmt.Sprintf(`
 SELECT
 	SUM(i) AS i,
@@ -111,7 +110,7 @@ HeapAlloc pre/post GC %f/%f MiB
 			tk := time.NewTicker(1 * time.Minute)
 			for range tk.C {
 				log.Debug("Running query")
-				now := db.Now("test")
+				now := time.Now()
 				q, err := db.SQLQuery(`
 SELECT SUM(ii) AS the_count
 FROM test
@@ -147,7 +146,6 @@ GROUP BY period(168h)
 			c := 0
 			start := time.Now()
 			for i := 0; i < reportingPeriods; i++ {
-				ts := time.Now()
 				uqs := make([]int, 0, uniquesPerPeriod)
 				for u := 0; u < uniquesPerPeriod; u++ {
 					uqs = append(uqs, rand.Intn(uniquesPerReporter))
@@ -155,7 +153,7 @@ GROUP BY period(168h)
 				for r := 0; r < numReporters/numWriters; r++ {
 					for v := 0; v < valuesPerPeriod; v++ {
 						p := &tibsdb.Point{
-							Ts: ts,
+							Ts: time.Now(),
 							Dims: map[string]interface{}{
 								"r": reporters[rand.Intn(len(reporters))],
 								"u": uniques[uqs[rand.Intn(uniquesPerPeriod)]],

@@ -10,6 +10,7 @@ import (
 	"github.com/getlantern/bytemap"
 	. "github.com/getlantern/tibsdb/expr"
 	"github.com/getlantern/tibsdb/sql"
+	"github.com/getlantern/vtime"
 
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -23,7 +24,13 @@ func TestRoundTime(t *testing.T) {
 }
 
 func TestIntegration(t *testing.T) {
+	originalClock := clock
+	defer func() {
+		clock = originalClock
+	}()
+
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
+	clock = vtime.NewVirtualClock(time.Time{})
 
 	tmpDir, err := ioutil.TempDir("", "tibsdbtest")
 	if !assert.NoError(t, err, "Unable to create temp directory") {
@@ -98,8 +105,7 @@ view_a:
 	advance := func(d time.Duration) {
 		time.Sleep(250 * time.Millisecond)
 		now = now.Add(d)
-		db.getTable("test_a").clock.Advance(now)
-		db.getTable("view_a").clock.Advance(now)
+		clock.Advance(now)
 		time.Sleep(250 * time.Millisecond)
 		for _, table := range []string{"test_a", "view_a"} {
 			log.Debug(db.PrintTableStats(table))

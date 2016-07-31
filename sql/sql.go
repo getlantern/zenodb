@@ -51,6 +51,10 @@ type Field struct {
 	Name string
 }
 
+func (f Field) String() string {
+	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
+}
+
 type Query struct {
 	Fields      []Field
 	From        string

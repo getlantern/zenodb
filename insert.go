@@ -57,7 +57,7 @@ func (t *table) insert(point *Point) {
 			return
 		}
 	}
-	t.clock.Advance(point.Ts)
+	clock.Advance(point.Ts)
 
 	if len(t.GroupBy) > 0 {
 		// Reslice dimensions
