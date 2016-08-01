@@ -1,18 +1,23 @@
 package rpc
 
 import (
+	"github.com/getlantern/golog"
 	"google.golang.org/grpc"
 )
 
-var msgpackCodec = &MsgPackCodec{}
+var (
+	log = golog.LoggerFor("rpc")
+
+	msgpackCodec = &MsgPackCodec{}
+)
 
 type Query struct {
 	SQL string
 }
 
 type Row struct {
-	Dims   []interface{}
-	Fields [][]float64
+	Dims   []interface{} `msgpack:",omitempty"`
+	Fields [][]float64   `msgpack:",omitempty"`
 }
 
 var serviceDesc = grpc.ServiceDesc{

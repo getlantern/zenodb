@@ -1,9 +1,10 @@
 package rpc
 
 import (
+	"net"
+
 	"github.com/getlantern/tibsdb"
 	"google.golang.org/grpc"
-	"net"
 )
 
 type Server interface {
@@ -30,7 +31,8 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 		return err
 	}
 
-	entries := result.Entries
+	fields, entries := result.Fields, result.Entries
+	result.Fields = nil
 	result.Entries = nil
 
 	// Send header
@@ -43,12 +45,12 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 	for _, entry := range entries {
 		row := &Row{
 			Dims:   make([]interface{}, 0, len(result.GroupBy)),
-			Fields: make([][]float64, 0, len(result.Fields)),
+			Fields: make([][]float64, 0, len(fields)),
 		}
 		for _, dim := range result.GroupBy {
 			row.Dims = append(row.Dims, entry.Dims[dim])
 		}
-		for i, field := range result.Fields {
+		for i, field := range fields {
 			vals := entry.Fields[i]
 			values := make([]float64, 0, result.NumPeriods)
 			for j := 0; j < result.NumPeriods; j++ {
@@ -57,7 +59,7 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 			}
 			row.Fields = append(row.Fields, values)
 		}
-		err = stream.SendMsg(entry)
+		err = stream.SendMsg(row)
 		if err != nil {
 			return err
 		}
