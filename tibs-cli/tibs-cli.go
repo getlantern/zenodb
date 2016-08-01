@@ -32,13 +32,23 @@ func main() {
 		log.Fatalf("Unable to create directory for saving history: %v", err)
 	}
 	historyFile := filepath.Join(clidir, "history")
-	fmt.Printf("Will save history to %v\n", historyFile)
+	fmt.Fprintf(os.Stderr, "Will save history to %v\n", historyFile)
 
 	client, err := rpc.Dial(*addr)
 	if err != nil {
 		log.Fatalf("Unable to dial server at %v: %v", *addr, err)
 	}
 	defer client.Close()
+
+	if flag.NArg() == 1 {
+		// Process single command from command-line and then exit
+		sql := strings.Trim(flag.Arg(0), ";")
+		queryErr := query(os.Stdout, os.Stderr, client, sql)
+		if queryErr != nil {
+			log.Fatal(queryErr)
+		}
+		return
+	}
 
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:                 "> ",
@@ -77,23 +87,33 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 	cmds = cmds[:0]
 	rl.SetPrompt("> ")
 
-	result, nextRow, err := client.Query(context.Background(), &rpc.Query{
-		SQL: cmd,
-	})
+	err := query(rl.Stdout(), rl.Stderr(), client, cmd)
 	if err != nil {
-		fmt.Fprintln(rl, err.Error())
-		return cmds
+		fmt.Fprintln(rl.Stderr(), err)
 	}
 
-	fmt.Fprintf(rl, "%v -> %v\n", result.AsOf.Format(time.RFC1123), result.Until.Format(time.RFC1123))
-	w := csv.NewWriter(rl)
-	rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.Fields))
+	return cmds
+}
+
+func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string) error {
+	result, nextRow, err := client.Query(context.Background(), &rpc.Query{
+		SQL: sql,
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(stderr, "%v -> %v\n", result.AsOf.Format(time.RFC1123), result.Until.Format(time.RFC1123))
+	w := csv.NewWriter(stdout)
+	defer w.Flush()
+
+	rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.FieldNames))
 	rowStrings = append(rowStrings, "time")
 	for _, dim := range result.GroupBy {
 		rowStrings = append(rowStrings, dim)
 	}
-	for _, field := range result.Fields {
-		rowStrings = append(rowStrings, field.Name)
+	for _, field := range result.FieldNames {
+		rowStrings = append(rowStrings, field)
 	}
 	w.Write(rowStrings)
 	w.Flush()
@@ -102,11 +122,11 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 	for {
 		row, err := nextRow()
 		if err == io.EOF {
+			// Done
 			break
 		}
 		if err != nil {
-			fmt.Fprintf(rl, "Unable to stream response: %v\n", err)
-			break
+			return fmt.Errorf("Unable to stream response: %v\n", err)
 		}
 		for j := 0; j < result.NumPeriods; j++ {
 			rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.Fields))
@@ -124,7 +144,6 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 			}
 		}
 	}
-	w.Flush()
 
-	return cmds
+	return nil
 }

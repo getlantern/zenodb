@@ -250,7 +250,10 @@ func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 		if log.IsTraceEnabled() {
 			log.Tracef("Ordering by %v asc?: %v", e, asc)
 		}
-		ex := e.(expr.Expr)
+		ex, ok := e.(expr.Expr)
+		if !ok {
+			return fmt.Errorf("%v in order by is not an expression", exprToString(_e.Expr))
+		}
 		if !asc {
 			ex = expr.MULT(-1, ex)
 		}

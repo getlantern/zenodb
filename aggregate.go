@@ -60,6 +60,7 @@ type QueryResult struct {
 	Until         time.Time
 	Resolution    time.Duration
 	Fields        []sql.Field
+	FieldNames    []string // FieldNames are needed for serializing QueryResult across rpc
 	GroupBy       []string
 	Entries       []*Entry
 	Stats         *QueryStats
@@ -147,11 +148,15 @@ func (aq *Query) Run() (*QueryResult, error) {
 		Until:         q.until,
 		Resolution:    aq.Resolution,
 		Fields:        aq.Fields,
+		FieldNames:    make([]string, 0, len(aq.Fields)),
 		GroupBy:       aq.GroupBy,
 		NumPeriods:    aq.outPeriods,
 		Entries:       resultEntries,
 		Stats:         stats,
 		ScannedPoints: *scannedPoints,
+	}
+	for _, field := range aq.Fields {
+		result.FieldNames = append(result.FieldNames, field.Name)
 	}
 	if len(result.GroupBy) == 0 {
 		result.GroupBy = make([]string, 0, len(aq.dimsMap))
