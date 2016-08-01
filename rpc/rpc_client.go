@@ -1,6 +1,8 @@
 package rpc
 
 import (
+	"time"
+
 	"github.com/getlantern/tibsdb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -13,7 +15,7 @@ type Client interface {
 }
 
 func Dial(addr string) (Client, error) {
-	conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithCodec(msgpackCodec))
+	conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithCodec(msgpackCodec), grpc.WithBackoffMaxDelay(1*time.Minute))
 	if err != nil {
 		return nil, err
 	}

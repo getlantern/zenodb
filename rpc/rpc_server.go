@@ -57,7 +57,7 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 			}
 			row.Fields = append(row.Fields, values)
 		}
-		err = stream.SendMsg(row)
+		err = stream.SendMsg(entry)
 		if err != nil {
 			return err
 		}
