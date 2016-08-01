@@ -195,7 +195,9 @@ func (q *Query) applyTimeRange(stmt *sqlparser.Select) error {
 }
 
 func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
+	groupedByAnything := false
 	for _, e := range stmt.GroupBy {
+		groupedByAnything = true
 		_, ok := e.(*sqlparser.StarExpr)
 		if ok {
 			q.GroupByAll = true
@@ -217,6 +219,10 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			log.Trace("Dimension specified in group by")
 			q.GroupBy = append(q.GroupBy, strings.ToLower(exprToString(e)))
 		}
+	}
+
+	if !groupedByAnything {
+		q.GroupByAll = true
 	}
 	return nil
 }

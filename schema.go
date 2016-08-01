@@ -61,18 +61,18 @@ func (db *DB) ApplySchema(schema Schema) error {
 		opts.Name = name
 		t := db.getTable(name)
 		if t == nil {
-			log.Debugf("Creating table %v", name)
+			log.Debugf("Creating table '%v' as\n%v", name, opts.SQL)
 			err := db.CreateTable(opts)
 			if err != nil {
 				return err
 			}
 		} else {
 			// TODO: support more comprehensive altering of tables (maybe)
-			log.Debugf("Cowardly altering where and nothing else on table %v", name)
 			q, err := sql.Parse(opts.SQL)
 			if err != nil {
 				return err
 			}
+			log.Debugf("Cowardly altering where and nothing else on table '%v': %v", name, q.Where)
 			t.applyWhere(q.Where)
 		}
 	}

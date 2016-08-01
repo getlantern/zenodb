@@ -101,7 +101,6 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 	i := 0
 	for {
 		row, err := nextRow()
-		log.Debug("Got row")
 		if err == io.EOF {
 			break
 		}

@@ -226,7 +226,10 @@ func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry,
 	aq.inPeriods = int(q.until.Sub(q.asOf) / nativeResolution)
 	// Limit inPeriods based on what we can fit into outPeriods
 	aq.inPeriods -= aq.inPeriods % aq.scalingFactor
-	aq.outPeriods = (aq.inPeriods / aq.scalingFactor) + 1
+	aq.outPeriods = aq.inPeriods / aq.scalingFactor
+	if aq.outPeriods == 0 {
+		aq.outPeriods = 1
+	}
 	aq.inPeriods = aq.outPeriods * aq.scalingFactor
 	log.Tracef("In: %d   Out: %d", aq.inPeriods, aq.outPeriods)
 

@@ -30,9 +30,6 @@ func main() {
 	uniquesPerPeriod := 100
 	valuesPerPeriod := 5000
 	reportingPeriods := 100000
-	resolution := 5 * time.Minute
-	retainPeriods := 24
-	retentionPeriod := time.Duration(retainPeriods) * resolution
 	targetPointsPerSecond := 200000
 	numWriters := 4
 	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
@@ -51,23 +48,8 @@ func main() {
 	}
 
 	db, err := tibsdb.NewDB(&tibsdb.DBOpts{
-		Dir: "/tmp/tibsdbdemo",
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	err = db.CreateTable(&tibsdb.TableOpts{
-		Name:             "test",
-		RetentionPeriod:  retentionPeriod,
-		MaxMemStoreBytes: 500 * 1024 * 1024,
-		MaxFlushLatency:  30 * time.Second,
-		SQL: fmt.Sprintf(`
-SELECT
-	SUM(i) AS i,
-	SUM(ii) AS ii,
-	AVG(ii) / AVG(i) AS iii
-FROM inbound
-GROUP BY period(%v)`, resolution),
+		SchemaFile: "schema.yaml",
+		Dir:        "/tmp/tibsdbdemo",
 	})
 	if err != nil {
 		log.Fatal(err)
