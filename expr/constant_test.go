@@ -1,7 +1,6 @@
 package expr
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
@@ -12,7 +11,6 @@ func TestConstant(t *testing.T) {
 		"b": 4.4,
 	}
 
-	assert.Equal(t, []string{}, e.DependsOn())
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params)
 	val, _, _ := e.Get(b)

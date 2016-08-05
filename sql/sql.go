@@ -48,7 +48,7 @@ var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 }
 
 type Field struct {
-	expr.Expr
+	Expr expr.Expr
 	Name string
 }
 

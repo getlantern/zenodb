@@ -6,15 +6,15 @@ import (
 )
 
 func TestSUM(t *testing.T) {
-	doTestAggregate(t, SUM("a"), []string{"a"}, 13.2)
+	doTestAggregate(t, SUM("a"), 13.2)
 }
 
 func TestCOUNT(t *testing.T) {
-	doTestAggregate(t, COUNT("b"), []string{"b"}, 1)
+	doTestAggregate(t, COUNT("b"), 1)
 }
 
 func TestAVG(t *testing.T) {
-	doTestAggregate(t, AVG("a"), []string{"a"}, 6.6)
+	doTestAggregate(t, AVG("a"), 6.6)
 }
 
 func TestValidateAggregate(t *testing.T) {
@@ -28,7 +28,7 @@ func TestValidateAggregate(t *testing.T) {
 	assert.NoError(t, ok2.Validate())
 }
 
-func doTestAggregate(t *testing.T, e Expr, expectedDepends []string, expected float64) {
+func doTestAggregate(t *testing.T, e Expr, expected float64) {
 	params1 := Map{
 		"a": 4.4,
 	}
@@ -37,7 +37,6 @@ func doTestAggregate(t *testing.T, e Expr, expectedDepends []string, expected fl
 		"b": 1.1,
 	}
 
-	assert.Equal(t, expectedDepends, e.DependsOn())
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params1)
 	e.Update(b, params2)

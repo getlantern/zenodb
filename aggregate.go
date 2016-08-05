@@ -53,11 +53,18 @@ type queryResponse struct {
 	startOffset int
 }
 
+type subMergeSpec struct {
+	idx      int
+	field    sql.Field
+	subMerge expr.SubMerge
+}
+
 type queryExecution struct {
 	db *DB
 	sql.Query
+	t                *table
 	q                *query
-	subMergers       []expr.SubMerge
+	subMergers       [][]expr.SubMerge
 	havingSubMergers []expr.SubMerge
 	dimsMap          map[string]bool
 	scalingFactor    int
@@ -104,6 +111,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 	exec := &queryExecution{
 		Query:       aq.Query,
 		db:          aq.db,
+		t:           aq.db.getTable(aq.From),
 		q:           q,
 		numWorkers:  numWorkers,
 		responsesCh: make(chan *queryResponse, numWorkers),
@@ -122,21 +130,42 @@ func (exec *queryExecution) run() (*QueryResult, error) {
 }
 
 func (exec *queryExecution) prepare() error {
-	fields := make([]string, 0, len(exec.Fields))
-	subMergers := make([]expr.SubMerge, 0, len(exec.Fields))
-	havingSubMergers := make([]expr.SubMerge, 0, len(exec.Fields))
+	// Figure out what to select
+	var subMergers [][]expr.SubMerge
+	columns := make([]expr.Expr, 0, len(exec.t.Fields))
+	for _, column := range exec.t.Fields {
+		columns = append(columns, column.Expr)
+	}
+	includedColumns := make(map[int]bool)
 	for _, field := range exec.Fields {
-		fields = append(fields, field.Name)
-		subMergers = append(subMergers, expr.EnsureSubMerge(field.Expr.SubMerger(field.Expr)))
-		if exec.Having != nil {
-			havingSubMergers = append(havingSubMergers, expr.EnsureSubMerge(exec.Having.SubMerger(field.Expr)))
+		sms := field.Expr.SubMergers(columns)
+		subMergers = append(subMergers, sms)
+		for j, sm := range sms {
+			if sm != nil {
+				includedColumns[j] = true
+			}
+		}
+	}
+
+	var havingSubMergers []expr.SubMerge
+	if exec.Having != nil {
+		sms := exec.Having.SubMergers(columns)
+		for j, sm := range sms {
+			if sm != nil {
+				includedColumns[j] = true
+			}
+		}
+	}
+
+	var fields []string
+	for i, column := range exec.t.Fields {
+		if includedColumns[i] {
+			fields = append(fields, column.Name)
 		}
 	}
 	exec.q.fields = fields
 	exec.subMergers = subMergers
-	if exec.Having != nil {
-		exec.havingSubMergers = havingSubMergers
-	}
+	exec.havingSubMergers = havingSubMergers
 
 	if exec.Where != "" {
 		log.Tracef("Applying where: %v", exec.Where)
@@ -152,15 +181,14 @@ func (exec *queryExecution) prepare() error {
 		return err
 	}
 
-	t := exec.q.t
-	nativeResolution := t.Resolution
+	nativeResolution := exec.t.Resolution
 	if exec.Resolution == 0 {
 		log.Trace("Defaulting to native resolution")
 		exec.Resolution = nativeResolution
 	}
-	if exec.Resolution > t.RetentionPeriod {
+	if exec.Resolution > exec.t.RetentionPeriod {
 		log.Trace("Not allowing resolution lower than retention period")
-		exec.Resolution = t.RetentionPeriod
+		exec.Resolution = exec.t.RetentionPeriod
 	}
 	if exec.Resolution < nativeResolution {
 		return fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", exec.Resolution, nativeResolution)
@@ -210,7 +238,6 @@ func (exec *queryExecution) prepare() error {
 
 	worker := func() {
 		entries := make(map[string]*Entry, 0)
-		sfp := &singleFieldParams{}
 		for resp := range exec.responsesCh {
 			kb := sliceKey(resp.key)
 			entry := entries[string(kb)]
@@ -232,7 +259,7 @@ func (exec *queryExecution) prepare() error {
 
 				// Initialize fields
 				for i, f := range exec.Fields {
-					seq := newSequence(f.EncodedWidth(), exec.outPeriods)
+					seq := newSequence(f.Expr.EncodedWidth(), exec.outPeriods)
 					seq.setStart(exec.q.until)
 					entry.Fields[i] = seq
 				}
@@ -249,30 +276,38 @@ func (exec *queryExecution) prepare() error {
 				entries[string(kb)] = entry
 			}
 
-			log.Debugf("Got values for %v", resp.field)
-			for x, field := range exec.Fields {
-				if field.Name == resp.field {
-					inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
-					for i := 0; i < inPeriods && i < exec.inPeriods; i++ {
-						other, wasSet := resp.seq.dataAt(i+resp.startOffset, resp.e)
-						if wasSet {
-							atomic.AddInt64(&exec.scannedPoints, 1)
-							out := i / exec.scalingFactor
-							seq := entry.Fields[x]
-							seq.mergeValueAt(out, field.Expr, exec.subMergers[x], other)
+			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
+			for c, column := range exec.t.Fields {
+				if column.Name != resp.field {
+					continue
+				}
+				for t := 0; t < inPeriods && t < exec.inPeriods; t++ {
+					other, wasSet := resp.seq.dataAt(t+resp.startOffset, resp.e)
+					if !wasSet {
+						continue
+					}
 
-							// Calculate havings
-							if exec.Having != nil {
-								exec.havingSubMergers[x](entry.havingTest, other)
-							}
-
-							val, _ := seq.ValueAt(out, field.Expr)
-							log.Debugf("Merged into %v resulting in %f", field.Name, val)
+					for f, field := range exec.Fields {
+						subMerge := exec.subMergers[f][c]
+						if subMerge == nil {
+							continue
 						}
+						seq := entry.Fields[f]
+						atomic.AddInt64(&exec.scannedPoints, 1)
+						out := t / exec.scalingFactor
+						log.Debugf("Merging %v into %v", column, field)
+						seq.subMergeValueAt(out, field.Expr, subMerge, other)
+						val, _ := seq.ValueAt(out, field.Expr)
+						log.Debugf("Yielded %f", val)
+					}
+
+					// Calculate havings
+					if exec.Having != nil {
+						subMerge := exec.havingSubMergers[c]
+						subMerge(entry.havingTest, other)
 					}
 				}
 			}
-			sfp.field = resp.field
 		}
 
 		exec.entriesCh <- entries
@@ -312,7 +347,7 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 					vo, ok := o[k]
 					if ok {
 						for x, os := range vo.Fields {
-							v.Fields[x] = v.Fields[x].merge(os, exec.Fields[x], exec.Resolution, exec.AsOf)
+							v.Fields[x] = v.Fields[x].merge(os, exec.Fields[x].Expr, exec.Resolution, exec.AsOf)
 						}
 						delete(o, k)
 					}
@@ -437,16 +472,4 @@ func (r orderedEntries) Less(i, j int) bool {
 		}
 	}
 	return false
-}
-
-type singleFieldParams struct {
-	field string
-	value float64
-}
-
-func (sfp singleFieldParams) Get(field string) (float64, bool) {
-	if field == sfp.field {
-		return sfp.value, true
-	}
-	return 0, false
 }

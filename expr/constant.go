@@ -17,10 +17,6 @@ func (e *constant) Validate() error {
 	return nil
 }
 
-func (e *constant) DependsOn() []string {
-	return []string{}
-}
-
 func (e *constant) EncodedWidth() int {
 	return 0
 }
@@ -33,8 +29,8 @@ func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) 
 	return b, x, y
 }
 
-func (e *constant) SubMerger(sub Expr) SubMerge {
-	return nil
+func (e *constant) SubMergers(subs []Expr) []SubMerge {
+	return make([]SubMerge, len(subs))
 }
 
 func (e *constant) Get(b []byte) (float64, bool, []byte) {

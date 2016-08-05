@@ -195,7 +195,7 @@ func (rs *rowStore) processFlushes() {
 		write := func(key bytemap.ByteMap, columns []sequence) {
 			hasActiveSequence := false
 			for i, seq := range columns {
-				seq = seq.truncate(rs.t.Fields[i].EncodedWidth(), rs.t.Resolution, truncateBefore)
+				seq = seq.truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore)
 				columns[i] = seq
 				if seq != nil {
 					hasActiveSequence = true
@@ -432,7 +432,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 					}
 				}
 				if fs.t.log.IsTraceEnabled() {
-					fs.t.log.Tracef("File Read: %v", seq.String(fs.t.Fields[i]))
+					fs.t.log.Tracef("File Read: %v", seq.String(fs.t.Fields[i].Expr))
 				}
 			}
 
@@ -454,7 +454,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 							continue
 						}
 						// merge
-						columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
+						columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i].Expr, fs.t.Resolution, truncateBefore)
 					}
 				}
 			}
@@ -481,7 +481,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 						columns = append(columns, columns2[i])
 						continue
 					}
-					columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i], fs.t.Resolution, truncateBefore)
+					columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i].Expr, fs.t.Resolution, truncateBefore)
 				}
 			}
 			onRow(bytemap.ByteMap(key), columns)

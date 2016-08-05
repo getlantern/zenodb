@@ -3,7 +3,6 @@ package expr
 import (
 	"fmt"
 	"reflect"
-	"sort"
 )
 
 type calcFN func(left float64, right float64) float64
@@ -37,22 +36,6 @@ func validateWrappedInBinary(wrapped Expr) error {
 	return fmt.Errorf("Binary expression must wrap only aggregate and constant expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v", typeOfWrapped)
 }
 
-func (e *binaryExpr) DependsOn() []string {
-	m := make(map[string]bool, 0)
-	for _, param := range e.left.DependsOn() {
-		m[param] = true
-	}
-	for _, param := range e.right.DependsOn() {
-		m[param] = true
-	}
-	result := make([]string, 0, len(m))
-	for param := range m {
-		result = append(result, param)
-	}
-	sort.Strings(result)
-	return result
-}
-
 func (e *binaryExpr) EncodedWidth() int {
 	return e.left.EncodedWidth() + e.right.EncodedWidth()
 }
@@ -69,15 +52,27 @@ func (e *binaryExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte
 	return e.right.Merge(remainB, remainX, remainY)
 }
 
-func (e *binaryExpr) SubMerger(sub Expr) SubMerge {
-	if sub.String() == e.String() {
-		return e.subMerge
+func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
+	result := make([]SubMerge, len(subs))
+	// See if any of the subexpressions match top level and if so, ignore others
+	for i, sub := range subs {
+		if reflect.DeepEqual(e, sub) {
+			result[i] = e.subMerge
+			return result
+		}
 	}
-	return combinedSubMerge(e.left.SubMerger(sub), e.left.EncodedWidth(), e.right.SubMerger(sub))
+
+	// None of sub expressions match top level, build combined ones
+	left := e.left.SubMergers(subs)
+	right := e.right.SubMergers(subs)
+	for i := range subs {
+		result[i] = combinedSubMerge(left[i], e.left.EncodedWidth(), right[i])
+	}
+
+	return result
 }
 
 func (e *binaryExpr) subMerge(data []byte, other []byte) {
-	fmt.Printf("Merging %v\n", e.String())
 	e.Merge(data, data, other)
 }
 
@@ -90,7 +85,9 @@ func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
 		return left
 	}
 	if left == nil {
-		return right
+		return func(data []byte, other []byte) {
+			right(data[width:], other)
+		}
 	}
 	return func(data []byte, other []byte) {
 		left(data, other)

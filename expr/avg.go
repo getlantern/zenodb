@@ -3,6 +3,7 @@ package expr
 import (
 	"fmt"
 	"math"
+	"reflect"
 )
 
 // AVG creates an Expr that obtains its value by averaging the values of the
@@ -13,10 +14,6 @@ func AVG(expr interface{}) Expr {
 
 type avg struct {
 	wrapped Expr
-}
-
-func (e *avg) DependsOn() []string {
-	return e.wrapped.DependsOn()
 }
 
 func (e *avg) Validate() error {
@@ -59,13 +56,17 @@ func (e *avg) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, remainX, remainY
 }
 
-func (e *avg) SubMerger(sub Expr) SubMerge {
-	if sub.String() == e.String() {
-		return e.subMerge
+func (e *avg) SubMergers(subs []Expr) []SubMerge {
+	result := make([]SubMerge, 0, len(subs))
+	for _, sub := range subs {
+		var sm SubMerge
+		if reflect.DeepEqual(e, sub) {
+			sm = e.subMerge
+		}
+		result = append(result, sm)
 	}
-	return nil
+	return result
 }
-
 func (e *avg) subMerge(data []byte, other []byte) {
 	e.Merge(data, data, other)
 }

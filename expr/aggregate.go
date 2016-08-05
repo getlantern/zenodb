@@ -29,10 +29,6 @@ func validateWrappedInAggregate(wrapped Expr) error {
 	return wrapped.Validate()
 }
 
-func (e *aggregate) DependsOn() []string {
-	return e.wrapped.DependsOn()
-}
-
 func (e *aggregate) EncodedWidth() int {
 	return 1 + width64bits + e.wrapped.EncodedWidth()
 }
@@ -48,7 +44,6 @@ func (e *aggregate) Update(b []byte, params Params) ([]byte, float64, bool) {
 }
 
 func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
-	fmt.Printf("%d : %d\n", len(x), len(y))
 	valueX, xWasSet, remainX := e.load(x)
 	valueY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -69,11 +64,16 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 	return b, remainX, remainY
 }
 
-func (e *aggregate) SubMerger(sub Expr) SubMerge {
-	if sub.String() == e.String() {
-		return e.subMerge
+func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
+	result := make([]SubMerge, 0, len(subs))
+	for _, sub := range subs {
+		var sm SubMerge
+		if reflect.DeepEqual(e, sub) {
+			sm = e.subMerge
+		}
+		result = append(result, sm)
 	}
-	return nil
+	return result
 }
 
 func (e *aggregate) subMerge(data []byte, other []byte) {
@@ -95,6 +95,7 @@ func (e *aggregate) load(b []byte) (float64, bool, []byte) {
 }
 
 func (e *aggregate) save(b []byte, value float64) []byte {
+	fmt.Printf("%v -> %f\n", e.String(), value)
 	b[0] = 1
 	binaryEncoding.PutUint64(b[1:], math.Float64bits(value))
 	return b[width64bits+1:]

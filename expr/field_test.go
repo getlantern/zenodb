@@ -10,7 +10,6 @@ func TestField(t *testing.T) {
 		"a": 4.4,
 	}
 	f := FIELD("a")
-	assert.Equal(t, []string{"a"}, f.DependsOn())
 	b := make([]byte, f.EncodedWidth())
 	_, val, _ := f.Update(b, params)
 	assert.EqualValues(t, 4.4, val)

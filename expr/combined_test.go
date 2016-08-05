@@ -1,12 +1,13 @@
 package expr
 
 import (
-	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
 func TestCombined(t *testing.T) {
-	mult := MULT(AVG("a"), AVG("b"))
+	avgA := AVG("a")
+	avgB := AVG("b")
+	mult := MULT(avgA, avgB)
 	count := COUNT("b")
 	e := DIV(mult, count)
 	params1 := Map{
@@ -22,7 +23,6 @@ func TestCombined(t *testing.T) {
 		"b": 3,
 	}
 
-	assert.Equal(t, []string{"a", "b"}, e.DependsOn())
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params1)
 	e.Update(b, params2)
@@ -37,18 +37,31 @@ func TestCombined(t *testing.T) {
 	assertFloatEquals(t, 7.33333333, val)
 
 	// Test SubMerge
+	bavgA := make([]byte, avgA.EncodedWidth())
+	bavgB := make([]byte, avgB.EncodedWidth())
 	bmult := make([]byte, mult.EncodedWidth())
 	bcount := make([]byte, count.EncodedWidth())
+	avgA.Update(bavgA, params1)
+	avgB.Update(bavgB, params1)
 	mult.Update(bmult, params1)
 	count.Update(bcount, params1)
+	avgA.Update(bavgA, params2)
+	avgB.Update(bavgB, params2)
 	mult.Update(bmult, params2)
 	count.Update(bcount, params2)
+	avgA.Update(bavgA, params3)
+	avgB.Update(bavgB, params3)
+	mult.Update(bmult, params3)
+	count.Update(bcount, params3)
 	be := make([]byte, e.EncodedWidth())
-	EnsureSubMerge(e.SubMerger(mult))(be, bmult)
-	EnsureSubMerge(e.SubMerger(count))(be, bcount)
-	val, _, _ = e.Get(b)
-	assertFloatEquals(t, 22.5, val)
-
-	// Test noop submerge
-	assert.Nil(t, mult.SubMerger(SUM("unknown")))
+	fields := []Expr{avgA, avgB, mult, count}
+	data := [][]byte{bavgA, bavgB, bmult, bcount}
+	sms := e.SubMergers(fields)
+	for i, sm := range sms {
+		if sm != nil {
+			sm(be, data[i])
+		}
+	}
+	val, _, _ = e.Get(be)
+	assertFloatEquals(t, 7.33333333, val)
 }

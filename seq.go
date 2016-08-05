@@ -106,8 +106,12 @@ func (seq sequence) updateValueAt(period int, e expr.Expr, params expr.Params) {
 	seq.updateValueAtOffset(period*e.EncodedWidth(), e, params)
 }
 
-func (seq sequence) mergeValueAt(period int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
-	seq.mergeValueAtOffset(period*e.EncodedWidth(), e, subMerge, other)
+func (seq sequence) mergeValueAt(period int, e expr.Expr, other []byte) {
+	seq.mergeValueAtOffset(period*e.EncodedWidth(), e, other)
+}
+
+func (seq sequence) subMergeValueAt(period int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
+	seq.subMergeValueAtOffset(period*e.EncodedWidth(), e, subMerge, other)
 }
 
 func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Params) {
@@ -115,8 +119,13 @@ func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Par
 	e.Update(seq[offset:], params)
 }
 
-func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
-	fmt.Printf("Merging into %v\n", e.String())
+func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, other []byte) {
+	offset = offset + width64bits
+	orig := seq[offset:]
+	e.Merge(orig, orig, other)
+}
+
+func (seq sequence) subMergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
 	offset = offset + width64bits
 	orig := seq[offset:]
 	subMerge(orig, other)

@@ -10,16 +10,15 @@ import (
 )
 
 type query struct {
-	table        string
-	fields       []string
-	filter       *govaluate.EvaluableExpression
-	asOf         time.Time
-	asOfOffset   time.Duration
-	until        time.Time
-	untilOffset  time.Duration
-	onValues     func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int)
-	t            *table
-	sortedFields []string
+	table       string
+	fields      []string
+	filter      *govaluate.EvaluableExpression
+	asOf        time.Time
+	asOfOffset  time.Duration
+	until       time.Time
+	untilOffset time.Duration
+	onValues    func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int)
+	t           *table
 }
 
 type QueryStats struct {

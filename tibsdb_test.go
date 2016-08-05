@@ -285,14 +285,14 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 
 	aq, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
-	i,
+	iii,
 	ii,
-	iii
+	i
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, period('%v')
-HAVING ii = 286
+-- HAVING ii = 286
 -- ORDER BY iii DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
@@ -317,12 +317,12 @@ HAVING ii = 286
 	}
 	log.Debug(entry.Dims)
 	log.Debug(result.NumPeriods)
-	log.Debugf("i: %v", entry.Fields[0].String(aq.Fields[0]))
-	log.Debugf("ii: %v", entry.Fields[1].String(aq.Fields[1]))
-	log.Debugf("iii: %v", entry.Fields[2].String(aq.Fields[2]))
-	i, _ := entry.Fields[0].ValueAt(0, aq.Fields[0])
-	ii, _ := entry.Fields[1].ValueAt(0, aq.Fields[1])
-	iii, _ := entry.Fields[2].ValueAt(0, aq.Fields[2])
+	log.Debugf("i: %v", entry.Fields[2].String(aq.Fields[2].Expr))
+	log.Debugf("ii: %v", entry.Fields[1].String(aq.Fields[1].Expr))
+	log.Debugf("iii: %v", entry.Fields[0].String(aq.Fields[0].Expr))
+	i, _ := entry.Fields[2].ValueAt(0, aq.Fields[2].Expr)
+	ii, _ := entry.Fields[1].ValueAt(0, aq.Fields[1].Expr)
+	iii, _ := entry.Fields[0].ValueAt(0, aq.Fields[0].Expr)
 	assert.EqualValues(t, 153, i, "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 286, ii, "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, (153*286)/3, iii, "Wrong derived value, bucketing may not be working correctly")
@@ -330,7 +330,7 @@ HAVING ii = 286
 	for _, field := range result.Fields {
 		fields = append(fields, field.Name)
 	}
-	assert.Equal(t, []string{"i", "ii", "iii"}, fields)
+	assert.Equal(t, []string{"iii", "ii", "i"}, fields)
 
 	// Test defaults
 	aq = db.Query(&sql.Query{

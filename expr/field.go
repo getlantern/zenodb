@@ -28,10 +28,6 @@ func (e *field) Validate() error {
 	return nil
 }
 
-func (e *field) DependsOn() []string {
-	return []string{e.name}
-}
-
 func (e *field) EncodedWidth() int {
 	return 0
 }
@@ -45,8 +41,8 @@ func (e *field) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, x, y
 }
 
-func (e *field) SubMerger(sub Expr) SubMerge {
-	return nil
+func (e *field) SubMergers(subs []Expr) []SubMerge {
+	return make([]SubMerge, len(subs))
 }
 
 func (e *field) Get(b []byte) (float64, bool, []byte) {

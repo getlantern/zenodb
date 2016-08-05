@@ -152,7 +152,7 @@ func (n *node) doUpdate(t *table, truncateBefore time.Time, vals tsparams) int {
 	for i, field := range t.Fields {
 		current := n.data[i]
 		previousSize := len(current)
-		updated := current.update(vals, field, t.Resolution, truncateBefore)
+		updated := current.update(vals, field.Expr, t.Resolution, truncateBefore)
 		n.data[i] = updated
 		bytesAdded += len(updated) - previousSize
 	}

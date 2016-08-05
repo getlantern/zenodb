@@ -6,23 +6,23 @@ import (
 )
 
 func TestADD(t *testing.T) {
-	doTestCalc(t, ADD("a", "b"), []string{"a", "b"}, 13.2)
+	doTestCalc(t, ADD("a", "b"), 13.2)
 }
 
 func TestSUB(t *testing.T) {
-	doTestCalc(t, SUB("a", "b"), []string{"a", "b"}, 4.4)
+	doTestCalc(t, SUB("a", "b"), 4.4)
 }
 
 func TestMULT(t *testing.T) {
-	doTestCalc(t, MULT("a", "b"), []string{"a", "b"}, 38.72)
+	doTestCalc(t, MULT("a", "b"), 38.72)
 }
 
 func TestDIV(t *testing.T) {
-	doTestCalc(t, DIV("a", "b"), []string{"a", "b"}, 2)
+	doTestCalc(t, DIV("a", "b"), 2)
 }
 
 func TestDIVZero(t *testing.T) {
-	doTestCalc(t, DIV("a", "c"), []string{"a", "c"}, 0)
+	doTestCalc(t, DIV("a", "c"), 0)
 }
 
 func TestValidateBinary(t *testing.T) {
@@ -38,7 +38,7 @@ func TestValidateBinary(t *testing.T) {
 	assert.NoError(t, ok4.Validate())
 }
 
-func doTestCalc(t *testing.T, e Expr, expectedDepends []string, expected float64) {
+func doTestCalc(t *testing.T, e Expr, expected float64) {
 	params := Map{
 		"a": 8.8,
 		"b": 4.4,
@@ -46,7 +46,6 @@ func doTestCalc(t *testing.T, e Expr, expectedDepends []string, expected float64
 		"d": 1.1,
 	}
 
-	assert.Equal(t, expectedDepends, e.DependsOn())
 	b := make([]byte, e.EncodedWidth())
 	_, val, _ := e.Update(b, params)
 	assertFloatEquals(t, expected, val)
