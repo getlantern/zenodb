@@ -285,14 +285,14 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 
 	aq, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
-	iii,
+	iii / 2,
 	ii,
 	i
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, period('%v')
--- HAVING ii = 286
+HAVING ii * 2 = 572
 -- ORDER BY iii DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
@@ -325,7 +325,7 @@ GROUP BY r, period('%v')
 	iii, _ := entry.Fields[0].ValueAt(0, aq.Fields[0].Expr)
 	assert.EqualValues(t, 153, i, "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 286, ii, "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, (153*286)/3, iii, "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, (153*286)/3/2, iii, "Wrong derived value, bucketing may not be working correctly")
 	fields := make([]string, 0, len(result.Fields))
 	for _, field := range result.Fields {
 		fields = append(fields, field.Name)

@@ -95,7 +95,6 @@ func (e *aggregate) load(b []byte) (float64, bool, []byte) {
 }
 
 func (e *aggregate) save(b []byte, value float64) []byte {
-	fmt.Printf("%v -> %f\n", e.String(), value)
 	b[0] = 1
 	binaryEncoding.PutUint64(b[1:], math.Float64bits(value))
 	return b[width64bits+1:]

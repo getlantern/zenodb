@@ -149,8 +149,8 @@ func (exec *queryExecution) prepare() error {
 
 	var havingSubMergers []expr.SubMerge
 	if exec.Having != nil {
-		sms := exec.Having.SubMergers(columns)
-		for j, sm := range sms {
+		havingSubMergers = exec.Having.SubMergers(columns)
+		for j, sm := range havingSubMergers {
 			if sm != nil {
 				includedColumns[j] = true
 			}
@@ -286,6 +286,7 @@ func (exec *queryExecution) prepare() error {
 					if !wasSet {
 						continue
 					}
+					atomic.AddInt64(&exec.scannedPoints, 1)
 
 					for f, field := range exec.Fields {
 						subMerge := exec.subMergers[f][c]
@@ -295,16 +296,15 @@ func (exec *queryExecution) prepare() error {
 						seq := entry.Fields[f]
 						atomic.AddInt64(&exec.scannedPoints, 1)
 						out := t / exec.scalingFactor
-						log.Debugf("Merging %v into %v", column, field)
 						seq.subMergeValueAt(out, field.Expr, subMerge, other)
-						val, _ := seq.ValueAt(out, field.Expr)
-						log.Debugf("Yielded %f", val)
 					}
 
 					// Calculate havings
 					if exec.Having != nil {
 						subMerge := exec.havingSubMergers[c]
-						subMerge(entry.havingTest, other)
+						if subMerge != nil {
+							subMerge(entry.havingTest, other)
+						}
 					}
 				}
 			}
