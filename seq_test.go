@@ -147,3 +147,36 @@ func checkMerge(t *testing.T, epoch time.Time, res time.Duration, seq1 sequence,
 	val, _ = merged.valueAtTime(epoch.Add(-5*res), e, res)
 	assert.EqualValues(t, 5, val)
 }
+
+func TestSequenceMergeValueAt(t *testing.T) {
+	res := time.Minute
+	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
+	truncateBefore := epoch.Add(-1000 * res)
+	e := SUM("a")
+
+	var seq1 sequence
+	var seq2 sequence
+
+	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
+	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+
+	seq2 = seq2.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), e, res, truncateBefore)
+	seq2 = seq2.update(newTSParams(epoch.Add(-2*res), bytemap.NewFloat(map[string]float64{"a": 2})), e, res, truncateBefore)
+	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), e, res, truncateBefore)
+
+	for i := 0; i < 3; i++ {
+		other, found := seq2.dataAt(i, e)
+		if !assert.True(t, found) {
+			return
+		}
+		seq1.mergeValueAt(i, e, e.SubMerger(e), other)
+	}
+
+	for i, expected := range []float64{2, 2, 6} {
+		val, found := seq1.ValueAt(i, e)
+		if !assert.True(t, found) {
+			return
+		}
+		assert.EqualValues(t, expected, val)
+	}
+}

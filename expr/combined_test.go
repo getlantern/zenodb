@@ -6,10 +6,9 @@ import (
 )
 
 func TestCombined(t *testing.T) {
-	e, err := JS(`DIV(MULT(AVG("a"), AVG("b")), COUNT("b"))`)
-	if !assert.NoError(t, err, "Unable to parse JS expression") {
-		return
-	}
+	mult := MULT(AVG("a"), AVG("b"))
+	count := COUNT("b")
+	e := DIV(mult, count)
 	params1 := Map{
 		"a": 2,
 		"b": 10,
@@ -36,4 +35,20 @@ func TestCombined(t *testing.T) {
 	e.Merge(b3, b, b2)
 	val, _, _ = e.Get(b3)
 	assertFloatEquals(t, 7.33333333, val)
+
+	// Test SubMerge
+	bmult := make([]byte, mult.EncodedWidth())
+	bcount := make([]byte, count.EncodedWidth())
+	mult.Update(bmult, params1)
+	count.Update(bcount, params1)
+	mult.Update(bmult, params2)
+	count.Update(bcount, params2)
+	be := make([]byte, e.EncodedWidth())
+	EnsureSubMerge(e.SubMerger(mult))(be, bmult)
+	EnsureSubMerge(e.SubMerger(count))(be, bcount)
+	val, _, _ = e.Get(b)
+	assertFloatEquals(t, 22.5, val)
+
+	// Test noop submerge
+	assert.Nil(t, mult.SubMerger(SUM("unknown")))
 }

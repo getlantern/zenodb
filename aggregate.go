@@ -19,39 +19,8 @@ import (
 type Entry struct {
 	Dims          map[string]interface{}
 	Fields        []sequence
-	q             *Query
-	fieldsIdx     int
 	orderByValues [][]byte
 	havingTest    []byte
-}
-
-// Get implements the method from interface govaluate.Parameters
-func (entry *Entry) Get(name string) (float64, bool) {
-	if entry.fieldsIdx >= 0 {
-		return entry.value(name, entry.fieldsIdx)
-	}
-	return 0, false
-}
-
-func (entry *Entry) Value(name string, period int) float64 {
-	v, _ := entry.value(name, period)
-	return v
-}
-
-func (entry *Entry) value(name string, period int) (float64, bool) {
-	var field sql.Field
-	var seq sequence
-	for i, candidate := range entry.q.Fields {
-		if candidate.Name == name {
-			field = candidate
-			seq = entry.Fields[i]
-			break
-		}
-	}
-	if seq == nil || period > seq.numPeriods(field.EncodedWidth()) {
-		return 0, false
-	}
-	return seq.ValueAt(period, field)
 }
 
 type QueryResult struct {
@@ -74,14 +43,44 @@ type QueryResult struct {
 type Query struct {
 	db *DB
 	sql.Query
-	dimsMap       map[string]bool
-	scalingFactor int
-	inPeriods     int
-	outPeriods    int
+}
+
+type queryResponse struct {
+	key         bytemap.ByteMap
+	field       string
+	e           expr.Expr
+	seq         sequence
+	startOffset int
+}
+
+type queryExecution struct {
+	db *DB
+	sql.Query
+	q                *query
+	subMergers       []expr.SubMerge
+	havingSubMergers []expr.SubMerge
+	dimsMap          map[string]bool
+	scalingFactor    int
+	inPeriods        int
+	outPeriods       int
+	numWorkers       int
+	responsesCh      chan *queryResponse
+	entriesCh        chan map[string]*Entry
+	wg               sync.WaitGroup
+	scannedPoints    int64
 }
 
 func (db *DB) SQLQuery(sqlString string) (*Query, error) {
-	query, err := sql.Parse(sqlString)
+	table, err := sql.TableFor(sqlString)
+	if err != nil {
+		return nil, err
+	}
+	t := db.getTable(table)
+	if t == nil {
+		return nil, fmt.Errorf("Table '%v' not found", table)
+	}
+
+	query, err := sql.Parse(sqlString, t.Fields...)
 	if err != nil {
 		return nil, err
 	}
@@ -100,19 +99,207 @@ func (aq *Query) Run() (*QueryResult, error) {
 		until:       aq.Until,
 		untilOffset: aq.UntilOffset,
 	}
-	responses, entriesCh, wg, scannedPoints, err := aq.prepare(q)
+	numWorkers := runtime.NumCPU()
+	numWorkers = 1
+	exec := &queryExecution{
+		Query:       aq.Query,
+		db:          aq.db,
+		q:           q,
+		numWorkers:  numWorkers,
+		responsesCh: make(chan *queryResponse, numWorkers),
+		entriesCh:   make(chan map[string]*Entry, numWorkers),
+	}
+	exec.wg.Add(numWorkers)
+	return exec.run()
+}
+
+func (exec *queryExecution) run() (*QueryResult, error) {
+	err := exec.prepare()
 	if err != nil {
 		return nil, err
 	}
-	stats, err := q.run(aq.db)
+	return exec.finish()
+}
+
+func (exec *queryExecution) prepare() error {
+	fields := make([]string, 0, len(exec.Fields))
+	subMergers := make([]expr.SubMerge, 0, len(exec.Fields))
+	havingSubMergers := make([]expr.SubMerge, 0, len(exec.Fields))
+	for _, field := range exec.Fields {
+		fields = append(fields, field.Name)
+		subMergers = append(subMergers, expr.EnsureSubMerge(field.Expr.SubMerger(field.Expr)))
+		if exec.Having != nil {
+			havingSubMergers = append(havingSubMergers, expr.EnsureSubMerge(exec.Having.SubMerger(field.Expr)))
+		}
+	}
+	exec.q.fields = fields
+	exec.subMergers = subMergers
+	if exec.Having != nil {
+		exec.havingSubMergers = havingSubMergers
+	}
+
+	if exec.Where != "" {
+		log.Tracef("Applying where: %v", exec.Where)
+		where, err := govaluate.NewEvaluableExpression(exec.Where)
+		if err != nil {
+			return fmt.Errorf("Invalid where expression: %v", err)
+		}
+		exec.q.filter = where
+	}
+
+	err := exec.q.init(exec.db)
+	if err != nil {
+		return err
+	}
+
+	t := exec.q.t
+	nativeResolution := t.Resolution
+	if exec.Resolution == 0 {
+		log.Trace("Defaulting to native resolution")
+		exec.Resolution = nativeResolution
+	}
+	if exec.Resolution > t.RetentionPeriod {
+		log.Trace("Not allowing resolution lower than retention period")
+		exec.Resolution = t.RetentionPeriod
+	}
+	if exec.Resolution < nativeResolution {
+		return fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", exec.Resolution, nativeResolution)
+	}
+	if exec.Resolution%nativeResolution != 0 {
+		return fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", exec.Resolution, nativeResolution)
+	}
+
+	exec.scalingFactor = int(exec.Resolution / nativeResolution)
+	log.Tracef("Scaling factor: %d", exec.scalingFactor)
+
+	exec.inPeriods = int(exec.q.until.Sub(exec.q.asOf) / nativeResolution)
+	// Limit inPeriods based on what we can fit into outPeriods
+	exec.inPeriods -= exec.inPeriods % exec.scalingFactor
+	exec.outPeriods = exec.inPeriods / exec.scalingFactor
+	if exec.outPeriods == 0 {
+		exec.outPeriods = 1
+	}
+	exec.inPeriods = exec.outPeriods * exec.scalingFactor
+	log.Tracef("In: %d   Out: %d", exec.inPeriods, exec.outPeriods)
+
+	var dimsMapMutex sync.Mutex
+	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
+	if exec.GroupByAll {
+		// Use all original dimensions in grouping
+		exec.dimsMap = make(map[string]bool, 0)
+		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+			// Original key is fine
+			return key
+		}
+	} else if len(exec.GroupBy) == 0 {
+		defaultKey := bytemap.New(map[string]interface{}{
+			"default": "",
+		})
+		// No grouping, put everything under a single key
+		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+			return defaultKey
+		}
+	} else {
+		groupBy := make([]string, len(exec.GroupBy))
+		copy(groupBy, exec.GroupBy)
+		sort.Strings(groupBy)
+		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+			return key.Slice(groupBy...)
+		}
+	}
+
+	worker := func() {
+		entries := make(map[string]*Entry, 0)
+		sfp := &singleFieldParams{}
+		for resp := range exec.responsesCh {
+			kb := sliceKey(resp.key)
+			entry := entries[string(kb)]
+			if entry == nil {
+				entry = &Entry{
+					Dims:   kb.AsMap(),
+					Fields: make([]sequence, len(exec.Fields)),
+				}
+				if exec.GroupByAll {
+					// Track dims
+					for dim := range entry.Dims {
+						// TODO: instead of locking on this shared state, have the workers
+						// return their own dimsMaps and merge them
+						dimsMapMutex.Lock()
+						exec.dimsMap[dim] = true
+						dimsMapMutex.Unlock()
+					}
+				}
+
+				// Initialize fields
+				for i, f := range exec.Fields {
+					seq := newSequence(f.EncodedWidth(), exec.outPeriods)
+					seq.setStart(exec.q.until)
+					entry.Fields[i] = seq
+				}
+
+				// Initialize havings
+				if exec.Having != nil {
+					entry.havingTest = make([]byte, exec.Having.EncodedWidth())
+				}
+
+				// Initialize order bys
+				for _, e := range exec.OrderBy {
+					entry.orderByValues = append(entry.orderByValues, make([]byte, e.EncodedWidth()))
+				}
+				entries[string(kb)] = entry
+			}
+
+			log.Debugf("Got values for %v", resp.field)
+			for x, field := range exec.Fields {
+				if field.Name == resp.field {
+					inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
+					for i := 0; i < inPeriods && i < exec.inPeriods; i++ {
+						other, wasSet := resp.seq.dataAt(i+resp.startOffset, resp.e)
+						if wasSet {
+							atomic.AddInt64(&exec.scannedPoints, 1)
+							out := i / exec.scalingFactor
+							seq := entry.Fields[x]
+							seq.mergeValueAt(out, field.Expr, exec.subMergers[x], other)
+
+							// Calculate havings
+							if exec.Having != nil {
+								exec.havingSubMergers[x](entry.havingTest, other)
+							}
+
+							val, _ := seq.ValueAt(out, field.Expr)
+							log.Debugf("Merged into %v resulting in %f", field.Name, val)
+						}
+					}
+				}
+			}
+			sfp.field = resp.field
+		}
+
+		exec.entriesCh <- entries
+		exec.wg.Done()
+	}
+
+	for i := 0; i < exec.numWorkers; i++ {
+		go worker()
+	}
+
+	exec.q.onValues = func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int) {
+		exec.responsesCh <- &queryResponse{key, field, e, seq, startOffset}
+	}
+
+	return nil
+}
+
+func (exec *queryExecution) finish() (*QueryResult, error) {
+	stats, err := exec.q.run(exec.db)
 	if err != nil {
 		return nil, err
 	}
-	close(responses)
-	wg.Wait()
-	close(entriesCh)
+	close(exec.responsesCh)
+	exec.wg.Wait()
+	close(exec.entriesCh)
 	var entries []map[string]*Entry
-	for e := range entriesCh {
+	for e := range exec.entriesCh {
 		entries = append(entries, e)
 	}
 	// Merge entries
@@ -125,42 +312,46 @@ func (aq *Query) Run() (*QueryResult, error) {
 					vo, ok := o[k]
 					if ok {
 						for x, os := range vo.Fields {
-							v.Fields[x] = v.Fields[x].merge(os, aq.Fields[x], aq.Resolution, aq.AsOf)
+							v.Fields[x] = v.Fields[x].merge(os, exec.Fields[x], exec.Resolution, exec.AsOf)
 						}
 						delete(o, k)
 					}
+					if exec.Having != nil {
+						exec.Having.Merge(v.havingTest, v.havingTest, vo.havingTest)
+					}
 				}
+
 			}
 			entriesOut[k] = v
 		}
 	}
 	// if log.IsTraceEnabled() {
-	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(*scannedPoints))
+	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
 	// }
 
-	resultEntries, err := aq.buildEntries(q, entriesOut)
+	resultEntries, err := exec.buildEntries(entriesOut)
 	if err != nil {
 		return nil, err
 	}
 	result := &QueryResult{
-		Table:         aq.From,
-		AsOf:          q.asOf,
-		Until:         q.until,
-		Resolution:    aq.Resolution,
-		Fields:        aq.Fields,
-		FieldNames:    make([]string, 0, len(aq.Fields)),
-		GroupBy:       aq.GroupBy,
-		NumPeriods:    aq.outPeriods,
+		Table:         exec.From,
+		AsOf:          exec.q.asOf,
+		Until:         exec.q.until,
+		Resolution:    exec.Resolution,
+		Fields:        exec.Fields,
+		FieldNames:    make([]string, 0, len(exec.Fields)),
+		GroupBy:       exec.GroupBy,
+		NumPeriods:    exec.outPeriods,
 		Entries:       resultEntries,
 		Stats:         stats,
-		ScannedPoints: *scannedPoints,
+		ScannedPoints: exec.scannedPoints,
 	}
-	for _, field := range aq.Fields {
+	for _, field := range exec.Fields {
 		result.FieldNames = append(result.FieldNames, field.Name)
 	}
 	if len(result.GroupBy) == 0 {
-		result.GroupBy = make([]string, 0, len(aq.dimsMap))
-		for dim := range aq.dimsMap {
+		result.GroupBy = make([]string, 0, len(exec.dimsMap))
+		for dim := range exec.dimsMap {
 			result.GroupBy = append(result.GroupBy, dim)
 		}
 		sort.Strings(result.GroupBy)
@@ -169,236 +360,51 @@ func (aq *Query) Run() (*QueryResult, error) {
 	return result, nil
 }
 
-type queryResponse struct {
-	key         bytemap.ByteMap
-	field       string
-	e           expr.Expr
-	seq         sequence
-	startOffset int
-}
-
-func (aq *Query) prepare(q *query) (chan *queryResponse, chan map[string]*Entry, *sync.WaitGroup, *int64, error) {
-	// Figure out field dependencies
-	sortedFields := make(sortedFields, len(aq.Fields))
-	copy(sortedFields, aq.Fields)
-	sort.Sort(sortedFields)
-	dependencies := make(map[string]bool, len(sortedFields))
-	for _, field := range sortedFields {
-		for _, dependency := range field.DependsOn() {
-			dependencies[dependency] = true
-		}
-	}
-	fields := make([]string, 0, len(dependencies))
-	for dependency := range dependencies {
-		fields = append(fields, dependency)
-	}
-	q.fields = fields
-
-	if aq.Where != "" {
-		log.Tracef("Applying where: %v", aq.Where)
-		where, err := govaluate.NewEvaluableExpression(aq.Where)
-		if err != nil {
-			return nil, nil, nil, nil, fmt.Errorf("Invalid where expression: %v", err)
-		}
-		q.filter = where
-	}
-
-	err := q.init(aq.db)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-
-	t := q.t
-	nativeResolution := t.Resolution
-	if aq.Resolution == 0 {
-		log.Trace("Defaulting to native resolution")
-		aq.Resolution = nativeResolution
-	}
-	if aq.Resolution > t.RetentionPeriod {
-		log.Trace("Not allowing resolution lower than retention period")
-		aq.Resolution = t.RetentionPeriod
-	}
-	if aq.Resolution < nativeResolution {
-		return nil, nil, nil, nil, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", aq.Resolution, nativeResolution)
-	}
-	if aq.Resolution%nativeResolution != 0 {
-		return nil, nil, nil, nil, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", aq.Resolution, nativeResolution)
-	}
-
-	aq.scalingFactor = int(aq.Resolution / nativeResolution)
-	log.Tracef("Scaling factor: %d", aq.scalingFactor)
-
-	aq.inPeriods = int(q.until.Sub(q.asOf) / nativeResolution)
-	// Limit inPeriods based on what we can fit into outPeriods
-	aq.inPeriods -= aq.inPeriods % aq.scalingFactor
-	aq.outPeriods = aq.inPeriods / aq.scalingFactor
-	if aq.outPeriods == 0 {
-		aq.outPeriods = 1
-	}
-	aq.inPeriods = aq.outPeriods * aq.scalingFactor
-	log.Tracef("In: %d   Out: %d", aq.inPeriods, aq.outPeriods)
-
-	var dimsMapMutex sync.Mutex
-	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
-	if aq.GroupByAll {
-		// Use all original dimensions in grouping
-		aq.dimsMap = make(map[string]bool, 0)
-		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			// Original key is fine
-			return key
-		}
-	} else if len(aq.GroupBy) == 0 {
-		defaultKey := bytemap.New(map[string]interface{}{
-			"default": "",
-		})
-		// No grouping, put everything under a single key
-		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			return defaultKey
-		}
-	} else {
-		groupBy := make([]string, len(aq.GroupBy))
-		copy(groupBy, aq.GroupBy)
-		sort.Strings(groupBy)
-		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			return key.Slice(groupBy...)
-		}
-	}
-
-	numWorkers := runtime.NumCPU()
-	var wg sync.WaitGroup
-	wg.Add(numWorkers)
-	responses := make(chan *queryResponse, numWorkers)
-	entriesCh := make(chan map[string]*Entry, numWorkers)
-	scannedPoints := int64(0)
-
-	worker := func() {
-		entries := make(map[string]*Entry, 0)
-		sfp := &singleFieldParams{}
-		for resp := range responses {
-			kb := sliceKey(resp.key)
-			entry := entries[string(kb)]
-			if entry == nil {
-				entry = &Entry{
-					Dims:   kb.AsMap(),
-					Fields: make([]sequence, len(aq.Fields)),
-					q:      aq,
-				}
-				if aq.GroupByAll {
-					// Track dims
-					for dim := range entry.Dims {
-						// TODO: instead of locking on this shared state, have the workers
-						// return their own dimsMaps and merge them
-						dimsMapMutex.Lock()
-						aq.dimsMap[dim] = true
-						dimsMapMutex.Unlock()
-					}
-				}
-
-				// Initialize fields
-				for i, f := range aq.Fields {
-					seq := newSequence(f.EncodedWidth(), aq.outPeriods)
-					seq.setStart(q.until)
-					entry.Fields[i] = seq
-				}
-
-				// Initialize havings
-				if aq.Having != nil {
-					entry.havingTest = make([]byte, aq.Having.EncodedWidth())
-				}
-
-				// Initialize order bys
-				for _, e := range aq.OrderBy {
-					entry.orderByValues = append(entry.orderByValues, make([]byte, e.EncodedWidth()))
-				}
-				entries[string(kb)] = entry
-			}
-
-			sfp.field = resp.field
-			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
-			for i := 0; i < inPeriods && i < aq.inPeriods; i++ {
-				val, wasSet := resp.seq.ValueAt(i+resp.startOffset, resp.e)
-				if wasSet {
-					atomic.AddInt64(&scannedPoints, 1)
-					sfp.value = val
-					out := i / aq.scalingFactor
-					for j, seq := range entry.Fields {
-						seq.updateValueAt(out, aq.Fields[j], sfp)
-					}
-				}
-			}
-		}
-
-		entriesCh <- entries
-		wg.Done()
-	}
-
-	for i := 0; i < numWorkers; i++ {
-		go worker()
-	}
-
-	q.onValues = func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int) {
-		responses <- &queryResponse{key, field, e, seq, startOffset}
-	}
-
-	return responses, entriesCh, &wg, &scannedPoints, nil
-}
-
-func (aq *Query) buildEntries(q *query, entries map[string]*Entry) ([]*Entry, error) {
+func (exec *queryExecution) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
 	result := make([]*Entry, 0, len(entries))
 	if len(entries) == 0 {
 		return result, nil
 	}
 
 	for _, entry := range entries {
-		// Don't get fields right now
-		entry.fieldsIdx = -1
-
-		// Calculate order bys
-		for i, e := range aq.OrderBy {
-			b := entry.orderByValues[i]
-			for j := 0; j < aq.inPeriods; j++ {
-				entry.fieldsIdx = j
-				e.Update(b, entry)
-			}
-		}
-
-		// Calculate havings
-		if entry.havingTest != nil {
-			for j := 0; j < aq.inPeriods; j++ {
-				entry.fieldsIdx = j
-				aq.Having.Update(entry.havingTest, entry)
-			}
-		}
+		// // Calculate order bys
+		// for i, e := range exec.OrderBy {
+		// 	b := entry.orderByValues[i]
+		// 	for j := 0; j < exec.inPeriods; j++ {
+		// 		entry.fieldsIdx = j
+		// 		e.Update(b, entry)
+		// 	}
+		// }
 
 		result = append(result, entry)
 	}
 
-	if len(aq.OrderBy) > 0 {
-		sort.Sort(orderedEntries{aq.OrderBy, result})
+	if len(exec.OrderBy) > 0 {
+		sort.Sort(orderedEntries{exec.OrderBy, result})
 	}
 
-	if aq.Having != nil {
+	if exec.Having != nil {
 		unfiltered := result
 		result = make([]*Entry, 0, len(result))
 		for _, entry := range unfiltered {
-			_testResult, _, _ := aq.Having.Get(entry.havingTest)
+			_testResult, _, _ := exec.Having.Get(entry.havingTest)
 			testResult := _testResult == 1
-			log.Tracef("Testing %v : %v", aq.Having, testResult)
+			log.Tracef("Testing %v : %v", exec.Having, testResult)
 			if testResult {
 				result = append(result, entry)
 			}
 		}
 	}
 
-	if aq.Offset > 0 {
-		offset := aq.Offset
+	if exec.Offset > 0 {
+		offset := exec.Offset
 		if offset > len(result) {
 			return make([]*Entry, 0), nil
 		}
 		result = result[offset:]
 	}
-	if aq.Limit > 0 {
-		end := aq.Limit
+	if exec.Limit > 0 {
+		end := exec.Limit
 		if end > len(result) {
 			end = len(result)
 		}

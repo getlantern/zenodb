@@ -53,8 +53,8 @@ Test_a:
   sql: >
     SELECT
       SUM(i) AS i,
-      SUM(ii) AS ii,
-      SUM(i) * SUM(ii) / COUNT(ii) AS iii
+      ii,
+      i * ii / COUNT(ii) AS iii
     FROM inbound
     WHERE r = 'A'
     GROUP BY period(1ms)
@@ -285,15 +285,15 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 
 	aq, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
-	SUM(ii) AS sum_ii,
-	COUNT(ii) AS count_ii,
-	AVG(ii) * 2 AS avg_ii
+	i,
+	ii,
+	iii
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, period('%v')
-HAVING SUM(sum_ii) = 286
-ORDER BY AVG(avg_ii) DESC
+HAVING ii = 286
+-- ORDER BY iii DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
 		return
@@ -315,24 +315,27 @@ ORDER BY AVG(avg_ii) DESC
 	if !assert.Equal(t, 1, result.NumPeriods, "Wrong number of periods, bucketing may not be working correctly") {
 		return
 	}
-	avg := float64(286) / float64(3) * 2 // 3 is the number of unique periods that have values for ii
 	log.Debug(entry.Dims)
 	log.Debug(result.NumPeriods)
-	log.Debugf("sum_ii: %v", entry.Fields[0])
-	log.Debugf("count_ii: %v", entry.Fields[1])
-	log.Debugf("avg_ii: %v", entry.Fields[2])
-	assert.EqualValues(t, 286, entry.Value("sum_ii", 0), "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, avg, entry.Value("avg_ii", 0), "Wrong derived value, bucketing may not be working correctly")
+	log.Debugf("i: %v", entry.Fields[0].String(aq.Fields[0]))
+	log.Debugf("ii: %v", entry.Fields[1].String(aq.Fields[1]))
+	log.Debugf("iii: %v", entry.Fields[2].String(aq.Fields[2]))
+	i, _ := entry.Fields[0].ValueAt(0, aq.Fields[0])
+	ii, _ := entry.Fields[1].ValueAt(0, aq.Fields[1])
+	iii, _ := entry.Fields[2].ValueAt(0, aq.Fields[2])
+	assert.EqualValues(t, 153, i, "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 286, ii, "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, (153*286)/3, iii, "Wrong derived value, bucketing may not be working correctly")
 	fields := make([]string, 0, len(result.Fields))
 	for _, field := range result.Fields {
 		fields = append(fields, field.Name)
 	}
-	assert.Equal(t, []string{"sum_ii", "count_ii", "avg_ii"}, fields)
+	assert.Equal(t, []string{"i", "ii", "iii"}, fields)
 
 	// Test defaults
 	aq = db.Query(&sql.Query{
 		From:       "test_a",
-		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "sum_ii"}},
+		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "ii"}},
 		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})

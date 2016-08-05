@@ -59,6 +59,17 @@ func (e *avg) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, remainX, remainY
 }
 
+func (e *avg) SubMerger(sub Expr) SubMerge {
+	if sub.String() == e.String() {
+		return e.subMerge
+	}
+	return nil
+}
+
+func (e *avg) subMerge(data []byte, other []byte) {
+	e.Merge(data, data, other)
+}
+
 func (e *avg) Get(b []byte) (float64, bool, []byte) {
 	count, total, wasSet, remain := e.load(b)
 	if !wasSet {

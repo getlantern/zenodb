@@ -69,6 +69,35 @@ func (e *binaryExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte
 	return e.right.Merge(remainB, remainX, remainY)
 }
 
+func (e *binaryExpr) SubMerger(sub Expr) SubMerge {
+	if sub.String() == e.String() {
+		return e.subMerge
+	}
+	return combinedSubMerge(e.left.SubMerger(sub), e.left.EncodedWidth(), e.right.SubMerger(sub))
+}
+
+func (e *binaryExpr) subMerge(data []byte, other []byte) {
+	fmt.Printf("Merging %v\n", e.String())
+	e.Merge(data, data, other)
+}
+
+func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
+	// Optimization - if left and right are both nil, just return nil
+	if left == nil && right == nil {
+		return nil
+	}
+	if right == nil {
+		return left
+	}
+	if left == nil {
+		return right
+	}
+	return func(data []byte, other []byte) {
+		left(data, other)
+		right(data[width:], other)
+	}
+}
+
 func (e *binaryExpr) Get(b []byte) (float64, bool, []byte) {
 	valueLeft, leftWasSet, remain := e.left.Get(b)
 	valueRight, rightWasSet, remain := e.right.Get(remain)

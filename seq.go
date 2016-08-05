@@ -63,6 +63,16 @@ func (seq sequence) ValueAt(period int, e expr.Expr) (float64, bool) {
 	return seq.valueAtOffset(period*e.EncodedWidth(), e)
 }
 
+func (seq sequence) dataAt(period int, e expr.Expr) ([]byte, bool) {
+	if seq == nil {
+		return nil, false
+	}
+	if period < 0 {
+		return nil, false
+	}
+	return seq.dataAtOffset(period*e.EncodedWidth(), e)
+}
+
 func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
 	if seq == nil {
 		return 0, false
@@ -75,6 +85,17 @@ func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
 	return val, wasSet
 }
 
+func (seq sequence) dataAtOffset(offset int, e expr.Expr) ([]byte, bool) {
+	if seq == nil {
+		return nil, false
+	}
+	offset = offset + width64bits
+	if offset >= len(seq) {
+		return nil, false
+	}
+	return seq[offset : offset+e.EncodedWidth()], true
+}
+
 func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params) {
 	start := seq.start()
 	period := int(start.Sub(t) / resolution)
@@ -85,9 +106,20 @@ func (seq sequence) updateValueAt(period int, e expr.Expr, params expr.Params) {
 	seq.updateValueAtOffset(period*e.EncodedWidth(), e, params)
 }
 
+func (seq sequence) mergeValueAt(period int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
+	seq.mergeValueAtOffset(period*e.EncodedWidth(), e, subMerge, other)
+}
+
 func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Params) {
 	offset = offset + width64bits
 	e.Update(seq[offset:], params)
+}
+
+func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
+	fmt.Printf("Merging into %v\n", e.String())
+	offset = offset + width64bits
+	orig := seq[offset:]
+	subMerge(orig, other)
 }
 
 func (seq sequence) update(tsp tsparams, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {

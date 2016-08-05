@@ -33,6 +33,10 @@ func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) 
 	return b, x, y
 }
 
+func (e *constant) SubMerger(sub Expr) SubMerge {
+	return nil
+}
+
 func (e *constant) Get(b []byte) (float64, bool, []byte) {
 	return e.value, true, b
 }

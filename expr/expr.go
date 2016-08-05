@@ -34,6 +34,17 @@ func (p Map) Get(name string) (float64, bool) {
 	return val, found
 }
 
+// SubMerge is a function that merges other into data for a given Expr.
+type SubMerge func(data []byte, other []byte)
+
+// EnsureSubMerge makes sure we don't have a nil SubMerge
+func EnsureSubMerge(sm SubMerge) SubMerge {
+	if sm != nil {
+		return sm
+	}
+	return func(data []byte, other []byte) {}
+}
+
 type Expr interface {
 	Validate() error
 
@@ -48,6 +59,11 @@ type Expr interface {
 	// Merge merges x and y, writing the result to b. It returns the remaining
 	// portions of x and y.
 	Merge(b []byte, x []byte, y []byte) (remainB []byte, remainX []byte, remainY []byte)
+
+	// SubMerger returns a function that merges values of the given subexpression
+	// into this Expr. If the specified subexpression is not represented in our
+	// Expression, the SubMerger does nothing.
+	SubMerger(sub Expr) SubMerge
 
 	// Get gets the value in buf, returning the value, a boolean indicating
 	// whether or not the value was actually set, and the remaining byte array

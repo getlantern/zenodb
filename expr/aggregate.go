@@ -48,6 +48,7 @@ func (e *aggregate) Update(b []byte, params Params) ([]byte, float64, bool) {
 }
 
 func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	fmt.Printf("%d : %d\n", len(x), len(y))
 	valueX, xWasSet, remainX := e.load(x)
 	valueY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -66,6 +67,17 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 		b = e.save(b, valueX)
 	}
 	return b, remainX, remainY
+}
+
+func (e *aggregate) SubMerger(sub Expr) SubMerge {
+	if sub.String() == e.String() {
+		return e.subMerge
+	}
+	return nil
+}
+
+func (e *aggregate) subMerge(data []byte, other []byte) {
+	e.Merge(data, data, other)
 }
 
 func (e *aggregate) Get(b []byte) (float64, bool, []byte) {

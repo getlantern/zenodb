@@ -17,11 +17,11 @@ var (
 	log = golog.LoggerFor("sql")
 )
 var (
-	ErrSelectInvalidExpression = errors.New("All expressions in SELECT clause must be unary function calls like SUM(field) AS alias")
-	ErrNonUnaryFunction        = errors.New("Currently only unary functions like SUM(field) are supported")
-	ErrWildcardNotAllowed      = errors.New("Wildcard * is not supported")
-	ErrNestedFunctionCall      = errors.New("Nested function calls are not currently supported in SELECT")
-	ErrInvalidPeriod           = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
+	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
+	ErrNonUnaryFunction   = errors.New("Currently only unary functions like SUM(field) are supported")
+	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
+	ErrNestedFunctionCall = errors.New("Nested function calls are not currently supported in SELECT")
+	ErrInvalidPeriod      = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
 )
 
 var unaryFuncs = map[string]func(param interface{}) expr.Expr{
@@ -42,6 +42,7 @@ var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 	"<=": expr.LTE,
 	"=":  expr.EQ,
 	"<>": expr.NEQ,
+	"!=": expr.NEQ,
 	">=": expr.GTE,
 	">":  expr.GT,
 }
@@ -70,11 +71,27 @@ type Query struct {
 	OrderBy     []expr.Expr
 	Offset      int
 	Limit       int
+	fieldsMap   map[string]Field
+}
+
+// TableFor returns the table in the FROM clause of this query
+func TableFor(sql string) (string, error) {
+	parsed, err := sqlparser.Parse(sql)
+	if err != nil {
+		return "", err
+	}
+	stmt := parsed.(*sqlparser.Select)
+	return strings.ToLower(exprToString(stmt.From[0])), nil
 }
 
 // Parse parses a SQL statement and returns a corresponding *Query object.
-func Parse(sql string) (*Query, error) {
-	q := &Query{}
+func Parse(sql string, knownFields ...Field) (*Query, error) {
+	q := &Query{
+		fieldsMap: make(map[string]Field),
+	}
+	for _, field := range knownFields {
+		q.fieldsMap[field.Name] = field
+	}
 	parsed, err := sqlparser.Parse(sql)
 	if err != nil {
 		return nil, err
@@ -125,15 +142,18 @@ func Parse(sql string) (*Query, error) {
 
 func (q *Query) applySelect(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.SelectExprs {
-		log.Tracef("Parsing SELECT expression: %v", _e)
 		e, ok := _e.(*sqlparser.NonStarExpr)
 		if !ok {
-			return ErrSelectInvalidExpression
+			return ErrWildcardNotAllowed
 		}
 		if len(e.As) == 0 {
-			return ErrSelectInvalidExpression
+			col, isColName := e.Expr.(*sqlparser.ColName)
+			if !isColName {
+				return ErrSelectNoName
+			}
+			e.As = col.Name
 		}
-		_fe, err := exprFor(e.Expr)
+		_fe, err := q.exprFor(e.Expr, true)
 		if err != nil {
 			return err
 		}
@@ -145,7 +165,9 @@ func (q *Query) applySelect(stmt *sqlparser.Select) error {
 		if err != nil {
 			return fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
 		}
-		q.Fields = append(q.Fields, Field{fe.(expr.Expr), strings.ToLower(string(e.As))})
+		field := Field{fe.(expr.Expr), strings.ToLower(string(e.As))}
+		q.Fields = append(q.Fields, field)
+		q.fieldsMap[field.Name] = field
 	}
 
 	return nil
@@ -157,7 +179,7 @@ func (q *Query) applyFrom(stmt *sqlparser.Select) error {
 }
 
 func (q *Query) applyWhere(stmt *sqlparser.Select) error {
-	where, err := boolExprFor(stmt.Where.Expr)
+	where, err := q.boolExprFor(stmt.Where.Expr)
 	if err != nil {
 		return err
 	}
@@ -229,7 +251,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 
 func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 	if stmt.Having != nil {
-		filter, _ := exprFor(stmt.Having.Expr)
+		filter, _ := q.exprFor(stmt.Having.Expr, true)
 		log.Tracef("Applying having: %v", filter)
 		q.Having = filter.(expr.Expr)
 		err := q.Having.Validate()
@@ -242,7 +264,7 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 
 func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.OrderBy {
-		e, err := exprFor(_e.Expr)
+		e, err := q.exprFor(_e.Expr, true)
 		if err != nil {
 			return err
 		}
@@ -286,11 +308,24 @@ func (q *Query) applyLimit(stmt *sqlparser.Select) error {
 	return nil
 }
 
-func exprFor(_e sqlparser.Expr) (interface{}, error) {
+func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, error) {
 	if log.IsTraceEnabled() {
 		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
 	switch e := _e.(type) {
+	case *sqlparser.ColName:
+		name := strings.ToLower(string(e.Name))
+		f, found := q.fieldsMap[name]
+		if found {
+			// Use existing expression referenced by this name
+			return f.Expr, nil
+		}
+		// Default to a sum over the field
+		ex := expr.FIELD(name)
+		if defaultToSum {
+			ex = expr.SUM(ex)
+		}
+		return ex, nil
 	case *sqlparser.FuncExpr:
 		if len(e.Exprs) != 1 {
 			return nil, ErrNonUnaryFunction
@@ -305,11 +340,7 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 		if !ok {
 			return nil, ErrWildcardNotAllowed
 		}
-		param, err := exprFor(_param.Expr)
-		if err != nil {
-			return nil, err
-		}
-		return f(param), nil
+		return f(exprToString(_param.Expr)), nil
 	case *sqlparser.ComparisonExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {
@@ -319,11 +350,11 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 		if !ok {
 			return nil, fmt.Errorf("Unknown condition %v", _op)
 		}
-		left, err := exprFor(e.Left)
+		left, err := q.exprFor(e.Left, true)
 		if err != nil {
 			return nil, err
 		}
-		right, err := exprFor(e.Right)
+		right, err := q.exprFor(e.Right, true)
 		if err != nil {
 			return nil, err
 		}
@@ -337,11 +368,11 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 		if !ok {
 			return nil, fmt.Errorf("Unknown operator %v", _op)
 		}
-		left, err := exprFor(e.Left)
+		left, err := q.exprFor(e.Left, true)
 		if err != nil {
 			return nil, err
 		}
-		right, err := exprFor(e.Right)
+		right, err := q.exprFor(e.Right, true)
 		if err != nil {
 			return nil, err
 		}
@@ -350,7 +381,31 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 		// For some reason addition comes through as a single element ValTuple, just
 		// extract the first expression and continue.
 		log.Tracef("Returning wrapped expression for ValTuple: %s", _e)
-		return exprFor(e[0])
+		return q.exprFor(e[0], defaultToSum)
+	case *sqlparser.AndExpr:
+		left, err := q.exprFor(e.Left, true)
+		if err != nil {
+			return "", err
+		}
+		right, err := q.exprFor(e.Right, true)
+		if err != nil {
+			return "", err
+		}
+		return expr.AND(left, right), nil
+	case *sqlparser.OrExpr:
+		left, err := q.exprFor(e.Left, true)
+		if err != nil {
+			return "", err
+		}
+		right, err := q.exprFor(e.Right, true)
+		if err != nil {
+			return "", err
+		}
+		return expr.OR(left, right), nil
+	case *sqlparser.ParenBoolExpr:
+		// TODO: make sure that we don't need to worry about parens in our
+		// expression tree
+		return q.exprFor(e.Expr, defaultToSum)
 	default:
 		str := exprToString(_e)
 		log.Tracef("Returning string for expression: %v", str)
@@ -358,49 +413,49 @@ func exprFor(_e sqlparser.Expr) (interface{}, error) {
 	}
 }
 
-func boolExprFor(_e sqlparser.Expr) (string, error) {
+func (q *Query) boolExprFor(_e sqlparser.Expr) (string, error) {
 	if log.IsTraceEnabled() {
 		log.Tracef("Parsing boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
 	switch e := _e.(type) {
 	case *sqlparser.AndExpr:
-		left, err := boolExprFor(e.Left)
+		left, err := q.boolExprFor(e.Left)
 		if err != nil {
 			return "", err
 		}
-		right, err := boolExprFor(e.Right)
+		right, err := q.boolExprFor(e.Right)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("%s && %s", left, right), nil
 	case *sqlparser.OrExpr:
-		left, err := boolExprFor(e.Left)
+		left, err := q.boolExprFor(e.Left)
 		if err != nil {
 			return "", err
 		}
-		right, err := boolExprFor(e.Right)
+		right, err := q.boolExprFor(e.Right)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("%s || %s", left, right), nil
 	case *sqlparser.ParenBoolExpr:
-		wrapped, err := boolExprFor(e.Expr)
+		wrapped, err := q.boolExprFor(e.Expr)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("(%s)", wrapped), nil
 	case *sqlparser.NotExpr:
-		wrapped, err := boolExprFor(e.Expr)
+		wrapped, err := q.boolExprFor(e.Expr)
 		if err != nil {
 			return "", err
 		}
 		return fmt.Sprintf("!%s", wrapped), nil
 	case *sqlparser.ComparisonExpr:
-		left, err := boolExprFor(e.Left)
+		left, err := q.boolExprFor(e.Left)
 		if err != nil {
 			return "", err
 		}
-		right, err := boolExprFor(e.Right)
+		right, err := q.boolExprFor(e.Right)
 		if err != nil {
 			return "", err
 		}
