@@ -139,6 +139,7 @@ func (exec *queryExecution) prepare() error {
 	includedColumns := make(map[int]bool)
 	for _, field := range exec.Fields {
 		sms := field.Expr.SubMergers(columns)
+		log.Debugf("%v : %v : %v", field, columns, sms)
 		subMergers = append(subMergers, sms)
 		for j, sm := range sms {
 			if sm != nil {

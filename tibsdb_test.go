@@ -285,7 +285,7 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 
 	aq, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
-	iii / 2,
+	iii / 2 AS ciii,
 	ii,
 	i
 FROM test_a
@@ -330,7 +330,7 @@ HAVING ii * 2 = 572
 	for _, field := range result.Fields {
 		fields = append(fields, field.Name)
 	}
-	assert.Equal(t, []string{"iii", "ii", "i"}, fields)
+	assert.Equal(t, []string{"ciii", "ii", "i"}, fields)
 
 	// Test defaults
 	aq = db.Query(&sql.Query{

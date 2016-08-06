@@ -3,7 +3,6 @@ package expr
 import (
 	"fmt"
 	"math"
-	"reflect"
 )
 
 // AVG creates an Expr that obtains its value by averaging the values of the
@@ -60,7 +59,7 @@ func (e *avg) SubMergers(subs []Expr) []SubMerge {
 	result := make([]SubMerge, 0, len(subs))
 	for _, sub := range subs {
 		var sm SubMerge
-		if reflect.DeepEqual(e, sub) {
+		if e.String() == sub.String() {
 			sm = e.subMerge
 		}
 		result = append(result, sm)

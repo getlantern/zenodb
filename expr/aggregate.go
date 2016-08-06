@@ -68,7 +68,7 @@ func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
 	result := make([]SubMerge, 0, len(subs))
 	for _, sub := range subs {
 		var sm SubMerge
-		if reflect.DeepEqual(e, sub) {
+		if e.String() == sub.String() {
 			sm = e.subMerge
 		}
 		result = append(result, sm)

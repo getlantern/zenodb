@@ -56,7 +56,7 @@ func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
 	result := make([]SubMerge, len(subs))
 	// See if any of the subexpressions match top level and if so, ignore others
 	for i, sub := range subs {
-		if reflect.DeepEqual(e, sub) {
+		if e.String() == sub.String() {
 			result[i] = e.subMerge
 			return result
 		}
