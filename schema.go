@@ -20,6 +20,7 @@ func (db *DB) pollForSchema(filename string) error {
 
 	err = db.ApplySchemaFromFile(filename)
 	if err != nil {
+		log.Error(err)
 		return err
 	}
 
@@ -33,7 +34,10 @@ func (db *DB) pollForSchema(filename string) error {
 			}
 			if newStat.ModTime().After(stat.ModTime()) || newStat.Size() != stat.Size() {
 				log.Debug("Schema file changed, applying")
-				db.ApplySchemaFromFile(filename)
+				applyErr := db.ApplySchemaFromFile(filename)
+				if applyErr != nil {
+					log.Error(applyErr)
+				}
 				stat = newStat
 			}
 		}
@@ -50,6 +54,8 @@ func (db *DB) ApplySchemaFromFile(filename string) error {
 	var schema Schema
 	err = yaml.Unmarshal(b, &schema)
 	if err != nil {
+		log.Errorf("Error applying schema: %v", err)
+		log.Debug(string(b))
 		return err
 	}
 	return db.ApplySchema(schema)
@@ -61,11 +67,18 @@ func (db *DB) ApplySchema(schema Schema) error {
 		opts.Name = name
 		t := db.getTable(name)
 		if t == nil {
-			log.Debugf("Creating table '%v' as\n%v", name, opts.SQL)
-			err := db.CreateTable(opts)
+			tableType := "table"
+			create := db.CreateTable
+			if opts.View {
+				tableType = "view"
+				create = db.CreateView
+			}
+			log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
+			err := create(opts)
 			if err != nil {
 				return err
 			}
+			log.Debugf("Created %v %v", tableType, name)
 		} else {
 			// TODO: support more comprehensive altering of tables (maybe)
 			q, err := sql.Parse(opts.SQL)

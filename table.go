@@ -24,6 +24,7 @@ type TableStats struct {
 
 type TableOpts struct {
 	Name             string
+	View             bool
 	MaxMemStoreBytes int
 	MinFlushLatency  time.Duration
 	MaxFlushLatency  time.Duration
@@ -45,6 +46,47 @@ type table struct {
 }
 
 func (db *DB) CreateTable(opts *TableOpts) error {
+	q, err := sql.Parse(opts.SQL)
+	if err != nil {
+		return err
+	}
+	return db.doCreateTable(opts, q)
+}
+
+func (db *DB) CreateView(opts *TableOpts) error {
+	table, err := sql.TableFor(opts.SQL)
+	if err != nil {
+		return err
+	}
+
+	// Get existing fields from existing table
+	t := db.getTable(table)
+	if t == nil {
+		return fmt.Errorf("Table '%v' not found", table)
+	}
+	q, err := sql.Parse(opts.SQL, t.Fields...)
+	if err != nil {
+		return err
+	}
+
+	// Point view at same stream as table
+	// TODO: populate view with existing data from table
+	q.From = t.From
+
+	// Combine where clauses
+	if t.Where != "" {
+		if q.Where == "" {
+			q.Where = t.Where
+		} else {
+			q.Where = fmt.Sprintf("(%v) && (%v)", q.Where, t.Where)
+		}
+	}
+
+	log.Debug(q.Where)
+	return db.doCreateTable(opts, q)
+}
+
+func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	if opts.RetentionPeriod <= 0 {
 		return errors.New("Please specify a positive RetentionPeriod")
 	}
@@ -59,15 +101,6 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 		opts.MaxFlushLatency = time.Duration(math.MaxInt64)
 		log.Debug("MaxFlushLatency disabled")
 	}
-	q, err := sql.Parse(opts.SQL)
-	if err != nil {
-		return err
-	}
-
-	return db.doCreateTable(opts, q)
-}
-
-func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	opts.Name = strings.ToLower(opts.Name)
 
 	t := &table{

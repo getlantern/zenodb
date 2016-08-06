@@ -57,7 +57,7 @@ Test_a:
       i * ii / COUNT(ii) AS iii
     FROM inbound
     WHERE r = 'A'
-    GROUP BY period(1ms)
+    GROUP BY *, period(1ms)
 `
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
 	if !assert.NoError(t, err, "Unable to write schemaA") {
@@ -74,16 +74,17 @@ Test_a:
 
 	schemaB := schemaA + `
 view_a:
+  view: true
   maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
     SELECT
-      SUM(i) AS i,
-      SUM(ii) AS ii,
-      AVG(i) * AVG(ii) AS iii
-    FROM inbound
+      i,
+      ii,
+      iii
+    FROM teSt_a
     WHERE r = 'A'
-    GROUP BY u, period(1ms)`
+    GROUP BY u, b, period(1ms)`
 	log.Debug("Writing schemaB")
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaB), 0644)
 	if !assert.NoError(t, err, "Unable to write schemaB") {
@@ -194,7 +195,7 @@ view_a:
 	})
 
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[int][]float64, error) {
-		filter, queryErr := govaluate.NewEvaluableExpression("!b")
+		filter, queryErr := govaluate.NewEvaluableExpression("b != true")
 		if queryErr != nil {
 			return nil, queryErr
 		}
@@ -234,48 +235,53 @@ view_a:
 	// Give archiver time to catch up
 	time.Sleep(2 * time.Second)
 
+	test := func(from time.Time, to time.Time, dim string, field string, onResult func(map[int][]float64)) {
+		for _, table := range []string{"Test_A", "view_A"} {
+			result, err := query(table, from, to, dim, field)
+			if assert.NoError(t, err, "Unable to run query") {
+				t.Logf("Table: %v", table)
+				onResult(result)
+			}
+		}
+	}
+
 	log.Debug("A")
-	result, err := query("Test_A", epoch.Add(-1*resolution), epoch, "u", "i")
-	if assert.NoError(t, err, "Unable to run query") {
+	test(epoch.Add(-1*resolution), epoch, "u", "i", func(result map[int][]float64) {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{11}, result[1])
 		}
-	}
+	})
 
 	log.Debug("B")
-	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "ii")
-	if assert.NoError(t, err, "Unable to run query") {
+	test(epoch.Add(-1*resolution), epoch, "u", "ii", func(result map[int][]float64) {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{22}, result[1])
 		}
-	}
+	})
 
 	log.Debug("C")
-	result, err = query("Test_A", epoch.Add(-1*resolution), epoch, "u", "iii")
-	if assert.NoError(t, err, "Unable to run query") {
+	test(epoch.Add(-1*resolution), epoch, "u", "iii", func(result map[int][]float64) {
 		if assert.Len(t, result, 1) {
 			assert.Equal(t, []float64{121}, result[1])
 		}
-	}
+	})
 
 	log.Debug("D")
-	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
-	if assert.NoError(t, err, "Unable to run query") {
+	test(epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii", func(result map[int][]float64) {
 		if assert.Len(t, result, 2) {
 			assert.Equal(t, []float64{222, 22}, result[1])
 			assert.Equal(t, []float64{42}, result[2])
 		}
-	}
+	})
 
 	log.Debug("E")
-	result, err = query("Test_A", epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii")
-	log.Debug(result)
-	if assert.NoError(t, err, "Unable to run query") {
+	test(epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii", func(result map[int][]float64) {
+		log.Debug(result)
 		if assert.Len(t, result, 2) {
 			assert.Equal(t, []float64{222, 22}, result[1])
 			assert.Equal(t, []float64{42}, result[2])
 		}
-	}
+	})
 
 	testAggregateQuery(t, db, now, epoch, resolution)
 }
