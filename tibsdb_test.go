@@ -297,9 +297,9 @@ SELECT
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
-GROUP BY r, period('%v')
-HAVING ii * 2 = 572
-ORDER BY ciii DESC
+GROUP BY r, u, period('%v')
+-- HAVING ii * 2 = 572
+ORDER BY u DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
 		return
@@ -311,32 +311,32 @@ ORDER BY ciii DESC
 	}
 
 	log.Debugf("%v -> %v", result.AsOf, result.Until)
-	if !assert.Len(t, result.Entries, 1, "Wrong number of entries, perhaps HAVING isn't working") {
-		return
-	}
-	entry := result.Entries[0]
-	if !assert.EqualValues(t, "A", entry.Dims["r"], "Wrong dim, result may be sorted incorrectly") {
-		return
-	}
 	if !assert.Equal(t, 1, result.NumPeriods, "Wrong number of periods, bucketing may not be working correctly") {
 		return
 	}
-	log.Debug(entry.Dims)
-	log.Debug(result.NumPeriods)
-	log.Debugf("i: %v", entry.Fields[2].String(aq.Fields[2].Expr))
-	log.Debugf("ii: %v", entry.Fields[1].String(aq.Fields[1].Expr))
-	log.Debugf("iii: %v", entry.Fields[0].String(aq.Fields[0].Expr))
-	i, _ := entry.Fields[2].ValueAt(0, aq.Fields[2].Expr)
-	ii, _ := entry.Fields[1].ValueAt(0, aq.Fields[1].Expr)
-	iii, _ := entry.Fields[0].ValueAt(0, aq.Fields[0].Expr)
-	assert.EqualValues(t, 153, i, "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 286, ii, "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, float64(153*286)/float64(4)/float64(2), iii, "Wrong derived value, bucketing may not be working correctly")
-	fields := make([]string, 0, len(result.Fields))
-	for _, field := range result.Fields {
-		fields = append(fields, field.Name)
+	rows := result.Rows
+	if !assert.Len(t, rows, 2, "Wrong number of rows, perhaps HAVING isn't working") {
+		return
+	}
+	if !assert.EqualValues(t, 2, result.Rows[0].Dims[1], "Wrong dim, result may be sorted incorrectly") {
+		return
+	}
+	if !assert.EqualValues(t, 1, result.Rows[1].Dims[1], "Wrong dim, result may be sorted incorrectly") {
+		return
+	}
+	fields := make([]string, 0, len(result.FieldNames))
+	for _, field := range result.FieldNames {
+		fields = append(fields, field)
 	}
 	assert.Equal(t, []string{"ciii", "ii", "i"}, fields)
+
+	assert.EqualValues(t, 122, rows[1].Values[2], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 244, rows[1].Values[1], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[0], "Wrong derived value, bucketing may not be working correctly")
+
+	assert.EqualValues(t, 31, rows[0].Values[2], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 42, rows[0].Values[1], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[0], "Wrong derived value, bucketing may not be working correctly")
 
 	// Test defaults
 	aq = db.Query(&sql.Query{

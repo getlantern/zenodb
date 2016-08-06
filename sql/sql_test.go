@@ -58,16 +58,13 @@ LIMIT 100, 10
 	assert.Equal(t, -60*time.Minute, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
 	if assert.Len(t, q.OrderBy, 2) {
-		expected := MULT(-1, rate).String()
-		actual := q.OrderBy[0].String()
-		assert.Equal(t, expected, actual)
-
-		expected = SUM("x").String()
-		actual = q.OrderBy[1].String()
-		assert.Equal(t, expected, actual)
+		assert.Equal(t, "rate", q.OrderBy[0].Field)
+		assert.True(t, q.OrderBy[0].Descending)
+		assert.Equal(t, "x", q.OrderBy[1].Field)
+		assert.False(t, q.OrderBy[1].Descending)
 	}
 	assert.Equal(t, 5*time.Second, q.Resolution)
-	assert.Equal(t, "dim_a =~ '172.56.' && (dim_b > 10 || dim_c == 20) || dim_d != 'thing' && dim_e !~ 'no such host'", q.Where)
+	assert.Equal(t, "dim_a =~ '172.56.' && (dim_b > 10 || dim_c == 20) || dim_d != 'thing' && dim_e !~ 'no such host'", q.Where.String())
 	expectedHaving := AND(GT(rate, 15), LT(SUM("h"), 2)).String()
 	actualHaving := q.Having.String()
 	assert.Equal(t, expectedHaving, actualHaving)

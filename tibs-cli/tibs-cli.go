@@ -128,20 +128,18 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string) er
 		if err != nil {
 			return fmt.Errorf("Unable to stream response: %v\n", err)
 		}
-		for j := 0; j < result.NumPeriods; j++ {
-			rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.Fields))
-			rowStrings = append(rowStrings, result.Until.Add(-1*result.Resolution*time.Duration(j)).Format(time.RFC1123))
-			for _, dim := range row.Dims {
-				rowStrings = append(rowStrings, fmt.Sprint(dim))
-			}
-			for _, field := range row.Fields {
-				rowStrings = append(rowStrings, fmt.Sprint(field[j]))
-			}
-			w.Write(rowStrings)
-			i++
-			if i%100 == 0 {
-				w.Flush()
-			}
+		rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.FieldNames))
+		rowStrings = append(rowStrings, result.Until.Add(-1*result.Resolution*time.Duration(row.Period)).Format(time.RFC1123))
+		for _, dim := range row.Dims {
+			rowStrings = append(rowStrings, fmt.Sprint(dim))
+		}
+		for _, field := range row.Values {
+			rowStrings = append(rowStrings, fmt.Sprint(field))
+		}
+		w.Write(rowStrings)
+		i++
+		if i%100 == 0 {
+			w.Flush()
 		}
 	}
 

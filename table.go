@@ -38,7 +38,6 @@ type table struct {
 	db         *DB
 	rowStore   *rowStore
 	log        golog.Logger
-	where      *govaluate.EvaluableExpression
 	whereMutex sync.RWMutex
 	stats      TableStats
 	statsMutex sync.RWMutex
@@ -74,11 +73,15 @@ func (db *DB) CreateView(opts *TableOpts) error {
 	q.From = t.From
 
 	// Combine where clauses
-	if t.Where != "" {
-		if q.Where == "" {
+	if t.Where != nil {
+		if q.Where == nil {
 			q.Where = t.Where
 		} else {
-			q.Where = fmt.Sprintf("(%v) && (%v)", q.Where, t.Where)
+			combined, err := govaluate.NewEvaluableExpression(fmt.Sprintf("(%v) && (%v)", q.Where, t.Where))
+			if err != nil {
+				return err
+			}
+			q.Where = combined
 		}
 	}
 
@@ -111,10 +114,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		inserts:   make(chan *insert, 1000),
 	}
 
-	err := t.applyWhere(q.Where)
-	if err != nil {
-		return err
-	}
+	t.applyWhere(q.Where)
 
 	var rsErr error
 	t.rowStore, rsErr = t.openRowStore(&rowStoreOptions{
@@ -141,20 +141,10 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	return nil
 }
 
-func (t *table) applyWhere(where string) error {
-	var e *govaluate.EvaluableExpression
-	var err error
-	if where != "" {
-		e, err = govaluate.NewEvaluableExpression(where)
-		if err != nil {
-			return fmt.Errorf("Unable to parse where: %v", err)
-		}
-	}
+func (t *table) applyWhere(where *govaluate.EvaluableExpression) {
 	t.whereMutex.Lock()
 	t.Where = where
-	t.where = e
 	t.whereMutex.Unlock()
-	return nil
 }
 
 func (t *table) truncateBefore() time.Time {

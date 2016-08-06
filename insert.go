@@ -39,7 +39,7 @@ func (db *DB) Insert(stream string, point *Point) error {
 
 func (t *table) insert(point *Point) {
 	t.whereMutex.RLock()
-	where := t.where
+	where := t.Where
 	t.whereMutex.RUnlock()
 
 	if where != nil {

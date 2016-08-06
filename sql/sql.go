@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Knetic/govaluate"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/tibsdb/expr"
 	"github.com/oxtoacart/sqlparser"
@@ -56,11 +57,16 @@ func (f Field) String() string {
 	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
 }
 
+type Order struct {
+	Field      string
+	Descending bool
+}
+
 type Query struct {
 	Fields      []Field
 	From        string
 	Resolution  time.Duration
-	Where       string
+	Where       *govaluate.EvaluableExpression
 	AsOf        time.Time
 	AsOfOffset  time.Duration
 	Until       time.Time
@@ -68,7 +74,7 @@ type Query struct {
 	GroupBy     []string
 	GroupByAll  bool
 	Having      expr.Expr
-	OrderBy     []expr.Expr
+	OrderBy     []Order
 	Offset      int
 	Limit       int
 	fieldsMap   map[string]Field
@@ -184,8 +190,8 @@ func (q *Query) applyWhere(stmt *sqlparser.Select) error {
 		return err
 	}
 	log.Tracef("Applying where: %v", where)
-	q.Where = where
-	return nil
+	q.Where, err = govaluate.NewEvaluableExpression(where)
+	return err
 }
 
 func (q *Query) applyTimeRange(stmt *sqlparser.Select) error {
@@ -264,22 +270,9 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 
 func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.OrderBy {
-		e, err := q.exprFor(_e.Expr, true)
-		if err != nil {
-			return err
-		}
-		asc := strings.EqualFold("ASC", _e.Direction)
-		if log.IsTraceEnabled() {
-			log.Tracef("Ordering by %v asc?: %v", e, asc)
-		}
-		ex, ok := e.(expr.Expr)
-		if !ok {
-			return fmt.Errorf("%v in order by is not an expression", exprToString(_e.Expr))
-		}
-		if !asc {
-			ex = expr.MULT(-1, ex)
-		}
-		q.OrderBy = append(q.OrderBy, ex)
+		field := exprToString(_e.Expr)
+		desc := strings.EqualFold("desc", _e.Direction)
+		q.OrderBy = append(q.OrderBy, Order{field, desc})
 	}
 	return nil
 }

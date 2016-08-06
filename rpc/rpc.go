@@ -15,11 +15,6 @@ type Query struct {
 	SQL string
 }
 
-type Row struct {
-	Dims   []interface{} `msgpack:",omitempty"`
-	Fields [][]float64   `msgpack:",omitempty"`
-}
-
 var serviceDesc = grpc.ServiceDesc{
 	ServiceName: "TibsDB",
 	HandlerType: (*Server)(nil),

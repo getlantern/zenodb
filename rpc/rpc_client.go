@@ -9,13 +9,18 @@ import (
 )
 
 type Client interface {
-	Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*tibsdb.QueryResult, func() (*Row, error), error)
+	Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*tibsdb.QueryResult, func() (*tibsdb.Row, error), error)
 
 	Close() error
 }
 
 func Dial(addr string) (Client, error) {
-	conn, err := grpc.Dial(addr, grpc.WithInsecure(), grpc.WithCodec(msgpackCodec), grpc.WithBackoffMaxDelay(1*time.Minute))
+	conn, err := grpc.Dial(addr,
+		grpc.WithInsecure(),
+		grpc.WithCodec(msgpackCodec),
+		grpc.WithBackoffMaxDelay(1*time.Minute),
+		grpc.WithCompressor(grpc.NewGZIPCompressor()),
+		grpc.WithDecompressor(grpc.NewGZIPDecompressor()))
 	if err != nil {
 		return nil, err
 	}
@@ -26,7 +31,7 @@ type tibsDBClient struct {
 	cc *grpc.ClientConn
 }
 
-func (c *tibsDBClient) Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*tibsdb.QueryResult, func() (*Row, error), error) {
+func (c *tibsDBClient) Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*tibsdb.QueryResult, func() (*tibsdb.Row, error), error) {
 	stream, err := grpc.NewClientStream(ctx, &serviceDesc.Streams[0], c.cc, "/TibsDB/Query", opts...)
 	if err != nil {
 		return nil, nil, err
@@ -44,8 +49,8 @@ func (c *tibsDBClient) Query(ctx context.Context, in *Query, opts ...grpc.CallOp
 		return nil, nil, err
 	}
 
-	nextRow := func() (*Row, error) {
-		row := &Row{}
+	nextRow := func() (*tibsdb.Row, error) {
+		row := &tibsdb.Row{}
 		err := stream.RecvMsg(row)
 		return row, err
 	}

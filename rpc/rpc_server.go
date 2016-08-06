@@ -12,7 +12,10 @@ type Server interface {
 }
 
 func Serve(db *tibsdb.DB, l net.Listener) error {
-	gs := grpc.NewServer(grpc.CustomCodec(msgpackCodec))
+	gs := grpc.NewServer(
+		grpc.CustomCodec(msgpackCodec),
+		grpc.RPCCompressor(grpc.NewGZIPCompressor()),
+		grpc.RPCDecompressor(grpc.NewGZIPDecompressor()))
 	gs.RegisterService(&serviceDesc, &server{db})
 	return gs.Serve(l)
 }
@@ -31,9 +34,9 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 		return err
 	}
 
-	fields, entries := result.Fields, result.Entries
-	result.Fields = nil
-	result.Entries = nil
+	rows := result.Rows
+	// Clear out result.Rows as we will be streaming these
+	result.Rows = nil
 
 	// Send header
 	err = stream.SendMsg(result)
@@ -41,24 +44,8 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 		return err
 	}
 
-	// Write each entry
-	for _, entry := range entries {
-		row := &Row{
-			Dims:   make([]interface{}, 0, len(result.GroupBy)),
-			Fields: make([][]float64, 0, len(fields)),
-		}
-		for _, dim := range result.GroupBy {
-			row.Dims = append(row.Dims, entry.Dims[dim])
-		}
-		for i, field := range fields {
-			vals := entry.Fields[i]
-			values := make([]float64, 0, result.NumPeriods)
-			for j := 0; j < result.NumPeriods; j++ {
-				val, _ := vals.ValueAt(j, field.Expr)
-				values = append(values, val)
-			}
-			row.Fields = append(row.Fields, values)
-		}
+	// Stream rows
+	for _, row := range rows {
 		err = stream.SendMsg(row)
 		if err != nil {
 			return err
