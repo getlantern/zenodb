@@ -54,7 +54,7 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 			vals := entry.Fields[i]
 			values := make([]float64, 0, result.NumPeriods)
 			for j := 0; j < result.NumPeriods; j++ {
-				val, _ := vals.ValueAt(j, field)
+				val, _ := vals.ValueAt(j, field.Expr)
 				values = append(values, val)
 			}
 			row.Fields = append(row.Fields, values)
