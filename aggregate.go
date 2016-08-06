@@ -62,19 +62,20 @@ type subMergeSpec struct {
 type queryExecution struct {
 	db *DB
 	sql.Query
-	t                *table
-	q                *query
-	subMergers       [][]expr.SubMerge
-	havingSubMergers []expr.SubMerge
-	dimsMap          map[string]bool
-	scalingFactor    int
-	inPeriods        int
-	outPeriods       int
-	numWorkers       int
-	responsesCh      chan *queryResponse
-	entriesCh        chan map[string]*Entry
-	wg               sync.WaitGroup
-	scannedPoints    int64
+	t                 *table
+	q                 *query
+	subMergers        [][]expr.SubMerge
+	havingSubMergers  []expr.SubMerge
+	orderBySubMergers [][]expr.SubMerge
+	dimsMap           map[string]bool
+	scalingFactor     int
+	inPeriods         int
+	outPeriods        int
+	numWorkers        int
+	responsesCh       chan *queryResponse
+	entriesCh         chan map[string]*Entry
+	wg                sync.WaitGroup
+	scannedPoints     int64
 }
 
 func (db *DB) SQLQuery(sqlString string) (*Query, error) {
@@ -131,15 +132,15 @@ func (exec *queryExecution) run() (*QueryResult, error) {
 
 func (exec *queryExecution) prepare() error {
 	// Figure out what to select
-	var subMergers [][]expr.SubMerge
 	columns := make([]expr.Expr, 0, len(exec.t.Fields))
 	for _, column := range exec.t.Fields {
 		columns = append(columns, column.Expr)
 	}
 	includedColumns := make(map[int]bool)
+
+	var subMergers [][]expr.SubMerge
 	for _, field := range exec.Fields {
 		sms := field.Expr.SubMergers(columns)
-		log.Debugf("%v : %v : %v", field, columns, sms)
 		subMergers = append(subMergers, sms)
 		for j, sm := range sms {
 			if sm != nil {
@@ -158,6 +159,17 @@ func (exec *queryExecution) prepare() error {
 		}
 	}
 
+	var orderBySubMergers [][]expr.SubMerge
+	for _, field := range exec.OrderBy {
+		sms := field.SubMergers(columns)
+		orderBySubMergers = append(orderBySubMergers, sms)
+		for j, sm := range sms {
+			if sm != nil {
+				includedColumns[j] = true
+			}
+		}
+	}
+
 	var fields []string
 	for i, column := range exec.t.Fields {
 		if includedColumns[i] {
@@ -167,6 +179,7 @@ func (exec *queryExecution) prepare() error {
 	exec.q.fields = fields
 	exec.subMergers = subMergers
 	exec.havingSubMergers = havingSubMergers
+	exec.orderBySubMergers = orderBySubMergers
 
 	if exec.Where != "" {
 		log.Tracef("Applying where: %v", exec.Where)
@@ -307,6 +320,14 @@ func (exec *queryExecution) prepare() error {
 							subMerge(entry.havingTest, other)
 						}
 					}
+
+					// Calculate order bys
+					for o := range exec.orderBySubMergers {
+						subMerge := exec.orderBySubMergers[o][c]
+						if subMerge != nil {
+							subMerge(entry.orderByValues[o], other)
+						}
+					}
 				}
 			}
 		}
@@ -339,7 +360,7 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		entries = append(entries, e)
 	}
 	// Merge entries
-	entriesOut := make(map[string]*Entry)
+	resultEntries := make([]*Entry, 0)
 	for i, e := range entries {
 		for k, v := range e {
 			for j := i; j < len(entries); j++ {
@@ -355,20 +376,25 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 					if exec.Having != nil {
 						exec.Having.Merge(v.havingTest, v.havingTest, vo.havingTest)
 					}
+					for o, orderBy := range exec.OrderBy {
+						val := v.orderByValues[o]
+						orderBy.Merge(val, val, vo.orderByValues[o])
+					}
 				}
 
 			}
-			entriesOut[k] = v
+			resultEntries = append(resultEntries, v)
 		}
 	}
 	// if log.IsTraceEnabled() {
 	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
 	// }
 
-	resultEntries, err := exec.buildEntries(entriesOut)
+	resultEntries, err = exec.filterEntries(resultEntries)
 	if err != nil {
 		return nil, err
 	}
+
 	result := &QueryResult{
 		Table:         exec.From,
 		AsOf:          exec.q.asOf,
@@ -396,58 +422,40 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	return result, nil
 }
 
-func (exec *queryExecution) buildEntries(entries map[string]*Entry) ([]*Entry, error) {
-	result := make([]*Entry, 0, len(entries))
-	if len(entries) == 0 {
-		return result, nil
-	}
-
-	for _, entry := range entries {
-		// // Calculate order bys
-		// for i, e := range exec.OrderBy {
-		// 	b := entry.orderByValues[i]
-		// 	for j := 0; j < exec.inPeriods; j++ {
-		// 		entry.fieldsIdx = j
-		// 		e.Update(b, entry)
-		// 	}
-		// }
-
-		result = append(result, entry)
-	}
-
+func (exec *queryExecution) filterEntries(entries []*Entry) ([]*Entry, error) {
 	if len(exec.OrderBy) > 0 {
-		sort.Sort(orderedEntries{exec.OrderBy, result})
+		sort.Sort(orderedEntries{exec.OrderBy, entries})
 	}
 
 	if exec.Having != nil {
-		unfiltered := result
-		result = make([]*Entry, 0, len(result))
+		unfiltered := entries
+		entries = make([]*Entry, 0, len(entries))
 		for _, entry := range unfiltered {
 			_testResult, _, _ := exec.Having.Get(entry.havingTest)
 			testResult := _testResult == 1
 			log.Tracef("Testing %v : %v", exec.Having, testResult)
 			if testResult {
-				result = append(result, entry)
+				entries = append(entries, entry)
 			}
 		}
 	}
 
 	if exec.Offset > 0 {
 		offset := exec.Offset
-		if offset > len(result) {
+		if offset > len(entries) {
 			return make([]*Entry, 0), nil
 		}
-		result = result[offset:]
+		entries = entries[offset:]
 	}
 	if exec.Limit > 0 {
 		end := exec.Limit
-		if end > len(result) {
-			end = len(result)
+		if end > len(entries) {
+			end = len(entries)
 		}
-		result = result[:end]
+		entries = entries[:end]
 	}
 
-	return result, nil
+	return entries, nil
 }
 
 type orderedEntries struct {
