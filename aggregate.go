@@ -416,7 +416,7 @@ func (exec *queryExecution) mergedRows() []*Row {
 			for t := 0; t < exec.outPeriods; t++ {
 				if exec.Having != nil {
 					testResult, ok := v.havingTest.ValueAt(t, exec.Having)
-					if int(testResult) != 1 {
+					if !ok || int(testResult) != 1 {
 						// Didn't meet having criteria, ignore
 						continue
 					}
