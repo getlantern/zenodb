@@ -415,13 +415,10 @@ func (exec *queryExecution) mergedRows() []*Row {
 			}
 			for t := 0; t < exec.outPeriods; t++ {
 				if exec.Having != nil {
-					_testResult, ok := v.havingTest.ValueAt(t, exec.Having)
-					if ok {
-						testResult := int(_testResult) == 1
-						if !testResult {
-							// Didn't meet having critereon, ignore
-							continue
-						}
+					testResult, ok := v.havingTest.ValueAt(t, exec.Having)
+					if !ok || int(testResult) != 1 {
+						// Didn't meet having criteria, ignore
+						continue
 					}
 				}
 				values := make([]float64, 0, len(exec.Fields))
