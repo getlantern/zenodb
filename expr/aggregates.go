@@ -5,6 +5,8 @@ package expr
 func SUM(expr interface{}) Expr {
 	return &aggregate{"SUM", exprFor(expr), func(wasSet bool, current float64, next float64) float64 {
 		return current + next
+	}, func(wasSet bool, current float64, next float64) float64 {
+		return current + next
 	}}
 }
 
@@ -12,5 +14,7 @@ func SUM(expr interface{}) Expr {
 func COUNT(expr interface{}) Expr {
 	return &aggregate{"COUNT", exprFor(expr), func(wasSet bool, current float64, next float64) float64 {
 		return current + 1
+	}, func(wasSet bool, current float64, next float64) float64 {
+		return current + next
 	}}
 }

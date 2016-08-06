@@ -108,7 +108,6 @@ func (aq *Query) Run() (*QueryResult, error) {
 		untilOffset: aq.UntilOffset,
 	}
 	numWorkers := runtime.NumCPU()
-	numWorkers = 1
 	exec := &queryExecution{
 		Query:       aq.Query,
 		db:          aq.db,
@@ -355,42 +354,11 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	close(exec.responsesCh)
 	exec.wg.Wait()
 	close(exec.entriesCh)
-	var entries []map[string]*Entry
-	for e := range exec.entriesCh {
-		entries = append(entries, e)
-	}
-	// Merge entries
-	resultEntries := make([]*Entry, 0)
-	for i, e := range entries {
-		for k, v := range e {
-			for j := i; j < len(entries); j++ {
-				o := entries[j]
-				if j != i {
-					vo, ok := o[k]
-					if ok {
-						for x, os := range vo.Fields {
-							v.Fields[x] = v.Fields[x].merge(os, exec.Fields[x].Expr, exec.Resolution, exec.AsOf)
-						}
-						delete(o, k)
-					}
-					if exec.Having != nil {
-						exec.Having.Merge(v.havingTest, v.havingTest, vo.havingTest)
-					}
-					for o, orderBy := range exec.OrderBy {
-						val := v.orderByValues[o]
-						orderBy.Merge(val, val, vo.orderByValues[o])
-					}
-				}
-
-			}
-			resultEntries = append(resultEntries, v)
-		}
-	}
 	// if log.IsTraceEnabled() {
 	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
 	// }
 
-	resultEntries, err = exec.filterEntries(resultEntries)
+	resultEntries, err := exec.filterEntries(exec.mergedEntries())
 	if err != nil {
 		return nil, err
 	}
@@ -420,6 +388,46 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	}
 
 	return result, nil
+}
+
+func (exec *queryExecution) mergedEntries() []*Entry {
+	var entries []map[string]*Entry
+	for e := range exec.entriesCh {
+		entries = append(entries, e)
+	}
+
+	var resultEntries []*Entry
+	for i, e := range entries {
+		for k, v := range e {
+			for j := i; j < len(entries); j++ {
+				o := entries[j]
+				if j != i {
+					vo, ok := o[k]
+					if ok {
+						for x, os := range vo.Fields {
+							ex := exec.Fields[x].Expr
+							res := v.Fields[x].merge(os, ex, exec.Resolution, exec.AsOf)
+							if log.IsTraceEnabled() {
+								log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.Fields[x].String(ex), res.String(ex))
+							}
+							v.Fields[x] = res
+						}
+						if exec.Having != nil {
+							exec.Having.Merge(v.havingTest, v.havingTest, vo.havingTest)
+						}
+						for o, orderBy := range exec.OrderBy {
+							val := v.orderByValues[o]
+							orderBy.Merge(val, val, vo.orderByValues[o])
+						}
+						delete(o, k)
+					}
+				}
+			}
+			resultEntries = append(resultEntries, v)
+		}
+	}
+
+	return resultEntries
 }
 
 func (exec *queryExecution) filterEntries(entries []*Entry) ([]*Entry, error) {

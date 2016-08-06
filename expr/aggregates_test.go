@@ -10,7 +10,7 @@ func TestSUM(t *testing.T) {
 }
 
 func TestCOUNT(t *testing.T) {
-	doTestAggregate(t, COUNT("b"), 1)
+	doTestAggregate(t, COUNT("b"), 3)
 }
 
 func TestAVG(t *testing.T) {
@@ -34,13 +34,35 @@ func doTestAggregate(t *testing.T, e Expr, expected float64) {
 	}
 	params2 := Map{
 		"a": 8.8,
-		"b": 1.1,
+		"b": 0.8,
+	}
+	params3 := Map{
+		"b": 0.1,
+	}
+	params4 := Map{
+		"b": 0.2,
 	}
 
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params1)
 	e.Update(b, params2)
+	e.Update(b, params3)
+	e.Update(b, params4)
 	val, wasSet, _ := e.Get(b)
+	if assert.True(t, wasSet) {
+		assertFloatEquals(t, expected, val)
+	}
+
+	// Test Merging
+	b1 := make([]byte, e.EncodedWidth())
+	e.Update(b1, params1)
+	e.Update(b1, params2)
+	b2 := make([]byte, e.EncodedWidth())
+	e.Update(b2, params3)
+	e.Update(b2, params4)
+	b3 := make([]byte, e.EncodedWidth())
+	e.Merge(b3, b1, b2)
+	val, wasSet, _ = e.Get(b3)
 	if assert.True(t, wasSet) {
 		assertFloatEquals(t, expected, val)
 	}

@@ -12,6 +12,7 @@ type aggregate struct {
 	name    string
 	wrapped Expr
 	update  updateFN
+	merge   updateFN
 }
 
 func (e *aggregate) Validate() error {
@@ -57,7 +58,7 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 	} else {
 		if yWasSet {
 			// Update valueX from valueY
-			valueX = e.update(true, valueX, valueY)
+			valueX = e.merge(true, valueX, valueY)
 		}
 		b = e.save(b, valueX)
 	}
