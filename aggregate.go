@@ -465,8 +465,8 @@ func (r orderedRows) Less(i, j int) bool {
 	a := r.rows[i]
 	b := r.rows[j]
 	for _, order := range r.orderBy {
-		// time is a special case
-		if order.Field == "time" {
+		// _time is a special case
+		if order.Field == "_time" {
 			ta := a.Period
 			tb := b.Period
 			if order.Descending {
@@ -499,46 +499,74 @@ func (r orderedRows) Less(i, j int) bool {
 		switch tva := va.(type) {
 		case bool:
 			tvb := vb.(bool)
-			return !tva && tvb
+			if !tva && tvb {
+				return true
+			}
 		case byte:
 			tvb := vb.(byte)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case uint16:
 			tvb := vb.(uint16)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case uint32:
 			tvb := vb.(uint32)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case uint64:
 			tvb := vb.(uint64)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case int8:
 			tvb := vb.(int8)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case int16:
 			tvb := vb.(int16)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case int32:
 			tvb := vb.(int32)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case int64:
 			tvb := vb.(int64)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case int:
 			tvb := vb.(int)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case float32:
 			tvb := vb.(float32)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case float64:
 			tvb := vb.(float64)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case string:
 			tvb := vb.(string)
-			return tva < tvb
+			if tva < tvb {
+				return true
+			}
 		case time.Time:
 			tvb := vb.(time.Time)
-			return tva.UnixNano() < tvb.UnixNano()
+			if tva.UnixNano() < tvb.UnixNano() {
+				return true
+			}
 		}
 	}
 	return false
