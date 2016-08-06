@@ -338,6 +338,22 @@ ORDER BY u DESC
 	assert.EqualValues(t, 42, rows[0].Values[1], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[0], "Wrong derived value, bucketing may not be working correctly")
 
+	// Test having on non-existent field
+	aq, err = db.SQLQuery(fmt.Sprintf(`
+SELECT i
+FROM test_a
+GROUP BY period('%v')
+HAVING unknown = 5
+`, resolution*time.Duration(scalingFactor)))
+	if !assert.NoError(t, err, "Unable to creat query") {
+		return
+	}
+	result, err = aq.Run()
+	if !assert.NoError(t, err, "Unable to run query") {
+		return
+	}
+	assert.Len(t, result.Rows, 0)
+
 	// Test defaults
 	aq = db.Query(&sql.Query{
 		From:       "test_a",
