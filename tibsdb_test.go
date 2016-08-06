@@ -298,7 +298,7 @@ FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, u, period('%v')
--- HAVING ii * 2 = 572
+HAVING ii * 2 = 488 OR ii = 42
 ORDER BY u DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {

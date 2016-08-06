@@ -85,7 +85,6 @@ func (db *DB) CreateView(opts *TableOpts) error {
 		}
 	}
 
-	log.Debug(q.Where)
 	return db.doCreateTable(opts, q)
 }
 
