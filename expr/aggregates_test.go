@@ -13,10 +13,6 @@ func TestCOUNT(t *testing.T) {
 	doTestAggregate(t, COUNT("b"), 3)
 }
 
-func TestCOUNTConstant(t *testing.T) {
-	doTestAggregate(t, COUNT(CONST(1)), 4)
-}
-
 func TestAVG(t *testing.T) {
 	doTestAggregate(t, AVG("a"), 6.6)
 }

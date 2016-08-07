@@ -22,7 +22,7 @@ func (e *constant) EncodedWidth() int {
 }
 
 func (e *constant) Update(b []byte, params Params) ([]byte, float64, bool) {
-	return b, e.value, true
+	return b, 0, false
 }
 
 func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
