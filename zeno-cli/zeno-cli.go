@@ -49,7 +49,7 @@ func main() {
 	if flag.NArg() == 1 {
 		// Process single command from command-line and then exit
 		sql := strings.Trim(flag.Arg(0), ";")
-		queryErr := query(os.Stdout, os.Stderr, client, sql)
+		queryErr := query(os.Stdout, os.Stderr, client, sql, true)
 		if queryErr != nil {
 			log.Fatal(queryErr)
 		}
@@ -93,7 +93,7 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 	cmds = cmds[:0]
 	rl.SetPrompt(basePrompt + " ")
 
-	err := query(rl.Stdout(), rl.Stderr(), client, cmd)
+	err := query(rl.Stdout(), rl.Stderr(), client, cmd, false)
 	if err != nil {
 		fmt.Fprintln(rl.Stderr(), err)
 	}
@@ -101,7 +101,7 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 	return cmds
 }
 
-func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string) error {
+func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, csv bool) error {
 	result, nextRow, err := client.Query(context.Background(), &rpc.Query{
 		SQL: sql,
 	})
@@ -109,7 +109,11 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string) er
 		return err
 	}
 
-	return dumpPlainText(stdout, sql, result, nextRow)
+	if csv {
+		return dumpCSV(stdout, result, nextRow)
+	} else {
+		return dumpPlainText(stdout, sql, result, nextRow)
+	}
 }
 
 func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nextRow func() (*zenodb.Row, error)) error {

@@ -346,9 +346,9 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	close(exec.responsesCh)
 	exec.wg.Wait()
 	close(exec.entriesCh)
-	// if log.IsTraceEnabled() {
-	log.Debugf("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
-	// }
+	if log.IsTraceEnabled() {
+		log.Tracef("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
+	}
 
 	if len(exec.GroupBy) == 0 {
 		exec.GroupBy = make([]string, 0, len(exec.dimsMap))
