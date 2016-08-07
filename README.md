@@ -1,6 +1,6 @@
-# zenodb
+# ZenoDB
 
-zenodb is a Go-based embeddable time series database optimized for performing
+ZenoDB is a Go-based embeddable time series database optimized for performing
 aggregated analytical SQL queries on dimensional data.  It was developed to
 replace [influxdb](https://github.com/influxdata/influxdb/) as a repository for
 client and server metrics at [Lantern](https://www.getlantern.org).
