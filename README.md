@@ -18,6 +18,9 @@ client and server metrics at [Lantern](https://www.getlantern.org).
 
  * Write Ahead Log
  * More unit tests
+ * TLS in RPC
+ * TLS in HTTP
+ * User-level authentication/authorization
 
 ## Standalone Quick Start
 
