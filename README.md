@@ -102,11 +102,18 @@ zeno-cli > SELECT _points, error_count, success_count, error_count / (error_coun
 Sun, 07 Aug 2016 07:45:00 CDT      /index.html    56.234.163.23         1.0000         1.0000           3.0000        0.2500
 ```
 
-Now run the same insert again and query again. Pro tip - zeno-cli has a history,
+Notice that we can query the built-in field `_points` that gives a count of the
+number of points that were inserted.
+
+Now run the same insert and query again. Pro tip - zeno-cli has a history,
 so try the up-arrow or `Ctrl+R`.
 
+```
+> curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html"}, "vals": {"error_count": 1, "success_count": 3}}' http://localhost:17713/insert/inbound
+```
+
 Notice that the count of points and total counts have gone up, but the rate
-remains the same.
+remains the same as expected.
 
 ```bash
 # time                             path           server               _points    error_count    success_count    error_rate
@@ -119,7 +126,7 @@ Try inserting again with a higher error count:
 > curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html"}, "vals": {"error_count": 3, "success_count": 3}}' http://localhost:17713/insert/inbound
 ```
 
-Now the rate has changed:
+Notice that as we expect, the rate has changed:
 
 ```
 # time                             path           server               _points    error_count    success_count             error_rate
