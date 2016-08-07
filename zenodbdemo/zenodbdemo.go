@@ -12,12 +12,12 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tibsdb"
+	"github.com/getlantern/zenodb"
 	"github.com/jmcvetta/randutil"
 )
 
 var (
-	log = golog.LoggerFor("tibsdbdemo")
+	log = golog.LoggerFor("zenodbdemo")
 )
 
 func main() {
@@ -47,9 +47,9 @@ func main() {
 		uniques = append(uniques, unique)
 	}
 
-	db, err := tibsdb.NewDB(&tibsdb.DBOpts{
+	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		SchemaFile: "schema.yaml",
-		Dir:        "/tmp/tibsdbdemo",
+		Dir:        "/tmp/zenodbdemo",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -110,11 +110,11 @@ GROUP BY period(168h)
 					continue
 				}
 				count := float64(0)
-				if len(result.Entries) != 1 {
-					log.Errorf("Unexpected result entries: %d", len(result.Entries))
+				if len(result.Rows) != 1 {
+					log.Errorf("Unexpected result rows: %d", len(result.Rows))
 					continue
 				}
-				count = result.Entries[0].Value("the_count", 0)
+				count = result.Rows[0].Values[0]
 				fmt.Printf("\nQuery at %v returned %v in %v\n", now, humanize.Comma(int64(count)), delta)
 			}
 		}
@@ -134,7 +134,7 @@ GROUP BY period(168h)
 				}
 				for r := 0; r < numReporters/numWriters; r++ {
 					for v := 0; v < valuesPerPeriod; v++ {
-						p := &tibsdb.Point{
+						p := &zenodb.Point{
 							Ts: time.Now(),
 							Dims: map[string]interface{}{
 								"r": reporters[rand.Intn(len(reporters))],

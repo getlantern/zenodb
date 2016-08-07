@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tibsdb/sql"
+	"github.com/getlantern/zenodb/sql"
 )
 
 type TableStats struct {
@@ -109,7 +109,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		TableOpts: opts,
 		Query:     *q,
 		db:        db,
-		log:       golog.LoggerFor("tibsdb." + opts.Name),
+		log:       golog.LoggerFor("zenodb." + opts.Name),
 		inserts:   make(chan *insert, 1000),
 	}
 

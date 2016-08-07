@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	. "github.com/getlantern/tibsdb/expr"
+	. "github.com/getlantern/zenodb/expr"
 	"github.com/stretchr/testify/assert"
 )
 

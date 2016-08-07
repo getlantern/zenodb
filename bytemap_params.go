@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"fmt"

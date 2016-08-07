@@ -3,7 +3,7 @@ package rpc
 import (
 	"net"
 
-	"github.com/getlantern/tibsdb"
+	"github.com/getlantern/zenodb"
 	"google.golang.org/grpc"
 )
 
@@ -11,7 +11,7 @@ type Server interface {
 	Query(*Query, grpc.ServerStream) error
 }
 
-func Serve(db *tibsdb.DB, l net.Listener) error {
+func Serve(db *zenodb.DB, l net.Listener) error {
 	gs := grpc.NewServer(
 		grpc.CustomCodec(msgpackCodec),
 		grpc.RPCCompressor(grpc.NewGZIPCompressor()),
@@ -21,7 +21,7 @@ func Serve(db *tibsdb.DB, l net.Listener) error {
 }
 
 type server struct {
-	db *tibsdb.DB
+	db *zenodb.DB
 }
 
 func (s *server) Query(query *Query, stream grpc.ServerStream) error {

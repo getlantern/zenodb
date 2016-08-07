@@ -1,6 +1,6 @@
-# tibsdb
+# zenodb
 
-tibsdb is an embeddable time series database optimized for performing aggregating
+zenodb is an embeddable time series database optimized for performing aggregated
 analytical queries on dimensional data.  It was developed to replace
 [influxdb](https://github.com/influxdata/influxdb/) as a repository for error
 log metrics at [Lantern](https://www.getlantern.org).
@@ -11,11 +11,18 @@ log metrics at [Lantern](https://www.getlantern.org).
  * SQL-based query language including GROUP BY and HAVING support
  * Reasonably efficient storage model
  * Seems pretty fast
+ * Some unit tests
 
 ## Still Missing
 
  * Write Ahead Log
- 
+ * More unit tests
+
+## Quick Start
+
+```bash
+
+
 ## Acknowledgements
 
  * [RocksDB](http://rocksdb.org/) - The storage engine

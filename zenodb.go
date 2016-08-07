@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"fmt"
@@ -12,15 +12,16 @@ import (
 )
 
 var (
-	log = golog.LoggerFor("tibsdb")
+	log = golog.LoggerFor("zenodb")
 
 	clock = vtime.RealClock
 )
 
 type DBOpts struct {
-	SchemaFile            string
-	Dir                   string
-	DiscardOnBackPressure bool
+	SchemaFile             string
+	Dir                    string
+	DiscardOnBackPressure  bool
+	IncludeMemStoreInQuery bool
 }
 
 type DB struct {

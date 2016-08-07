@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"fmt"
@@ -8,9 +8,9 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
-	. "github.com/getlantern/tibsdb/expr"
-	"github.com/getlantern/tibsdb/sql"
 	"github.com/getlantern/vtime"
+	. "github.com/getlantern/zenodb/expr"
+	"github.com/getlantern/zenodb/sql"
 
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -32,13 +32,13 @@ func TestIntegration(t *testing.T) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 	clock = vtime.NewVirtualClock(time.Time{})
 
-	tmpDir, err := ioutil.TempDir("", "tibsdbtest")
+	tmpDir, err := ioutil.TempDir("", "zenodbtest")
 	if !assert.NoError(t, err, "Unable to create temp directory") {
 		return
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tmpFile, err := ioutil.TempFile("", "tibsdbschema")
+	tmpFile, err := ioutil.TempFile("", "zenodbschema")
 	if !assert.NoError(t, err, "Unable to create temp file") {
 		return
 	}

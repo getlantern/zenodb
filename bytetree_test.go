@@ -1,12 +1,12 @@
-package tibsdb
+package zenodb
 
 import (
 	"testing"
 	"time"
 
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/tibsdb/expr"
-	"github.com/getlantern/tibsdb/sql"
+	"github.com/getlantern/zenodb/expr"
+	"github.com/getlantern/zenodb/sql"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -72,6 +72,9 @@ func TestByteTree(t *testing.T) {
 	// other contexts.
 	checkTree(ctx, t, bt, e)
 	checkTree(98, t, bt, e)
+
+	// Copy tree and check again
+	checkTree(99, t, bt.copy(), e)
 }
 
 func checkTree(ctx int64, t *testing.T, bt *tree, e expr.Expr) {

@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"fmt"
@@ -11,8 +11,8 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/tibsdb/expr"
-	"github.com/getlantern/tibsdb/sql"
+	"github.com/getlantern/zenodb/expr"
+	"github.com/getlantern/zenodb/sql"
 )
 
 type entry struct {

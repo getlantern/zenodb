@@ -3,13 +3,13 @@ package rpc
 import (
 	"time"
 
-	"github.com/getlantern/tibsdb"
+	"github.com/getlantern/zenodb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 )
 
 type Client interface {
-	Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*tibsdb.QueryResult, func() (*tibsdb.Row, error), error)
+	Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*zenodb.QueryResult, func() (*zenodb.Row, error), error)
 
 	Close() error
 }
@@ -24,15 +24,15 @@ func Dial(addr string) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &tibsDBClient{conn}, nil
+	return &client{conn}, nil
 }
 
-type tibsDBClient struct {
+type client struct {
 	cc *grpc.ClientConn
 }
 
-func (c *tibsDBClient) Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*tibsdb.QueryResult, func() (*tibsdb.Row, error), error) {
-	stream, err := grpc.NewClientStream(ctx, &serviceDesc.Streams[0], c.cc, "/TibsDB/Query", opts...)
+func (c *client) Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*zenodb.QueryResult, func() (*zenodb.Row, error), error) {
+	stream, err := grpc.NewClientStream(ctx, &serviceDesc.Streams[0], c.cc, "/zenodb/query", opts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -43,20 +43,20 @@ func (c *tibsDBClient) Query(ctx context.Context, in *Query, opts ...grpc.CallOp
 		return nil, nil, err
 	}
 
-	result := &tibsdb.QueryResult{}
+	result := &zenodb.QueryResult{}
 	err = stream.RecvMsg(result)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	nextRow := func() (*tibsdb.Row, error) {
-		row := &tibsdb.Row{}
+	nextRow := func() (*zenodb.Row, error) {
+		row := &zenodb.Row{}
 		err := stream.RecvMsg(row)
 		return row, err
 	}
 	return result, nextRow, nil
 }
 
-func (c *tibsDBClient) Close() error {
+func (c *client) Close() error {
 	return c.cc.Close()
 }

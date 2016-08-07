@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"fmt"
@@ -6,7 +6,7 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/tibsdb/expr"
+	"github.com/getlantern/zenodb/expr"
 )
 
 type query struct {

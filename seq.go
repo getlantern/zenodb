@@ -1,10 +1,10 @@
-package tibsdb
+package zenodb
 
 import (
 	"fmt"
 	"time"
 
-	"github.com/getlantern/tibsdb/expr"
+	"github.com/getlantern/zenodb/expr"
 )
 
 // sequence represents a time-ordered sequence of accumulator states in

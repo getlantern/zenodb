@@ -13,12 +13,12 @@ import (
 	"github.com/chzyer/readline"
 	"github.com/getlantern/appdir"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tibsdb/rpc"
+	"github.com/getlantern/zenodb/rpc"
 	"golang.org/x/net/context"
 )
 
 var (
-	log = golog.LoggerFor("tibsdb-cli")
+	log = golog.LoggerFor("zeno-cli")
 
 	addr = flag.String("addr", ":17712", "The address to which to connect, defaults to localhost:17712")
 )
@@ -26,7 +26,7 @@ var (
 func main() {
 	flag.Parse()
 
-	clidir := appdir.General("tibsdb-cli")
+	clidir := appdir.General("zeno-cli")
 	err := os.MkdirAll(clidir, 0700)
 	if err != nil {
 		log.Fatalf("Unable to create directory for saving history: %v", err)

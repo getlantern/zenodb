@@ -10,7 +10,7 @@ import (
 
 	"github.com/Knetic/govaluate"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/tibsdb/expr"
+	"github.com/getlantern/zenodb/expr"
 	"github.com/oxtoacart/sqlparser"
 )
 

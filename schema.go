@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"io/ioutil"
@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/getlantern/tibsdb/sql"
 	"github.com/getlantern/yaml"
+	"github.com/getlantern/zenodb/sql"
 )
 
 type Schema map[string]*TableOpts

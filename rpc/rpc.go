@@ -16,12 +16,12 @@ type Query struct {
 }
 
 var serviceDesc = grpc.ServiceDesc{
-	ServiceName: "TibsDB",
+	ServiceName: "zenodb",
 	HandlerType: (*Server)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "Query",
+			StreamName:    "query",
 			Handler:       queryHandler,
 			ServerStreams: true,
 		},

@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"sync"
@@ -96,6 +96,32 @@ nodeLoop:
 		// not found
 		return nil
 	}
+}
+
+func (bt *tree) copy() *tree {
+	cp := &tree{_bytes: bt._bytes, _length: bt._length, root: &node{}}
+	nodes := make([]*node, 0, bt.length())
+	nodeCopies := make([]*node, 0, bt.length())
+	nodes = append(nodes, bt.root)
+	nodeCopies = append(nodeCopies, cp.root)
+
+	for {
+		if len(nodes) == 0 {
+			break
+		}
+		n := nodes[0]
+		cpn := nodeCopies[0]
+		nodes = nodes[1:]
+		nodeCopies = nodeCopies[1:]
+		for _, e := range n.edges {
+			cpt := &node{key: e.target.key, data: e.target.data}
+			cpn.edges = append(cpn.edges, &edge{label: e.label, target: cpt})
+			nodes = append(nodes, e.target)
+			nodeCopies = append(nodeCopies, cpt)
+		}
+	}
+
+	return cp
 }
 
 func (bt *tree) update(t *table, truncateBefore time.Time, key []byte, vals tsparams) int {

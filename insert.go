@@ -1,15 +1,16 @@
-package tibsdb
+package zenodb
 
 import (
+	"strings"
 	"time"
 
 	"github.com/getlantern/bytemap"
 )
 
 type Point struct {
-	Ts   time.Time
-	Dims map[string]interface{}
-	Vals map[string]float64
+	Ts   time.Time              `json:"ts,omitempty"`
+	Dims map[string]interface{} `json:"dims,omitempty"`
+	Vals map[string]float64     `json:"vals,omitempty"`
 }
 
 // Get implements the interface govaluate.Parameters
@@ -27,11 +28,13 @@ type insert struct {
 }
 
 func (db *DB) Insert(stream string, point *Point) error {
+	stream = strings.TrimSpace(strings.ToLower(stream))
 	db.tablesMutex.Lock()
 	s := db.streams[stream]
 	db.tablesMutex.Unlock()
 
 	for _, t := range s {
+		log.Tracef("Insert into '%v': %v", t.Name, point)
 		t.insert(point)
 	}
 	return nil

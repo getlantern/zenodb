@@ -1,10 +1,10 @@
-package tibsdb
+package zenodb
 
 import (
 	"time"
 
 	"github.com/getlantern/bytemap"
-	. "github.com/getlantern/tibsdb/expr"
+	. "github.com/getlantern/zenodb/expr"
 	"github.com/stretchr/testify/assert"
 	"testing"
 )

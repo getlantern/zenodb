@@ -1,4 +1,4 @@
-package tibsdb
+package zenodb
 
 import (
 	"bufio"
@@ -140,13 +140,20 @@ func (rs *rowStore) processInserts() {
 func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
-	// We exclude the current memstore to avoid reading from something that is
-	// currently getting writes.
-	// TODO: provide option to allow querying active memstore too, which requires
-	// us to copy that one.
-	memStoresCopy := make([]*tree, 0, len(rs.memStores)-1)
-	for i := 0; i < len(memStoresCopy); i++ {
-		memStoresCopy = append(memStoresCopy, rs.memStores[i])
+	memStoresToInclude := len(rs.memStores)
+	if !rs.t.db.opts.IncludeMemStoreInQuery {
+		// Omit the current memstore that's still getting writes
+		memStoresToInclude--
+	}
+	memStoresCopy := make([]*tree, 0, memStoresToInclude)
+	for i := 0; i < cap(memStoresCopy); i++ {
+		onCurrentMemStore := i == len(rs.memStores)-1
+		ms := rs.memStores[i]
+		if onCurrentMemStore {
+			// Copy current memstore since it's still getting writes
+			ms = ms.copy()
+		}
+		memStoresCopy = append(memStoresCopy, ms)
 	}
 	rs.mx.RUnlock()
 	return fs.iterate(onValue, memStoresCopy, fields...)
