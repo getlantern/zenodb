@@ -422,10 +422,19 @@ func (exec *queryExecution) mergedRows() []*Row {
 					}
 				}
 				values := make([]float64, 0, len(exec.Fields))
+				hasData := false
 				for i, field := range exec.Fields {
 					vals := v.fields[i]
-					val, _ := vals.ValueAt(t, field.Expr)
+					val, wasSet := vals.ValueAt(t, field.Expr)
 					values = append(values, val)
+					if wasSet {
+						hasData = true
+					}
+				}
+				if !hasData {
+					// Exclude rows that have no data
+					// TODO: add ability to fill
+					continue
 				}
 				rows = append(rows, &Row{
 					Period:  t,

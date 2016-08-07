@@ -57,6 +57,8 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
 		return nil, fmt.Errorf("Unable to read contents of directory: %v", err)
 	}
 	if len(files) > 0 {
+		// files are sorted by name, in our case timestamp, so the last file in the
+		// list is the most recent.  That's the one that we want.
 		existingFileName = filepath.Join(opts.dir, files[len(files)-1].Name())
 		t.log.Debugf("Initializing row store from %v", existingFileName)
 	}
@@ -77,6 +79,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
 
 	go rs.processInserts()
 	go rs.processFlushes()
+	go rs.removeOldFiles()
 
 	return rs, nil
 }
@@ -304,22 +307,10 @@ func (rs *rowStore) processFlushes() {
 			panic(err)
 		}
 
-		oldFileStore := rs.fileStore.filename
 		rs.mx.Lock()
 		delete(rs.memStores, req.idx)
 		rs.fileStore = &fileStore{rs.t, rs.opts, newFileStoreName}
 		rs.mx.Unlock()
-
-		// TODO: add background process for cleaning up old file stores
-		if oldFileStore != "" {
-			go func() {
-				time.Sleep(5 * time.Minute)
-				err := os.Remove(oldFileStore)
-				if err != nil {
-					rs.t.log.Errorf("Unable to delete old file store, still consuming disk space unnecessarily: %v", err)
-				}
-			}()
-		}
 
 		flushDuration := time.Now().Sub(start)
 		rs.flushFinished <- flushDuration
@@ -331,6 +322,32 @@ func (rs *rowStore) processFlushes() {
 			rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), wasSorted)
 		} else {
 			rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, wasSorted)
+		}
+	}
+}
+
+func (rs *rowStore) removeOldFiles() {
+	for {
+		time.Sleep(1 * time.Minute)
+		files, err := ioutil.ReadDir(rs.opts.dir)
+		if err != nil {
+			log.Errorf("Unable to list data files in %v: %v", rs.opts.dir, err)
+		}
+		now := time.Now()
+		// Note - the list of files is sorted by name, which in our case is the
+		// timestamp, so that means they're sorted chronologically. We don't want
+		// to delete the last file in the list because that's the current one.
+		for i := 0; i < len(files)-1; i++ {
+			file := files[i]
+			name := filepath.Join(rs.opts.dir, file.Name())
+			// To be safe, we wait a little before deleting files
+			if now.Sub(file.ModTime()) > 5*time.Minute {
+				log.Debugf("Removing old file %v", name)
+				err := os.Remove(name)
+				if err != nil {
+					rs.t.log.Errorf("Unable to delete old file store %v, still consuming disk space unnecessarily: %v", name, err)
+				}
+			}
 		}
 	}
 }
