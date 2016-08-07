@@ -8,6 +8,10 @@ import (
 type bytemapParams bytemap.ByteMap
 
 func (bmp bytemapParams) Get(field string) (float64, bool) {
+	// To support counting points, handle _point magic field specially
+	if "_point" == field {
+		return 1, true
+	}
 	result := bytemap.ByteMap(bmp).Get(field)
 	if result == nil {
 		return 0, false
