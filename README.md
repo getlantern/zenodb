@@ -19,7 +19,7 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Write Ahead Log
  * More unit tests
 
-## Quick Start
+## Standalone Quick Start
 
 Install [Go](https://golang.org/doc/install) if you haven't already.
 
