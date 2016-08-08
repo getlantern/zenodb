@@ -16,6 +16,7 @@ var (
 	dbdir     = flag.String("dbdir", "zenodb", "The directory in which to store the database files, defaults to ./zenodb")
 	schema    = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
 	fresh     = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
+	vtime     = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time.  When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
 	addr      = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC connections, defaults to localhost:17712")
 	httpAddr  = flag.String("http-addr", "localhost:17713", "The address at which to listen for JSON over HTTP connections, defaults to localhost:17713")
 	pprofAddr = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
@@ -38,6 +39,7 @@ func main() {
 		Dir:                    *dbdir,
 		SchemaFile:             *schema,
 		IncludeMemStoreInQuery: *fresh,
+		VirtualTime:            *vtime,
 	})
 
 	if err != nil {

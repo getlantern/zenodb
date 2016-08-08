@@ -156,5 +156,5 @@ func (t *table) applyWhere(where *govaluate.EvaluableExpression) {
 }
 
 func (t *table) truncateBefore() time.Time {
-	return clock.Now().Add(-1 * t.RetentionPeriod)
+	return t.db.clock.Now().Add(-1 * t.RetentionPeriod)
 }

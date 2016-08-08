@@ -13,8 +13,6 @@ import (
 
 var (
 	log = golog.LoggerFor("zenodb")
-
-	clock = vtime.RealClock
 )
 
 type DBOpts struct {
@@ -22,10 +20,12 @@ type DBOpts struct {
 	Dir                    string
 	DiscardOnBackPressure  bool
 	IncludeMemStoreInQuery bool
+	VirtualTime            bool
 }
 
 type DB struct {
 	opts        *DBOpts
+	clock       vtime.Clock
 	streams     map[string][]*table
 	tables      map[string]*table
 	tablesMutex sync.RWMutex
@@ -33,7 +33,10 @@ type DB struct {
 
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
-	db := &DB{opts: opts, tables: make(map[string]*table), streams: make(map[string][]*table)}
+	db := &DB{opts: opts, clock: vtime.RealClock, tables: make(map[string]*table), streams: make(map[string][]*table)}
+	if opts.VirtualTime {
+		db.clock = vtime.NewVirtualClock(time.Time{})
+	}
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 	}
@@ -69,7 +72,7 @@ func (db *DB) AllTableStats() map[string]TableStats {
 
 func (db *DB) PrintTableStats(table string) string {
 	stats := db.TableStats(table)
-	now := clock.Now()
+	now := db.clock.Now()
 	return fmt.Sprintf("%v (%v)\tFiltered: %v    Queued: %v    Inserted: %v    Dropped: %v    Expired: %v",
 		table,
 		now.In(time.UTC),
