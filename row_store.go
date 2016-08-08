@@ -10,16 +10,25 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/sql"
 	"github.com/golang/snappy"
 	"github.com/oxtoacart/emsort"
 )
 
 // TODO: add WAL
+
+const (
+	// File format versions
+	FileVersion_2      = 2
+	CurrentFileVersion = FileVersion_2
+)
 
 type rowStoreOptions struct {
 	dir              string
@@ -171,6 +180,23 @@ func (rs *rowStore) processFlushes() {
 		}
 		sout := snappy.NewWriter(out)
 		bout := bufio.NewWriterSize(sout, 65536)
+
+		// Write header with field strings
+		fieldStrings := make([]string, 0, len(rs.t.Fields))
+		for _, field := range rs.t.Fields {
+			fieldStrings = append(fieldStrings, field.String())
+		}
+		headerBytes := []byte(strings.Join(fieldStrings, ","))
+		headerLength := uint32(len(headerBytes))
+		err = binary.Write(bout, binaryEncoding, headerLength)
+		if err != nil {
+			panic(fmt.Errorf("Unable to write header length: %v", err))
+		}
+		_, err = bout.Write(headerBytes)
+		if err != nil {
+			panic(fmt.Errorf("Unable to write header: %v", err))
+		}
+
 		var cout io.WriteCloser
 		if !req.sort {
 			cout = &closerAdapter{bout}
@@ -301,7 +327,7 @@ func (rs *rowStore) processFlushes() {
 		// Note - we left-pad the unix nano value to the widest possible length to
 		// ensure lexicographical sort matches time-based sort (e.g. on directory
 		// listing).
-		newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d.dat", time.Now().UnixNano()))
+		newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
 		err = os.Rename(out.Name(), newFileStoreName)
 		if err != nil {
 			panic(err)
@@ -373,26 +399,26 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 		fs.t.log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
 	}
 
-	var includedFields []int
-	for i, field := range fs.t.Fields {
-		for _, f := range fields {
-			if f == field.Name {
-				includedFields = append(includedFields, i)
-				break
+	buildShouldInclude := func(candidates []sql.Field) (func(int) bool, error) {
+		var includedFields []int
+		for i, field := range candidates {
+			for _, f := range fields {
+				if f == field.Name {
+					includedFields = append(includedFields, i)
+					break
+				}
 			}
 		}
-	}
 
-	var shouldInclude func(i int) bool
-	if len(fields) == 0 {
-		shouldInclude = func(i int) bool {
-			return true
+		if len(fields) == 0 {
+			return func(i int) bool {
+				return true
+			}, nil
 		}
-	} else {
 		if len(includedFields) == 0 {
-			return errors.New("Non of specified fields exists on table!")
+			return nil, errors.New("Non of specified fields exists on table!")
 		}
-		shouldInclude = func(i int) bool {
+		return func(i int) bool {
 			for _, x := range includedFields {
 				if x == i {
 					return true
@@ -402,16 +428,70 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 				}
 			}
 			return false
-		}
+		}, nil
 	}
 
 	truncateBefore := fs.t.truncateBefore()
+	fileFields := fs.t.Fields
+	memStoreFields := fs.t.Fields
+	var shouldIncludeFileField func(int) bool
+	var shouldIncludeMemStoreField func(int) bool
+
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if !os.IsNotExist(err) {
 		if err != nil {
 			return fmt.Errorf("Unable to open file %v: %v", fs.filename, err)
 		}
 		r := snappy.NewReader(bufio.NewReaderSize(file, 65536))
+
+		fileVersion := 0
+		parts := strings.Split(filepath.Base(fs.filename), "_")
+		if len(parts) == 3 {
+			versionString := strings.Split(parts[2], ".")[0]
+			var versionErr error
+			fileVersion, err = strconv.Atoi(versionString)
+			if versionErr != nil {
+				panic(fmt.Errorf("Unable to determine file version for file %v: %v", fs.filename, versionErr))
+			}
+		}
+
+		if fileVersion >= FileVersion_2 {
+			// File contains header with field info, use it
+			headerLength := uint32(0)
+			versionErr := binary.Read(r, binaryEncoding, &headerLength)
+			if versionErr != nil {
+				return fmt.Errorf("Unexpected error reading header length: %v", versionErr)
+			}
+			headerBytes := make([]byte, headerLength)
+			_, err = io.ReadFull(r, headerBytes)
+			if err != nil {
+				return err
+			}
+			fieldStrings := strings.Split(string(headerBytes), ",")
+			fileFields = make([]sql.Field, 0, len(fieldStrings))
+			for _, fieldString := range fieldStrings {
+				foundField := false
+				for _, field := range fs.t.Fields {
+					if fieldString == field.String() {
+						fileFields = append(fileFields, field)
+						foundField = true
+						break
+					}
+				}
+				if !foundField {
+					panic(fmt.Errorf("Unable to find field for %v", fieldString))
+				}
+			}
+		}
+
+		shouldIncludeMemStoreField, err = buildShouldInclude(memStoreFields)
+		if err != nil {
+			return err
+		}
+		shouldIncludeFileField, err = buildShouldInclude(fileFields)
+		if err != nil {
+			return err
+		}
 
 		// Read from file
 		for {
@@ -449,21 +529,21 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			for i, colLength := range colLengths {
 				var seq sequence
 				seq, row = readSequence(row, colLength)
-				if shouldInclude(i) {
+				if shouldIncludeFileField(i) {
 					columns[i] = seq
 					if seq != nil {
 						includesAtLeastOneColumn = true
 					}
 				}
 				if fs.t.log.IsTraceEnabled() {
-					fs.t.log.Tracef("File Read: %v", seq.String(fs.t.Fields[i].Expr))
+					fs.t.log.Tracef("File Read: %v", seq.String(fileFields[i].Expr))
 				}
 			}
 
 			for _, ms := range memStores {
 				columns2 := ms.remove(ctx, key)
 				for i := 0; i < len(columns) || i < len(columns2); i++ {
-					if shouldInclude(i) {
+					if shouldIncludeMemStoreField(i) {
 						if i >= len(columns2) {
 							// nothing to merge
 							continue
@@ -478,7 +558,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 							continue
 						}
 						// merge
-						columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i].Expr, fs.t.Resolution, truncateBefore)
+						columns[i] = columns[i].merge(columns2[i], memStoreFields[i].Expr, fs.t.Resolution, truncateBefore)
 					}
 				}
 			}
@@ -490,22 +570,24 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 	}
 
 	// Read remaining stuff from mem stores
-	for i, ms := range memStores {
+	for s, ms := range memStores {
 		ms.walk(ctx, func(key []byte, columns []sequence) bool {
-			for j := i + 1; j < len(memStores); j++ {
+			for j := s + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
 				columns2 := ms2.remove(ctx, key)
 				for i := 0; i < len(columns) || i < len(columns2); i++ {
-					if i >= len(columns2) {
-						// nothing to merge
-						continue
+					if shouldIncludeMemStoreField(i) {
+						if i >= len(columns2) {
+							// nothing to merge
+							continue
+						}
+						if i >= len(columns) {
+							// nothing to merge, just add new column
+							columns = append(columns, columns2[i])
+							continue
+						}
+						columns[i] = columns[i].merge(columns2[i], memStoreFields[i].Expr, fs.t.Resolution, truncateBefore)
 					}
-					if i >= len(columns) {
-						// nothing to merge, just add new column
-						columns = append(columns, columns2[i])
-						continue
-					}
-					columns[i] = columns[i].merge(columns2[i], fs.t.Fields[i].Expr, fs.t.Resolution, truncateBefore)
 				}
 			}
 			onRow(bytemap.ByteMap(key), columns)
