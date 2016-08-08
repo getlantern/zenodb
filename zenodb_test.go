@@ -147,6 +147,15 @@ view_a:
 		},
 	})
 
+	// Change the schema a bit
+	tab := db.getTable("test_a")
+	newFields := make([]sql.Field, 0, len(tab.Fields)+1)
+	newFields = append(newFields, sql.Field{AVG("h"), "newfield"})
+	for _, field := range tab.Fields {
+		newFields = append(newFields, field)
+	}
+	tab.Fields = newFields
+
 	advance(resolution)
 
 	db.Insert("inbound", &Point{
@@ -364,4 +373,26 @@ HAVING unknown = 5
 		assert.Equal(t, []string{"b", "r", "u"}, result.GroupBy)
 		assert.NotNil(t, result.Until)
 	}
+
+	testMissingField(t, db, epoch, resolution, now)
+}
+
+func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Duration, now time.Time) {
+	defer func() {
+		assert.NotNil(t, recover(), "Query after removing fields should have panicked")
+	}()
+
+	tab := db.getTable("test_a")
+	for i, field := range tab.Fields {
+		tab.Fields[i] = sql.Field{field.Expr, "_" + field.Name}
+	}
+
+	aq := db.Query(&sql.Query{
+		From:       "test_a",
+		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "ii"}},
+		GroupByAll: true,
+		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
+	})
+
+	aq.Run()
 }
