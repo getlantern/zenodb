@@ -129,6 +129,7 @@ func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, other []byte, me
 func (seq sequence) subMergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata govaluate.Parameters) {
 	offset = offset + width64bits
 	orig := seq[offset:]
+	log.Debug(metadata)
 	subMerge(orig, other, metadata)
 }
 

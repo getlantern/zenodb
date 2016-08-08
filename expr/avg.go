@@ -91,6 +91,6 @@ func (e *avg) save(b []byte, count float64, total float64) []byte {
 	return b[width64bits*2+1:]
 }
 
-func (e *avg) string(cond string) string {
-	return fmt.Sprintf("AVG(%v,%v)", e.wrapped, cond)
+func (e *avg) String() string {
+	return fmt.Sprintf("AVG(%v)", e.wrapped)
 }

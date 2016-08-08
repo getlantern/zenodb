@@ -96,6 +96,6 @@ func (e *aggregate) save(b []byte, value float64) []byte {
 	return b[width64bits+1:]
 }
 
-func (e *aggregate) string(cond string) string {
-	return fmt.Sprintf("%v(%v,%v)", e.name, e.wrapped, cond)
+func (e *aggregate) String() string {
+	return fmt.Sprintf("%v(%v)", e.name, e.wrapped)
 }

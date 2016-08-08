@@ -15,7 +15,7 @@ type conditionable interface {
 
 	merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 
-	string(cond string) string
+	String() string
 }
 
 type conditioned struct {
@@ -99,8 +99,5 @@ func (e *conditioned) Get(b []byte) (float64, bool, []byte) {
 }
 
 func (e *conditioned) String() string {
-	if e.cond == nil {
-		return e.wrapped.string("")
-	}
-	return e.wrapped.string(e.cond.String())
+	return e.wrapped.String()
 }

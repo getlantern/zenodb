@@ -290,7 +290,7 @@ func (exec *queryExecution) prepare() error {
 			}
 
 			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
-			metadata := bytemapGovaluateParams(kb)
+			metadata := bytemapGovaluateParams(resp.key)
 			for c, column := range exec.t.Fields {
 				if column.Name != resp.field {
 					continue
