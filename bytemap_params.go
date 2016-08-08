@@ -23,9 +23,9 @@ func (bmp bytemapParams) String() string {
 	return fmt.Sprint(bytemap.ByteMap(bmp).AsMap())
 }
 
-type bytemapQueryParams bytemap.ByteMap
+type bytemapGovaluateParams bytemap.ByteMap
 
-func (bmp bytemapQueryParams) Get(field string) (interface{}, error) {
+func (bmp bytemapGovaluateParams) Get(field string) (interface{}, error) {
 	result := bytemap.ByteMap(bmp).Get(field)
 	if result == nil {
 		return "", nil
@@ -33,6 +33,6 @@ func (bmp bytemapQueryParams) Get(field string) (interface{}, error) {
 	return result, nil
 }
 
-func (bmp bytemapQueryParams) String() string {
+func (bmp bytemapGovaluateParams) String() string {
 	return fmt.Sprint(bytemap.ByteMap(bmp).AsMap())
 }

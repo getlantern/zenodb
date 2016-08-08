@@ -2,6 +2,8 @@ package expr
 
 import (
 	"fmt"
+
+	"github.com/Knetic/govaluate"
 )
 
 // CONST returns an Accumulator that always has a constant value.
@@ -21,11 +23,11 @@ func (e *constant) EncodedWidth() int {
 	return 0
 }
 
-func (e *constant) Update(b []byte, params Params) ([]byte, float64, bool) {
-	return b, 0, false
+func (e *constant) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+	return b, e.value, false
 }
 
-func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+func (e *constant) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
 	return b, x, y
 }
 

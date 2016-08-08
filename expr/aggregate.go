@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+
+	"github.com/Knetic/govaluate"
 )
 
 type updateFN func(wasSet bool, current float64, next float64) float64
@@ -11,11 +13,20 @@ type updateFN func(wasSet bool, current float64, next float64) float64
 type aggregate struct {
 	name    string
 	wrapped Expr
-	update  updateFN
-	merge   updateFN
+	_update updateFN
+	_merge  updateFN
 }
 
-func (e *aggregate) Validate() error {
+func newAggregate(name string, wrapped Expr, cond *govaluate.EvaluableExpression, update updateFN, merge updateFN) Expr {
+	return newConditioned(cond, &aggregate{
+		name:    name,
+		wrapped: wrapped,
+		_update: update,
+		_merge:  merge,
+	})
+}
+
+func (e *aggregate) validate() error {
 	return validateWrappedInAggregate(e.wrapped)
 }
 
@@ -30,21 +41,21 @@ func validateWrappedInAggregate(wrapped Expr) error {
 	return wrapped.Validate()
 }
 
-func (e *aggregate) EncodedWidth() int {
+func (e *aggregate) encodedWidth() int {
 	return 1 + width64bits + e.wrapped.EncodedWidth()
 }
 
-func (e *aggregate) Update(b []byte, params Params) ([]byte, float64, bool) {
+func (e *aggregate) update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
 	value, wasSet, more := e.load(b)
-	remain, wrappedValue, updated := e.wrapped.Update(more, params)
+	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
 	if updated {
-		value = e.update(wasSet, value, wrappedValue)
+		value = e._update(wasSet, value, wrappedValue)
 		e.save(b, value)
 	}
 	return remain, value, updated
 }
 
-func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+func (e *aggregate) merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	valueX, xWasSet, remainX := e.load(x)
 	valueY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -58,30 +69,14 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 	} else {
 		if yWasSet {
 			// Update valueX from valueY
-			valueX = e.merge(true, valueX, valueY)
+			valueX = e._merge(true, valueX, valueY)
 		}
 		b = e.save(b, valueX)
 	}
 	return b, remainX, remainY
 }
 
-func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
-	result := make([]SubMerge, 0, len(subs))
-	for _, sub := range subs {
-		var sm SubMerge
-		if e.String() == sub.String() {
-			sm = e.subMerge
-		}
-		result = append(result, sm)
-	}
-	return result
-}
-
-func (e *aggregate) subMerge(data []byte, other []byte) {
-	e.Merge(data, data, other)
-}
-
-func (e *aggregate) Get(b []byte) (float64, bool, []byte) {
+func (e *aggregate) get(b []byte) (float64, bool, []byte) {
 	return e.load(b)
 }
 
@@ -101,6 +96,6 @@ func (e *aggregate) save(b []byte, value float64) []byte {
 	return b[width64bits+1:]
 }
 
-func (e *aggregate) String() string {
-	return fmt.Sprintf("%v(%v)", e.name, e.wrapped)
+func (e *aggregate) string(cond string) string {
+	return fmt.Sprintf("%v(%v,%v)", e.name, e.wrapped, cond)
 }

@@ -83,7 +83,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 		stats.Scanned++
 
 		if q.filter != nil {
-			include, err := q.filter.Eval(bytemapQueryParams(key))
+			include, err := q.filter.Eval(bytemapGovaluateParams(key))
 			if err != nil {
 				log.Errorf("Unable to apply filter: %v", err)
 				return

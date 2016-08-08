@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Knetic/govaluate"
 	"github.com/getlantern/zenodb/expr"
 )
 
@@ -96,47 +97,47 @@ func (seq sequence) dataAtOffset(offset int, e expr.Expr) ([]byte, bool) {
 	return seq[offset : offset+e.EncodedWidth()], true
 }
 
-func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params) {
+func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params, metadata govaluate.Parameters) {
 	start := seq.start()
 	period := int(start.Sub(t) / resolution)
-	seq.updateValueAt(period, e, params)
+	seq.updateValueAt(period, e, params, metadata)
 }
 
-func (seq sequence) updateValueAt(period int, e expr.Expr, params expr.Params) {
-	seq.updateValueAtOffset(period*e.EncodedWidth(), e, params)
+func (seq sequence) updateValueAt(period int, e expr.Expr, params expr.Params, metadata govaluate.Parameters) {
+	seq.updateValueAtOffset(period*e.EncodedWidth(), e, params, metadata)
 }
 
-func (seq sequence) mergeValueAt(period int, e expr.Expr, other []byte) {
-	seq.mergeValueAtOffset(period*e.EncodedWidth(), e, other)
+func (seq sequence) mergeValueAt(period int, e expr.Expr, other []byte, metadata govaluate.Parameters) {
+	seq.mergeValueAtOffset(period*e.EncodedWidth(), e, other, metadata)
 }
 
-func (seq sequence) subMergeValueAt(period int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
-	seq.subMergeValueAtOffset(period*e.EncodedWidth(), e, subMerge, other)
+func (seq sequence) subMergeValueAt(period int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata govaluate.Parameters) {
+	seq.subMergeValueAtOffset(period*e.EncodedWidth(), e, subMerge, other, metadata)
 }
 
-func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Params) {
+func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Params, metadata govaluate.Parameters) {
 	offset = offset + width64bits
-	e.Update(seq[offset:], params)
+	e.Update(seq[offset:], params, metadata)
 }
 
-func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, other []byte) {
-	offset = offset + width64bits
-	orig := seq[offset:]
-	e.Merge(orig, orig, other)
-}
-
-func (seq sequence) subMergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte) {
+func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, other []byte, metadata govaluate.Parameters) {
 	offset = offset + width64bits
 	orig := seq[offset:]
-	subMerge(orig, other)
+	e.Merge(orig, orig, other, metadata)
 }
 
-func (seq sequence) update(tsp tsparams, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
+func (seq sequence) subMergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata govaluate.Parameters) {
+	offset = offset + width64bits
+	orig := seq[offset:]
+	subMerge(orig, other, metadata)
+}
+
+func (seq sequence) update(tsp tsparams, metadata govaluate.Parameters, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
 	ts, params := tsp.timeAndParams()
-	return seq.updateValue(ts, params, e, resolution, truncateBefore)
+	return seq.updateValue(ts, params, metadata, e, resolution, truncateBefore)
 }
 
-func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
+func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata govaluate.Parameters, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
 	periodWidth := e.EncodedWidth()
 
 	if log.IsTraceEnabled() {
@@ -164,7 +165,7 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, r
 		log.Trace("Creating new sequence")
 		out := make(sequence, width64bits+periodWidth)
 		out.setStart(ts)
-		out.updateValueAt(0, e, params)
+		out.updateValueAt(0, e, params, metadata)
 		return out
 	}
 
@@ -180,7 +181,7 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, r
 		out := newSequence(periodWidth, numPeriods)
 		copy(out[width64bits+gapPeriods*periodWidth:], seq[width64bits:origEnd])
 		out.setStart(ts)
-		out.updateValueAt(0, e, params)
+		out.updateValueAt(0, e, params, metadata)
 		return out
 	}
 
@@ -193,7 +194,7 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, e expr.Expr, r
 		out = make(sequence, offset+width64bits+periodWidth)
 		copy(out, seq)
 	}
-	out.updateValueAtOffset(offset, e, params)
+	out.updateValueAtOffset(offset, e, params, metadata)
 	return out
 }
 
@@ -261,7 +262,7 @@ func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration,
 		}
 		overlapPeriods -= leadNoOverlapPeriods
 		for i := 0; i < overlapPeriods; i++ {
-			sout, sa, sb = e.Merge(sout, sa, sb)
+			sout, sa, sb = e.Merge(sout, sa, sb, nil)
 		}
 	} else if startB.Before(endA) {
 		// Handle gap

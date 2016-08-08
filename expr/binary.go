@@ -3,6 +3,8 @@ package expr
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/Knetic/govaluate"
 )
 
 type calcFN func(left float64, right float64) float64
@@ -27,7 +29,7 @@ func validateWrappedInBinary(wrapped Expr) error {
 		return fmt.Errorf("Binary expression cannot wrap nil expression")
 	}
 	typeOfWrapped := reflect.TypeOf(wrapped)
-	if typeOfWrapped == aggregateType || typeOfWrapped == avgType || typeOfWrapped == constType {
+	if typeOfWrapped == conditionedType || typeOfWrapped == avgType || typeOfWrapped == constType {
 		return nil
 	}
 	if typeOfWrapped == binaryType {
@@ -40,16 +42,16 @@ func (e *binaryExpr) EncodedWidth() int {
 	return e.left.EncodedWidth() + e.right.EncodedWidth()
 }
 
-func (e *binaryExpr) Update(b []byte, params Params) ([]byte, float64, bool) {
-	remain, leftValue, updatedLeft := e.left.Update(b, params)
-	remain, rightValue, updatedRight := e.right.Update(remain, params)
+func (e *binaryExpr) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+	remain, leftValue, updatedLeft := e.left.Update(b, params, metadata)
+	remain, rightValue, updatedRight := e.right.Update(remain, params, metadata)
 	updated := updatedLeft || updatedRight
 	return remain, e.calc(leftValue, rightValue), updated
 }
 
-func (e *binaryExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
-	remainB, remainX, remainY := e.left.Merge(b, x, y)
-	return e.right.Merge(remainB, remainX, remainY)
+func (e *binaryExpr) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
+	remainB, remainX, remainY := e.left.Merge(b, x, y, metadata)
+	return e.right.Merge(remainB, remainX, remainY, metadata)
 }
 
 func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
@@ -72,8 +74,8 @@ func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
 	return result
 }
 
-func (e *binaryExpr) subMerge(data []byte, other []byte) {
-	e.Merge(data, data, other)
+func (e *binaryExpr) subMerge(data []byte, other []byte, metadata govaluate.Parameters) {
+	e.Merge(data, data, other, metadata)
 }
 
 func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
@@ -85,13 +87,13 @@ func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
 		return left
 	}
 	if left == nil {
-		return func(data []byte, other []byte) {
-			right(data[width:], other)
+		return func(data []byte, other []byte, metadata govaluate.Parameters) {
+			right(data[width:], other, metadata)
 		}
 	}
-	return func(data []byte, other []byte) {
-		left(data, other)
-		right(data[width:], other)
+	return func(data []byte, other []byte, metadata govaluate.Parameters) {
+		left(data, other, metadata)
+		right(data[width:], other, metadata)
 	}
 }
 

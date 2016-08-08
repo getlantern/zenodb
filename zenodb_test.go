@@ -293,7 +293,8 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 SELECT
 	iii / 2 AS ciii,
 	ii,
-	i
+	i,
+	SUM(i, b = true) AS i_filtered
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
@@ -328,12 +329,14 @@ ORDER BY u DESC
 	for _, field := range result.FieldNames {
 		fields = append(fields, field)
 	}
-	assert.Equal(t, []string{"ciii", "ii", "i"}, fields)
+	assert.Equal(t, []string{"ciii", "ii", "i", "i_filtered"}, fields)
 
+	assert.EqualValues(t, 0, rows[1].Values[3], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 122, rows[1].Values[2], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 244, rows[1].Values[1], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[0], "Wrong derived value, bucketing may not be working correctly")
 
+	assert.EqualValues(t, 0, rows[0].Values[3], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 31, rows[0].Values[2], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 42, rows[0].Values[1], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[0], "Wrong derived value, bucketing may not be working correctly")
@@ -357,7 +360,7 @@ HAVING unknown = 5
 	// Test defaults
 	aq = db.Query(&sql.Query{
 		From:       "test_a",
-		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "ii"}},
+		Fields:     []sql.Field{sql.Field{Expr: SUM("ii", nil), Name: "ii"}},
 		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})

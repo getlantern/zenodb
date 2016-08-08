@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+
+	"github.com/Knetic/govaluate"
 )
 
 const (
@@ -14,11 +16,11 @@ const (
 var (
 	binaryEncoding = binary.BigEndian
 
-	fieldType     = reflect.TypeOf((*field)(nil))
-	constType     = reflect.TypeOf((*constant)(nil))
-	aggregateType = reflect.TypeOf((*aggregate)(nil))
-	avgType       = reflect.TypeOf((*avg)(nil))
-	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
+	fieldType       = reflect.TypeOf((*field)(nil))
+	constType       = reflect.TypeOf((*constant)(nil))
+	conditionedType = reflect.TypeOf((*conditioned)(nil))
+	avgType         = reflect.TypeOf((*avg)(nil))
+	binaryType      = reflect.TypeOf((*binaryExpr)(nil))
 )
 
 type Params interface {
@@ -34,8 +36,9 @@ func (p Map) Get(name string) (float64, bool) {
 	return val, found
 }
 
-// SubMerge is a function that merges other into data for a given Expr.
-type SubMerge func(data []byte, other []byte)
+// SubMerge is a function that merges other into data for a given Expr,
+// potentially taking into account the supplied metadata.
+type SubMerge func(data []byte, other []byte, metadata govaluate.Parameters)
 
 type Expr interface {
 	Validate() error
@@ -43,12 +46,14 @@ type Expr interface {
 	// Note - encoding to bytes is only valid for aggregate accumulators
 	EncodedWidth() int
 
-	// Update updates the value in buf by applying the given params.
-	Update(b []byte, params Params) (remain []byte, value float64, updated bool)
+	// Update updates the value in buf by applying the given params. Metadata
+	// provides additional metadata that can be used in evaluating how to apply
+	// the update.
+	Update(b []byte, params Params, metadata govaluate.Parameters) (remain []byte, value float64, updated bool)
 
 	// Merge merges x and y, writing the result to b. It returns the remaining
 	// portions of x and y.
-	Merge(b []byte, x []byte, y []byte) (remainB []byte, remainX []byte, remainY []byte)
+	Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) (remainB []byte, remainX []byte, remainY []byte)
 
 	// SubMergers returns a list of function that merge values of the given
 	// subexpressions into this Expr. The list is the same length as the number of

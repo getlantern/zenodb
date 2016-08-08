@@ -19,13 +19,13 @@ var (
 )
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
-	ErrNonUnaryFunction   = errors.New("Currently only unary functions like SUM(field) are supported")
+	ErrFunctionArity      = errors.New("Currently only unary and binary functions like SUM(field) and SUM(field, condition) are supported")
 	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
 	ErrNestedFunctionCall = errors.New("Nested function calls are not currently supported in SELECT")
 	ErrInvalidPeriod      = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
 )
 
-var unaryFuncs = map[string]func(param interface{}) expr.Expr{
+var aggregateFuncs = map[string]func(param interface{}, cond *govaluate.EvaluableExpression) expr.Expr{
 	"SUM":   expr.SUM,
 	"COUNT": expr.COUNT,
 	"AVG":   expr.AVG,
@@ -316,24 +316,40 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		// Default to a sum over the field
 		ex := expr.FIELD(name)
 		if defaultToSum {
-			ex = expr.SUM(ex)
+			ex = expr.SUM(ex, nil)
 		}
 		return ex, nil
 	case *sqlparser.FuncExpr:
-		if len(e.Exprs) != 1 {
-			return nil, ErrNonUnaryFunction
+		if len(e.Exprs) > 2 {
+			return nil, ErrFunctionArity
 		}
 		fname := strings.ToUpper(string(e.Name))
-		f, ok := unaryFuncs[fname]
+		f, ok := aggregateFuncs[fname]
 		if !ok {
 			return nil, fmt.Errorf("Unknown function '%v'", fname)
 		}
 		log.Tracef("Found function: %v", fname)
+		var cond *govaluate.EvaluableExpression
 		_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
 		if !ok {
 			return nil, ErrWildcardNotAllowed
 		}
-		return f(exprToString(_param.Expr)), nil
+		if len(e.Exprs) == 2 {
+			condEx, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			condString, boolErr := q.boolExprFor(condEx.Expr)
+			if boolErr != nil {
+				return nil, boolErr
+			}
+			var condErr error
+			cond, condErr = govaluate.NewEvaluableExpression(condString)
+			if condErr != nil {
+				return nil, fmt.Errorf("Invalid conditional expression %v: %v", condString, condErr)
+			}
+		}
+		return f(exprToString(_param.Expr), cond), nil
 	case *sqlparser.ComparisonExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {

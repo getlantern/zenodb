@@ -290,6 +290,7 @@ func (exec *queryExecution) prepare() error {
 			}
 
 			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
+			metadata := bytemapGovaluateParams(kb)
 			for c, column := range exec.t.Fields {
 				if column.Name != resp.field {
 					continue
@@ -308,7 +309,7 @@ func (exec *queryExecution) prepare() error {
 							continue
 						}
 						seq := en.fields[f]
-						seq.subMergeValueAt(out, field.Expr, subMerge, other)
+						seq.subMergeValueAt(out, field.Expr, subMerge, other, metadata)
 					}
 
 					// Calculate havings
@@ -317,7 +318,7 @@ func (exec *queryExecution) prepare() error {
 						if subMerge == nil {
 							continue
 						}
-						en.havingTest.subMergeValueAt(out, exec.Having, subMerge, other)
+						en.havingTest.subMergeValueAt(out, exec.Having, subMerge, other, metadata)
 					}
 				}
 			}

@@ -11,6 +11,6 @@ func TestField(t *testing.T) {
 	}
 	f := FIELD("a")
 	b := make([]byte, f.EncodedWidth())
-	_, val, _ := f.Update(b, params)
+	_, val, _ := f.Update(b, params, nil)
 	assert.EqualValues(t, 4.4, val)
 }

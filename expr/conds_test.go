@@ -60,7 +60,7 @@ func doTestCond(t *testing.T, e Expr, expected bool) {
 	}
 
 	b := make([]byte, e.EncodedWidth())
-	_, val, _ := e.Update(b, params)
+	_, val, _ := e.Update(b, params, nil)
 	expectedFloat := float64(0)
 	if expected {
 		expectedFloat = 1

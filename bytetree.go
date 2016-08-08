@@ -150,7 +150,7 @@ nodeLoop:
 			}
 			if i == keyLength && keyLength == labelLength {
 				// update existing node
-				return edge.target.doUpdate(t, truncateBefore, vals), false
+				return edge.target.doUpdate(t, truncateBefore, fullKey, vals), false
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
 				n = edge.target
@@ -165,20 +165,21 @@ nodeLoop:
 		// Create new edge
 		target := &node{key: fullKey}
 		n.edges = append(n.edges, &edge{key, target})
-		return target.doUpdate(t, truncateBefore, vals) + len(key), true
+		return target.doUpdate(t, truncateBefore, fullKey, vals) + len(key), true
 	}
 }
 
-func (n *node) doUpdate(t *table, truncateBefore time.Time, vals tsparams) int {
+func (n *node) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals tsparams) int {
 	bytesAdded := 0
 	// Grow sequences to match number of fields in table
 	for i := len(n.data); i < len(t.Fields); i++ {
 		n.data = append(n.data, nil)
 	}
+	metadata := bytemapGovaluateParams(fullKey)
 	for i, field := range t.Fields {
 		current := n.data[i]
 		previousSize := len(current)
-		updated := current.update(vals, field.Expr, t.Resolution, truncateBefore)
+		updated := current.update(vals, metadata, field.Expr, t.Resolution, truncateBefore)
 		n.data[i] = updated
 		bytesAdded += len(updated) - previousSize
 	}
@@ -218,7 +219,7 @@ func (e *edge) split(bt *tree, t *table, truncateBefore time.Time, splitOn int, 
 	}
 	e.label = e.label[:splitOn]
 	e.target = newNode
-	return len(key) - splitOn + newLeaf.doUpdate(t, truncateBefore, vals)
+	return len(key) - splitOn + newLeaf.doUpdate(t, truncateBefore, fullKey, vals)
 }
 
 type edges []*edge

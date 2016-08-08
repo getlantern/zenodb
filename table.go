@@ -108,7 +108,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 
 	// prepend a magic _points field
 	newFields := make([]sql.Field, 0, len(q.Fields)+1)
-	newFields = append(newFields, sql.Field{expr.SUM("_point"), "_points"})
+	newFields = append(newFields, sql.Field{expr.SUM("_point", nil), "_points"})
 	for _, field := range q.Fields {
 		newFields = append(newFields, field)
 	}

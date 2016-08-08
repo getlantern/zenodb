@@ -3,29 +3,31 @@ package expr
 import (
 	"fmt"
 	"math"
+
+	"github.com/Knetic/govaluate"
 )
 
 // AVG creates an Expr that obtains its value by averaging the values of the
 // given expression or field.
-func AVG(expr interface{}) Expr {
-	return &avg{exprFor(expr)}
+func AVG(expr interface{}, cond *govaluate.EvaluableExpression) Expr {
+	return newConditioned(cond, &avg{exprFor(expr)})
 }
 
 type avg struct {
 	wrapped Expr
 }
 
-func (e *avg) Validate() error {
+func (e *avg) validate() error {
 	return validateWrappedInAggregate(e.wrapped)
 }
 
-func (e *avg) EncodedWidth() int {
+func (e *avg) encodedWidth() int {
 	return width64bits*2 + 1 + e.wrapped.EncodedWidth()
 }
 
-func (e *avg) Update(b []byte, params Params) ([]byte, float64, bool) {
+func (e *avg) update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
 	count, total, _, more := e.load(b)
-	remain, wrappedValue, updated := e.wrapped.Update(more, params)
+	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
 	if updated {
 		count++
 		total += wrappedValue
@@ -34,7 +36,7 @@ func (e *avg) Update(b []byte, params Params) ([]byte, float64, bool) {
 	return remain, e.calc(count, total), updated
 }
 
-func (e *avg) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+func (e *avg) merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	countX, totalX, xWasSet, remainX := e.load(x)
 	countY, totalY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -55,22 +57,7 @@ func (e *avg) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, remainX, remainY
 }
 
-func (e *avg) SubMergers(subs []Expr) []SubMerge {
-	result := make([]SubMerge, 0, len(subs))
-	for _, sub := range subs {
-		var sm SubMerge
-		if e.String() == sub.String() {
-			sm = e.subMerge
-		}
-		result = append(result, sm)
-	}
-	return result
-}
-func (e *avg) subMerge(data []byte, other []byte) {
-	e.Merge(data, data, other)
-}
-
-func (e *avg) Get(b []byte) (float64, bool, []byte) {
+func (e *avg) get(b []byte) (float64, bool, []byte) {
 	count, total, wasSet, remain := e.load(b)
 	if !wasSet {
 		return 0, wasSet, remain
@@ -104,6 +91,6 @@ func (e *avg) save(b []byte, count float64, total float64) []byte {
 	return b[width64bits*2+1:]
 }
 
-func (e *avg) String() string {
-	return fmt.Sprintf("AVG(%v)", e.wrapped)
+func (e *avg) string(cond string) string {
+	return fmt.Sprintf("AVG(%v,%v)", e.wrapped, cond)
 }
