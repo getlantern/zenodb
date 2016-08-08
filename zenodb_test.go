@@ -286,7 +286,7 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 	aq, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
 	iii / 2 AS ciii,
-	ii,
+	SUM(ii, b != true) AS ii,
 	i,
 	SUM(i, b = true) AS i_filtered
 FROM test_a
