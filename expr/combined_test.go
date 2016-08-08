@@ -7,10 +7,10 @@ import (
 )
 
 func TestCombined(t *testing.T) {
-	avgA := AVG("a", nil)
-	avgB := AVG("b", nil)
+	avgA := AVG("a")
+	avgB := AVG("b")
 	mult := MULT(avgA, avgB)
-	count := COUNT("b", nil)
+	count := COUNT("b")
 	e := DIV(mult, count)
 	params1 := Map{
 		"a": 2,

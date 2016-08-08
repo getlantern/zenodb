@@ -175,7 +175,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		}
 
 		for i, val := range row.Values {
-			width := len(fmt.Sprint(val))
+			width := len(fmt.Sprintf("%.4f", val))
 			if width > fieldWidths[i] {
 				fieldWidths[i] = width
 			}

@@ -8,33 +8,33 @@ import (
 )
 
 func TestSUM(t *testing.T) {
-	doTestAggregate(t, SUM("a", nil), 13.2)
+	doTestAggregate(t, SUM("a"), 13.2)
 }
 
 func TestCOUNT(t *testing.T) {
-	doTestAggregate(t, COUNT("b", nil), 3)
+	doTestAggregate(t, COUNT("b"), 3)
 }
 
 func TestAVG(t *testing.T) {
-	doTestAggregate(t, AVG("a", nil), 6.6)
+	doTestAggregate(t, AVG("a"), 6.6)
 }
 
 func TestSUMConditional(t *testing.T) {
-	cond, err := govaluate.NewEvaluableExpression("i")
+	ex, err := IF("i", SUM("b"))
 	if !assert.NoError(t, err) {
 		return
 	}
-	doTestAggregate(t, SUM("b", cond), 1)
+	doTestAggregate(t, ex, 1)
 }
 
 func TestValidateAggregate(t *testing.T) {
-	sum := SUM(MULT(CONST(1), CONST(2)), nil)
+	sum := SUM(MULT(CONST(1), CONST(2)))
 	assert.Error(t, sum.Validate())
-	avg := AVG(MULT(CONST(1), CONST(2)), nil)
+	avg := AVG(MULT(CONST(1), CONST(2)))
 	assert.Error(t, avg.Validate())
-	ok := SUM(CONST(1), nil)
+	ok := SUM(CONST(1))
 	assert.NoError(t, ok.Validate())
-	ok2 := AVG(FIELD("b"), nil)
+	ok2 := AVG(FIELD("b"))
 	assert.NoError(t, ok2.Validate())
 }
 

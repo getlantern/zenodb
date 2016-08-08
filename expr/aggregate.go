@@ -17,16 +17,7 @@ type aggregate struct {
 	_merge  updateFN
 }
 
-func newAggregate(name string, wrapped Expr, cond *govaluate.EvaluableExpression, update updateFN, merge updateFN) Expr {
-	return newConditioned(cond, &aggregate{
-		name:    name,
-		wrapped: wrapped,
-		_update: update,
-		_merge:  merge,
-	})
-}
-
-func (e *aggregate) validate() error {
+func (e *aggregate) Validate() error {
 	return validateWrappedInAggregate(e.wrapped)
 }
 
@@ -41,11 +32,11 @@ func validateWrappedInAggregate(wrapped Expr) error {
 	return wrapped.Validate()
 }
 
-func (e *aggregate) encodedWidth() int {
+func (e *aggregate) EncodedWidth() int {
 	return 1 + width64bits + e.wrapped.EncodedWidth()
 }
 
-func (e *aggregate) update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+func (e *aggregate) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
 	value, wasSet, more := e.load(b)
 	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
 	if updated {
@@ -55,7 +46,7 @@ func (e *aggregate) update(b []byte, params Params, metadata govaluate.Parameter
 	return remain, value, updated
 }
 
-func (e *aggregate) merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+func (e *aggregate) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
 	valueX, xWasSet, remainX := e.load(x)
 	valueY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -76,7 +67,23 @@ func (e *aggregate) merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 	return b, remainX, remainY
 }
 
-func (e *aggregate) get(b []byte) (float64, bool, []byte) {
+func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
+	result := make([]SubMerge, 0, len(subs))
+	for _, sub := range subs {
+		var sm SubMerge
+		if e.String() == sub.String() {
+			sm = e.subMerge
+		}
+		result = append(result, sm)
+	}
+	return result
+}
+
+func (e *aggregate) subMerge(data []byte, other []byte, metadata govaluate.Parameters) {
+	e.Merge(data, data, other, metadata)
+}
+
+func (e *aggregate) Get(b []byte) (float64, bool, []byte) {
 	return e.load(b)
 }
 

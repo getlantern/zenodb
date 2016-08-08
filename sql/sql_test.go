@@ -4,20 +4,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Knetic/govaluate"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestSQL(t *testing.T) {
-	known := AVG("k", nil)
+	known := AVG("k")
 	knownfield := Field{known, "knownfield"}
 	q, err := Parse(`
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
 	myfield,
 	knownfield,
-	AVG(myfield, dimension = 'test') AS the_avg
+	IF(dim = 'test', AVG(myfield)) AS the_avg
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host'
 GROUP BY dim_a, period('5s') // period is a special function
@@ -28,8 +27,8 @@ LIMIT 100, 10
 	if !assert.NoError(t, err) {
 		return
 	}
-	rate := MULT(DIV(AVG("a", nil), ADD(ADD(SUM("a", nil), SUM("b", nil)), SUM("c", nil))), 2)
-	myfield := SUM("myfield", nil)
+	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
+	myfield := SUM("myfield")
 	if assert.Len(t, q.Fields, 4) {
 		field := q.Fields[0]
 		expected := Field{rate, "rate"}.String()
@@ -47,8 +46,11 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[3]
-		cond, _ := govaluate.NewEvaluableExpression("dimension == 'test'")
-		expected = Field{AVG("myfield", cond), "the_avg"}.String()
+		ifEx, err := IF("dimension == 'test'", AVG("myfield"))
+		if !assert.NoError(t, err) {
+			return
+		}
+		expected = Field{ifEx, "the_avg"}.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}
@@ -67,7 +69,7 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, 5*time.Second, q.Resolution)
 	assert.Equal(t, "dim_a =~ '172.56.' && (dim_b > 10 || dim_c == 20) || dim_d != 'thing' && dim_e !~ 'no such host'", q.Where.String())
-	expectedHaving := AND(GT(rate, 15), LT(SUM("h", nil), 2)).String()
+	expectedHaving := AND(GT(rate, 15), LT(SUM("h"), 2)).String()
 	actualHaving := q.Having.String()
 	assert.Equal(t, expectedHaving, actualHaving)
 	assert.Equal(t, 10, q.Limit)

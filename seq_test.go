@@ -12,7 +12,7 @@ import (
 func TestSequenceUpdate(t *testing.T) {
 	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	res := time.Minute
-	e := SUM(MULT(FIELD("a"), FIELD("b")), nil)
+	e := SUM(MULT(FIELD("a"), FIELD("b")))
 
 	checkWithTruncation := func(retainPeriods int) {
 		t.Logf("Retention periods: %d", retainPeriods)
@@ -77,7 +77,7 @@ func TestSequenceMergeAOB(t *testing.T) {
 	res := time.Minute
 	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	truncateBefore := epoch.Add(-1000 * res)
-	e := SUM("a", nil)
+	e := SUM("a")
 
 	var seq1 sequence
 	var seq2 sequence
@@ -97,7 +97,7 @@ func TestSequenceMergeAOA(t *testing.T) {
 	res := time.Minute
 	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	truncateBefore := epoch.Add(-1000 * res)
-	e := SUM("a", nil)
+	e := SUM("a")
 
 	var seq1 sequence
 	var seq2 sequence
@@ -117,7 +117,7 @@ func TestSequenceMergeAB(t *testing.T) {
 	res := time.Minute
 	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	truncateBefore := epoch.Add(-1000 * res)
-	e := SUM("a", nil)
+	e := SUM("a")
 
 	var seq1 sequence
 	var seq2 sequence
@@ -152,7 +152,7 @@ func TestSequenceMergeValueAt(t *testing.T) {
 	res := time.Minute
 	epoch := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	truncateBefore := epoch.Add(-1000 * res)
-	e := SUM("a", nil)
+	e := SUM("a")
 
 	var seq1 sequence
 	var seq2 sequence

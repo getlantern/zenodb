@@ -16,11 +16,12 @@ const (
 var (
 	binaryEncoding = binary.BigEndian
 
-	fieldType       = reflect.TypeOf((*field)(nil))
-	constType       = reflect.TypeOf((*constant)(nil))
-	conditionedType = reflect.TypeOf((*conditioned)(nil))
-	avgType         = reflect.TypeOf((*avg)(nil))
-	binaryType      = reflect.TypeOf((*binaryExpr)(nil))
+	fieldType     = reflect.TypeOf((*field)(nil))
+	constType     = reflect.TypeOf((*constant)(nil))
+	aggregateType = reflect.TypeOf((*aggregate)(nil))
+	ifType        = reflect.TypeOf((*ifExpr)(nil))
+	avgType       = reflect.TypeOf((*avg)(nil))
+	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
 )
 
 type Params interface {

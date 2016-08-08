@@ -28,13 +28,13 @@ func TestDIVZero(t *testing.T) {
 func TestValidateBinary(t *testing.T) {
 	bad := MULT(FIELD("a"), FIELD("b"))
 	assert.Error(t, bad.Validate())
-	ok := MULT(CONST(1), SUM(FIELD("b"), nil))
+	ok := MULT(CONST(1), SUM(FIELD("b")))
 	assert.NoError(t, ok.Validate())
-	ok2 := MULT(CONST(1), AVG(FIELD("b"), nil))
+	ok2 := MULT(CONST(1), AVG(FIELD("b")))
 	assert.NoError(t, ok2.Validate())
-	ok3 := MULT(CONST(1), ADD(AVG(FIELD("b"), nil), CONST(3)))
+	ok3 := MULT(CONST(1), ADD(AVG(FIELD("b")), CONST(3)))
 	assert.NoError(t, ok3.Validate())
-	ok4 := MULT(CONST(1), ADD(AVG(FIELD("b"), nil), GT(CONST(3), SUM("c", nil))))
+	ok4 := MULT(CONST(1), ADD(AVG(FIELD("b")), GT(CONST(3), SUM("c"))))
 	assert.NoError(t, ok4.Validate())
 }
 

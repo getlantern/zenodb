@@ -9,23 +9,23 @@ import (
 
 // AVG creates an Expr that obtains its value by averaging the values of the
 // given expression or field.
-func AVG(expr interface{}, cond *govaluate.EvaluableExpression) Expr {
-	return newConditioned(cond, &avg{exprFor(expr)})
+func AVG(expr interface{}) Expr {
+	return &avg{exprFor(expr)}
 }
 
 type avg struct {
 	wrapped Expr
 }
 
-func (e *avg) validate() error {
+func (e *avg) Validate() error {
 	return validateWrappedInAggregate(e.wrapped)
 }
 
-func (e *avg) encodedWidth() int {
+func (e *avg) EncodedWidth() int {
 	return width64bits*2 + 1 + e.wrapped.EncodedWidth()
 }
 
-func (e *avg) update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+func (e *avg) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
 	count, total, _, more := e.load(b)
 	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
 	if updated {
@@ -36,7 +36,7 @@ func (e *avg) update(b []byte, params Params, metadata govaluate.Parameters) ([]
 	return remain, e.calc(count, total), updated
 }
 
-func (e *avg) merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+func (e *avg) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
 	countX, totalX, xWasSet, remainX := e.load(x)
 	countY, totalY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -57,7 +57,23 @@ func (e *avg) merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, remainX, remainY
 }
 
-func (e *avg) get(b []byte) (float64, bool, []byte) {
+func (e *avg) SubMergers(subs []Expr) []SubMerge {
+	result := make([]SubMerge, 0, len(subs))
+	for _, sub := range subs {
+		var sm SubMerge
+		if e.String() == sub.String() {
+			sm = e.subMerge
+		}
+		result = append(result, sm)
+	}
+	return result
+}
+
+func (e *avg) subMerge(data []byte, other []byte, metadata govaluate.Parameters) {
+	e.Merge(data, data, other, metadata)
+}
+
+func (e *avg) Get(b []byte) (float64, bool, []byte) {
 	count, total, wasSet, remain := e.load(b)
 	if !wasSet {
 		return 0, wasSet, remain

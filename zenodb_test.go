@@ -286,9 +286,9 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 	aq, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
 	iii / 2 AS ciii,
-	SUM(ii, b != true) AS ii,
+	IF(b != true, ii) AS ii,
 	i,
-	SUM(i, b = true) AS i_filtered
+	IF(b = true, i) AS i_filtered
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
@@ -354,7 +354,7 @@ HAVING unknown = 5
 	// Test defaults
 	aq = db.Query(&sql.Query{
 		From:       "test_a",
-		Fields:     []sql.Field{sql.Field{Expr: SUM("ii", nil), Name: "ii"}},
+		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "ii"}},
 		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})

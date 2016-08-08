@@ -13,7 +13,7 @@ import (
 const ctx = 56
 
 func TestByteTree(t *testing.T) {
-	e := expr.SUM("a", nil)
+	e := expr.SUM("a")
 
 	tb := &table{
 		Query: sql.Query{
