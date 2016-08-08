@@ -133,8 +133,8 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 
 	// Print summary info
 	fmt.Fprintln(stdout, "-------------------------------------------------")
-	fmt.Fprintf(stdout, "# As Of:      %v\n", result.AsOf)
-	fmt.Fprintf(stdout, "# Until:      %v\n", result.Until)
+	fmt.Fprintf(stdout, "# As Of:      %v\n", result.AsOf.In(time.UTC).Format(time.RFC1123))
+	fmt.Fprintf(stdout, "# Until:      %v\n", result.Until.In(time.UTC).Format(time.RFC1123))
 	fmt.Fprintf(stdout, "# Resolution: %v\n", result.Resolution)
 	fmt.Fprintf(stdout, "# Group By:   %v\n\n", strings.Join(result.GroupBy, " "))
 
@@ -205,7 +205,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 	fmt.Fprint(stdout, "\n")
 
 	for _, row := range rows {
-		fmt.Fprintf(stdout, "%-35v", result.Until.Add(-1*time.Duration(row.Period)*result.Resolution).Format(time.RFC1123))
+		fmt.Fprintf(stdout, "%-35v", result.Until.Add(-1*time.Duration(row.Period)*result.Resolution).In(time.UTC).Format(time.RFC1123))
 		for i, dim := range row.Dims {
 			fmt.Fprintf(stdout, dimFormats[i], dim)
 		}
@@ -244,7 +244,7 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 			return fmt.Errorf("Unable to get next row: %v\n", err)
 		}
 		rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.FieldNames))
-		rowStrings = append(rowStrings, result.Until.Add(-1*result.Resolution*time.Duration(row.Period)).Format(time.RFC3339))
+		rowStrings = append(rowStrings, result.Until.Add(-1*result.Resolution*time.Duration(row.Period)).In(time.UTC).Format(time.RFC3339))
 		for _, dim := range row.Dims {
 			rowStrings = append(rowStrings, fmt.Sprint(dim))
 		}
