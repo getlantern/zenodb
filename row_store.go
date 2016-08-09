@@ -483,10 +483,6 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			reverseFileFieldIndexes = append(reverseFileFieldIndexes, idx)
 		}
 
-		log.Debugf("fields: %v", fields)
-		log.Debugf("includeField: %v", includeField)
-		log.Debugf("reverseFileFieldIndexes: %v", reverseFileFieldIndexes)
-
 		// Read from file
 		for {
 			rowLength := uint64(0)
@@ -562,7 +558,6 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			}
 
 			if includesAtLeastOneColumn {
-				log.Debug("Included at least one column")
 				onRow(key, columns)
 			}
 		}

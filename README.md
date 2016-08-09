@@ -15,16 +15,18 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Seems pretty fast
  * Some unit tests
 
-## Still Missing
+## Future Stuff
 
  * Write Ahead Log
  * Populate views with historical data upon creation
  * More unit tests and general code cleanup
  * TLS in RPC
  * TLS in HTTP
+ * Optimized queries using expression references (avoid recomputing same expression when referenced multiple times in same row)
  * Completely parallel query processing
  * Interuptable queries using Context
  * User-level authentication/authorization
+ * Crosstab queries
 
 ## Standalone Quick Start
 
