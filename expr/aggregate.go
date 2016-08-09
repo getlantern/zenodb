@@ -5,7 +5,7 @@ import (
 	"math"
 	"reflect"
 
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 )
 
 type updateFN func(wasSet bool, current float64, next float64) float64
@@ -36,7 +36,7 @@ func (e *aggregate) EncodedWidth() int {
 	return 1 + width64bits + e.wrapped.EncodedWidth()
 }
 
-func (e *aggregate) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+func (e *aggregate) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	value, wasSet, more := e.load(b)
 	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
 	if updated {
@@ -46,7 +46,7 @@ func (e *aggregate) Update(b []byte, params Params, metadata govaluate.Parameter
 	return remain, value, updated
 }
 
-func (e *aggregate) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
+func (e *aggregate) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
 	valueX, xWasSet, remainX := e.load(x)
 	valueY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -79,7 +79,7 @@ func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
 	return result
 }
 
-func (e *aggregate) subMerge(data []byte, other []byte, metadata govaluate.Parameters) {
+func (e *aggregate) subMerge(data []byte, other []byte, metadata goexpr.Params) {
 	e.Merge(data, data, other, metadata)
 }
 

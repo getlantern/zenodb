@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Knetic/govaluate"
 	"github.com/getlantern/errors"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
@@ -78,7 +78,7 @@ func (db *DB) CreateView(opts *TableOpts) error {
 		if q.Where == nil {
 			q.Where = t.Where
 		} else {
-			combined, err := govaluate.NewEvaluableExpression(fmt.Sprintf("(%v) && (%v)", q.Where, t.Where))
+			combined, err := goexpr.Binary("AND", q.Where, t.Where)
 			if err != nil {
 				return err
 			}
@@ -149,7 +149,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	return nil
 }
 
-func (t *table) applyWhere(where *govaluate.EvaluableExpression) {
+func (t *table) applyWhere(where goexpr.Expr) {
 	t.whereMutex.Lock()
 	t.Where = where
 	t.whereMutex.Unlock()

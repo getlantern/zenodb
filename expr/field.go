@@ -1,7 +1,7 @@
 package expr
 
 import (
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 )
 
 // IsField checks whether the given expression is a field expression and if so,
@@ -36,12 +36,12 @@ func (e *field) EncodedWidth() int {
 	return 0
 }
 
-func (e *field) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+func (e *field) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	val, ok := params.Get(e.name)
 	return b, val, ok
 }
 
-func (e *field) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
+func (e *field) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
 	return b, x, y
 }
 

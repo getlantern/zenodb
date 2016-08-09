@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/oxtoacart/sqlparser"
@@ -67,7 +67,7 @@ type Query struct {
 	Fields      []Field
 	From        string
 	Resolution  time.Duration
-	Where       *govaluate.EvaluableExpression
+	Where       goexpr.Expr
 	AsOf        time.Time
 	AsOfOffset  time.Duration
 	Until       time.Time
@@ -191,7 +191,7 @@ func (q *Query) applyWhere(stmt *sqlparser.Select) error {
 		return err
 	}
 	log.Tracef("Applying where: %v", where)
-	q.Where, err = govaluate.NewEvaluableExpression(where)
+	q.Where = where
 	return err
 }
 
@@ -429,7 +429,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 	}
 }
 
-func (q *Query) boolExprFor(_e sqlparser.Expr) (string, error) {
+func (q *Query) boolExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	if log.IsTraceEnabled() {
 		log.Tracef("Parsing boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
@@ -437,64 +437,58 @@ func (q *Query) boolExprFor(_e sqlparser.Expr) (string, error) {
 	case *sqlparser.AndExpr:
 		left, err := q.boolExprFor(e.Left)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		right, err := q.boolExprFor(e.Right)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		return fmt.Sprintf("%s && %s", left, right), nil
+		return goexpr.Binary("AND", left, right)
 	case *sqlparser.OrExpr:
 		left, err := q.boolExprFor(e.Left)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		right, err := q.boolExprFor(e.Right)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		return fmt.Sprintf("%s || %s", left, right), nil
+		return goexpr.Binary("OR", left, right)
 	case *sqlparser.ParenBoolExpr:
-		wrapped, err := q.boolExprFor(e.Expr)
-		if err != nil {
-			return "", err
-		}
-		return fmt.Sprintf("(%s)", wrapped), nil
+		return q.boolExprFor(e.Expr)
 	case *sqlparser.NotExpr:
 		wrapped, err := q.boolExprFor(e.Expr)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		return fmt.Sprintf("!%s", wrapped), nil
+		return goexpr.Not(wrapped), nil
 	case *sqlparser.ComparisonExpr:
 		left, err := q.boolExprFor(e.Left)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
 		right, err := q.boolExprFor(e.Right)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		op := e.Operator
-		switch strings.ToUpper(op) {
-		case "LIKE":
-			op = "=~"
-		case "NOT LIKE":
-			op = "!~"
-		case "<>":
-			op = "!="
-		case "=":
-			op = "=="
-		case ">", ">=", "<", "<=", "!=":
-			// Leave as is
-		default:
-			return "", fmt.Errorf("Unknown comparison operator '%v'", e.Operator)
+		return goexpr.Binary(strings.ToUpper(e.Operator), left, right)
+	case *sqlparser.ColName:
+		colName := strings.TrimSpace(strings.ToLower(string(e.Name)))
+		bl, err := strconv.ParseBool(colName)
+		if err == nil {
+			return goexpr.Constant(bl), nil
 		}
-		return fmt.Sprintf("%s %s %s", left, op, right), nil
+		return goexpr.Param(colName), nil
+	case sqlparser.StrVal:
+		return goexpr.Constant(string(e)), nil
+	case sqlparser.NumVal:
+		val, parseErr := strconv.ParseFloat(string(e), 64)
+		if parseErr != nil {
+			return nil, parseErr
+		}
+		return goexpr.Constant(val), nil
 	default:
-		str := exprToString(_e)
-		log.Tracef("Returning string for boolean expression: %v", str)
-		return str, nil
+		return nil, fmt.Errorf("Unknown boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
 }
 

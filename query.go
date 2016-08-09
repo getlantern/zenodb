@@ -4,15 +4,15 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Knetic/govaluate"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/expr"
 )
 
 type query struct {
 	table       string
 	fields      []string
-	filter      *govaluate.EvaluableExpression
+	filter      goexpr.Expr
 	asOf        time.Time
 	asOfOffset  time.Duration
 	until       time.Time
@@ -83,11 +83,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 		stats.Scanned++
 
 		if q.filter != nil {
-			include, err := q.filter.Eval(bytemapGovaluateParams(key))
-			if err != nil {
-				log.Errorf("Unable to apply filter: %v", err)
-				return
-			}
+			include := q.filter.Eval(key)
 			inc, ok := include.(bool)
 			if !ok {
 				log.Errorf("Filter expression returned something other than a boolean: %v", include)

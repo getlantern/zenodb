@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 )
 
 type calcFN func(left float64, right float64) float64
@@ -42,14 +42,14 @@ func (e *binaryExpr) EncodedWidth() int {
 	return e.left.EncodedWidth() + e.right.EncodedWidth()
 }
 
-func (e *binaryExpr) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+func (e *binaryExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	remain, leftValue, updatedLeft := e.left.Update(b, params, metadata)
 	remain, rightValue, updatedRight := e.right.Update(remain, params, metadata)
 	updated := updatedLeft || updatedRight
 	return remain, e.calc(leftValue, rightValue), updated
 }
 
-func (e *binaryExpr) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
+func (e *binaryExpr) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
 	remainB, remainX, remainY := e.left.Merge(b, x, y, metadata)
 	return e.right.Merge(remainB, remainX, remainY, metadata)
 }
@@ -74,7 +74,7 @@ func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
 	return result
 }
 
-func (e *binaryExpr) subMerge(data []byte, other []byte, metadata govaluate.Parameters) {
+func (e *binaryExpr) subMerge(data []byte, other []byte, metadata goexpr.Params) {
 	e.Merge(data, data, other, metadata)
 }
 
@@ -87,11 +87,11 @@ func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
 		return left
 	}
 	if left == nil {
-		return func(data []byte, other []byte, metadata govaluate.Parameters) {
+		return func(data []byte, other []byte, metadata goexpr.Params) {
 			right(data[width:], other, metadata)
 		}
 	}
-	return func(data []byte, other []byte, metadata govaluate.Parameters) {
+	return func(data []byte, other []byte, metadata goexpr.Params) {
 		left(data, other, metadata)
 		right(data[width:], other, metadata)
 	}

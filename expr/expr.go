@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"strconv"
 
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 )
 
 const (
@@ -39,7 +39,7 @@ func (p Map) Get(name string) (float64, bool) {
 
 // SubMerge is a function that merges other into data for a given Expr,
 // potentially taking into account the supplied metadata.
-type SubMerge func(data []byte, other []byte, metadata govaluate.Parameters)
+type SubMerge func(data []byte, other []byte, metadata goexpr.Params)
 
 type Expr interface {
 	Validate() error
@@ -50,11 +50,11 @@ type Expr interface {
 	// Update updates the value in buf by applying the given params. Metadata
 	// provides additional metadata that can be used in evaluating how to apply
 	// the update.
-	Update(b []byte, params Params, metadata govaluate.Parameters) (remain []byte, value float64, updated bool)
+	Update(b []byte, params Params, metadata goexpr.Params) (remain []byte, value float64, updated bool)
 
 	// Merge merges x and y, writing the result to b. It returns the remaining
 	// portions of x and y.
-	Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) (remainB []byte, remainX []byte, remainY []byte)
+	Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) (remainB []byte, remainX []byte, remainY []byte)
 
 	// SubMergers returns a list of function that merge values of the given
 	// subexpressions into this Expr. The list is the same length as the number of

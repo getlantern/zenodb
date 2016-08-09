@@ -3,6 +3,8 @@ package zenodb
 import (
 	"sync"
 	"time"
+
+	"github.com/getlantern/bytemap"
 )
 
 // see https://en.wikipedia.org/wiki/Radix_tree
@@ -175,7 +177,7 @@ func (n *node) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals
 	for i := len(n.data); i < len(t.Fields); i++ {
 		n.data = append(n.data, nil)
 	}
-	metadata := bytemapGovaluateParams(fullKey)
+	metadata := bytemap.ByteMap(fullKey)
 	for i, field := range t.Fields {
 		current := n.data[i]
 		previousSize := len(current)

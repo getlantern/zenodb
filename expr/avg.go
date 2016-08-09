@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 )
 
 // AVG creates an Expr that obtains its value by averaging the values of the
@@ -25,7 +25,7 @@ func (e *avg) EncodedWidth() int {
 	return width64bits*2 + 1 + e.wrapped.EncodedWidth()
 }
 
-func (e *avg) Update(b []byte, params Params, metadata govaluate.Parameters) ([]byte, float64, bool) {
+func (e *avg) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	count, total, _, more := e.load(b)
 	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
 	if updated {
@@ -36,7 +36,7 @@ func (e *avg) Update(b []byte, params Params, metadata govaluate.Parameters) ([]
 	return remain, e.calc(count, total), updated
 }
 
-func (e *avg) Merge(b []byte, x []byte, y []byte, metadata govaluate.Parameters) ([]byte, []byte, []byte) {
+func (e *avg) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
 	countX, totalX, xWasSet, remainX := e.load(x)
 	countY, totalY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -69,7 +69,7 @@ func (e *avg) SubMergers(subs []Expr) []SubMerge {
 	return result
 }
 
-func (e *avg) subMerge(data []byte, other []byte, metadata govaluate.Parameters) {
+func (e *avg) subMerge(data []byte, other []byte, metadata goexpr.Params) {
 	e.Merge(data, data, other, metadata)
 }
 

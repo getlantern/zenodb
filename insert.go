@@ -13,13 +13,13 @@ type Point struct {
 	Vals map[string]float64     `json:"vals,omitempty"`
 }
 
-// Get implements the interface govaluate.Parameters
-func (p *Point) Get(name string) (interface{}, error) {
+// Get implements the interface goexpr.Params
+func (p *Point) Get(name string) interface{} {
 	result := p.Dims[name]
 	if result == nil {
 		result = ""
 	}
-	return result, nil
+	return result
 }
 
 type insert struct {
@@ -46,13 +46,8 @@ func (t *table) insert(point *Point) {
 	t.whereMutex.RUnlock()
 
 	if where != nil {
-		ok, err := where.Eval(point)
-		if err != nil {
-			t.log.Errorf("Unable to filter inbound point: %v", err)
-			t.statsMutex.Lock()
-			t.stats.DroppedPoints++
-			t.statsMutex.Unlock()
-		} else if !ok.(bool) {
+		ok := where.Eval(point)
+		if !ok.(bool) {
 			t.log.Tracef("Filtering out inbound point: %v", point.Dims)
 			t.statsMutex.Lock()
 			t.stats.FilteredPoints++

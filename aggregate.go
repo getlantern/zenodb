@@ -29,7 +29,7 @@ type Row struct {
 	fields  []sql.Field
 }
 
-// Get implements the interface method from govaluate.Parameters
+// Get implements the interface method from goexpr.Params
 func (row *Row) get(param string) interface{} {
 	// First look at fields
 	for i, field := range row.fields {
@@ -290,7 +290,6 @@ func (exec *queryExecution) prepare() error {
 			}
 
 			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
-			metadata := bytemapGovaluateParams(resp.key)
 			for c, column := range exec.t.Fields {
 				if column.Name != resp.field {
 					continue
@@ -309,7 +308,7 @@ func (exec *queryExecution) prepare() error {
 							continue
 						}
 						seq := en.fields[f]
-						seq.subMergeValueAt(out, field.Expr, subMerge, other, metadata)
+						seq.subMergeValueAt(out, field.Expr, subMerge, other, resp.key)
 					}
 
 					// Calculate havings
@@ -318,7 +317,7 @@ func (exec *queryExecution) prepare() error {
 						if subMerge == nil {
 							continue
 						}
-						en.havingTest.subMergeValueAt(out, exec.Having, subMerge, other, metadata)
+						en.havingTest.subMergeValueAt(out, exec.Having, subMerge, other, resp.key)
 					}
 				}
 			}

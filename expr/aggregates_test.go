@@ -3,7 +3,7 @@ package expr
 import (
 	"testing"
 
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -20,7 +20,7 @@ func TestAVG(t *testing.T) {
 }
 
 func TestSUMConditional(t *testing.T) {
-	ex, err := IF("i", SUM("b"))
+	ex, err := IF(goexpr.Param("i"), SUM("b"))
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -42,23 +42,23 @@ func doTestAggregate(t *testing.T, e Expr, expected float64) {
 	params1 := Map{
 		"a": 4.4,
 	}
-	md1 := govaluate.MapParameters{}
+	md1 := goexpr.MapParams{}
 	params2 := Map{
 		"a": 8.8,
 		"b": 0.8,
 	}
-	md2 := govaluate.MapParameters{
+	md2 := goexpr.MapParams{
 		"i": true,
 	}
 	params3 := Map{
 		"b": 0.1,
 	}
-	md3 := govaluate.MapParameters{}
+	md3 := goexpr.MapParams{}
 	params4 := Map{
 		"b": 0.2,
 		"i": 1,
 	}
-	md4 := govaluate.MapParameters{
+	md4 := goexpr.MapParams{
 		"i": true,
 	}
 

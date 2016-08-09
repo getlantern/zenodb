@@ -3,7 +3,7 @@ package expr
 import (
 	"testing"
 
-	"github.com/Knetic/govaluate"
+	"github.com/getlantern/goexpr"
 )
 
 func TestCombined(t *testing.T) {
@@ -16,17 +16,17 @@ func TestCombined(t *testing.T) {
 		"a": 2,
 		"b": 10,
 	}
-	md1 := govaluate.MapParameters{}
+	md1 := goexpr.MapParams{}
 	params2 := Map{
 		"a": 4,
 		"b": 20,
 	}
-	md2 := govaluate.MapParameters{}
+	md2 := goexpr.MapParams{}
 	params3 := Map{
 		"a": 0,
 		"b": 3,
 	}
-	md3 := govaluate.MapParameters{}
+	md3 := goexpr.MapParams{}
 
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params1, md1)

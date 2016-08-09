@@ -22,17 +22,3 @@ func (bmp bytemapParams) Get(field string) (float64, bool) {
 func (bmp bytemapParams) String() string {
 	return fmt.Sprint(bytemap.ByteMap(bmp).AsMap())
 }
-
-type bytemapGovaluateParams bytemap.ByteMap
-
-func (bmp bytemapGovaluateParams) Get(field string) (interface{}, error) {
-	result := bytemap.ByteMap(bmp).Get(field)
-	if result == nil {
-		return "", nil
-	}
-	return result, nil
-}
-
-func (bmp bytemapGovaluateParams) String() string {
-	return fmt.Sprint(bytemap.ByteMap(bmp).AsMap())
-}

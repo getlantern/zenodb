@@ -11,15 +11,19 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * SQL-based query language including GROUP BY and HAVING support
  * Auto-correlation
  * Reasonably efficient storage model
+ * (Mostly) parallel query processing
  * Seems pretty fast
  * Some unit tests
 
 ## Still Missing
 
  * Write Ahead Log
- * More unit tests
+ * Populate views with historical data upon creation
+ * More unit tests and general code cleanup
  * TLS in RPC
  * TLS in HTTP
+ * Completely parallel query processing
+ * Interuptable queries using Context
  * User-level authentication/authorization
 
 ## Standalone Quick Start
@@ -138,7 +142,4 @@ Sun, 07 Aug 2016 07:50:00 CDT      /index.html    56.234.163.23         3.0000  
 
 ## Acknowledgements
 
- * [RocksDB](http://rocksdb.org/) - The storage engine
- * [gorocksdb](https://github.com/tecbot/gorocksdb) - Go language bindings for RocksDB
  * [sqlparser](https://github.com/xwb1989/sqlparser) - Go SQL parser
- * [govaluate](https://github.com/Knetic/govaluate) - Go expression evaluation
