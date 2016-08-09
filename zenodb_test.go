@@ -108,6 +108,15 @@ view_a:
 		}
 	}
 
+	tab := db.getTable("test_a")
+	// This shuffles around fields to make sure that we're reading them correctly
+	// from the file stores.
+	shuffleFields := func() {
+		time.Sleep(100 * time.Millisecond)
+		tab.Fields[0], tab.Fields[1], tab.Fields[2] = tab.Fields[1], tab.Fields[2], tab.Fields[0]
+		time.Sleep(100 * time.Millisecond)
+	}
+
 	db.Insert("inbound", &Point{
 		Ts: now,
 		Dims: map[string]interface{}{
@@ -120,6 +129,7 @@ view_a:
 			"ii": 2,
 		},
 	})
+	shuffleFields()
 
 	// This should get excluded by the filter
 	db.Insert("inbound", &Point{
@@ -134,6 +144,7 @@ view_a:
 			"ii": 2,
 		},
 	})
+	shuffleFields()
 
 	db.Insert("inbound", &Point{
 		Ts: now,
@@ -147,9 +158,9 @@ view_a:
 			"ii": 20,
 		},
 	})
+	shuffleFields()
 
 	// Change the schema a bit
-	tab := db.getTable("test_a")
 	newFields := make([]sql.Field, 0, len(tab.Fields)+1)
 	newFields = append(newFields, sql.Field{AVG("h"), "newfield"})
 	for _, field := range tab.Fields {
@@ -171,6 +182,7 @@ view_a:
 			"ii": 222,
 		},
 	})
+	shuffleFields()
 
 	db.Insert("inbound", &Point{
 		Ts: now,
@@ -184,6 +196,7 @@ view_a:
 			"ii": 42,
 		},
 	})
+	shuffleFields()
 
 	db.Insert("inbound", &Point{
 		Ts: now,
@@ -197,6 +210,7 @@ view_a:
 			"ii": 40000,
 		},
 	})
+	shuffleFields()
 
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[int][]float64, error) {
 		filter, queryErr := goexpr.Binary("!=", goexpr.Param("b"), goexpr.Constant(true))

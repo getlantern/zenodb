@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -399,43 +398,30 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 		fs.t.log.Tracef("Iterating with %d memstores from file %v", len(memStores), fs.filename)
 	}
 
-	buildShouldInclude := func(candidates []sql.Field) (func(int) bool, error) {
-		var includedFields []int
-		for i, field := range candidates {
-			for _, f := range fields {
-				if f == field.Name {
-					includedFields = append(includedFields, i)
-					break
-				}
-			}
-		}
-
-		if len(fields) == 0 {
-			return func(i int) bool {
-				return true
-			}, nil
-		}
-		if len(includedFields) == 0 {
-			return nil, errors.New("Non of specified fields exists on table!")
-		}
-		return func(i int) bool {
-			for _, x := range includedFields {
-				if x == i {
-					return true
-				}
-				if x > i {
-					return false
-				}
-			}
-			return false
-		}, nil
-	}
-
 	truncateBefore := fs.t.truncateBefore()
-	fileFields := fs.t.Fields
-	memStoreFields := fs.t.Fields
-	var shouldIncludeFileField func(int) bool
-	var shouldIncludeMemStoreField func(int) bool
+	var includeField func(int) bool
+	if len(fields) == 0 {
+		includeField = func(i int) bool {
+			return true
+		}
+	} else {
+		includedFields := make([]bool, 0, len(fs.t.Fields))
+		for _, field := range fs.t.Fields {
+			includeThisField := len(fields) == 0
+			if !includeThisField {
+				for _, fieldName := range fields {
+					if fieldName == field.Name {
+						includeThisField = true
+						break
+					}
+				}
+			}
+			includedFields = append(includedFields, includeThisField)
+		}
+		includeField = func(i int) bool {
+			return includedFields[i]
+		}
+	}
 
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if !os.IsNotExist(err) {
@@ -454,6 +440,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 				panic(fmt.Errorf("Unable to determine file version for file %v: %v", fs.filename, versionErr))
 			}
 		}
+
+		fileFields := fs.t.Fields
 
 		if fileVersion >= FileVersion_2 {
 			// File contains header with field info, use it
@@ -484,18 +472,23 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			}
 		}
 
-		shouldIncludeMemStoreField, err = buildShouldInclude(memStoreFields)
-		if err != nil {
-			return err
+		reverseFileFieldIndexes := make([]int, 0, len(fields))
+		for _, candidate := range fileFields {
+			idx := -1
+			for i, field := range fs.t.Fields {
+				if includeField(i) && field.String() == candidate.String() {
+					idx = i
+				}
+			}
+			reverseFileFieldIndexes = append(reverseFileFieldIndexes, idx)
 		}
-		shouldIncludeFileField, err = buildShouldInclude(fileFields)
-		if err != nil {
-			return err
-		}
+
+		log.Debugf("fields: %v", fields)
+		log.Debugf("includeField: %v", includeField)
+		log.Debugf("reverseFileFieldIndexes: %v", reverseFileFieldIndexes)
 
 		// Read from file
 		for {
-			// rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
 			rowLength := uint64(0)
 			err := binary.Read(r, binaryEncoding, &rowLength)
 			if err == io.EOF {
@@ -525,12 +518,13 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			}
 
 			includesAtLeastOneColumn := false
-			columns := make([]sequence, numColumns)
+			columns := make([]sequence, len(fs.t.Fields))
 			for i, colLength := range colLengths {
 				var seq sequence
 				seq, row = readSequence(row, colLength)
-				if shouldIncludeFileField(i) {
-					columns[i] = seq
+				idx := reverseFileFieldIndexes[i]
+				if idx > -1 {
+					columns[idx] = seq
 					if seq != nil {
 						includesAtLeastOneColumn = true
 					}
@@ -542,28 +536,33 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 
 			for _, ms := range memStores {
 				columns2 := ms.remove(ctx, key)
-				for i := 0; i < len(columns) || i < len(columns2); i++ {
-					if shouldIncludeMemStoreField(i) {
-						if i >= len(columns2) {
-							// nothing to merge
-							continue
-						}
-						if i >= len(columns) {
-							// nothing to merge, just add new column
-							seq2 := columns2[i]
-							columns[i] = seq2
-							if seq2 != nil {
-								includesAtLeastOneColumn = true
-							}
-							continue
-						}
-						// merge
-						columns[i] = columns[i].merge(columns2[i], memStoreFields[i].Expr, fs.t.Resolution, truncateBefore)
+
+				// Merge memStore columns into fileStore columns
+				for i, field := range fs.t.Fields {
+					if !includeField(i) {
+						continue
 					}
+					if i >= len(columns2) {
+						continue
+					}
+					column2 := columns2[i]
+					if column2 == nil {
+						continue
+					}
+					includesAtLeastOneColumn = true
+					column := columns[i]
+					if column == nil {
+						// Nothing to merge, just use column2
+						columns[i] = column2
+						continue
+					}
+					// merge
+					columns[i] = column.merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
 				}
 			}
 
 			if includesAtLeastOneColumn {
+				log.Debug("Included at least one column")
 				onRow(key, columns)
 			}
 		}
@@ -571,23 +570,35 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 
 	// Read remaining stuff from mem stores
 	for s, ms := range memStores {
-		ms.walk(ctx, func(key []byte, columns []sequence) bool {
+		ms.walk(ctx, func(key []byte, columns1 []sequence) bool {
+			columns := make([]sequence, len(fs.t.Fields))
+			for i, column := range columns1 {
+				if includeField(i) {
+					columns[i] = column
+				}
+			}
 			for j := s + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
 				columns2 := ms2.remove(ctx, key)
-				for i := 0; i < len(columns) || i < len(columns2); i++ {
-					if shouldIncludeMemStoreField(i) {
-						if i >= len(columns2) {
-							// nothing to merge
-							continue
-						}
-						if i >= len(columns) {
-							// nothing to merge, just add new column
-							columns = append(columns, columns2[i])
-							continue
-						}
-						columns[i] = columns[i].merge(columns2[i], memStoreFields[i].Expr, fs.t.Resolution, truncateBefore)
+				for i, field := range fs.t.Fields {
+					if !includeField(i) {
+						continue
 					}
+					if i >= len(columns2) {
+						continue
+					}
+					column2 := columns2[i]
+					if column2 == nil {
+						continue
+					}
+					column := columns[i]
+					if column == nil {
+						// Nothing to merge, just use column2
+						columns[i] = column2
+						continue
+					}
+					// merge
+					columns[i] = column.merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
 				}
 			}
 			onRow(bytemap.ByteMap(key), columns)
