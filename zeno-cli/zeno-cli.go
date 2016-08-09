@@ -20,7 +20,8 @@ import (
 )
 
 const (
-	basePrompt = "zeno-cli >"
+	basePrompt  = "zeno-cli >"
+	emptyPrompt = "            "
 )
 
 var (
@@ -83,7 +84,7 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 	}
 	cmds = append(cmds, line)
 	if !strings.HasSuffix(line, ";") {
-		rl.SetPrompt(basePrompt + ">> ")
+		rl.SetPrompt(emptyPrompt)
 		return cmds
 	}
 	cmd := strings.Join(cmds, "\n")
