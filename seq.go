@@ -282,7 +282,7 @@ func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration,
 }
 
 func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncateBefore time.Time) sequence {
-	if seq == nil {
+	if len(seq) == 0 {
 		return nil
 	}
 	maxPeriods := int(seq.start().Sub(truncateBefore) / resolution)
