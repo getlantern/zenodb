@@ -20,7 +20,7 @@ func newSequence(periodWidth int, numPeriods int) sequence {
 }
 
 func (seq sequence) start() time.Time {
-	if seq == nil {
+	if len(seq) == 0 {
 		return zeroTime
 	}
 	return timeFromBytes(seq)
@@ -31,7 +31,7 @@ func (seq sequence) setStart(t time.Time) {
 }
 
 func (seq sequence) numPeriods(periodWidth int) int {
-	if seq == nil {
+	if len(seq) == 0 {
 		return 0
 	}
 	return seq.dataLength() / periodWidth
@@ -43,7 +43,7 @@ func (seq sequence) dataLength() int {
 }
 
 func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Duration) (float64, bool) {
-	if seq == nil {
+	if len(seq) == 0 {
 		return 0, false
 	}
 	start := seq.start()
@@ -55,7 +55,7 @@ func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Durati
 }
 
 func (seq sequence) ValueAt(period int, e expr.Expr) (float64, bool) {
-	if seq == nil {
+	if len(seq) == 0 {
 		return 0, false
 	}
 	if period < 0 {
@@ -65,7 +65,7 @@ func (seq sequence) ValueAt(period int, e expr.Expr) (float64, bool) {
 }
 
 func (seq sequence) dataAt(period int, e expr.Expr) ([]byte, bool) {
-	if seq == nil {
+	if len(seq) == 0 {
 		return nil, false
 	}
 	if period < 0 {
@@ -75,7 +75,7 @@ func (seq sequence) dataAt(period int, e expr.Expr) ([]byte, bool) {
 }
 
 func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
-	if seq == nil {
+	if len(seq) == 0 {
 		return 0, false
 	}
 	offset = offset + width64bits
@@ -87,7 +87,7 @@ func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
 }
 
 func (seq sequence) dataAtOffset(offset int, e expr.Expr) ([]byte, bool) {
-	if seq == nil {
+	if len(seq) == 0 {
 		return nil, false
 	}
 	offset = offset + width64bits
@@ -199,10 +199,10 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexp
 }
 
 func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
-	if seq == nil {
+	if len(seq) == 0 {
 		return other
 	}
-	if other == nil {
+	if len(other) == 0 {
 		return seq
 	}
 
@@ -298,7 +298,7 @@ func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncate
 }
 
 func (seq sequence) String(e expr.Expr) string {
-	if seq == nil {
+	if len(seq) == 0 {
 		return ""
 	}
 
