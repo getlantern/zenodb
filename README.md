@@ -23,6 +23,7 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * More validations/error checking
  * TLS in RPC
  * TLS in HTTP
+ * Stored statistics (database-level, table-level, size, throughput, dimensions, etc.)
  * Optimized queries using expression references (avoid recomputing same expression when referenced multiple times in same row)
  * Completely parallel query processing
  * Interuptable queries using Context
