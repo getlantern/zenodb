@@ -118,6 +118,8 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, cs
 }
 
 func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nextRow func() (*zenodb.Row, error)) error {
+	printSummaryInfo(os.Stderr, result)
+
 	// Read all rows into list
 	var rows []*zenodb.Row
 	for {
@@ -131,23 +133,6 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		}
 		rows = append(rows, row)
 	}
-
-	// Print summary info
-	fmt.Fprintln(stdout, "-------------------------------------------------")
-	fmt.Fprintf(stdout, "# As Of:      %v\n", result.AsOf.In(time.UTC).Format(time.RFC1123))
-	fmt.Fprintf(stdout, "# Until:      %v\n", result.Until.In(time.UTC).Format(time.RFC1123))
-	fmt.Fprintf(stdout, "# Resolution: %v\n", result.Resolution)
-	fmt.Fprintf(stdout, "# Group By:   %v\n\n", strings.Join(result.GroupBy, " "))
-
-	fmt.Fprintf(stdout, "# Query Runtime:  %v\n\n", result.Stats.Runtime)
-
-	fmt.Fprintln(stdout, "# Key Statistics")
-	fmt.Fprintf(stdout, "#   Scanned:       %v\n", humanize.Comma(result.Stats.Scanned))
-	fmt.Fprintf(stdout, "#   Filter Pass:   %v\n", humanize.Comma(result.Stats.FilterPass))
-	fmt.Fprintf(stdout, "#   Read Value:    %v\n", humanize.Comma(result.Stats.ReadValue))
-	fmt.Fprintf(stdout, "#   Valid:         %v\n", humanize.Comma(result.Stats.DataValid))
-	fmt.Fprintf(stdout, "#   In Time Range: %v\n", humanize.Comma(result.Stats.InTimeRange))
-	fmt.Fprintln(stdout, "-------------------------------------------------\n")
 
 	// Calculate widths for dimensions and fields
 	dimWidths := make([]int, len(result.GroupBy))
@@ -220,6 +205,8 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 }
 
 func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zenodb.Row, error)) error {
+	printSummaryInfo(os.Stderr, result)
+
 	w := csv.NewWriter(stdout)
 	defer w.Flush()
 
@@ -260,4 +247,22 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 	}
 
 	return nil
+}
+
+func printSummaryInfo(stderr io.Writer, result *zenodb.QueryResult) {
+	fmt.Fprintln(stderr, "-------------------------------------------------")
+	fmt.Fprintf(stderr, "# As Of:      %v\n", result.AsOf.In(time.UTC).Format(time.RFC1123))
+	fmt.Fprintf(stderr, "# Until:      %v\n", result.Until.In(time.UTC).Format(time.RFC1123))
+	fmt.Fprintf(stderr, "# Resolution: %v\n", result.Resolution)
+	fmt.Fprintf(stderr, "# Group By:   %v\n\n", strings.Join(result.GroupBy, " "))
+
+	fmt.Fprintf(stderr, "# Query Runtime:  %v\n\n", result.Stats.Runtime)
+
+	fmt.Fprintln(stderr, "# Key Statistics")
+	fmt.Fprintf(stderr, "#   Scanned:       %v\n", humanize.Comma(result.Stats.Scanned))
+	fmt.Fprintf(stderr, "#   Filter Pass:   %v\n", humanize.Comma(result.Stats.FilterPass))
+	fmt.Fprintf(stderr, "#   Read Value:    %v\n", humanize.Comma(result.Stats.ReadValue))
+	fmt.Fprintf(stderr, "#   Valid:         %v\n", humanize.Comma(result.Stats.DataValid))
+	fmt.Fprintf(stderr, "#   In Time Range: %v\n", humanize.Comma(result.Stats.InTimeRange))
+	fmt.Fprintln(stderr, "-------------------------------------------------\n")
 }

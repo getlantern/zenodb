@@ -20,6 +20,7 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Write Ahead Log
  * More unit tests and general code cleanup
  * Populate views with historical data upon creation
+ * Limit query memory consumption to avoid OOM killer
  * More validations/error checking
  * TLS in RPC
  * TLS in HTTP
