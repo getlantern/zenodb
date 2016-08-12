@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/getlantern/yaml"
 	"github.com/getlantern/zenodb/sql"
 )
@@ -74,6 +75,7 @@ func (db *DB) ApplySchema(schema Schema) error {
 				create = db.CreateView
 			}
 			log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
+			log.Debugf("MaxMemStoreBytes: %v    MaxFlushLatency: %v    MinFlushLatency: %v", humanize.Bytes(uint64(opts.MaxMemStoreBytes)), opts.MaxFlushLatency, opts.MinFlushLatency)
 			err := create(opts)
 			if err != nil {
 				return err

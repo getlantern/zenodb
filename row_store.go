@@ -103,15 +103,18 @@ func (rs *rowStore) processInserts() {
 
 	flushInterval := rs.opts.maxFlushLatency
 	flushTimer := time.NewTimer(flushInterval)
+	rs.t.log.Debugf("Will flush after %v", flushInterval)
 
 	flushIdx := 0
 	flush := func() {
-		// Temporarily disable flush timer while we're flushing
-		flushTimer.Reset(100000 * time.Hour)
 		if currentMemStore.length() == 0 {
-			// nothing to flush
+			rs.t.log.Debug("Nothing to flush")
+			// Immediately reset flushTimer
+			flushTimer.Reset(flushInterval)
 			return
 		}
+		// Temporarily disable flush timer while we're flushing
+		flushTimer.Reset(100000 * time.Hour)
 		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.bytes())))
 		shouldSort := flushIdx%10 == 0
 		fr := &flushRequest{memStoreIdx, currentMemStore, shouldSort}
@@ -137,13 +140,13 @@ func (rs *rowStore) processInserts() {
 		case <-flushTimer.C:
 			flush()
 		case flushDuration := <-rs.flushFinished:
-			flushWait := flushDuration * 10
-			if flushWait > rs.opts.maxFlushLatency {
-				flushWait = rs.opts.maxFlushLatency
-			} else if flushWait < rs.opts.minFlushLatency {
-				flushWait = rs.opts.minFlushLatency
+			flushInterval = flushDuration * 10
+			if flushInterval > rs.opts.maxFlushLatency {
+				flushInterval = rs.opts.maxFlushLatency
+			} else if flushInterval < rs.opts.minFlushLatency {
+				flushInterval = rs.opts.minFlushLatency
 			}
-			flushTimer.Reset(flushWait)
+			flushTimer.Reset(flushInterval)
 		}
 	}
 }

@@ -18,8 +18,9 @@ client and server metrics at [Lantern](https://www.getlantern.org).
 ## Future Stuff
 
  * Write Ahead Log
- * Populate views with historical data upon creation
  * More unit tests and general code cleanup
+ * Populate views with historical data upon creation
+ * More validations/error checking
  * TLS in RPC
  * TLS in HTTP
  * Optimized queries using expression references (avoid recomputing same expression when referenced multiple times in same row)
