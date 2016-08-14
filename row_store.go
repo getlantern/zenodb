@@ -124,10 +124,8 @@ func (rs *rowStore) processInserts() {
 		rs.mx.Lock()
 		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore, shouldSort}
 		rs.mx.Unlock()
-		log.Debugf("Posting flush request for %d", flushIdx)
 		select {
 		case rs.flushes <- fr:
-			log.Debugf("Done posting flush request for %d", flushIdx)
 			rs.mx.Lock()
 			currentMemStore = newByteTree()
 			rs.currentMemStoreIdx++
@@ -146,14 +144,12 @@ func (rs *rowStore) processInserts() {
 			rs.mx.Lock()
 			currentMemStore.update(rs.t, truncateBefore, insert.key, insert.vals)
 			rs.mx.Unlock()
-			log.Debugf("Processed insert, memstore size is: %d", currentMemStore.bytes())
 			if currentMemStore.bytes() >= rs.opts.maxMemStoreBytes {
 				flush()
 			}
 		case <-flushTimer.C:
 			flush()
 		case flushDuration := <-rs.flushFinished:
-			log.Debug("Flush finished")
 			flushInterval = flushDuration * 10
 			if flushInterval > rs.opts.maxFlushLatency {
 				flushInterval = rs.opts.maxFlushLatency
@@ -309,9 +305,6 @@ func (rs *rowStore) processFlushes() {
 			if req.sort {
 				// flush buffer
 				_b := buf.Bytes()
-				if rowLength != len(_b) {
-					rs.t.log.Debugf("%d <> %d", rowLength, len(_b))
-				}
 				_, writeErr := cout.Write(_b)
 				if writeErr != nil {
 					panic(writeErr)
