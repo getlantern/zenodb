@@ -236,7 +236,6 @@ ORDER BY error_rate DESC
 
 ```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY * ORDER BY error_rate DESC;
-zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY * ORDER BY error_rate DESC;
 # time                             path           server           status         errors     requests    error_rate    load_avg
 Sun, 14 Aug 2016 16:35:00 UTC      /login         56.234.163.23    500           24.0000      24.0000        1.0000      0.0000
 Sun, 14 Aug 2016 16:35:00 UTC      /login         56.234.163.24    500           56.0000      56.0000        1.0000      0.0000
