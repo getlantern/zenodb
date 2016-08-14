@@ -96,6 +96,15 @@ Content-Type: text/plain; charset=utf-8
 
 Terminal 3
 
+```sql
+SELECT
+  _points,
+  requests
+FROM combined
+GROUP BY *
+ORDER BY requests DESC
+```
+
 ```bash
 > # Query the data
 > zeno-cli
@@ -148,6 +157,17 @@ on the existing timestamps.
 Now let's do some correlation.  Let's say that we want to get the error rate,
 defined as the number of non-200 statuses versus total requests.
 
+
+```sql
+SELECT
+  IF(status <> 200, requests) AS errors,
+  requests,
+  errors / requests AS error_Rate
+FROM combined
+GROUP BY *
+ORDER BY error_rate DESC
+```
+
 ```bash
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY * ORDER BY error_rate DESC;
 # time                             path           server           status         errors     requests    error_rate
@@ -157,13 +177,22 @@ Sun, 14 Aug 2016 01:55:00 UTC      /login         56.234.163.23    200          
 Sun, 14 Aug 2016 01:55:00 UTC      /index.html    56.234.163.23    200            0.0000     112.0000        0.0000
 Sun, 14 Aug 2016 01:55:00 UTC      /login         56.234.163.24    200            0.0000     822.0000        0.0000
 Sun, 14 Aug 2016 01:55:00 UTC      /index.html    56.234.163.24    200            0.0000    1046.0000        0.0000
-
 ```
 
 Okay, this distinguishes between errors and overall requests, but errors and
 other requests aren't being correlated yet. That's because we're still
 implicitly grouping on status, so error rows are separate from success rows.
 Instead, let's group only by server and path.
+
+```sql
+SELECT
+  IF(status <> 200, requests) AS errors,
+  requests,
+  errors / requests AS error_Rate
+FROM combined
+GROUP BY server, path
+ORDER BY error_rate DESC
+```
 
 ```bash
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server, path ORDER BY error_rate DESC;
@@ -176,6 +205,16 @@ Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.23    /index.html         0.0000  
 
 That looks better!  We could also look at rates just by server:
 
+```sql
+SELECT
+  IF(status <> 200, requests) AS errors,
+  requests,
+  errors / requests AS error_Rate
+FROM combined
+GROUP BY server
+ORDER BY error_rate DESC
+```
+
 ```bash
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server ORDER BY error_rate DESC;
 # time                             server                errors     requests    error_rate
@@ -186,6 +225,17 @@ Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.24        56.0000    1924.0000    
 Now, if we had a ton of servers, we would really only be interested in the ones
 with the top error rates.  We could handle that either with a limit clause:
 
+```sql
+SELECT
+  IF(status <> 200, requests) AS errors,
+  requests,
+  errors / requests AS error_Rate
+FROM combined
+GROUP BY server
+ORDER BY error_rate DESC
+LIMIT 1
+```
+
 ```bash
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server ORDER BY error_rate DESC LIMIT 1;
 # time                             server                errors    requests    error_rate
@@ -193,6 +243,17 @@ Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.23        24.0000    204.0000     
 ```
 
 Or you can also use the HAVING clause to place limits based on the actual data:
+
+```sql
+SELECT
+  IF(status <> 200, requests) AS errors,
+  requests,
+  errors / requests AS error_Rate
+FROM combined
+GROUP BY server
+HAVING error_rate > 0.1
+ORDER BY error_rate DESC
+```
 
 ```bash
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server HAVING error_rate > 0.1 ORDER BY error_rate DESC;
