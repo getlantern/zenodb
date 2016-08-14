@@ -30,6 +30,7 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Interuptable queries using Context
  * User-level authentication/authorization
  * Crosstab queries
+ * Read-only query server replication using rsync?
 
 ## Standalone Quick Start
 
@@ -48,9 +49,7 @@ combined:
   maxmemstorebytes: 1
   retentionperiod: 1h
   sql: >
-    SELECT
-      success_count,
-      error_count
+    SELECT requests
     FROM inbound
     GROUP BY *, period(5m)
 ```
@@ -80,7 +79,12 @@ Terminal 2
 
 ```bash
 # Submit some data via the REST API. Omit the ts parameter to use current time.
-> curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html"}, "vals": {"error_count": 1, "success_count": 3}}' http://localhost:17713/insert/inbound
+> curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html", "status": 200}, "vals": {"requests": 56}}
+{"dims": {"server": "56.234.163.23", "path": "/login", "status": 200}, "vals": {"requests": 34}}
+{"dims": {"server": "56.234.163.23", "path": "/login", "status": 500}, "vals": {"requests": 12}}
+{"dims": {"server": "56.234.163.24", "path": "/index.html", "status": 200}, "vals": {"requests": 523}}
+{"dims": {"server": "56.234.163.24", "path": "/login", "status": 200}, "vals": {"requests": 411}}
+{"dims": {"server": "56.234.163.24", "path": "/login", "status": 500}, "vals": {"requests": 28}}' http://localhost:17713/insert/inbound
 HTTP/1.1 201 Created
 Date: Sun, 07 Aug 2016 12:47:21 GMT
 Content-Length: 0

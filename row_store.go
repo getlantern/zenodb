@@ -43,14 +43,15 @@ type flushRequest struct {
 }
 
 type rowStore struct {
-	t             *table
-	opts          *rowStoreOptions
-	memStores     map[int]*tree
-	fileStore     *fileStore
-	inserts       chan *insert
-	flushes       chan *flushRequest
-	flushFinished chan time.Duration
-	mx            sync.RWMutex
+	t                  *table
+	opts               *rowStoreOptions
+	memStores          map[int]*tree
+	currentMemStoreIdx int
+	fileStore          *fileStore
+	inserts            chan *insert
+	flushes            chan *flushRequest
+	flushFinished      chan time.Duration
+	mx                 sync.RWMutex
 }
 
 func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
@@ -72,12 +73,13 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
 	}
 
 	rs := &rowStore{
-		opts:          opts,
-		t:             t,
-		memStores:     make(map[int]*tree, 2),
-		inserts:       make(chan *insert),
-		flushes:       make(chan *flushRequest, 1),
-		flushFinished: make(chan time.Duration, 1),
+		opts:               opts,
+		t:                  t,
+		memStores:          make(map[int]*tree, 2),
+		currentMemStoreIdx: 0,
+		inserts:            make(chan *insert),
+		flushes:            make(chan *flushRequest, 1),
+		flushFinished:      make(chan time.Duration, 1),
 		fileStore: &fileStore{
 			t:        t,
 			opts:     opts,
@@ -97,9 +99,10 @@ func (rs *rowStore) insert(insert *insert) {
 }
 
 func (rs *rowStore) processInserts() {
-	memStoreIdx := 0
 	currentMemStore := newByteTree()
-	rs.memStores[memStoreIdx] = currentMemStore
+	rs.mx.Lock()
+	rs.memStores[rs.currentMemStoreIdx] = currentMemStore
+	rs.mx.Unlock()
 
 	flushInterval := rs.opts.maxFlushLatency
 	flushTimer := time.NewTimer(flushInterval)
@@ -117,12 +120,13 @@ func (rs *rowStore) processInserts() {
 		flushTimer.Reset(100000 * time.Hour)
 		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.bytes())))
 		shouldSort := flushIdx%10 == 0
-		fr := &flushRequest{memStoreIdx, currentMemStore, shouldSort}
-		rs.mx.Lock()
-		flushIdx++
+		previousMemStore := currentMemStore
 		currentMemStore = newByteTree()
-		memStoreIdx++
-		rs.memStores[memStoreIdx] = currentMemStore
+		flushIdx++
+		rs.mx.Lock()
+		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore, shouldSort}
+		rs.currentMemStoreIdx++
+		rs.memStores[rs.currentMemStoreIdx] = currentMemStore
 		rs.mx.Unlock()
 		rs.flushes <- fr
 	}
@@ -154,17 +158,16 @@ func (rs *rowStore) processInserts() {
 func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
-	memStoresToInclude := len(rs.memStores)
-	if !rs.t.db.opts.IncludeMemStoreInQuery {
-		// Omit the current memstore that's still getting writes
-		memStoresToInclude--
-	}
-	memStoresCopy := make([]*tree, 0, memStoresToInclude)
-	for i := 0; i < cap(memStoresCopy); i++ {
-		onCurrentMemStore := i == len(rs.memStores)-1
-		ms := rs.memStores[i]
+	memStoresCopy := make([]*tree, 0, len(rs.memStores))
+	for i, ms := range rs.memStores {
+		onCurrentMemStore := i == rs.currentMemStoreIdx
 		if onCurrentMemStore {
-			// Copy current memstore since it's still getting writes
+			// Current memstore is still getting writes.  Either omit, or copy.
+			if !rs.t.db.opts.IncludeMemStoreInQuery {
+				// omit
+				continue
+			}
+			// copy
 			ms = ms.copy()
 		}
 		memStoresCopy = append(memStoresCopy, ms)
@@ -335,10 +338,12 @@ func (rs *rowStore) processFlushes() {
 			panic(err)
 		}
 
+		log.Debugf("Memstores before: %v", rs.memStores)
 		rs.mx.Lock()
 		delete(rs.memStores, req.idx)
 		rs.fileStore = &fileStore{rs.t, rs.opts, newFileStoreName}
 		rs.mx.Unlock()
+		log.Debugf("Memstores after: %v", rs.memStores)
 
 		flushDuration := time.Now().Sub(start)
 		rs.flushFinished <- flushDuration
