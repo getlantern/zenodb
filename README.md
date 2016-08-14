@@ -180,7 +180,7 @@ Then run the same query again.
 
 *zeno-cli*
 
-```bash
+```sql
 zeno-cli > SELECT _points, requests, load_avg FROM combined GROUP BY * ORDER BY requests DESC;
 # time                             path           server           status        _points     requests    load_avg
 Sun, 14 Aug 2016 16:30:00 UTC      /index.html    56.234.163.24    200            2.0000    1046.0000      0.0000
