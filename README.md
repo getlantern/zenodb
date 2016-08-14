@@ -79,8 +79,8 @@ groups data into 5 minute buckets. The `requests` column is grouped using the
 `SUM` aggregation operator, which is the default if no operator is specified.
 `load_avg` on the other hand is aggregated as an average.
 
-**Key Concept** Borda does not store individual points, everything is stored in
-aggregated form.
+**Core Concept** - Zeno does not store individual points, everything is stored
+in aggregated form.
 
 Open three terminals
 
@@ -176,7 +176,7 @@ Now run the same insert again.
 
 Then run the same query again.
 
-**Pro tip** zeno-cli has a history, so try the up-arrow or `Ctrl+R`.
+**Pro tip** - zeno-cli has a history, so try the up-arrow or `Ctrl+R`.
 
 *zeno-cli*
 
