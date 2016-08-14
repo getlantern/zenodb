@@ -26,6 +26,10 @@ func TestDIVZero(t *testing.T) {
 	doTestCalc(t, DIV("a", "c"), math.MaxFloat64)
 }
 
+func TestDIVZeroZero(t *testing.T) {
+	doTestCalc(t, DIV("c", "c"), 0)
+}
+
 func TestValidateBinary(t *testing.T) {
 	bad := MULT(FIELD("a"), FIELD("b"))
 	assert.Error(t, bad.Validate())
