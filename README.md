@@ -149,7 +149,7 @@ ORDER BY requests DESC
 
 *zeno-cli*
 
-```bash
+```sql
 > # Query the data
 > zeno-cli
 Will save history to /Users/ox.to.a.cart/Library/Application Support/zeno-cli/history
@@ -204,7 +204,7 @@ we try to query for `SUM(load_avg)`?
 
 *zeno-cli*
 
-```bash
+```sql
 zeno-cli > SELECT _points, requests, SUM(load_avg) AS load_avg FROM combined GROUP BY * ORDER BY requests DESC;
 rpc error: code = 2 desc = No column found for load_avg (SUM(load_avg))
 ```
@@ -234,7 +234,7 @@ ORDER BY error_rate DESC
 
 *zeno-cli*
 
-```bash
+```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY * ORDER BY error_rate DESC;
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY * ORDER BY error_rate DESC;
 # time                             path           server           status         errors     requests    error_rate    load_avg
@@ -272,7 +272,7 @@ ORDER BY error_rate DESC
 
 *zeno-cli*
 
-```bash
+```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY server ORDER BY error_rate DESC;
 # time                             server                errors     requests    error_rate    load_avg
 Sun, 14 Aug 2016 16:35:00 UTC      56.234.163.23        24.0000     204.0000        0.1176      1.7000
@@ -304,7 +304,7 @@ LIMIT 1
 
 *zeno-cli*
 
-```bash
+```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY server ORDER BY error_rate DESC LIMIT 1;
 # time                             server                errors    requests    error_rate    load_avg
 Sun, 14 Aug 2016 16:35:00 UTC      56.234.163.23        24.0000    204.0000        0.1176      1.7000
@@ -328,7 +328,7 @@ ORDER BY error_rate DESC
 
 *zeno-cli*
 
-```bash
+```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY server HAVING error_rate > 0.1 ORDER BY error_rate DESC;
 # time                             server                errors    requests    error_rate    load_avg
 Sun, 14 Aug 2016 16:35:00 UTC      56.234.163.23        24.0000    204.0000        0.1176      1.7000
