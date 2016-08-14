@@ -111,7 +111,7 @@ func (rs *rowStore) processInserts() {
 	flushIdx := 0
 	flush := func() {
 		if currentMemStore.length() == 0 {
-			rs.t.log.Debug("Nothing to flush")
+			rs.t.log.Trace("Nothing to flush")
 			// Immediately reset flushTimer
 			flushTimer.Reset(flushInterval)
 			return
@@ -119,16 +119,24 @@ func (rs *rowStore) processInserts() {
 		// Temporarily disable flush timer while we're flushing
 		flushTimer.Reset(100000 * time.Hour)
 		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.bytes())))
-		shouldSort := flushIdx%10 == 0
 		previousMemStore := currentMemStore
-		currentMemStore = newByteTree()
-		flushIdx++
+		shouldSort := flushIdx%10 == 0
 		rs.mx.Lock()
 		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore, shouldSort}
-		rs.currentMemStoreIdx++
-		rs.memStores[rs.currentMemStoreIdx] = currentMemStore
 		rs.mx.Unlock()
-		rs.flushes <- fr
+		log.Debugf("Posting flush request for %d", flushIdx)
+		select {
+		case rs.flushes <- fr:
+			log.Debugf("Done posting flush request for %d", flushIdx)
+			rs.mx.Lock()
+			currentMemStore = newByteTree()
+			rs.currentMemStoreIdx++
+			rs.memStores[rs.currentMemStoreIdx] = currentMemStore
+			flushIdx++
+			rs.mx.Unlock()
+		default:
+			log.Debug("Unable to post flush request, will try again later")
+		}
 	}
 
 	for {
@@ -138,12 +146,14 @@ func (rs *rowStore) processInserts() {
 			rs.mx.Lock()
 			currentMemStore.update(rs.t, truncateBefore, insert.key, insert.vals)
 			rs.mx.Unlock()
+			log.Debugf("Processed insert, memstore size is: %d", currentMemStore.bytes())
 			if currentMemStore.bytes() >= rs.opts.maxMemStoreBytes {
 				flush()
 			}
 		case <-flushTimer.C:
 			flush()
 		case flushDuration := <-rs.flushFinished:
+			log.Debug("Flush finished")
 			flushInterval = flushDuration * 10
 			if flushInterval > rs.opts.maxFlushLatency {
 				flushInterval = rs.opts.maxFlushLatency
@@ -338,12 +348,10 @@ func (rs *rowStore) processFlushes() {
 			panic(err)
 		}
 
-		log.Debugf("Memstores before: %v", rs.memStores)
 		rs.mx.Lock()
 		delete(rs.memStores, req.idx)
 		rs.fileStore = &fileStore{rs.t, rs.opts, newFileStoreName}
 		rs.mx.Unlock()
-		log.Debugf("Memstores after: %v", rs.memStores)
 
 		flushDuration := time.Now().Sub(start)
 		rs.flushFinished <- flushDuration

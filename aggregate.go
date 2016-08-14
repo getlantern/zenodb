@@ -457,7 +457,23 @@ func (exec *queryExecution) sortRows(rows []*Row) []*Row {
 
 	ordered := &orderedRows{exec.OrderBy, rows}
 	sort.Sort(ordered)
-	return ordered.rows
+	rows = ordered.rows
+
+	if exec.Offset > 0 {
+		if exec.Offset > len(rows) {
+			return make([]*Row, 0)
+		}
+		rows = rows[exec.Offset:]
+	}
+
+	if exec.Limit > 0 {
+		if exec.Limit > len(rows) {
+			return make([]*Row, 0)
+		}
+		rows = rows[:exec.Limit]
+	}
+
+	return rows
 }
 
 type orderedRows struct {

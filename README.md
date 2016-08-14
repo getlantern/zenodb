@@ -59,26 +59,29 @@ Open three terminals
 Terminal 1
 
 ```bash
-# Start the database
-zeno-quickstart > zeno
-DEBUG zenodb: schema.go:76 Creating table 'combined' as
+> # Start the database
+> cd ~/zeno-quickstart
+> zeno
+DEBUG zenodb: schema.go:77 Creating table 'combined' as
 SELECT
-  success_count,
-  error_count
+  requests
 FROM inbound GROUP BY *, period(5m)
+
+DEBUG zenodb: schema.go:78 MaxMemStoreBytes: 1 B    MaxFlushLatency: 0    MinFlushLatency: 0
 DEBUG zenodb: table.go:101 MinFlushLatency disabled
 DEBUG zenodb: table.go:105 MaxFlushLatency disabled
-DEBUG zenodb: schema.go:81 Created table combined
-DEBUG zenodb: zenodb.go:40 Dir: zenodb    SchemaFile: schema.yaml
+DEBUG zenodb: schema.go:83 Created table combined
+DEBUG zenodb: zenodb.go:43 Dir: zenodb    SchemaFile: schema.yaml
 Opened database at zenodb
 Listening for gRPC connections at 127.0.0.1:17712
+DEBUG zenodb.combined: row_store.go:109 Will flush after 2562047h47m16.854775807s
 Listening for HTTP connections at 127.0.0.1:17713
 ```
 
 Terminal 2
 
 ```bash
-# Submit some data via the REST API. Omit the ts parameter to use current time.
+> # Submit some data via the REST API. Omit the ts parameter to use current time.
 > curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html", "status": 200}, "vals": {"requests": 56}}
 {"dims": {"server": "56.234.163.23", "path": "/login", "status": 200}, "vals": {"requests": 34}}
 {"dims": {"server": "56.234.163.23", "path": "/login", "status": 500}, "vals": {"requests": 12}}
@@ -86,7 +89,7 @@ Terminal 2
 {"dims": {"server": "56.234.163.24", "path": "/login", "status": 200}, "vals": {"requests": 411}}
 {"dims": {"server": "56.234.163.24", "path": "/login", "status": 500}, "vals": {"requests": 28}}' http://localhost:17713/insert/inbound
 HTTP/1.1 201 Created
-Date: Sun, 07 Aug 2016 12:47:21 GMT
+Date: Sun, 14 Aug 2016 01:47:48 GMT
 Content-Length: 0
 Content-Type: text/plain; charset=utf-8
 ```
@@ -94,59 +97,107 @@ Content-Type: text/plain; charset=utf-8
 Terminal 3
 
 ```bash
-# Query the data
+> # Query the data
 > zeno-cli
 Will save history to /Users/ox.to.a.cart/Library/Application Support/zeno-cli/history
-zeno-cli > SELECT _points, error_count, success_count, error_count / (error_count+success_count) AS error_rate FROM combined;
+zeno-cli > SELECT _points, requests FROM combined GROUP BY * ORDER BY requests DESC;
 -------------------------------------------------
-# As Of:      2016-08-07 06:45:00 -0500 CDT
-# Until:      2016-08-07 07:45:00 -0500 CDT
+# As Of:      Sat, 13 Aug 2016 01:45:00 UTC
+# Until:      Sun, 14 Aug 2016 01:45:00 UTC
 # Resolution: 5m0s
-# Group By:   path server
+# Group By:   path server status
 
-# Query Runtime:  161.367µs
+# Query Runtime:  194.789µs
 
 # Key Statistics
-#   Scanned:       1
+#   Scanned:       6
 #   Filter Pass:   0
-#   Read Value:    3
-#   Valid:         3
-#   In Time Range: 3
+#   Read Value:    12
+#   Valid:         12
+#   In Time Range: 12
 -------------------------------------------------
 
-# time                             path           server               _points    error_count    success_count    error_rate
-Sun, 07 Aug 2016 07:45:00 CDT      /index.html    56.234.163.23         1.0000         1.0000           3.0000        0.2500
+# time                             path           server           status        _points    requests
+Sun, 14 Aug 2016 01:45:00 UTC      /index.html    56.234.163.24    200            1.0000    523.0000
+Sun, 14 Aug 2016 01:45:00 UTC      /login         56.234.163.24    200            1.0000    411.0000
+Sun, 14 Aug 2016 01:45:00 UTC      /index.html    56.234.163.23    200            1.0000     56.0000
+Sun, 14 Aug 2016 01:45:00 UTC      /login         56.234.163.23    200            1.0000     34.0000
+Sun, 14 Aug 2016 01:45:00 UTC      /login         56.234.163.24    500            1.0000     28.0000
+Sun, 14 Aug 2016 01:45:00 UTC      /login         56.234.163.23    500            1.0000     12.0000
 ```
 
 Notice that we can query the built-in field `_points` that gives a count of the
 number of points that were inserted.
 
-Now run the same insert and query again. Pro tip - zeno-cli has a history,
-so try the up-arrow or `Ctrl+R`.
-
-```
-> curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html"}, "vals": {"error_count": 1, "success_count": 3}}' http://localhost:17713/insert/inbound
-```
-
-Notice that the count of points and total counts have gone up, but the rate
-remains the same as expected.
+Now run the same insert again.  Then run the same query again.
+**Pro tip** zeno-cli has a history, so try the up-arrow or `Ctrl+R`.
 
 ```bash
-# time                             path           server               _points    error_count    success_count    error_rate
-Sun, 07 Aug 2016 07:45:00 CDT      /index.html    56.234.163.23         2.0000         2.0000           6.0000        0.2500
+# time                             path           server           status        _points     requests
+Sun, 14 Aug 2016 01:50:00 UTC      /index.html    56.234.163.24    200            2.0000    1046.0000
+Sun, 14 Aug 2016 01:50:00 UTC      /login         56.234.163.24    200            2.0000     822.0000
+Sun, 14 Aug 2016 01:50:00 UTC      /index.html    56.234.163.23    200            2.0000     112.0000
+Sun, 14 Aug 2016 01:50:00 UTC      /login         56.234.163.23    200            2.0000      68.0000
+Sun, 14 Aug 2016 01:50:00 UTC      /login         56.234.163.24    500            2.0000      56.0000
+Sun, 14 Aug 2016 01:50:00 UTC      /login         56.234.163.23    500            2.0000      24.0000
 ```
 
-Try inserting again with a higher error count:
+Notice that the number of rows hasn't changed, Zeno just aggregated the data
+on the existing timestamps.
+
+Now let's do some correlation.  Let's say that we want to get the error rate,
+defined as the number of non-200 statuses versus total requests.
 
 ```bash
-> curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html"}, "vals": {"error_count": 3, "success_count": 3}}' http://localhost:17713/insert/inbound
+zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY * ORDER BY error_rate DESC;
+# time                             path           server           status         errors     requests    error_rate
+Sun, 14 Aug 2016 01:55:00 UTC      /login         56.234.163.23    500           24.0000      24.0000        1.0000
+Sun, 14 Aug 2016 01:55:00 UTC      /login         56.234.163.24    500           56.0000      56.0000        1.0000
+Sun, 14 Aug 2016 01:55:00 UTC      /login         56.234.163.23    200            0.0000      68.0000        0.0000
+Sun, 14 Aug 2016 01:55:00 UTC      /index.html    56.234.163.23    200            0.0000     112.0000        0.0000
+Sun, 14 Aug 2016 01:55:00 UTC      /login         56.234.163.24    200            0.0000     822.0000        0.0000
+Sun, 14 Aug 2016 01:55:00 UTC      /index.html    56.234.163.24    200            0.0000    1046.0000        0.0000
+
 ```
 
-Notice that as we expect, the rate has changed:
+Okay, this distinguishes between errors and overall requests, but errors and
+other requests aren't being correlated yet. That's because we're still
+implicitly grouping on status, so error rows are separate from success rows.
+Instead, let's group only by server and path.
 
+```bash
+zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server, path ORDER BY error_rate DESC;
+# time                             server           path                errors     requests    error_rate
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.23    /login             24.0000      92.0000        0.2609
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.24    /login             56.0000     878.0000        0.0638
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.24    /index.html         0.0000    1046.0000        0.0000
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.23    /index.html         0.0000     112.0000        0.0000
 ```
-# time                             path           server               _points    error_count    success_count             error_rate
-Sun, 07 Aug 2016 07:50:00 CDT      /index.html    56.234.163.23         3.0000         5.0000           9.0000                 0.3571
+
+That looks better!  We could also look at rates just by server:
+
+```bash
+zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server ORDER BY error_rate DESC;
+# time                             server                errors     requests    error_rate
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.23        24.0000     204.0000        0.1176
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.24        56.0000    1924.0000        0.0291
+```
+
+Now, if we had a ton of servers, we would really only be interested in the ones
+with the top error rates.  We could handle that either with a limit clause:
+
+```bash
+zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server ORDER BY error_rate DESC LIMIT 1;
+# time                             server                errors    requests    error_rate
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.23        24.0000    204.0000        0.1176
+```
+
+Or you can also use the HAVING clause to place limits based on the actual data:
+
+```bash
+zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_Rate FROM combined GROUP BY server HAVING error_rate > 0.1 ORDER BY error_rate DESC;
+# time                             server                errors    requests    error_rate
+Sun, 14 Aug 2016 01:55:00 UTC      56.234.163.23        24.0000    204.0000        0.1176
 ```
 
 ## Acknowledgements

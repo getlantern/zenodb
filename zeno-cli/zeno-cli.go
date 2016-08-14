@@ -27,7 +27,8 @@ const (
 var (
 	log = golog.LoggerFor("zeno-cli")
 
-	addr = flag.String("addr", ":17712", "The address to which to connect, defaults to localhost:17712")
+	addr       = flag.String("addr", ":17712", "The address to which to connect, defaults to localhost:17712")
+	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
 )
 
 func main() {
@@ -118,7 +119,7 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, cs
 }
 
 func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nextRow func() (*zenodb.Row, error)) error {
-	printSummaryInfo(os.Stderr, result)
+	printQueryStats(os.Stderr, result)
 
 	// Read all rows into list
 	var rows []*zenodb.Row
@@ -205,7 +206,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 }
 
 func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zenodb.Row, error)) error {
-	printSummaryInfo(os.Stderr, result)
+	printQueryStats(os.Stderr, result)
 
 	w := csv.NewWriter(stdout)
 	defer w.Flush()
@@ -249,7 +250,10 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 	return nil
 }
 
-func printSummaryInfo(stderr io.Writer, result *zenodb.QueryResult) {
+func printQueryStats(stderr io.Writer, result *zenodb.QueryResult) {
+	if !*queryStats {
+		return
+	}
 	fmt.Fprintln(stderr, "-------------------------------------------------")
 	fmt.Fprintf(stderr, "# As Of:      %v\n", result.AsOf.In(time.UTC).Format(time.RFC1123))
 	fmt.Fprintf(stderr, "# Until:      %v\n", result.Until.In(time.UTC).Format(time.RFC1123))
