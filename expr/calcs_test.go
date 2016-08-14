@@ -2,6 +2,7 @@ package expr
 
 import (
 	"github.com/stretchr/testify/assert"
+	"math"
 	"testing"
 )
 
@@ -22,7 +23,7 @@ func TestDIV(t *testing.T) {
 }
 
 func TestDIVZero(t *testing.T) {
-	doTestCalc(t, DIV("a", "c"), 0)
+	doTestCalc(t, DIV("a", "c"), math.MaxFloat64)
 }
 
 func TestValidateBinary(t *testing.T) {
