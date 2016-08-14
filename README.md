@@ -60,7 +60,7 @@ go install github.com/getlantern/zenodb/zeno-cli
 Make a working directory (e.g. '~/zeno-quickstart').  In here, create a
 `schema.yaml` like the below to configure your database:
 
-```
+```sql
 combined:
   maxmemstorebytes: 1
   retentionperiod: 1h
