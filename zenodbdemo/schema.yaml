@@ -4,8 +4,8 @@ test:
   maxflushlatency:  5m
   sql: >
     SELECT
-      SUM(i) AS i,
-      SUM(ii) AS ii,
+      i,
+      ii,
       AVG(ii) / AVG(i) AS iii
     FROM inbound
     GROUP BY period(5m)

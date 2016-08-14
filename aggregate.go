@@ -161,10 +161,15 @@ func (exec *queryExecution) prepare() error {
 	for _, field := range exec.Fields {
 		sms := field.Expr.SubMergers(columns)
 		subMergers = append(subMergers, sms)
+		columnFound := false
 		for j, sm := range sms {
 			if sm != nil {
+				columnFound = true
 				includedColumns[j] = true
 			}
+		}
+		if !columnFound {
+			return fmt.Errorf("No column found for %v", field.String())
 		}
 	}
 
