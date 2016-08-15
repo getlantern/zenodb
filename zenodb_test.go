@@ -313,7 +313,8 @@ SELECT
 	iii / 2 AS ciii,
 	IF(b != true, ii) AS  ii,
 	i,
-	IF(b = true, i) AS i_filtered
+	IF(b = true, i) AS i_filtered,
+	_points
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
@@ -349,13 +350,15 @@ ORDER BY u DESC
 	for _, field := range result.FieldNames {
 		fields = append(fields, field)
 	}
-	assert.Equal(t, []string{"ciii", "ii", "i", "i_filtered"}, fields)
+	assert.Equal(t, []string{"ciii", "ii", "i", "i_filtered", "_points"}, fields)
 
+	assert.EqualValues(t, 3, rows[1].Values[4], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[1].Values[3], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 122, rows[1].Values[2], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 244, rows[1].Values[1], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[0], "Wrong derived value, bucketing may not be working correctly")
 
+	assert.EqualValues(t, 3, rows[1].Values[4], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[0].Values[3], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 31, rows[0].Values[2], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 42, rows[0].Values[1], "Wrong derived value, bucketing may not be working correctly")
@@ -380,7 +383,7 @@ HAVING unknown = 5
 	// Test defaults
 	aq = db.Query(&sql.Query{
 		From:       "test_a",
-		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "ii"}},
+		Fields:     []sql.Field{sql.NewField("ii", SUM("ii"))},
 		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})
@@ -401,12 +404,12 @@ func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Dur
 
 	tab := db.getTable("test_a")
 	for i, field := range tab.Fields {
-		tab.Fields[i] = sql.Field{field.Expr, "_" + field.Name}
+		tab.Fields[i] = sql.NewField("_"+field.Name, field.Expr)
 	}
 
 	aq := db.Query(&sql.Query{
 		From:       "test_a",
-		Fields:     []sql.Field{sql.Field{Expr: SUM("ii"), Name: "ii"}},
+		Fields:     []sql.Field{sql.NewField("ii", SUM("ii"))},
 		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})

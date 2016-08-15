@@ -1,3 +1,7 @@
+// Package expr provides a framework for Expressions that evaluate to floating
+// point values and allow various functions that can aggregate data, perform
+// calculations on that data, evaluate boolean expressions against that data
+// and serialize the data to/from bytes for durable storage in the database.
 package expr
 
 import (
@@ -24,16 +28,19 @@ var (
 	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
 )
 
+// Params is an interface for data structures that can contain named values.
 type Params interface {
-	Get(name string) (float64, bool)
+	// Get returns the named value. Found should be false if nothing was found for
+	// the given name.
+	Get(name string) (val float64, found bool)
 }
 
 // Map is an implementation of the Params interface using a map.
 type Map map[string]float64
 
 // Get implements the method from the Params interface
-func (p Map) Get(name string) (float64, bool) {
-	val, found := p[name]
+func (p Map) Get(name string) (val float64, found bool) {
+	val, found = p[name]
 	return val, found
 }
 
@@ -41,13 +48,18 @@ func (p Map) Get(name string) (float64, bool) {
 // potentially taking into account the supplied metadata.
 type SubMerge func(data []byte, other []byte, metadata goexpr.Params)
 
+// An Expr is expression that stores its value in a byte array and that
+// evaluates to a float64.
 type Expr interface {
+	// Validate makes sure that this expression is valid and returns an error if
+	// it is not.
 	Validate() error
 
-	// Note - encoding to bytes is only valid for aggregate accumulators
+	// EncodedWidth returns the number of bytes needed to represent the internal
+	// state of this Expr.
 	EncodedWidth() int
 
-	// Update updates the value in buf by applying the given params. Metadata
+	// Update updates the value in buf by applying the given Params. Metadata
 	// provides additional metadata that can be used in evaluating how to apply
 	// the update.
 	Update(b []byte, params Params, metadata goexpr.Params) (remain []byte, value float64, updated bool)
@@ -59,7 +71,7 @@ type Expr interface {
 	// SubMergers returns a list of function that merge values of the given
 	// subexpressions into this Expr. The list is the same length as the number of
 	// sub expressions. For any subexpression that is not represented in our
-	// Expression, the corresonding function in the list is nil.
+	// Expression, the corresponding function in the list is nil.
 	SubMergers(subs []Expr) []SubMerge
 
 	// Get gets the value in buf, returning the value, a boolean indicating

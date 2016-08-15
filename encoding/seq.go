@@ -270,7 +270,8 @@ func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexp
 // truncateBefore if that's later.
 //
 // The returned Sequence may reference the same underlying byte array as one or
-// the other Sequence, or it may be a newly allocated byte array.
+// the other Sequence if nothing needed merging, otherwise it will be a newly
+// allocated byte array. Merge will NOT update either of the supplied arrays.
 func (seq Sequence) Merge(other Sequence, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
 	if len(seq) == 0 {
 		return other

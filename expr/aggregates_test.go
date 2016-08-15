@@ -11,6 +11,14 @@ func TestSUM(t *testing.T) {
 	doTestAggregate(t, SUM("a"), 13.2)
 }
 
+func TestMIN(t *testing.T) {
+	doTestAggregate(t, MIN("a"), 4.4)
+}
+
+func TestMAX(t *testing.T) {
+	doTestAggregate(t, MAX("a"), 8.8)
+}
+
 func TestCOUNT(t *testing.T) {
 	doTestAggregate(t, COUNT("b"), 3)
 }

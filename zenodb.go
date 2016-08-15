@@ -15,14 +15,26 @@ var (
 	log = golog.LoggerFor("zenodb")
 )
 
+// DBOpts provides options for configuring the database.
 type DBOpts struct {
-	SchemaFile             string
-	Dir                    string
-	DiscardOnBackPressure  bool
+	// SchemaFile points at a YAML schema file that configures the tables and
+	// views in the database.
+	SchemaFile string
+	// Dir points at the directory that contains the data files.
+	Dir string
+	// DiscardOnBackPressure, when true, tells zenodb to discard new inserts if it
+	// is unable to keep up with the insert rate.
+	DiscardOnBackPressure bool
+	// IncludeMemStoreInQuery, when true, tells zenodb to include the current
+	// memstore when performing queries. This requires the memstore to be copied
+	// which can dramatically impact performance.
 	IncludeMemStoreInQuery bool
-	VirtualTime            bool
+	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
+	// based on the timestamps of Points received via inserts.
+	VirtualTime bool
 }
 
+// DB is a zenodb database.
 type DB struct {
 	opts        *DBOpts
 	clock       vtime.Clock
@@ -31,6 +43,7 @@ type DB struct {
 	tablesMutex sync.RWMutex
 }
 
+// NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
 	db := &DB{opts: opts, clock: vtime.RealClock, tables: make(map[string]*table), streams: make(map[string][]*table)}
@@ -44,6 +57,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	return db, err
 }
 
+// TableStats returns the TableStats for the named table.
 func (db *DB) TableStats(table string) TableStats {
 	t := db.getTable(table)
 	if t == nil {
@@ -54,6 +68,8 @@ func (db *DB) TableStats(table string) TableStats {
 	return t.stats
 }
 
+// AllTableStats returns all TableStats for all tables, keyed to the table
+// names.
 func (db *DB) AllTableStats() map[string]TableStats {
 	m := make(map[string]TableStats)
 	tables := make(map[string]*table, 0)
@@ -70,6 +86,7 @@ func (db *DB) AllTableStats() map[string]TableStats {
 	return m
 }
 
+// PrintTableStats prints the stats for the named table to a string.
 func (db *DB) PrintTableStats(table string) string {
 	stats := db.TableStats(table)
 	now := db.clock.Now()

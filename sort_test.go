@@ -92,12 +92,7 @@ func buildRows() []*Row {
 	vals := []float64{56, 78, 23, 56, 12, 0}
 
 	groupBy := []string{"string", "bool"}
-	fields := []sql.Field{
-		sql.Field{
-			Expr: expr.SUM("val"),
-			Name: "val",
-		},
-	}
+	fields := []sql.Field{sql.NewField("val", expr.SUM("Val"))}
 
 	rows := make([]*Row, 0, len(strs))
 	for i, str := range strs {

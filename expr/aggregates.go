@@ -10,6 +10,50 @@ func SUM(expr interface{}) Expr {
 	}}
 }
 
+// MIN creates an Expr that keeps track of the minimum value of the wrapped
+// expression or field.
+func MIN(expr interface{}) Expr {
+	return &aggregate{"MIN", exprFor(expr), func(wasSet bool, current float64, next float64) float64 {
+		if !wasSet {
+			return next
+		}
+		if next < current {
+			return next
+		}
+		return current
+	}, func(wasSet bool, current float64, next float64) float64 {
+		if !wasSet {
+			return next
+		}
+		if next < current {
+			return next
+		}
+		return current
+	}}
+}
+
+// MAX creates an Expr that keeps track of the maximum value of the wrapped
+// expression or field.
+func MAX(expr interface{}) Expr {
+	return &aggregate{"MIN", exprFor(expr), func(wasSet bool, current float64, next float64) float64 {
+		if !wasSet {
+			return next
+		}
+		if next > current {
+			return next
+		}
+		return current
+	}, func(wasSet bool, current float64, next float64) float64 {
+		if !wasSet {
+			return next
+		}
+		if next > current {
+			return next
+		}
+		return current
+	}}
+}
+
 // COUNT creates an Expr that counts the number of values.
 func COUNT(expr interface{}) Expr {
 	return &aggregate{"COUNT", exprFor(expr), func(wasSet bool, current float64, next float64) float64 {

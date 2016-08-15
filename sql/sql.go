@@ -1,3 +1,4 @@
+// Package sql provides the ability to parse SQL queries.
 package sql
 
 import (
@@ -28,6 +29,8 @@ var (
 
 var aggregateFuncs = map[string]func(param interface{}) expr.Expr{
 	"SUM":   expr.SUM,
+	"MIN":   expr.MIN,
+	"MAX":   expr.MAX,
 	"COUNT": expr.COUNT,
 	"AVG":   expr.AVG,
 }
@@ -67,11 +70,13 @@ func (f Field) String() string {
 	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
 }
 
+// Order represents an element in the ORDER BY clause such as "field DESC".
 type Order struct {
 	Field      string
 	Descending bool
 }
 
+// Query represents the result of parsing a SELECT query.
 type Query struct {
 	Fields      []Field
 	From        string

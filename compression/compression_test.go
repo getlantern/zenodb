@@ -7,11 +7,14 @@ import (
 	"sort"
 
 	"github.com/dustin/go-humanize"
+	"github.com/getlantern/golog"
 	"github.com/golang/snappy"
 	"github.com/jmcvetta/randutil"
 
 	"testing"
 )
+
+var log = golog.LoggerFor("compression_test")
 
 const numPeriods = 365 * 24
 

@@ -15,6 +15,8 @@ import (
 	"github.com/getlantern/zenodb/sql"
 )
 
+// TableStats presents statistics for a given table (currently only since the
+// last time the database process was started).
 type TableStats struct {
 	FilteredPoints int64
 	QueuedPoints   int64
@@ -23,14 +25,27 @@ type TableStats struct {
 	ExpiredValues  int64
 }
 
+// TableOpts configures a table.
 type TableOpts struct {
-	Name             string
-	View             bool
+	// Name is the name of the table.
+	Name string
+	// View indicates if this table is a view on top of an existing table.
+	View bool
+	// MaxMemStoreBytes sets a cap on how large the memstore is allowed to become
+	// before being flushed to disk.
 	MaxMemStoreBytes int
-	MinFlushLatency  time.Duration
-	MaxFlushLatency  time.Duration
-	RetentionPeriod  time.Duration
-	SQL              string
+	// MinFlushLatency sets a lower bound on how frequently the memstore is
+	// flushed to disk.
+	MinFlushLatency time.Duration
+	// MaxFlushLatency sets an upper bound on how long to wait before flushing the
+	// memstore to disk.
+	MaxFlushLatency time.Duration
+	// RetentionPeriod limits how long data is kept in the table (based on the
+	// timestamp of the data itself).
+	RetentionPeriod time.Duration
+	// SQL is the SELECT query that determines the fields, filtering and input
+	// source for this table.
+	SQL string
 }
 
 type table struct {
@@ -45,6 +60,7 @@ type table struct {
 	inserts    chan (*insert)
 }
 
+// CreateTable creates a table based on the given opts.
 func (db *DB) CreateTable(opts *TableOpts) error {
 	q, err := sql.Parse(opts.SQL)
 	if err != nil {
@@ -53,6 +69,7 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 	return db.doCreateTable(opts, q)
 }
 
+// CreateView creates a view based on the given opts.
 func (db *DB) CreateView(opts *TableOpts) error {
 	table, err := sql.TableFor(opts.SQL)
 	if err != nil {
@@ -108,7 +125,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 
 	// prepend a magic _points field
 	newFields := make([]sql.Field, 0, len(q.Fields)+1)
-	newFields = append(newFields, sql.Field{expr.SUM("_point"), "_points"})
+	newFields = append(newFields, sql.NewField("_points", expr.SUM("_point")))
 	for _, field := range q.Fields {
 		newFields = append(newFields, field)
 	}
