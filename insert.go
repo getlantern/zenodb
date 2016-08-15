@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/encoding"
 )
 
 type Point struct {
@@ -24,7 +25,7 @@ func (p *Point) Get(name string) interface{} {
 
 type insert struct {
 	key  bytemap.ByteMap
-	vals tsparams
+	vals encoding.TSParams
 }
 
 func (db *DB) Insert(stream string, point *Point) error {
@@ -71,7 +72,7 @@ func (t *table) insert(point *Point) {
 	}
 
 	key := bytemap.New(point.Dims)
-	vals := newTSParams(point.Ts, bytemap.NewFloat(point.Vals))
+	vals := encoding.NewTSParams(point.Ts, bytemap.NewFloat(point.Vals))
 
 	if t.db.opts.DiscardOnBackPressure {
 		select {

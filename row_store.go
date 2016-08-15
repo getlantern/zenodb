@@ -16,6 +16,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/golang/snappy"
 	"github.com/oxtoacart/emsort"
@@ -161,7 +162,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []sequence)) error {
+func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	memStoresCopy := make([]*tree, 0, len(rs.memStores))
@@ -199,7 +200,7 @@ func (rs *rowStore) processFlushes() {
 		}
 		headerBytes := []byte(strings.Join(fieldStrings, ","))
 		headerLength := uint32(len(headerBytes))
-		err = binary.Write(bout, binaryEncoding, headerLength)
+		err = binary.Write(bout, encoding.Binary, headerLength)
 		if err != nil {
 			panic(fmt.Errorf("Unable to write header length: %v", err))
 		}
@@ -214,14 +215,14 @@ func (rs *rowStore) processFlushes() {
 		} else {
 			chunk := func(r io.Reader) ([]byte, error) {
 				rowLength := uint64(0)
-				readErr := binary.Read(r, binaryEncoding, &rowLength)
+				readErr := binary.Read(r, encoding.Binary, &rowLength)
 				if readErr != nil {
 					return nil, readErr
 				}
 				_row := make([]byte, rowLength)
 				row := _row
-				binaryEncoding.PutUint64(row, rowLength)
-				row = row[width64bits:]
+				encoding.Binary.PutUint64(row, rowLength)
+				row = row[encoding.Width64bits:]
 				_, err = io.ReadFull(r, row)
 				return _row, err
 			}
@@ -239,10 +240,10 @@ func (rs *rowStore) processFlushes() {
 
 		// TODO: DRY violation with sortData.Fill sortData.OnSorted
 		truncateBefore := rs.t.truncateBefore()
-		write := func(key bytemap.ByteMap, columns []sequence) {
+		write := func(key bytemap.ByteMap, columns []encoding.Sequence) {
 			hasActiveSequence := false
 			for i, seq := range columns {
-				seq = seq.truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore)
+				seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore)
 				columns[i] = seq
 				if seq != nil {
 					hasActiveSequence = true
@@ -250,14 +251,14 @@ func (rs *rowStore) processFlushes() {
 			}
 
 			if !hasActiveSequence {
-				// all sequences expired, remove key
+				// all encoding.Sequences expired, remove key
 				return
 			}
 
 			// rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
-			rowLength := width64bits + width16bits + len(key) + width16bits
+			rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
 			for _, seq := range columns {
-				rowLength += width64bits + len(seq)
+				rowLength += encoding.Width64bits + len(seq)
 			}
 
 			var o io.Writer = cout
@@ -271,12 +272,12 @@ func (rs *rowStore) processFlushes() {
 				o = buf
 			}
 
-			err = binary.Write(o, binaryEncoding, uint64(rowLength))
+			err = binary.Write(o, encoding.Binary, uint64(rowLength))
 			if err != nil {
 				panic(err)
 			}
 
-			err = binary.Write(o, binaryEncoding, uint16(len(key)))
+			err = binary.Write(o, encoding.Binary, uint16(len(key)))
 			if err != nil {
 				panic(err)
 			}
@@ -285,12 +286,12 @@ func (rs *rowStore) processFlushes() {
 				panic(err)
 			}
 
-			err = binary.Write(o, binaryEncoding, uint16(len(columns)))
+			err = binary.Write(o, encoding.Binary, uint16(len(columns)))
 			if err != nil {
 				panic(err)
 			}
 			for _, seq := range columns {
-				err = binary.Write(o, binaryEncoding, uint64(len(seq)))
+				err = binary.Write(o, encoding.Binary, uint64(len(seq)))
 				if err != nil {
 					panic(err)
 				}
@@ -400,7 +401,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores []*tree, fields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), memStores []*tree, fields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -455,7 +456,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 		if fileVersion >= FileVersion_2 {
 			// File contains header with field info, use it
 			headerLength := uint32(0)
-			versionErr := binary.Read(r, binaryEncoding, &headerLength)
+			versionErr := binary.Read(r, encoding.Binary, &headerLength)
 			if versionErr != nil {
 				return fmt.Errorf("Unexpected error reading header length: %v", versionErr)
 			}
@@ -495,7 +496,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 		// Read from file
 		for {
 			rowLength := uint64(0)
-			err := binary.Read(r, binaryEncoding, &rowLength)
+			err := binary.Read(r, encoding.Binary, &rowLength)
 			if err == io.EOF {
 				break
 			}
@@ -504,29 +505,29 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 			}
 
 			row := make([]byte, rowLength)
-			binaryEncoding.PutUint64(row, rowLength)
-			row = row[width64bits:]
+			encoding.Binary.PutUint64(row, rowLength)
+			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
 			if err != nil {
 				return fmt.Errorf("Unexpected error while reading row: %v", err)
 			}
 
-			keyLength, row := readInt16(row)
-			key, row := readByteMap(row, keyLength)
+			keyLength, row := encoding.ReadInt16(row)
+			key, row := encoding.ReadByteMap(row, keyLength)
 
-			numColumns, row := readInt16(row)
+			numColumns, row := encoding.ReadInt16(row)
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
 				var colLength int
-				colLength, row = readInt64(row)
+				colLength, row = encoding.ReadInt64(row)
 				colLengths = append(colLengths, int(colLength))
 			}
 
 			includesAtLeastOneColumn := false
-			columns := make([]sequence, len(fs.t.Fields))
+			columns := make([]encoding.Sequence, len(fs.t.Fields))
 			for i, colLength := range colLengths {
-				var seq sequence
-				seq, row = readSequence(row, colLength)
+				var seq encoding.Sequence
+				seq, row = encoding.ReadSequence(row, colLength)
 				idx := reverseFileFieldIndexes[i]
 				if idx > -1 {
 					columns[idx] = seq
@@ -562,7 +563,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 						continue
 					}
 					// merge
-					columns[i] = column.merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
+					columns[i] = column.Merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
 				}
 			}
 
@@ -574,8 +575,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 
 	// Read remaining stuff from mem stores
 	for s, ms := range memStores {
-		ms.walk(ctx, func(key []byte, columns1 []sequence) bool {
-			columns := make([]sequence, len(fs.t.Fields))
+		ms.walk(ctx, func(key []byte, columns1 []encoding.Sequence) bool {
+			columns := make([]encoding.Sequence, len(fs.t.Fields))
 			for i, column := range columns1 {
 				if includeField(i) {
 					columns[i] = column
@@ -602,7 +603,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []sequence), memStores 
 						continue
 					}
 					// merge
-					columns[i] = column.merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
+					columns[i] = column.Merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
 				}
 			}
 			onRow(bytemap.ByteMap(key), columns)

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/encoding"
 )
 
 // see https://en.wikipedia.org/wiki/Radix_tree
@@ -18,7 +19,7 @@ type tree struct {
 type node struct {
 	key        []byte
 	edges      edges
-	data       []sequence
+	data       []encoding.Sequence
 	removedFor []int64
 }
 
@@ -39,7 +40,7 @@ func (bt *tree) length() int {
 	return bt._length
 }
 
-func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
+func (bt *tree) walk(ctx int64, fn func(key []byte, data []encoding.Sequence) bool) {
 	nodes := make([]*node, 0, bt._length)
 	nodes = append(nodes, bt.root)
 	for {
@@ -63,7 +64,7 @@ func (bt *tree) walk(ctx int64, fn func(key []byte, data []sequence) bool) {
 	}
 }
 
-func (bt *tree) remove(ctx int64, fullKey []byte) []sequence {
+func (bt *tree) remove(ctx int64, fullKey []byte) []encoding.Sequence {
 	// TODO: basic shape of this is very similar to update, dry violation
 	n := bt.root
 	key := fullKey
@@ -126,7 +127,7 @@ func (bt *tree) copy() *tree {
 	return cp
 }
 
-func (bt *tree) update(t *table, truncateBefore time.Time, key []byte, vals tsparams) int {
+func (bt *tree) update(t *table, truncateBefore time.Time, key []byte, vals encoding.TSParams) int {
 	bytesAdded, newNode := bt.doUpdate(t, truncateBefore, key, vals)
 	bt._bytes += bytesAdded
 	if newNode {
@@ -135,7 +136,7 @@ func (bt *tree) update(t *table, truncateBefore time.Time, key []byte, vals tspa
 	return bytesAdded
 }
 
-func (bt *tree) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals tsparams) (int, bool) {
+func (bt *tree) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) (int, bool) {
 	n := bt.root
 	key := fullKey
 	// Try to update on existing edge
@@ -171,9 +172,9 @@ nodeLoop:
 	}
 }
 
-func (n *node) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals tsparams) int {
+func (n *node) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) int {
 	bytesAdded := 0
-	// Grow sequences to match number of fields in table
+	// Grow encoding.Sequences to match number of fields in table
 	for i := len(n.data); i < len(t.Fields); i++ {
 		n.data = append(n.data, nil)
 	}
@@ -181,7 +182,7 @@ func (n *node) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals
 	for i, field := range t.Fields {
 		current := n.data[i]
 		previousSize := len(current)
-		updated := current.update(vals, metadata, field.Expr, t.Resolution, truncateBefore)
+		updated := current.Update(vals, metadata, field.Expr, t.Resolution, truncateBefore)
 		n.data[i] = updated
 		bytesAdded += len(updated) - previousSize
 	}
@@ -212,7 +213,7 @@ func (n *node) doRemoveFor(bt *tree, ctx int64) {
 	bt.mx.Unlock()
 }
 
-func (e *edge) split(bt *tree, t *table, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals tsparams) int {
+func (e *edge) split(bt *tree, t *table, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals encoding.TSParams) int {
 	newNode := &node{edges: edges{&edge{e.label[splitOn:], e.target}}}
 	newLeaf := newNode
 	if splitOn != len(key) {

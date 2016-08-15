@@ -17,35 +17,35 @@ var (
 	Binary = binary.BigEndian
 )
 
-func readInt16(b []byte) (int, []byte) {
+func ReadInt16(b []byte) (int, []byte) {
 	i := Binary.Uint16(b)
 	return int(i), b[Width16bits:]
 }
 
-func writeInt16(b []byte, i int) []byte {
+func WriteInt16(b []byte, i int) []byte {
 	Binary.PutUint16(b, uint16(i))
 	return b[Width16bits:]
 }
 
-func readInt64(b []byte) (int, []byte) {
+func ReadInt64(b []byte) (int, []byte) {
 	i := Binary.Uint64(b)
 	return int(i), b[Width64bits:]
 }
 
-func writeInt64(b []byte, i int) []byte {
+func WriteInt64(b []byte, i int) []byte {
 	Binary.PutUint64(b, uint64(i))
 	return b[Width64bits:]
 }
 
-func readByteMap(b []byte, l int) (bytemap.ByteMap, []byte) {
+func ReadByteMap(b []byte, l int) (bytemap.ByteMap, []byte) {
 	return bytemap.ByteMap(b[:l]), b[l:]
 }
 
-func readSequence(b []byte, l int) (Sequence, []byte) {
+func ReadSequence(b []byte, l int) (Sequence, []byte) {
 	return Sequence(b[:l]), b[l:]
 }
 
-func write(b []byte, d []byte) []byte {
+func Write(b []byte, d []byte) []byte {
 	copy(b, d)
 	return b[len(d):]
 }

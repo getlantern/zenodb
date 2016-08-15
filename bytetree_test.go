@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/stretchr/testify/assert"
@@ -30,41 +31,41 @@ func TestByteTree(t *testing.T) {
 	truncateBefore := now.Add(-5000 * tb.Resolution)
 
 	bt := newByteTree()
-	bytesAdded := bt.update(tb, truncateBefore, []byte("test"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 1})))
+	bytesAdded := bt.update(tb, truncateBefore, []byte("test"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 1})))
 	assert.Equal(t, 21, bytesAdded)
 	assert.Equal(t, 1, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 2})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 2})))
 	assert.Equal(t, 21, bytesAdded)
 	assert.Equal(t, 2, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 3})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 3})))
 	assert.Equal(t, 22, bytesAdded)
 	assert.Equal(t, 3, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 4})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 4})))
 	assert.Equal(t, 19, bytesAdded)
 	assert.Equal(t, 4, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 5})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 5})))
 	assert.Equal(t, 19, bytesAdded)
 	assert.Equal(t, 5, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 6})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 6})))
 	assert.Equal(t, 21, bytesAdded)
 	assert.Equal(t, 6, bt.length())
 
-	bytesAdded = bt.update(tb, truncateBefore, []byte("test"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("test"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
 	assert.Equal(t, 6, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("slow"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
 	assert.Equal(t, 6, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("water"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
 	assert.Equal(t, 6, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("slower"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
 	assert.Equal(t, 6, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("team"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
 	assert.Equal(t, 6, bt.length())
-	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), newTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
+	bytesAdded = bt.update(tb, truncateBefore, []byte("toast"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})))
 	assert.Equal(t, 0, bytesAdded)
 	assert.Equal(t, 6, bt.length())
 
@@ -79,7 +80,7 @@ func TestByteTree(t *testing.T) {
 
 func checkTree(ctx int64, t *testing.T, bt *tree, e expr.Expr) {
 	walkedValues := 0
-	bt.walk(ctx, func(key []byte, data []sequence) bool {
+	bt.walk(ctx, func(key []byte, data []encoding.Sequence) bool {
 		if assert.Len(t, data, 1) {
 			walkedValues++
 			val, _ := data[0].ValueAt(0, e)

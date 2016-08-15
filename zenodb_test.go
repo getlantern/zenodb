@@ -9,6 +9,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
 
@@ -18,7 +19,7 @@ import (
 
 func TestRoundTime(t *testing.T) {
 	ts := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
-	rounded := roundTime(ts, time.Second)
+	rounded := encoding.RoundTime(ts, time.Second)
 	expected := time.Date(2015, 5, 6, 7, 8, 9, 0, time.UTC)
 	assert.Equal(t, expected, rounded)
 }
@@ -162,7 +163,7 @@ view_a:
 
 	// Change the schema a bit
 	newFields := make([]sql.Field, 0, len(tab.Fields)+1)
-	newFields = append(newFields, sql.Field{AVG("h"), "newfield"})
+	newFields = append(newFields, sql.NewField("newfield", AVG("h")))
 	for _, field := range tab.Fields {
 		newFields = append(newFields, field)
 	}
@@ -226,11 +227,11 @@ view_a:
 			asOfOffset:  fromOffset,
 			untilOffset: toOffset,
 			filter:      filter,
-			onValues: func(keybytes bytemap.ByteMap, resultField string, e Expr, seq sequence, startOffset int) {
+			onValues: func(keybytes bytemap.ByteMap, resultField string, e Expr, seq encoding.Sequence, startOffset int) {
 				key := keybytes.AsMap()
 				log.Debugf("%v : %v : %v : %d : %v", key, field, resultField, startOffset, seq.String(e))
 				if field == resultField {
-					numPeriods := seq.numPeriods(e.EncodedWidth())
+					numPeriods := seq.NumPeriods(e.EncodedWidth())
 					vals := make([]float64, 0, numPeriods-startOffset)
 					for i := 0; i < numPeriods-startOffset; i++ {
 						val, wasSet := seq.ValueAt(i+startOffset, e)

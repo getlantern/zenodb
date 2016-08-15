@@ -49,9 +49,18 @@ var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 	">":  expr.GT,
 }
 
+// Field is a named Expr.
 type Field struct {
 	Expr expr.Expr
 	Name string
+}
+
+// NewField is a convenience method for creating new Fields.
+func NewField(name string, ex expr.Expr) Field {
+	return Field{
+		Expr: ex,
+		Name: name,
+	}
 }
 
 func (f Field) String() string {

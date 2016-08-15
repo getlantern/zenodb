@@ -6,6 +6,7 @@ import (
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 )
 
@@ -17,7 +18,7 @@ type query struct {
 	asOfOffset  time.Duration
 	until       time.Time
 	untilOffset time.Duration
-	onValues    func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int)
+	onValues    func(key bytemap.ByteMap, field string, e expr.Expr, seq encoding.Sequence, startOffset int)
 	t           *table
 }
 
@@ -60,8 +61,8 @@ func (q *query) init(db *DB) error {
 			q.until = q.until.Add(q.untilOffset)
 		}
 	}
-	q.until = roundTime(q.until, q.t.Resolution)
-	q.asOf = roundTime(q.asOf, q.t.Resolution)
+	q.until = encoding.RoundTime(q.until, q.t.Resolution)
+	q.asOf = encoding.RoundTime(q.asOf, q.t.Resolution)
 
 	return nil
 }
@@ -79,7 +80,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []sequence) {
+	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		stats.Scanned++
 
 		if q.filter != nil {
@@ -105,12 +106,12 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			if len(seq) > 0 {
 				stats.DataValid++
 				if log.IsTraceEnabled() {
-					log.Tracef("Reading sequence %v", seq.String(e))
+					log.Tracef("Reading encoding.Sequence %v", seq.String(e))
 				}
-				seq = seq.truncate(encodedWidth, q.t.Resolution, q.asOf)
+				seq = seq.Truncate(encodedWidth, q.t.Resolution, q.asOf)
 				if seq != nil {
 					stats.InTimeRange++
-					startOffset := int(seq.start().Sub(q.until) / q.t.Resolution)
+					startOffset := int(seq.Start().Sub(q.until) / q.t.Resolution)
 					q.onValues(key, field.Name, e, seq, startOffset)
 				}
 			}

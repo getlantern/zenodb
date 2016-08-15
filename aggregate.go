@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
 )
@@ -64,7 +65,7 @@ type queryResponse struct {
 	key         bytemap.ByteMap
 	field       string
 	e           expr.Expr
-	seq         sequence
+	seq         encoding.Sequence
 	startOffset int
 }
 
@@ -78,8 +79,8 @@ type subMergeSpec struct {
 // execution of a query.
 type entry struct {
 	dims       map[string]interface{}
-	fields     []sequence
-	havingTest sequence
+	fields     []encoding.Sequence
+	havingTest encoding.Sequence
 }
 
 type queryExecution struct {
@@ -268,7 +269,7 @@ func (exec *queryExecution) prepare() error {
 			if en == nil {
 				en = &entry{
 					dims:   kb.AsMap(),
-					fields: make([]sequence, len(exec.Fields)),
+					fields: make([]encoding.Sequence, len(exec.Fields)),
 				}
 				if exec.GroupByAll {
 					// Track dims
@@ -283,26 +284,26 @@ func (exec *queryExecution) prepare() error {
 
 				// Initialize fields
 				for i, f := range exec.Fields {
-					seq := newSequence(f.Expr.EncodedWidth(), exec.outPeriods)
-					seq.setStart(exec.q.until)
+					seq := encoding.NewSequence(f.Expr.EncodedWidth(), exec.outPeriods)
+					seq.SetStart(exec.q.until)
 					en.fields[i] = seq
 				}
 
 				// Initialize havings
 				if exec.Having != nil {
-					en.havingTest = newSequence(exec.Having.EncodedWidth(), exec.outPeriods)
+					en.havingTest = encoding.NewSequence(exec.Having.EncodedWidth(), exec.outPeriods)
 				}
 
 				entries[string(kb)] = en
 			}
 
-			inPeriods := resp.seq.numPeriods(resp.e.EncodedWidth()) - resp.startOffset
+			inPeriods := resp.seq.NumPeriods(resp.e.EncodedWidth()) - resp.startOffset
 			for c, column := range exec.t.Fields {
 				if column.Name != resp.field {
 					continue
 				}
 				for t := 0; t < inPeriods && t < exec.inPeriods; t++ {
-					other, wasSet := resp.seq.dataAt(t+resp.startOffset, resp.e)
+					other, wasSet := resp.seq.DataAt(t+resp.startOffset, resp.e)
 					if !wasSet {
 						continue
 					}
@@ -315,7 +316,7 @@ func (exec *queryExecution) prepare() error {
 							continue
 						}
 						seq := en.fields[f]
-						seq.subMergeValueAt(out, field.Expr, subMerge, other, resp.key)
+						seq.SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
 					}
 
 					// Calculate havings
@@ -324,7 +325,7 @@ func (exec *queryExecution) prepare() error {
 						if subMerge == nil {
 							continue
 						}
-						en.havingTest.subMergeValueAt(out, exec.Having, subMerge, other, resp.key)
+						en.havingTest.SubMergeValueAt(out, exec.Having, subMerge, other, resp.key)
 					}
 				}
 			}
@@ -338,7 +339,7 @@ func (exec *queryExecution) prepare() error {
 		go worker()
 	}
 
-	exec.q.onValues = func(key bytemap.ByteMap, field string, e expr.Expr, seq sequence, startOffset int) {
+	exec.q.onValues = func(key bytemap.ByteMap, field string, e expr.Expr, seq encoding.Sequence, startOffset int) {
 		exec.responsesCh <- &queryResponse{key, field, e, seq, startOffset}
 	}
 
@@ -402,14 +403,14 @@ func (exec *queryExecution) mergedRows() []*Row {
 					if ok {
 						for x, os := range vo.fields {
 							ex := exec.Fields[x].Expr
-							res := v.fields[x].merge(os, ex, exec.Resolution, exec.AsOf)
+							res := v.fields[x].Merge(os, ex, exec.Resolution, exec.AsOf)
 							if log.IsTraceEnabled() {
 								log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.fields[x].String(ex), res.String(ex))
 							}
 							v.fields[x] = res
 						}
 						if exec.Having != nil {
-							v.havingTest = v.havingTest.merge(vo.havingTest, exec.Having, exec.Resolution, exec.AsOf)
+							v.havingTest = v.havingTest.Merge(vo.havingTest, exec.Having, exec.Resolution, exec.AsOf)
 						}
 						delete(o, k)
 					}
