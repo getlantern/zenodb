@@ -239,7 +239,6 @@ func (rs *rowStore) processFlushes() {
 			}
 		}
 
-		// TODO: DRY violation with sortData.Fill sortData.OnSorted
 		truncateBefore := rs.t.truncateBefore()
 		write := func(key bytemap.ByteMap, columns []encoding.Sequence) {
 			hasActiveSequence := false
@@ -256,7 +255,6 @@ func (rs *rowStore) processFlushes() {
 				return
 			}
 
-			// rowLength|keylength|key|numcolumns|col1len|col2len|...|lastcollen|col1|col2|...|lastcol
 			rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
 			for _, seq := range columns {
 				rowLength += encoding.Width64bits + len(seq)
