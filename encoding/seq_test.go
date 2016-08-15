@@ -1,4 +1,4 @@
-package zenodb
+package encoding
 
 import (
 	"time"

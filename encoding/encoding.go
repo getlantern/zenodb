@@ -1,4 +1,5 @@
-package zenodb
+// Package encoding handles encoding of zenodb data in binary form.
+package encoding
 
 import (
 	"encoding/binary"
@@ -7,32 +8,33 @@ import (
 )
 
 const (
-	width16bits = 2
-	width64bits = 8
+	Width16bits = 2
+	Width64bits = 8
 )
 
 var (
-	binaryEncoding = binary.BigEndian
+	// Binary is the standard number encoding for zenodb
+	Binary = binary.BigEndian
 )
 
 func readInt16(b []byte) (int, []byte) {
-	i := binaryEncoding.Uint16(b)
-	return int(i), b[width16bits:]
+	i := Binary.Uint16(b)
+	return int(i), b[Width16bits:]
 }
 
 func writeInt16(b []byte, i int) []byte {
-	binaryEncoding.PutUint16(b, uint16(i))
-	return b[width16bits:]
+	Binary.PutUint16(b, uint16(i))
+	return b[Width16bits:]
 }
 
 func readInt64(b []byte) (int, []byte) {
-	i := binaryEncoding.Uint64(b)
-	return int(i), b[width64bits:]
+	i := Binary.Uint64(b)
+	return int(i), b[Width64bits:]
 }
 
 func writeInt64(b []byte, i int) []byte {
-	binaryEncoding.PutUint64(b, uint64(i))
-	return b[width64bits:]
+	Binary.PutUint64(b, uint64(i))
+	return b[Width64bits:]
 }
 
 func readByteMap(b []byte, l int) (bytemap.ByteMap, []byte) {

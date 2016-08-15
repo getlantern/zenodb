@@ -1,11 +1,16 @@
-package zenodb
+package encoding
 
 import (
 	"fmt"
 	"time"
 
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb/expr"
+)
+
+var (
+	log = golog.LoggerFor("zenodb.encoding")
 )
 
 // sequence represents a time-ordered sequence of accumulator states in

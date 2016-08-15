@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	log = golog.LoggerFor("rpc")
+	log = golog.LoggerFor("zenodb.rpc")
 
 	msgpackCodec = &MsgPackCodec{}
 )

@@ -15,7 +15,7 @@ import (
 )
 
 var (
-	log = golog.LoggerFor("sql")
+	log = golog.LoggerFor("zenodb.sql")
 )
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
