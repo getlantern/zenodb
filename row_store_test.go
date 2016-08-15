@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/getlantern/golog"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,7 +16,9 @@ func TestStorage(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	tb := &table{}
+	tb := &table{
+		log: golog.LoggerFor("storagetest"),
+	}
 	cs, err := tb.openRowStore(&rowStoreOptions{
 		dir:              tmpDir,
 		maxMemStoreBytes: 1,

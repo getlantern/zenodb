@@ -16,6 +16,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/golang/snappy"
@@ -39,14 +40,14 @@ type rowStoreOptions struct {
 
 type flushRequest struct {
 	idx      int
-	memstore *tree
+	memstore *bytetree.Tree
 	sort     bool
 }
 
 type rowStore struct {
 	t                  *table
 	opts               *rowStoreOptions
-	memStores          map[int]*tree
+	memStores          map[int]*bytetree.Tree
 	currentMemStoreIdx int
 	fileStore          *fileStore
 	inserts            chan *insert
@@ -76,7 +77,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
 	rs := &rowStore{
 		opts:               opts,
 		t:                  t,
-		memStores:          make(map[int]*tree, 2),
+		memStores:          make(map[int]*bytetree.Tree, 2),
 		currentMemStoreIdx: 0,
 		inserts:            make(chan *insert),
 		flushes:            make(chan *flushRequest, 1),
@@ -100,7 +101,7 @@ func (rs *rowStore) insert(insert *insert) {
 }
 
 func (rs *rowStore) processInserts() {
-	currentMemStore := newByteTree()
+	currentMemStore := bytetree.New()
 	rs.mx.Lock()
 	rs.memStores[rs.currentMemStoreIdx] = currentMemStore
 	rs.mx.Unlock()
@@ -111,7 +112,7 @@ func (rs *rowStore) processInserts() {
 
 	flushIdx := 0
 	flush := func() {
-		if currentMemStore.length() == 0 {
+		if currentMemStore.Length() == 0 {
 			rs.t.log.Trace("Nothing to flush")
 			// Immediately reset flushTimer
 			flushTimer.Reset(flushInterval)
@@ -119,7 +120,7 @@ func (rs *rowStore) processInserts() {
 		}
 		// Temporarily disable flush timer while we're flushing
 		flushTimer.Reset(100000 * time.Hour)
-		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.bytes())))
+		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.Bytes())))
 		previousMemStore := currentMemStore
 		shouldSort := flushIdx%10 == 0
 		rs.mx.Lock()
@@ -128,7 +129,7 @@ func (rs *rowStore) processInserts() {
 		select {
 		case rs.flushes <- fr:
 			rs.mx.Lock()
-			currentMemStore = newByteTree()
+			currentMemStore = bytetree.New()
 			rs.currentMemStoreIdx++
 			rs.memStores[rs.currentMemStoreIdx] = currentMemStore
 			flushIdx++
@@ -143,9 +144,9 @@ func (rs *rowStore) processInserts() {
 		case insert := <-rs.inserts:
 			truncateBefore := rs.t.truncateBefore()
 			rs.mx.Lock()
-			currentMemStore.update(rs.t, truncateBefore, insert.key, insert.vals)
+			currentMemStore.Update(rs.t.Fields, rs.t.Resolution, truncateBefore, insert.key, insert.vals)
 			rs.mx.Unlock()
-			if currentMemStore.bytes() >= rs.opts.maxMemStoreBytes {
+			if currentMemStore.Bytes() >= rs.opts.maxMemStoreBytes {
 				flush()
 			}
 		case <-flushTimer.C:
@@ -165,7 +166,7 @@ func (rs *rowStore) processInserts() {
 func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
-	memStoresCopy := make([]*tree, 0, len(rs.memStores))
+	memStoresCopy := make([]*bytetree.Tree, 0, len(rs.memStores))
 	for i, ms := range rs.memStores {
 		onCurrentMemStore := i == rs.currentMemStoreIdx
 		if onCurrentMemStore {
@@ -175,7 +176,7 @@ func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []enc
 				continue
 			}
 			// copy
-			ms = ms.copy()
+			ms = ms.Copy()
 		}
 		memStoresCopy = append(memStoresCopy, ms)
 	}
@@ -315,7 +316,7 @@ func (rs *rowStore) processFlushes() {
 		rs.mx.RLock()
 		fs := rs.fileStore
 		rs.mx.RUnlock()
-		fs.iterate(write, []*tree{req.memstore})
+		fs.iterate(write, []*bytetree.Tree{req.memstore})
 		err = cout.Close()
 		if err != nil {
 			panic(err)
@@ -401,7 +402,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), memStores []*tree, fields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), memStores []*bytetree.Tree, fields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -541,7 +542,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 			}
 
 			for _, ms := range memStores {
-				columns2 := ms.remove(ctx, key)
+				columns2 := ms.Remove(ctx, key)
 
 				// Merge memStore columns into fileStore columns
 				for i, field := range fs.t.Fields {
@@ -575,7 +576,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 
 	// Read remaining stuff from mem stores
 	for s, ms := range memStores {
-		ms.walk(ctx, func(key []byte, columns1 []encoding.Sequence) bool {
+		ms.Walk(ctx, func(key []byte, columns1 []encoding.Sequence) bool {
 			columns := make([]encoding.Sequence, len(fs.t.Fields))
 			for i, column := range columns1 {
 				if includeField(i) {
@@ -584,7 +585,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 			}
 			for j := s + 1; j < len(memStores); j++ {
 				ms2 := memStores[j]
-				columns2 := ms2.remove(ctx, key)
+				columns2 := ms2.Remove(ctx, key)
 				for i, field := range fs.t.Fields {
 					if !includeField(i) {
 						continue

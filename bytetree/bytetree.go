@@ -1,4 +1,6 @@
-package zenodb
+// Package bytetree provides a Radix tree that stores []byte keys and values.
+// See https://en.wikipedia.org/wiki/Radix_tree
+package bytetree
 
 import (
 	"sync"
@@ -6,14 +8,14 @@ import (
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/sql"
 )
 
-// see https://en.wikipedia.org/wiki/Radix_tree
-type tree struct {
-	root    *node
-	_bytes  int
-	_length int
-	mx      sync.RWMutex
+type Tree struct {
+	root   *node
+	bytes  int
+	length int
+	mx     sync.RWMutex
 }
 
 type node struct {
@@ -28,20 +30,28 @@ type edge struct {
 	target *node
 }
 
-func newByteTree() *tree {
-	return &tree{root: &node{}}
+// New constructs a new Tree.
+func New() *Tree {
+	return &Tree{root: &node{}}
 }
 
-func (bt *tree) bytes() int {
-	return bt._bytes
+// Bytes returns the number of bytes stored in this Tree (not including
+// overhead).
+func (bt *Tree) Bytes() int {
+	return bt.bytes
 }
 
-func (bt *tree) length() int {
-	return bt._length
+// Length returns the number of nodes in this Tree.
+func (bt *Tree) Length() int {
+	return bt.length
 }
 
-func (bt *tree) walk(ctx int64, fn func(key []byte, data []encoding.Sequence) bool) {
-	nodes := make([]*node, 0, bt._length)
+// Walk walks this Tree, calling the given fn with each node's key and data. If
+// the fn returns false, the node will be removed from the Tree as viewed with
+// the given ctx. Subsequent walks of the Tree using that same ctx will not see
+// removed nodes, but walks using a different context will still see them.
+func (bt *Tree) Walk(ctx int64, fn func(key []byte, data []encoding.Sequence) bool) {
+	nodes := make([]*node, 0, bt.length)
 	nodes = append(nodes, bt.root)
 	for {
 		if len(nodes) == 0 {
@@ -64,7 +74,10 @@ func (bt *tree) walk(ctx int64, fn func(key []byte, data []encoding.Sequence) bo
 	}
 }
 
-func (bt *tree) remove(ctx int64, fullKey []byte) []encoding.Sequence {
+// Remove removes the given key from this Tree under the given ctx. When viewed
+// from this ctx, the key will appear to be gone, but from other contexts it
+// will remain visible.
+func (bt *Tree) Remove(ctx int64, fullKey []byte) []encoding.Sequence {
 	// TODO: basic shape of this is very similar to update, dry violation
 	n := bt.root
 	key := fullKey
@@ -101,10 +114,11 @@ nodeLoop:
 	}
 }
 
-func (bt *tree) copy() *tree {
-	cp := &tree{_bytes: bt._bytes, _length: bt._length, root: &node{}}
-	nodes := make([]*node, 0, bt.length())
-	nodeCopies := make([]*node, 0, bt.length())
+// Copy makes a copy of this Tree.
+func (bt *Tree) Copy() *Tree {
+	cp := &Tree{bytes: bt.bytes, length: bt.length, root: &node{}}
+	nodes := make([]*node, 0, bt.Length())
+	nodeCopies := make([]*node, 0, bt.Length())
 	nodes = append(nodes, bt.root)
 	nodeCopies = append(nodeCopies, cp.root)
 
@@ -127,16 +141,18 @@ func (bt *tree) copy() *tree {
 	return cp
 }
 
-func (bt *tree) update(t *table, truncateBefore time.Time, key []byte, vals encoding.TSParams) int {
-	bytesAdded, newNode := bt.doUpdate(t, truncateBefore, key, vals)
-	bt._bytes += bytesAdded
+// Update updates all of the fields at the given timestamp with the given
+// parameters.
+func (bt *Tree) Update(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, key []byte, vals encoding.TSParams) int {
+	bytesAdded, newNode := bt.doUpdate(fields, resolution, truncateBefore, key, vals)
+	bt.bytes += bytesAdded
 	if newNode {
-		bt._length++
+		bt.length++
 	}
 	return bytesAdded
 }
 
-func (bt *tree) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) (int, bool) {
+func (bt *Tree) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) (int, bool) {
 	n := bt.root
 	key := fullKey
 	// Try to update on existing edge
@@ -153,7 +169,7 @@ nodeLoop:
 			}
 			if i == keyLength && keyLength == labelLength {
 				// update existing node
-				return edge.target.doUpdate(t, truncateBefore, fullKey, vals), false
+				return edge.target.doUpdate(fields, resolution, truncateBefore, fullKey, vals), false
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
 				n = edge.target
@@ -161,35 +177,35 @@ nodeLoop:
 				continue nodeLoop
 			} else if i > 0 {
 				// common substring, split on that
-				return edge.split(bt, t, truncateBefore, i, fullKey, key, vals), true
+				return edge.split(bt, fields, resolution, truncateBefore, i, fullKey, key, vals), true
 			}
 		}
 
 		// Create new edge
 		target := &node{key: fullKey}
 		n.edges = append(n.edges, &edge{key, target})
-		return target.doUpdate(t, truncateBefore, fullKey, vals) + len(key), true
+		return target.doUpdate(fields, resolution, truncateBefore, fullKey, vals) + len(key), true
 	}
 }
 
-func (n *node) doUpdate(t *table, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) int {
+func (n *node) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) int {
 	bytesAdded := 0
 	// Grow encoding.Sequences to match number of fields in table
-	for i := len(n.data); i < len(t.Fields); i++ {
+	for i := len(n.data); i < len(fields); i++ {
 		n.data = append(n.data, nil)
 	}
 	metadata := bytemap.ByteMap(fullKey)
-	for i, field := range t.Fields {
+	for i, field := range fields {
 		current := n.data[i]
 		previousSize := len(current)
-		updated := current.Update(vals, metadata, field.Expr, t.Resolution, truncateBefore)
+		updated := current.Update(vals, metadata, field.Expr, resolution, truncateBefore)
 		n.data[i] = updated
 		bytesAdded += len(updated) - previousSize
 	}
 	return bytesAdded
 }
 
-func (n *node) wasRemovedFor(bt *tree, ctx int64) bool {
+func (n *node) wasRemovedFor(bt *Tree, ctx int64) bool {
 	if ctx == 0 {
 		return false
 	}
@@ -204,7 +220,7 @@ func (n *node) wasRemovedFor(bt *tree, ctx int64) bool {
 	return false
 }
 
-func (n *node) doRemoveFor(bt *tree, ctx int64) {
+func (n *node) doRemoveFor(bt *Tree, ctx int64) {
 	if ctx == 0 {
 		return
 	}
@@ -213,7 +229,7 @@ func (n *node) doRemoveFor(bt *tree, ctx int64) {
 	bt.mx.Unlock()
 }
 
-func (e *edge) split(bt *tree, t *table, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals encoding.TSParams) int {
+func (e *edge) split(bt *Tree, fields []sql.Field, resolution time.Duration, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals encoding.TSParams) int {
 	newNode := &node{edges: edges{&edge{e.label[splitOn:], e.target}}}
 	newLeaf := newNode
 	if splitOn != len(key) {
@@ -222,7 +238,7 @@ func (e *edge) split(bt *tree, t *table, truncateBefore time.Time, splitOn int, 
 	}
 	e.label = e.label[:splitOn]
 	e.target = newNode
-	return len(key) - splitOn + newLeaf.doUpdate(t, truncateBefore, fullKey, vals)
+	return len(key) - splitOn + newLeaf.doUpdate(fields, resolution, truncateBefore, fullKey, vals)
 }
 
 type edges []*edge
