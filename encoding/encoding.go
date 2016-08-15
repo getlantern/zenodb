@@ -41,8 +41,8 @@ func readByteMap(b []byte, l int) (bytemap.ByteMap, []byte) {
 	return bytemap.ByteMap(b[:l]), b[l:]
 }
 
-func readSequence(b []byte, l int) (sequence, []byte) {
-	return sequence(b[:l]), b[l:]
+func readSequence(b []byte, l int) (Sequence, []byte) {
+	return Sequence(b[:l]), b[l:]
 }
 
 func write(b []byte, d []byte) []byte {

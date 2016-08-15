@@ -13,45 +13,54 @@ var (
 	log = golog.LoggerFor("zenodb.encoding")
 )
 
-// sequence represents a time-ordered sequence of accumulator states in
+// Sequence represents a time-ordered sequence of accumulator states in
 // descending time order. The first 8 bytes are the timestamp at which the
-// sequence starts, and after that each n bytes are a floating point value for
-// the next interval in the sequence, where n is determined by the type of
-// accumulator.
-type sequence []byte
+// Sequence starts, and after that each n bytes are data for the next interval
+// in the Sequence, where n is determined by the type of type of Expr.
+type Sequence []byte
 
-func newSequence(periodWidth int, numPeriods int) sequence {
-	return make(sequence, Width64bits+numPeriods*periodWidth)
+// NewSequence allocates a new Sequence that holds the given number of periods
+// with accumulator states of the given periodWidth.
+func NewSequence(periodWidth int, numPeriods int) Sequence {
+	return make(Sequence, Width64bits+numPeriods*periodWidth)
 }
 
-func (seq sequence) start() time.Time {
+// Start returns the start time of this Sequence.
+func (seq Sequence) Start() time.Time {
 	if len(seq) == 0 {
 		return zeroTime
 	}
 	return TimeFromBytes(seq)
 }
 
-func (seq sequence) setStart(t time.Time) {
+// SetStart sets the start time of this Sequence.
+func (seq Sequence) SetStart(t time.Time) {
 	Binary.PutUint64(seq, uint64(t.UnixNano()))
 }
 
-func (seq sequence) numPeriods(periodWidth int) int {
+// NumPeriods returns the number of periods in this Sequence assuming the given
+// periodWidth.
+func (seq Sequence) NumPeriods(periodWidth int) int {
 	if len(seq) == 0 {
 		return 0
 	}
-	return seq.dataLength() / periodWidth
+	return seq.DataLength() / periodWidth
 }
 
-// length without start time
-func (seq sequence) dataLength() int {
+// DataLength returns the number of bytes in this Sequence excluding the start
+// time.
+func (seq Sequence) DataLength() int {
 	return len(seq) - Width64bits
 }
 
-func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Duration) (float64, bool) {
+// ValueAtTime returns the value at the given time within this sequence,
+// extracted using the given Expr and assuming each period represents 1 *
+// resolution. If no value is set for the given time, found will be false.
+func (seq Sequence) ValueAtTime(t time.Time, e expr.Expr, resolution time.Duration) (val float64, found bool) {
 	if len(seq) == 0 {
 		return 0, false
 	}
-	start := seq.start()
+	start := seq.Start()
 	if t.After(start) {
 		return 0, false
 	}
@@ -59,27 +68,34 @@ func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Durati
 	return seq.ValueAt(period, e)
 }
 
-func (seq sequence) ValueAt(period int, e expr.Expr) (float64, bool) {
+// ValueAt returns the value at the given period extracted using the given Expr.
+// If no value is set for the given period, found will be false.
+func (seq Sequence) ValueAt(period int, e expr.Expr) (val float64, found bool) {
 	if len(seq) == 0 {
 		return 0, false
 	}
 	if period < 0 {
 		return 0, false
 	}
-	return seq.valueAtOffset(period*e.EncodedWidth(), e)
+	return seq.ValueAtOffset(period*e.EncodedWidth(), e)
 }
 
-func (seq sequence) dataAt(period int, e expr.Expr) ([]byte, bool) {
+// DataAt returns the accumulator state at the given period for the given Expr.
+// If no data is set for the given time, found will be false.
+func (seq Sequence) DataAt(period int, e expr.Expr) (data []byte, found bool) {
 	if len(seq) == 0 {
 		return nil, false
 	}
 	if period < 0 {
 		return nil, false
 	}
-	return seq.dataAtOffset(period*e.EncodedWidth(), e)
+	return seq.DataAtOffset(period*e.EncodedWidth(), e)
 }
 
-func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
+// ValueAtOffset returns the value at the given byte offset in the Sequence (not
+// including the start time) extracted using the given Expr.  If no value is set
+// for the given offset, found will be false.
+func (seq Sequence) ValueAtOffset(offset int, e expr.Expr) (val float64, found bool) {
 	if len(seq) == 0 {
 		return 0, false
 	}
@@ -91,7 +107,10 @@ func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
 	return val, wasSet
 }
 
-func (seq sequence) dataAtOffset(offset int, e expr.Expr) ([]byte, bool) {
+// DataAtOffset returns the accumulator state at the given byte offset in the
+// Sequence (not including the start time) for the given Expr.  If no data is
+// set for the given offset, found will be false.
+func (seq Sequence) DataAtOffset(offset int, e expr.Expr) (data []byte, found bool) {
 	if len(seq) == 0 {
 		return nil, false
 	}
@@ -102,51 +121,92 @@ func (seq sequence) dataAtOffset(offset int, e expr.Expr) ([]byte, bool) {
 	return seq[offset : offset+e.EncodedWidth()], true
 }
 
-func (seq sequence) updateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params, metadata goexpr.Params) {
-	start := seq.start()
+// UpdateValueAtTime updates the value at the given time by applying the
+// supplied Params to the given expression. metadata represents metadata about
+// the operation that's used by the Expr as well (e.g. information about the
+// dimensions associated to the value). The time is translated to a period by
+// assuming that each period represents 1 * resolution of time.
+func (seq Sequence) UpdateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params, metadata goexpr.Params) {
+	start := seq.Start()
 	period := int(start.Sub(t) / resolution)
-	seq.updateValueAt(period, e, params, metadata)
+	seq.UpdateValueAt(period, e, params, metadata)
 }
 
-func (seq sequence) updateValueAt(period int, e expr.Expr, params expr.Params, metadata goexpr.Params) {
-	seq.updateValueAtOffset(period*e.EncodedWidth(), e, params, metadata)
+// UpdateValueAt updates the value at the given period by applying the supplied
+// Params to the given expression. metadata represents metadata about the
+// operation that's used by the Expr as well (e.g. information about the
+// dimensions associated to the value).
+func (seq Sequence) UpdateValueAt(period int, e expr.Expr, params expr.Params, metadata goexpr.Params) {
+	seq.UpdateValueAtOffset(period*e.EncodedWidth(), e, params, metadata)
 }
 
-func (seq sequence) mergeValueAt(period int, e expr.Expr, other []byte, metadata goexpr.Params) {
-	seq.mergeValueAtOffset(period*e.EncodedWidth(), e, other, metadata)
+// MergeValueAt merges the other accumulator state into the accumulator state at
+// the given period, using the given Expr. metadata represents metadata about
+// the operation that's used by the Expr as well (e.g. information about the
+// dimensions associated to the value).
+func (seq Sequence) MergeValueAt(period int, e expr.Expr, other []byte, metadata goexpr.Params) {
+	seq.MergeValueAtOffset(period*e.EncodedWidth(), e, other, metadata)
 }
 
-func (seq sequence) subMergeValueAt(period int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata goexpr.Params) {
-	seq.subMergeValueAtOffset(period*e.EncodedWidth(), e, subMerge, other, metadata)
+// SubMergeValueAt sub merges the other accumulator state into the accumulator
+// state at the given period, using the given Expr and SubMerge. metadata
+// represents metadata about the operation that's used by the Expr as well (e.g.
+// information about the dimensions associated to the value).
+func (seq Sequence) SubMergeValueAt(period int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata goexpr.Params) {
+	seq.SubMergeValueAtOffset(period*e.EncodedWidth(), e, subMerge, other, metadata)
 }
 
-func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Params, metadata goexpr.Params) {
+// UpdateValueAtOffset updates the value at the given byte offset by applying
+// the supplied Params to the given expression. metadata represents metadata
+// about the operation that's used by the Expr as well (e.g. information about
+// the dimensions associated to the value).
+func (seq Sequence) UpdateValueAtOffset(offset int, e expr.Expr, params expr.Params, metadata goexpr.Params) {
 	offset = offset + Width64bits
 	e.Update(seq[offset:], params, metadata)
 }
 
-func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, other []byte, metadata goexpr.Params) {
+// MergeValueAtOffset merges the other accumulator state into the accumulator
+// state at the given byte offset, using the given Expr. metadata represents
+// metadata about the operation that's used by the Expr as well (e.g.
+// information about the dimensions associated to the value).
+func (seq Sequence) MergeValueAtOffset(offset int, e expr.Expr, other []byte, metadata goexpr.Params) {
 	offset = offset + Width64bits
 	orig := seq[offset:]
 	e.Merge(orig, orig, other, metadata)
 }
 
-func (seq sequence) subMergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata goexpr.Params) {
+// SubMergeValueAtOffset sub merges the other accumulator state into the
+// accumulator state at the given byte offset, using the given Expr and
+// SubMerge. metadata represents metadata about the operation that's used by the
+// Expr as well (e.g. information about the dimensions associated to the value).
+func (seq Sequence) SubMergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata goexpr.Params) {
 	offset = offset + Width64bits
 	orig := seq[offset:]
 	subMerge(orig, other, metadata)
 }
 
-func (seq sequence) update(tsp TSParams, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
+// Update unpacks the given TSParams and calls UpdateValue.
+func (seq Sequence) Update(tsp TSParams, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
 	ts, params := tsp.TimeAndParams()
-	return seq.updateValue(ts, params, metadata, e, resolution, truncateBefore)
+	return seq.UpdateValue(ts, params, metadata, e, resolution, truncateBefore)
 }
 
-func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
+// UpdateValue updates the value at the given time by applying the given params
+// using the given Expr. The resolution indicates how wide we assume each period
+// of data to be.  Any values in the sequence older than truncateBefore
+// including the new value) will be omitted from the sequence. If the sequence
+// needs to be grown to accommodate the updated value, it will be. metadata
+// represents metadata about the operation that's used by the Expr as well (e.g.
+// information about the dimensions associated to the value).
+//
+// The returned Sequence may reference the same underlying byte array as the
+// updated sequence, or it may be a newly allocated byte array (i.e. if the
+// sequence grew).
+func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
 	periodWidth := e.EncodedWidth()
 
 	if log.IsTraceEnabled() {
-		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.start().In(time.UTC), params, ts.In(time.UTC), truncateBefore.In(time.UTC))
+		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.Start().In(time.UTC), params, ts.In(time.UTC), truncateBefore.In(time.UTC))
 	}
 
 	if !ts.After(truncateBefore) {
@@ -154,7 +214,7 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexp
 		if len(seq) == 0 {
 			return nil
 		}
-		return seq.truncate(periodWidth, resolution, truncateBefore)
+		return seq.Truncate(periodWidth, resolution, truncateBefore)
 	}
 
 	sequenceEmpty := len(seq) == 0
@@ -162,31 +222,31 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexp
 	var gapPeriods int
 	var maxPeriods int
 	if !sequenceEmpty {
-		start = seq.start()
+		start = seq.Start()
 		gapPeriods = int(ts.Sub(start) / resolution)
 		maxPeriods = int(ts.Sub(truncateBefore) / resolution)
 	}
 	if sequenceEmpty || start.Before(truncateBefore) || gapPeriods > maxPeriods {
 		log.Trace("Creating new sequence")
-		out := make(sequence, Width64bits+periodWidth)
-		out.setStart(ts)
-		out.updateValueAt(0, e, params, metadata)
+		out := make(Sequence, Width64bits+periodWidth)
+		out.SetStart(ts)
+		out.UpdateValueAt(0, e, params, metadata)
 		return out
 	}
 
 	if ts.After(start) {
 		log.Trace("Prepending to sequence")
-		numPeriods := seq.numPeriods(periodWidth) + gapPeriods
+		numPeriods := seq.NumPeriods(periodWidth) + gapPeriods
 		origEnd := len(seq)
 		if numPeriods > maxPeriods {
 			log.Trace("Truncating existing sequence")
 			numPeriods = maxPeriods
 			origEnd = Width64bits + periodWidth*(numPeriods-gapPeriods)
 		}
-		out := newSequence(periodWidth, numPeriods)
+		out := NewSequence(periodWidth, numPeriods)
 		copy(out[Width64bits+gapPeriods*periodWidth:], seq[Width64bits:origEnd])
-		out.setStart(ts)
-		out.updateValueAt(0, e, params, metadata)
+		out.SetStart(ts)
+		out.UpdateValueAt(0, e, params, metadata)
 		return out
 	}
 
@@ -196,14 +256,22 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexp
 	offset := period * periodWidth
 	if offset+periodWidth >= len(seq) {
 		// Grow seq
-		out = make(sequence, offset+Width64bits+periodWidth)
+		out = make(Sequence, offset+Width64bits+periodWidth)
 		copy(out, seq)
 	}
-	out.updateValueAtOffset(offset, e, params, metadata)
+	out.UpdateValueAtOffset(offset, e, params, metadata)
 	return out
 }
 
-func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
+// Merge merges the other Sequence into this Sequence by applying the given
+// Expr's merge operator to each period in both Sequences. The resulting
+// Sequence will start at the early of the two Sequence's start times, and will
+// end at the later of the two Sequence's start times, or at the given
+// truncateBefore if that's later.
+//
+// The returned Sequence may reference the same underlying byte array as one or
+// the other Sequence, or it may be a newly allocated byte array.
+func (seq Sequence) Merge(other Sequence, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
 	if len(seq) == 0 {
 		return other
 	}
@@ -213,8 +281,8 @@ func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration,
 
 	sa := seq
 	sb := other
-	startA := sa.start()
-	startB := sb.start()
+	startA := sa.Start()
+	startB := sb.Start()
 	if startB.After(startA) {
 		// Switch
 		sa, startA, sb, startB = sb, startB, sa, startA
@@ -225,8 +293,8 @@ func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration,
 	}
 
 	encodedWidth := e.EncodedWidth()
-	aPeriods := sa.numPeriods(encodedWidth)
-	bPeriods := sb.numPeriods(encodedWidth)
+	aPeriods := sa.NumPeriods(encodedWidth)
+	bPeriods := sb.NumPeriods(encodedWidth)
 	endA := startA.Add(-1 * time.Duration(aPeriods) * resolution)
 	endB := startB.Add(-1 * time.Duration(bPeriods) * resolution)
 	end := endB
@@ -235,7 +303,7 @@ func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration,
 	}
 	totalPeriods := int(startA.Sub(end) / resolution)
 
-	out := make(sequence, Width64bits+totalPeriods*encodedWidth)
+	out := make(Sequence, Width64bits+totalPeriods*encodedWidth)
 	sout := out
 
 	// Set start
@@ -286,11 +354,13 @@ func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration,
 	return out
 }
 
-func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncateBefore time.Time) sequence {
+// Truncate truncates all periods in the Sequence that come before the given
+// truncateBefore.
+func (seq Sequence) Truncate(periodWidth int, resolution time.Duration, truncateBefore time.Time) Sequence {
 	if len(seq) == 0 {
 		return nil
 	}
-	maxPeriods := int(seq.start().Sub(truncateBefore) / resolution)
+	maxPeriods := int(seq.Start().Sub(truncateBefore) / resolution)
 	if maxPeriods <= 0 {
 		// Entire sequence falls outside of truncation range
 		return nil
@@ -302,14 +372,16 @@ func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncate
 	return seq[:maxLength]
 }
 
-func (seq sequence) String(e expr.Expr) string {
+// String provides a string representation of this Sequence assuming that it
+// holds data for the given Expr.
+func (seq Sequence) String(e expr.Expr) string {
 	if len(seq) == 0 {
 		return ""
 	}
 
 	values := ""
 
-	numPeriods := seq.numPeriods(e.EncodedWidth())
+	numPeriods := seq.NumPeriods(e.EncodedWidth())
 	for i := 0; i < numPeriods; i++ {
 		if i > 0 {
 			values += " "
@@ -317,5 +389,5 @@ func (seq sequence) String(e expr.Expr) string {
 		val, _ := seq.ValueAt(i, e)
 		values += fmt.Sprint(val)
 	}
-	return fmt.Sprintf("%v at %v: %v", e, seq.start(), values)
+	return fmt.Sprintf("%v at %v: %v", e, seq.Start(), values)
 }
