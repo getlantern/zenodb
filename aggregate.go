@@ -15,12 +15,6 @@ import (
 	"github.com/getlantern/zenodb/sql"
 )
 
-type entry struct {
-	dims       map[string]interface{}
-	fields     []sequence
-	havingTest sequence
-}
-
 type Row struct {
 	Period  int
 	Dims    []interface{}
@@ -78,6 +72,14 @@ type subMergeSpec struct {
 	idx      int
 	field    sql.Field
 	subMerge expr.SubMerge
+}
+
+// entry is an intermediary data holder for aggregating data during the
+// execution of a query.
+type entry struct {
+	dims       map[string]interface{}
+	fields     []sequence
+	havingTest sequence
 }
 
 type queryExecution struct {

@@ -21,18 +21,18 @@ var (
 type sequence []byte
 
 func newSequence(periodWidth int, numPeriods int) sequence {
-	return make(sequence, width64bits+numPeriods*periodWidth)
+	return make(sequence, Width64bits+numPeriods*periodWidth)
 }
 
 func (seq sequence) start() time.Time {
 	if len(seq) == 0 {
 		return zeroTime
 	}
-	return timeFromBytes(seq)
+	return TimeFromBytes(seq)
 }
 
 func (seq sequence) setStart(t time.Time) {
-	binaryEncoding.PutUint64(seq, uint64(t.UnixNano()))
+	Binary.PutUint64(seq, uint64(t.UnixNano()))
 }
 
 func (seq sequence) numPeriods(periodWidth int) int {
@@ -44,7 +44,7 @@ func (seq sequence) numPeriods(periodWidth int) int {
 
 // length without start time
 func (seq sequence) dataLength() int {
-	return len(seq) - width64bits
+	return len(seq) - Width64bits
 }
 
 func (seq sequence) valueAtTime(t time.Time, e expr.Expr, resolution time.Duration) (float64, bool) {
@@ -83,7 +83,7 @@ func (seq sequence) valueAtOffset(offset int, e expr.Expr) (float64, bool) {
 	if len(seq) == 0 {
 		return 0, false
 	}
-	offset = offset + width64bits
+	offset = offset + Width64bits
 	if offset >= len(seq) {
 		return 0, false
 	}
@@ -95,7 +95,7 @@ func (seq sequence) dataAtOffset(offset int, e expr.Expr) ([]byte, bool) {
 	if len(seq) == 0 {
 		return nil, false
 	}
-	offset = offset + width64bits
+	offset = offset + Width64bits
 	if offset >= len(seq) {
 		return nil, false
 	}
@@ -121,24 +121,24 @@ func (seq sequence) subMergeValueAt(period int, e expr.Expr, subMerge expr.SubMe
 }
 
 func (seq sequence) updateValueAtOffset(offset int, e expr.Expr, params expr.Params, metadata goexpr.Params) {
-	offset = offset + width64bits
+	offset = offset + Width64bits
 	e.Update(seq[offset:], params, metadata)
 }
 
 func (seq sequence) mergeValueAtOffset(offset int, e expr.Expr, other []byte, metadata goexpr.Params) {
-	offset = offset + width64bits
+	offset = offset + Width64bits
 	orig := seq[offset:]
 	e.Merge(orig, orig, other, metadata)
 }
 
 func (seq sequence) subMergeValueAtOffset(offset int, e expr.Expr, subMerge expr.SubMerge, other []byte, metadata goexpr.Params) {
-	offset = offset + width64bits
+	offset = offset + Width64bits
 	orig := seq[offset:]
 	subMerge(orig, other, metadata)
 }
 
-func (seq sequence) update(tsp tsparams, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
-	ts, params := tsp.timeAndParams()
+func (seq sequence) update(tsp TSParams, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) sequence {
+	ts, params := tsp.TimeAndParams()
 	return seq.updateValue(ts, params, metadata, e, resolution, truncateBefore)
 }
 
@@ -168,7 +168,7 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexp
 	}
 	if sequenceEmpty || start.Before(truncateBefore) || gapPeriods > maxPeriods {
 		log.Trace("Creating new sequence")
-		out := make(sequence, width64bits+periodWidth)
+		out := make(sequence, Width64bits+periodWidth)
 		out.setStart(ts)
 		out.updateValueAt(0, e, params, metadata)
 		return out
@@ -181,10 +181,10 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexp
 		if numPeriods > maxPeriods {
 			log.Trace("Truncating existing sequence")
 			numPeriods = maxPeriods
-			origEnd = width64bits + periodWidth*(numPeriods-gapPeriods)
+			origEnd = Width64bits + periodWidth*(numPeriods-gapPeriods)
 		}
 		out := newSequence(periodWidth, numPeriods)
-		copy(out[width64bits+gapPeriods*periodWidth:], seq[width64bits:origEnd])
+		copy(out[Width64bits+gapPeriods*periodWidth:], seq[Width64bits:origEnd])
 		out.setStart(ts)
 		out.updateValueAt(0, e, params, metadata)
 		return out
@@ -196,7 +196,7 @@ func (seq sequence) updateValue(ts time.Time, params expr.Params, metadata goexp
 	offset := period * periodWidth
 	if offset+periodWidth >= len(seq) {
 		// Grow seq
-		out = make(sequence, offset+width64bits+periodWidth)
+		out = make(sequence, offset+Width64bits+periodWidth)
 		copy(out, seq)
 	}
 	out.updateValueAtOffset(offset, e, params, metadata)
@@ -235,14 +235,14 @@ func (seq sequence) merge(other sequence, e expr.Expr, resolution time.Duration,
 	}
 	totalPeriods := int(startA.Sub(end) / resolution)
 
-	out := make(sequence, width64bits+totalPeriods*encodedWidth)
+	out := make(sequence, Width64bits+totalPeriods*encodedWidth)
 	sout := out
 
 	// Set start
-	copy(sout, sa[:width64bits])
-	sout = sout[width64bits:]
-	sa = sa[width64bits:]
-	sb = sb[width64bits:]
+	copy(sout, sa[:Width64bits])
+	sout = sout[Width64bits:]
+	sa = sa[Width64bits:]
+	sb = sb[Width64bits:]
 
 	// Handle starting window with no overlap
 	leadEnd := startB
@@ -295,7 +295,7 @@ func (seq sequence) truncate(periodWidth int, resolution time.Duration, truncate
 		// Entire sequence falls outside of truncation range
 		return nil
 	}
-	maxLength := width64bits + maxPeriods*periodWidth
+	maxLength := Width64bits + maxPeriods*periodWidth
 	if maxLength >= len(seq) {
 		return seq
 	}

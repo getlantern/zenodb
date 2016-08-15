@@ -36,7 +36,7 @@ func TestSequenceUpdate(t *testing.T) {
 				start = ts
 			}
 			truncateBefore := start.Add(-1 * retentionPeriod)
-			seq = seq.update(newTSParams(ts, bytemap.NewFloat(params)), nil, e, res, truncateBefore)
+			seq = seq.update(NewTSParams(ts, bytemap.NewFloat(params)), nil, e, res, truncateBefore)
 			checkUpdatedValues(t, e, seq, trunc(expected, 4))
 		}
 
@@ -82,12 +82,12 @@ func TestSequenceMergeAOB(t *testing.T) {
 	var seq1 sequence
 	var seq2 sequence
 
-	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
 
-	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), nil, e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), nil, e, res, truncateBefore)
 
 	checkMerge(t, epoch, res, seq1, seq2, e)
 	checkMerge(t, epoch, res, seq2, seq1, e)
@@ -102,12 +102,12 @@ func TestSequenceMergeAOA(t *testing.T) {
 	var seq1 sequence
 	var seq2 sequence
 
-	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), nil, e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), nil, e, res, truncateBefore)
 
-	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
 
 	checkMerge(t, epoch, res, seq1, seq2, e)
 	checkMerge(t, epoch, res, seq2, seq1, e)
@@ -122,10 +122,10 @@ func TestSequenceMergeAB(t *testing.T) {
 	var seq1 sequence
 	var seq2 sequence
 
-	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 6})), nil, e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), nil, e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 6})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-4*res), bytemap.NewFloat(map[string]float64{"a": 4})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-5*res), bytemap.NewFloat(map[string]float64{"a": 5})), nil, e, res, truncateBefore)
 	seq2 = seq2.merge(nil, e, res, zeroTime)
 	seq2 = ((sequence)(nil)).merge(seq2, e, res, zeroTime)
 
@@ -157,12 +157,12 @@ func TestSequenceMergeValueAt(t *testing.T) {
 	var seq1 sequence
 	var seq2 sequence
 
-	seq1 = seq1.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
-	seq1 = seq1.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
+	seq1 = seq1.update(NewTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
 
-	seq2 = seq2.update(newTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-2*res), bytemap.NewFloat(map[string]float64{"a": 2})), nil, e, res, truncateBefore)
-	seq2 = seq2.update(newTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-1*res), bytemap.NewFloat(map[string]float64{"a": 1})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-2*res), bytemap.NewFloat(map[string]float64{"a": 2})), nil, e, res, truncateBefore)
+	seq2 = seq2.update(NewTSParams(epoch.Add(-3*res), bytemap.NewFloat(map[string]float64{"a": 3})), nil, e, res, truncateBefore)
 
 	for i := 0; i < 3; i++ {
 		other, found := seq2.dataAt(i, e)
