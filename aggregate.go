@@ -253,11 +253,16 @@ func (exec *queryExecution) prepare() error {
 			return defaultKey
 		}
 	} else {
-		groupBy := make([]string, len(exec.GroupBy))
-		copy(groupBy, exec.GroupBy)
-		sort.Strings(groupBy)
+		keys := make([]string, 0, len(exec.GroupBy))
+		for _, groupBy := range exec.GroupBy {
+			keys = append(keys, groupBy.Name)
+		}
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			return key.Slice(groupBy...)
+			values := make([]interface{}, 0, len(keys))
+			for _, groupBy := range exec.GroupBy {
+				values = append(values, groupBy.Expr.Eval(key))
+			}
+			return bytemap.FromSortedKeysAndValues(keys, values)
 		}
 	}
 
@@ -358,15 +363,19 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		log.Tracef("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
 	}
 
-	if len(exec.GroupBy) == 0 {
-		exec.GroupBy = make([]string, 0, len(exec.dimsMap))
-		for dim := range exec.dimsMap {
-			exec.GroupBy = append(exec.GroupBy, dim)
+	var groupBy []string
+	if len(exec.GroupBy) > 0 {
+		for _, gb := range exec.GroupBy {
+			groupBy = append(groupBy, gb.Name)
 		}
-		sort.Strings(exec.GroupBy)
+	} else {
+		for dim := range exec.dimsMap {
+			groupBy = append(groupBy, dim)
+		}
+		sort.Strings(groupBy)
 	}
 
-	rows := exec.sortRows(exec.mergedRows())
+	rows := exec.sortRows(exec.mergedRows(groupBy))
 
 	result := &QueryResult{
 		Table:         exec.From,
@@ -374,7 +383,7 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		Until:         exec.q.until,
 		Resolution:    exec.Resolution,
 		FieldNames:    make([]string, 0, len(exec.Fields)),
-		GroupBy:       exec.GroupBy,
+		GroupBy:       groupBy,
 		NumPeriods:    exec.outPeriods,
 		Rows:          rows,
 		Stats:         stats,
@@ -387,7 +396,7 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	return result, nil
 }
 
-func (exec *queryExecution) mergedRows() []*Row {
+func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 	var entries []map[string]*entry
 	for e := range exec.entriesCh {
 		entries = append(entries, e)
@@ -418,8 +427,8 @@ func (exec *queryExecution) mergedRows() []*Row {
 			}
 
 			dims := make([]interface{}, 0, len(exec.dimsMap))
-			for _, dim := range exec.GroupBy {
-				dims = append(dims, v.dims[dim])
+			for _, groupBy := range exec.GroupBy {
+				dims = append(dims, v.dims[groupBy.Name])
 			}
 			for t := 0; t < exec.outPeriods; t++ {
 				if exec.Having != nil {
@@ -448,7 +457,7 @@ func (exec *queryExecution) mergedRows() []*Row {
 					Period:  t,
 					Dims:    dims,
 					Values:  values,
-					groupBy: exec.GroupBy,
+					groupBy: groupBy,
 					fields:  exec.Fields,
 				})
 			}

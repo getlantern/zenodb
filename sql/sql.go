@@ -5,14 +5,16 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/golog"
+	"github.com/getlantern/sqlparser"
 	"github.com/getlantern/zenodb/expr"
-	"github.com/oxtoacart/sqlparser"
 )
 
 var (
@@ -52,6 +54,13 @@ var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 	">":  expr.GT,
 }
 
+var unaryGoExpr = map[string]func(ex goexpr.Expr) goexpr.Expr{
+	"CITY":         geo.CITY,
+	"SUBD":         geo.SUBD,
+	"CITY_SUBD":    geo.CITY_SUBD,
+	"COUNTRY_CODE": geo.COUNTRY_CODE,
+}
+
 // Field is a named Expr.
 type Field struct {
 	Expr expr.Expr
@@ -70,6 +79,24 @@ func (f Field) String() string {
 	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
 }
 
+// GroupBy is a named goexpr.Expr.
+type GroupBy struct {
+	Expr goexpr.Expr
+	Name string
+}
+
+// NewGroupBy is a convenience method for creating new Fields.
+func NewGroupBy(name string, ex goexpr.Expr) GroupBy {
+	return GroupBy{
+		Expr: ex,
+		Name: name,
+	}
+}
+
+func (g GroupBy) String() string {
+	return fmt.Sprintf("%v (%v)", g.Name, g.Expr)
+}
+
 // Order represents an element in the ORDER BY clause such as "field DESC".
 type Order struct {
 	Field      string
@@ -78,7 +105,9 @@ type Order struct {
 
 // Query represents the result of parsing a SELECT query.
 type Query struct {
-	Fields      []Field
+	// Fields are the fields from the SELECT clause in the order they appear.
+	Fields []Field
+	// From is the Table from the FROM clause
 	From        string
 	Resolution  time.Duration
 	Where       goexpr.Expr
@@ -86,13 +115,14 @@ type Query struct {
 	AsOfOffset  time.Duration
 	Until       time.Time
 	UntilOffset time.Duration
-	GroupBy     []string
-	GroupByAll  bool
-	Having      expr.Expr
-	OrderBy     []Order
-	Offset      int
-	Limit       int
-	fieldsMap   map[string]Field
+	// GroupBy are the GroupBy expressions ordered alphabetically by name.
+	GroupBy    []GroupBy
+	GroupByAll bool
+	Having     expr.Expr
+	OrderBy    []Order
+	Offset     int
+	Limit      int
+	fieldsMap  map[string]Field
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -200,7 +230,7 @@ func (q *Query) applyFrom(stmt *sqlparser.Select) error {
 }
 
 func (q *Query) applyWhere(stmt *sqlparser.Select) error {
-	where, err := q.boolExprFor(stmt.Where.Expr)
+	where, err := q.goExprFor(stmt.Where.Expr)
 	if err != nil {
 		return err
 	}
@@ -239,6 +269,8 @@ func (q *Query) applyTimeRange(stmt *sqlparser.Select) error {
 
 func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	groupedByAnything := false
+	groupBy := make(map[string]GroupBy)
+	var groupByNames []string
 	for _, e := range stmt.GroupBy {
 		groupedByAnything = true
 		_, ok := e.(*sqlparser.StarExpr)
@@ -246,7 +278,11 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			q.GroupByAll = true
 			continue
 		}
-		fn, ok := e.(*sqlparser.FuncExpr)
+		nse, ok := e.(*sqlparser.NonStarExpr)
+		if !ok {
+			return fmt.Errorf("Unexpected expression in Group By: %v", exprToString(e))
+		}
+		fn, ok := nse.Expr.(*sqlparser.FuncExpr)
 		if ok && strings.EqualFold("period", string(fn.Name)) {
 			log.Trace("Detected period in group by")
 			if len(fn.Exprs) != 1 {
@@ -260,12 +296,32 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			q.Resolution = res
 		} else {
 			log.Trace("Dimension specified in group by")
-			q.GroupBy = append(q.GroupBy, strings.ToLower(exprToString(e)))
+			ex, err := q.goExprFor(nse.Expr)
+			if err != nil {
+				return err
+			}
+			name := string(nse.As)
+			if len(name) == 0 {
+				cname, ok := nse.Expr.(*sqlparser.ColName)
+				if ok {
+					name = string(cname.Name)
+				}
+			}
+			if len(name) == 0 {
+				return fmt.Errorf("Expression %v needs to be named via an AS", exprToString(nse))
+			}
+			groupBy[name] = NewGroupBy(name, ex)
+			groupByNames = append(groupByNames, name)
 		}
 	}
 
 	if !groupedByAnything {
 		q.GroupByAll = true
+	} else {
+		sort.Strings(groupByNames)
+		for _, name := range groupByNames {
+			q.GroupBy = append(q.GroupBy, groupBy[name])
+		}
 	}
 	return nil
 }
@@ -352,7 +408,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 			if valueErr != nil {
 				return nil, valueErr
 			}
-			boolEx, boolErr := q.boolExprFor(condEx.Expr)
+			boolEx, boolErr := q.goExprFor(condEx.Expr)
 			if boolErr != nil {
 				return nil, boolErr
 			}
@@ -443,45 +499,45 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 	}
 }
 
-func (q *Query) boolExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
+func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	if log.IsTraceEnabled() {
 		log.Tracef("Parsing boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
 	switch e := _e.(type) {
 	case *sqlparser.AndExpr:
-		left, err := q.boolExprFor(e.Left)
+		left, err := q.goExprFor(e.Left)
 		if err != nil {
 			return nil, err
 		}
-		right, err := q.boolExprFor(e.Right)
+		right, err := q.goExprFor(e.Right)
 		if err != nil {
 			return nil, err
 		}
 		return goexpr.Binary("AND", left, right)
 	case *sqlparser.OrExpr:
-		left, err := q.boolExprFor(e.Left)
+		left, err := q.goExprFor(e.Left)
 		if err != nil {
 			return nil, err
 		}
-		right, err := q.boolExprFor(e.Right)
+		right, err := q.goExprFor(e.Right)
 		if err != nil {
 			return nil, err
 		}
 		return goexpr.Binary("OR", left, right)
 	case *sqlparser.ParenBoolExpr:
-		return q.boolExprFor(e.Expr)
+		return q.goExprFor(e.Expr)
 	case *sqlparser.NotExpr:
-		wrapped, err := q.boolExprFor(e.Expr)
+		wrapped, err := q.goExprFor(e.Expr)
 		if err != nil {
 			return nil, err
 		}
 		return goexpr.Not(wrapped), nil
 	case *sqlparser.ComparisonExpr:
-		left, err := q.boolExprFor(e.Left)
+		left, err := q.goExprFor(e.Left)
 		if err != nil {
 			return nil, err
 		}
-		right, err := q.boolExprFor(e.Right)
+		right, err := q.goExprFor(e.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -501,6 +557,26 @@ func (q *Query) boolExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			return nil, parseErr
 		}
 		return goexpr.Constant(val), nil
+	case *sqlparser.FuncExpr:
+		fname := strings.ToUpper(string(e.Name))
+		switch len(e.Exprs) {
+		case 1:
+			fn, found := unaryGoExpr[fname]
+			if !found {
+				return nil, fmt.Errorf("Unknown function %v", fname)
+			}
+			nse, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			wrapped, err := q.goExprFor(nse.Expr)
+			if err != nil {
+				return nil, err
+			}
+			return fn(wrapped), nil
+		default:
+			return nil, fmt.Errorf("Function %v expects 1 argument", fname)
+		}
 	default:
 		return nil, fmt.Errorf("Unknown boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}

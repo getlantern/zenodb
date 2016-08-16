@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/goexpr/geo"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/stretchr/testify/assert"
 )
@@ -20,7 +21,7 @@ SELECT
 	IF(dim = 'test', AVG(myfield)) AS the_avg
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host' AND dim_f != true
-GROUP BY dim_a, period('5s') // period is a special function
+GROUP BY dim_a, CITY(ip) AS city, SUBD(ip) AS state, CITY_SUBD(ip) AS city_state, COUNTRY_CODE(ip) AS country, period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, X
 LIMIT 100, 10
@@ -60,8 +61,12 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, "table_a", q.From)
-	if assert.Len(t, q.GroupBy, 1) {
-		assert.Equal(t, "dim_a", q.GroupBy[0])
+	if assert.Len(t, q.GroupBy, 5) {
+		assert.Equal(t, NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[0])
+		assert.Equal(t, NewGroupBy("city_state", geo.CITY_SUBD(goexpr.Param("ip"))), q.GroupBy[1])
+		assert.Equal(t, NewGroupBy("country", geo.COUNTRY_CODE(goexpr.Param("ip"))), q.GroupBy[2])
+		assert.Equal(t, NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[3])
+		assert.Equal(t, NewGroupBy("state", geo.SUBD(goexpr.Param("ip"))), q.GroupBy[4])
 	}
 	assert.False(t, q.GroupByAll)
 	assert.Equal(t, -60*time.Minute, q.AsOfOffset)

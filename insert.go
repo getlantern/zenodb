@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/encoding"
 )
 
@@ -61,8 +62,8 @@ func (t *table) insert(point *Point) {
 	if len(t.GroupBy) > 0 {
 		// Reslice dimensions
 		newDims := make(map[string]interface{}, len(t.GroupBy))
-		for _, dim := range t.GroupBy {
-			newDims[dim] = point.Dims[dim]
+		for _, groupBy := range t.GroupBy {
+			newDims[groupBy.Name] = groupBy.Expr.Eval(goexpr.MapParams(point.Dims))
 		}
 		point = &Point{
 			Ts:   point.Ts,
