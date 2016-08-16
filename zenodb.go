@@ -2,11 +2,13 @@ package zenodb
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
 )
@@ -52,6 +54,10 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
+	}
+	err = geo.Init(filepath.Join(opts.Dir, "geoip.dat.gz"))
+	if err != nil {
+		return nil, fmt.Errorf("Unable to initialize geo: %v", err)
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 	return db, err
