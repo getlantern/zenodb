@@ -15,6 +15,7 @@ var (
 
 	dbdir     = flag.String("dbdir", "zenodb", "The directory in which to store the database files, defaults to ./zenodb")
 	schema    = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
+	ispdb     = flag.String("ispdb", "", "In order to enable ISP functions, point this to an IP2Location Lite ISP database file like the one here - https://lite.ip2location.com/database/ip-asn")
 	fresh     = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
 	vtime     = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time.  When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
 	addr      = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC connections, defaults to localhost:17712")
@@ -38,6 +39,7 @@ func main() {
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		Dir:                    *dbdir,
 		SchemaFile:             *schema,
+		ISPDatabase:            *ispdb,
 		IncludeMemStoreInQuery: *fresh,
 		VirtualTime:            *vtime,
 	})

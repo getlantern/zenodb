@@ -9,6 +9,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
+	"github.com/getlantern/goexpr/isp"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
 )
@@ -19,11 +20,15 @@ var (
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
+	// Dir points at the directory that contains the data files.
+	Dir string
 	// SchemaFile points at a YAML schema file that configures the tables and
 	// views in the database.
 	SchemaFile string
-	// Dir points at the directory that contains the data files.
-	Dir string
+	// ISPDatabase points at an ISP database like the one from here:
+	// https://lite.ip2location.com/database/ip-asn. Specify this to allow the use
+	// of ISP functions.
+	ISPDatabase string
 	// DiscardOnBackPressure, when true, tells zenodb to discard new inserts if it
 	// is unable to keep up with the insert rate.
 	DiscardOnBackPressure bool
@@ -55,9 +60,17 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 	}
+	log.Debug("Enabling geolocation functions")
 	err = geo.Init(filepath.Join(opts.Dir, "geoip.dat.gz"))
 	if err != nil {
 		return nil, fmt.Errorf("Unable to initialize geo: %v", err)
+	}
+	if opts.ISPDatabase != "" {
+		log.Debugf("Enabling ISP functions using file at %v", opts.ISPDatabase)
+		err = isp.Init(opts.ISPDatabase)
+		if err != nil {
+			return nil, fmt.Errorf("Unable to initialize ISP functions from file at %v: %v", opts.ISPDatabase, err)
+		}
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 	return db, err

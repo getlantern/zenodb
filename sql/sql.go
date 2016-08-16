@@ -12,6 +12,7 @@ import (
 
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/goexpr/geo"
+	"github.com/getlantern/goexpr/isp"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/sqlparser"
 	"github.com/getlantern/zenodb/expr"
@@ -59,6 +60,8 @@ var unaryGoExpr = map[string]func(ex goexpr.Expr) goexpr.Expr{
 	"REGION":       geo.REGION,
 	"REGION_CITY":  geo.REGION_CITY,
 	"COUNTRY_CODE": geo.COUNTRY_CODE,
+	"ISP":          isp.ISP,
+	"ASN":          isp.ASN,
 }
 
 // Field is a named Expr.
