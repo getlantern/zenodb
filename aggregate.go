@@ -253,16 +253,17 @@ func (exec *queryExecution) prepare() error {
 			return defaultKey
 		}
 	} else {
-		keys := make([]string, 0, len(exec.GroupBy))
-		for _, groupBy := range exec.GroupBy {
-			keys = append(keys, groupBy.Name)
-		}
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			values := make([]interface{}, 0, len(keys))
+			names := make([]string, 0, len(exec.GroupBy))
+			values := make([]interface{}, 0, len(exec.GroupBy))
 			for _, groupBy := range exec.GroupBy {
-				values = append(values, groupBy.Expr.Eval(key))
+				val := groupBy.Expr.Eval(key)
+				if val != nil {
+					names = append(names, groupBy.Name)
+					values = append(values, val)
+				}
 			}
-			return bytemap.FromSortedKeysAndValues(keys, values)
+			return bytemap.FromSortedKeysAndValues(names, values)
 		}
 	}
 

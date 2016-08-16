@@ -59,22 +59,25 @@ func (t *table) insert(point *Point) {
 	}
 	t.db.clock.Advance(point.Ts)
 
-	if len(t.GroupBy) > 0 {
+	var key bytemap.ByteMap
+	if len(t.GroupBy) == 0 {
+		key = bytemap.New(point.Dims)
+	} else {
 		// Reslice dimensions
-		newDims := make(map[string]interface{}, len(t.GroupBy))
+		names := make([]string, 0, len(t.GroupBy))
+		values := make([]interface{}, 0, len(t.GroupBy))
+		params := goexpr.MapParams(point.Dims)
 		for _, groupBy := range t.GroupBy {
-			newDims[groupBy.Name] = groupBy.Expr.Eval(goexpr.MapParams(point.Dims))
+			val := groupBy.Expr.Eval(params)
+			if val != nil {
+				names = append(names, groupBy.Name)
+				values = append(values, val)
+			}
 		}
-		point = &Point{
-			Ts:   point.Ts,
-			Dims: newDims,
-			Vals: point.Vals,
-		}
+		key = bytemap.FromSortedKeysAndValues(names, values)
 	}
 
-	key := bytemap.New(point.Dims)
 	vals := encoding.NewTSParams(point.Ts, bytemap.NewFloat(point.Vals))
-
 	if t.db.opts.DiscardOnBackPressure {
 		select {
 		case t.inserts <- &insert{key, vals}:
