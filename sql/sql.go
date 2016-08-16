@@ -56,8 +56,8 @@ var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 
 var unaryGoExpr = map[string]func(ex goexpr.Expr) goexpr.Expr{
 	"CITY":         geo.CITY,
-	"SUBD":         geo.SUBD,
-	"CITY_SUBD":    geo.CITY_SUBD,
+	"REGION":       geo.REGION,
+	"REGION_CITY":  geo.REGION_CITY,
 	"COUNTRY_CODE": geo.COUNTRY_CODE,
 }
 
