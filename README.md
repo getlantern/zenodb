@@ -21,6 +21,7 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Harmonize field vs column language
  * More unit tests and general code cleanup
  * Populate views with historical data upon creation
+ * Byte array buffers to avoid allocations for sequences and ByteMaps
  * Limit query memory consumption to avoid OOM killer
  * More validations/error checking
  * TLS in RPC

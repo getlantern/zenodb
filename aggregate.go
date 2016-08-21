@@ -11,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
@@ -364,16 +365,22 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		log.Tracef("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
 	}
 
-	var groupBy []string
-	if len(exec.GroupBy) > 0 {
-		for _, gb := range exec.GroupBy {
-			groupBy = append(groupBy, gb.Name)
-		}
-	} else {
+	if len(exec.GroupBy) == 0 {
+		// Fill in group by based on dims discovered during query
+		dims := make([]string, 0, len(exec.dimsMap))
 		for dim := range exec.dimsMap {
-			groupBy = append(groupBy, dim)
+			dims = append(dims, dim)
 		}
-		sort.Strings(groupBy)
+		sort.Strings(dims)
+		for _, dim := range dims {
+			exec.GroupBy = append(exec.GroupBy, sql.NewGroupBy(dim, goexpr.Param(dim)))
+		}
+	}
+
+	// Extract group by strings
+	var groupBy []string
+	for _, gb := range exec.GroupBy {
+		groupBy = append(groupBy, gb.Name)
 	}
 
 	rows := exec.sortRows(exec.mergedRows(groupBy))
