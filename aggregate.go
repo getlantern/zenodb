@@ -45,18 +45,19 @@ func (row *Row) get(param string) interface{} {
 }
 
 type QueryResult struct {
-	Table         string
-	AsOf          time.Time
-	Until         time.Time
-	Resolution    time.Duration
-	FieldNames    []string // FieldNames are needed for serializing QueryResult across rpc
-	IsCrosstab    bool
-	CrosstabDims  []interface{}
-	GroupBy       []string
-	Rows          []*Row
-	Stats         *QueryStats
-	NumPeriods    int
-	ScannedPoints int64
+	Table            string
+	AsOf             time.Time
+	Until            time.Time
+	Resolution       time.Duration
+	FieldNames       []string // FieldNames are needed for serializing QueryResult across rpc
+	IsCrosstab       bool
+	CrosstabDims     []interface{}
+	GroupBy          []string
+	PopulatedColumns []bool
+	Rows             []*Row
+	Stats            *QueryStats
+	NumPeriods       int
+	ScannedPoints    int64
 }
 
 type Query struct {
@@ -98,6 +99,7 @@ type queryExecution struct {
 	crosstabDims           []interface{}
 	crosstabDimIdxs        map[interface{}]int
 	crosstabDimReverseIdxs []int
+	populatedColumns       []bool
 	scalingFactor          int
 	inPeriods              int
 	outPeriods             int
@@ -351,7 +353,6 @@ func (exec *queryExecution) prepare() error {
 						idx := f
 						if exec.isCrosstab {
 							idx = crosstabDimIdx*len(exec.Fields) + f
-							log.Debugf("IDX %v | %v %d from %d * %d + %d", field.Name, exec.crosstabDims[crosstabDimIdx], idx, crosstabDimIdx, len(exec.Fields), f)
 						}
 						if idx >= len(en.fields) {
 							// Grow fields
@@ -431,6 +432,11 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	for i, dim := range exec.crosstabDims {
 		exec.crosstabDimReverseIdxs[exec.crosstabDimIdxs[dim]] = i
 	}
+	numColumns := len(exec.Fields)
+	if exec.isCrosstab {
+		numColumns = numColumns * len(exec.crosstabDims)
+	}
+	exec.populatedColumns = make([]bool, numColumns)
 	rows := exec.sortRows(exec.mergedRows(groupBy))
 
 	fieldNames := make([]string, 0, len(exec.Fields))
@@ -439,18 +445,19 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	}
 
 	result := &QueryResult{
-		Table:         exec.From,
-		AsOf:          exec.q.asOf,
-		Until:         exec.q.until,
-		Resolution:    exec.Resolution,
-		FieldNames:    fieldNames,
-		IsCrosstab:    exec.isCrosstab,
-		CrosstabDims:  exec.crosstabDims,
-		GroupBy:       groupBy,
-		NumPeriods:    exec.outPeriods,
-		Rows:          rows,
-		Stats:         stats,
-		ScannedPoints: exec.scannedPoints,
+		Table:            exec.From,
+		AsOf:             exec.q.asOf,
+		Until:            exec.q.until,
+		Resolution:       exec.Resolution,
+		FieldNames:       fieldNames,
+		IsCrosstab:       exec.isCrosstab,
+		CrosstabDims:     exec.crosstabDims,
+		GroupBy:          groupBy,
+		NumPeriods:       exec.outPeriods,
+		PopulatedColumns: exec.populatedColumns,
+		Rows:             rows,
+		Stats:            stats,
+		ScannedPoints:    exec.scannedPoints,
 	}
 
 	return result, nil
@@ -529,14 +536,13 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 						dimIdx := i / len(exec.Fields)
 						sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
 						outIdx = fieldIdx*len(exec.crosstabDims) + sortedDimIdx
-						log.Debugf("%d -> %d from %d * %d + %d", i, outIdx, fieldIdx, len(exec.Fields), sortedDimIdx)
 					}
 					field := exec.Fields[fieldIdx]
 					val, wasSet := vals.ValueAt(t, field.Expr)
 					values[outIdx] = val
-					log.Debugf("%v (%d) : %d : %f", exec.crosstabDims[i/len(exec.Fields)], i/len(exec.Fields), outIdx, val)
 					if wasSet {
 						hasData = true
+						exec.populatedColumns[outIdx] = true
 					}
 				}
 				if !hasData {
