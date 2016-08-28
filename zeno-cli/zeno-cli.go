@@ -232,8 +232,8 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		for i := range result.GroupBy {
 			fmt.Fprintf(stdout, dimFormats[i], "")
 		}
-		for i, crosstabDim := range result.CrosstabDims {
-			for j := range result.FieldNames {
+		for j := range result.FieldNames {
+			for i, crosstabDim := range result.CrosstabDims {
 				idx := j*len(result.FieldNames) + i
 				fmt.Fprintf(stdout, fieldLabelFormats[idx], crosstabDim)
 			}
@@ -261,16 +261,44 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 	w := csv.NewWriter(stdout)
 	defer w.Flush()
 
-	rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.FieldNames))
+	numFields := len(result.FieldNames)
+	if result.IsCrosstab {
+		numFields = numFields * len(result.CrosstabDims)
+	}
+
+	// Write header
+	rowStrings := make([]string, 0, 1+len(result.GroupBy)+numFields)
 	rowStrings = append(rowStrings, "time")
 	for _, dim := range result.GroupBy {
 		rowStrings = append(rowStrings, dim)
 	}
 	for _, field := range result.FieldNames {
-		rowStrings = append(rowStrings, field)
+		if result.IsCrosstab {
+			for range result.CrosstabDims {
+				rowStrings = append(rowStrings, field)
+			}
+		} else {
+			rowStrings = append(rowStrings, field)
+		}
 	}
 	w.Write(rowStrings)
 	w.Flush()
+
+	if result.IsCrosstab {
+		// Write 2nd header row
+		rowStrings := make([]string, 0, 1+len(result.GroupBy)+numFields)
+		rowStrings = append(rowStrings, "")
+		for range result.GroupBy {
+			rowStrings = append(rowStrings, "")
+		}
+		for range result.FieldNames {
+			for _, crosstabDim := range result.CrosstabDims {
+				rowStrings = append(rowStrings, fmt.Sprint(crosstabDim))
+			}
+		}
+		w.Write(rowStrings)
+		w.Flush()
+	}
 
 	i := 0
 	for {
