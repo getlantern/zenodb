@@ -89,22 +89,23 @@ type entry struct {
 type queryExecution struct {
 	db *DB
 	sql.Query
-	t                *table
-	q                *query
-	subMergers       [][]expr.SubMerge
-	havingSubMergers []expr.SubMerge
-	dimsMap          map[string]bool
-	isCrosstab       bool
-	crosstabDimIdxs  map[interface{}]int
-	crosstabDims     []interface{}
-	scalingFactor    int
-	inPeriods        int
-	outPeriods       int
-	numWorkers       int
-	responsesCh      chan *queryResponse
-	entriesCh        chan map[string]*entry
-	wg               sync.WaitGroup
-	scannedPoints    int64
+	t                      *table
+	q                      *query
+	subMergers             [][]expr.SubMerge
+	havingSubMergers       []expr.SubMerge
+	dimsMap                map[string]bool
+	isCrosstab             bool
+	crosstabDims           []interface{}
+	crosstabDimIdxs        map[interface{}]int
+	crosstabDimReverseIdxs []int
+	scalingFactor          int
+	inPeriods              int
+	outPeriods             int
+	numWorkers             int
+	responsesCh            chan *queryResponse
+	entriesCh              chan map[string]*entry
+	wg                     sync.WaitGroup
+	scannedPoints          int64
 }
 
 func (db *DB) SQLQuery(sqlString string) (*Query, error) {
@@ -350,6 +351,7 @@ func (exec *queryExecution) prepare() error {
 						idx := f
 						if exec.isCrosstab {
 							idx = crosstabDimIdx*len(exec.Fields) + f
+							log.Debugf("IDX %v | %v %d from %d * %d + %d", field.Name, exec.crosstabDims[crosstabDimIdx], idx, crosstabDimIdx, len(exec.Fields), f)
 						}
 						if idx >= len(en.fields) {
 							// Grow fields
@@ -424,7 +426,11 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		groupBy = append(groupBy, gb.Name)
 	}
 
-	// TODO: sort crosstab dims
+	exec.crosstabDimReverseIdxs = make([]int, len(exec.crosstabDims))
+	sort.Sort(orderedValues(exec.crosstabDims))
+	for i, dim := range exec.crosstabDims {
+		exec.crosstabDimReverseIdxs[exec.crosstabDimIdxs[dim]] = i
+	}
 	rows := exec.sortRows(exec.mergedRows(groupBy))
 
 	fieldNames := make([]string, 0, len(exec.Fields))
@@ -506,7 +512,10 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 						continue
 					}
 				}
-				numFields := len(v.fields)
+				numFields := len(exec.Fields)
+				if exec.isCrosstab {
+					numFields = numFields * len(exec.crosstabDims)
+				}
 				values := make([]float64, numFields)
 				hasData := false
 				for i, vals := range v.fields {
@@ -514,12 +523,18 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 						continue
 					}
 					fieldIdx := i
+					outIdx := i
 					if exec.isCrosstab {
 						fieldIdx = i % len(exec.Fields)
+						dimIdx := i / len(exec.Fields)
+						sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
+						outIdx = fieldIdx*len(exec.crosstabDims) + sortedDimIdx
+						log.Debugf("%d -> %d from %d * %d + %d", i, outIdx, fieldIdx, len(exec.Fields), sortedDimIdx)
 					}
 					field := exec.Fields[fieldIdx]
 					val, wasSet := vals.ValueAt(t, field.Expr)
-					values[i] = val
+					values[outIdx] = val
+					log.Debugf("%v (%d) : %d : %f", exec.crosstabDims[i/len(exec.Fields)], i/len(exec.Fields), outIdx, val)
 					if wasSet {
 						hasData = true
 					}
@@ -599,139 +614,12 @@ func (r orderedRows) Less(i, j int) bool {
 		if order.Descending {
 			va, vb = vb, va
 		}
-		if va == nil {
-			if vb != nil {
-				return true
-			}
-			continue
+		result := compare(va, vb)
+		if result < 0 {
+			return true
 		}
-		if vb == nil {
-			if va != nil {
-				return false
-			}
-			continue
-		}
-		switch tva := va.(type) {
-		case bool:
-			tvb := vb.(bool)
-			if tva && !tvb {
-				return false
-			}
-			if !tva && tvb {
-				return true
-			}
-		case byte:
-			tvb := vb.(byte)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case uint16:
-			tvb := vb.(uint16)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case uint32:
-			tvb := vb.(uint32)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case uint64:
-			tvb := vb.(uint64)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case uint:
-			tvb := uint(vb.(uint64))
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case int8:
-			tvb := vb.(int8)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case int16:
-			tvb := vb.(int16)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case int32:
-			tvb := vb.(int32)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case int64:
-			tvb := vb.(int64)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case int:
-			tvb := vb.(int)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case float32:
-			tvb := vb.(float32)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case float64:
-			tvb := vb.(float64)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case string:
-			tvb := vb.(string)
-			if tva > tvb {
-				return false
-			}
-			if tva < tvb {
-				return true
-			}
-		case time.Time:
-			tvb := vb.(time.Time)
-			if tva.After(tvb) {
-				return false
-			}
-			if tva.Before(tvb) {
-				return true
-			}
+		if result > 0 {
+			return false
 		}
 	}
 	return false
