@@ -122,7 +122,7 @@ type Query struct {
 	// GroupBy are the GroupBy expressions ordered alphabetically by name.
 	GroupBy    []GroupBy
 	GroupByAll bool
-	// Crosstab is the name of a dimension to use as a crosstab (goes into columns rather than rows)
+	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
 	Crosstab  goexpr.Expr
 	Having    expr.Expr
 	OrderBy   []Order
@@ -300,38 +300,43 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 				return fmt.Errorf("Unable to parse period %v: %v", period, err)
 			}
 			q.Resolution = res
-		} else if ok && strings.EqualFold("CROSSTAB", string(fn.Name)) {
-			log.Trace("Detected crosstab in group by")
-			if len(fn.Exprs) != 1 {
-				return ErrCROSSTABArity
-			}
-			_subEx, ok := fn.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return ErrWildcardNotAllowed
-			}
-			subEx, subErr := q.goExprFor(_subEx.Expr)
-			if subErr != nil {
-				return subErr
-			}
-			q.Crosstab = subEx
 		} else {
-			log.Trace("Dimension specified in group by")
-			ex, err := q.goExprFor(nse.Expr)
+			var nestedEx sqlparser.Expr
+			isCrosstab := ok && strings.EqualFold("CROSSTAB", string(fn.Name))
+			if isCrosstab {
+				log.Trace("Detected crosstab in group by")
+				if len(fn.Exprs) != 1 {
+					return ErrCROSSTABArity
+				}
+				_subEx, ok := fn.Exprs[0].(*sqlparser.NonStarExpr)
+				if !ok {
+					return ErrWildcardNotAllowed
+				}
+				nestedEx = _subEx.Expr
+			} else {
+				log.Trace("Dimension specified in group by")
+				nestedEx = nse.Expr
+			}
+			ex, err := q.goExprFor(nestedEx)
 			if err != nil {
 				return err
 			}
-			name := string(nse.As)
-			if len(name) == 0 {
-				cname, ok := nse.Expr.(*sqlparser.ColName)
-				if ok {
-					name = string(cname.Name)
+			if isCrosstab {
+				q.Crosstab = ex
+			} else {
+				name := string(nse.As)
+				if len(name) == 0 {
+					cname, ok := nestedEx.(*sqlparser.ColName)
+					if ok {
+						name = string(cname.Name)
+					}
 				}
+				if len(name) == 0 {
+					return fmt.Errorf("Expression %v needs to be named via an AS", exprToString(nse))
+				}
+				groupBy[name] = NewGroupBy(name, ex)
+				groupByNames = append(groupByNames, name)
 			}
-			if len(name) == 0 {
-				return fmt.Errorf("Expression %v needs to be named via an AS", exprToString(nse))
-			}
-			groupBy[name] = NewGroupBy(name, ex)
-			groupByNames = append(groupByNames, name)
 		}
 	}
 

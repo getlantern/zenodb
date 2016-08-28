@@ -50,6 +50,8 @@ type QueryResult struct {
 	Until         time.Time
 	Resolution    time.Duration
 	FieldNames    []string // FieldNames are needed for serializing QueryResult across rpc
+	IsCrosstab    bool
+	CrosstabDims  []interface{}
 	GroupBy       []string
 	Rows          []*Row
 	Stats         *QueryStats
@@ -92,6 +94,9 @@ type queryExecution struct {
 	subMergers       [][]expr.SubMerge
 	havingSubMergers []expr.SubMerge
 	dimsMap          map[string]bool
+	isCrosstab       bool
+	crosstabDimIdxs  map[interface{}]int
+	crosstabDims     []interface{}
 	scalingFactor    int
 	inPeriods        int
 	outPeriods       int
@@ -154,6 +159,11 @@ func (exec *queryExecution) run() (*QueryResult, error) {
 }
 
 func (exec *queryExecution) prepare() error {
+	exec.isCrosstab = exec.Crosstab != nil
+	if exec.isCrosstab {
+		exec.crosstabDimIdxs = make(map[interface{}]int, 0)
+	}
+
 	// Figure out what to select
 	columns := make([]expr.Expr, 0, len(exec.t.Fields))
 	for _, column := range exec.t.Fields {
@@ -278,6 +288,7 @@ func (exec *queryExecution) prepare() error {
 					dims:   kb.AsMap(),
 					fields: make([]encoding.Sequence, len(exec.Fields)),
 				}
+
 				if exec.GroupByAll {
 					// Track dims
 					for dim := range en.dims {
@@ -287,13 +298,6 @@ func (exec *queryExecution) prepare() error {
 						exec.dimsMap[dim] = true
 						dimsMapMutex.Unlock()
 					}
-				}
-
-				// Initialize fields
-				for i, f := range exec.Fields {
-					seq := encoding.NewSequence(f.Expr.EncodedWidth(), exec.outPeriods)
-					seq.SetStart(exec.q.until)
-					en.fields[i] = seq
 				}
 
 				// Initialize havings
@@ -316,13 +320,50 @@ func (exec *queryExecution) prepare() error {
 					}
 					atomic.AddInt64(&exec.scannedPoints, 1)
 
+					crosstabDimIdx := 0
+					if exec.isCrosstab {
+						crosstabDim := exec.Crosstab.Eval(resp.key)
+						dimsMapMutex.Lock()
+						var found bool
+						crosstabDimIdx, found = exec.crosstabDimIdxs[crosstabDim]
+						if !found {
+							numCrosstabDims := len(exec.crosstabDims)
+							crosstabFull := numCrosstabDims >= 1000
+							if crosstabFull {
+								dimsMapMutex.Unlock()
+								continue
+							}
+							crosstabDimIdx = numCrosstabDims
+							exec.crosstabDimIdxs[crosstabDim] = crosstabDimIdx
+							exec.crosstabDims = append(exec.crosstabDims, crosstabDim)
+						}
+						dimsMapMutex.Unlock()
+					}
+
 					out := t / exec.scalingFactor
 					for f, field := range exec.Fields {
 						subMerge := exec.subMergers[f][c]
 						if subMerge == nil {
 							continue
 						}
-						seq := en.fields[f]
+
+						idx := f
+						if exec.isCrosstab {
+							idx = crosstabDimIdx*len(exec.Fields) + f
+						}
+						if idx >= len(en.fields) {
+							// Grow fields
+							orig := en.fields
+							en.fields = make([]encoding.Sequence, idx+1)
+							copy(en.fields, orig)
+						}
+						seq := en.fields[idx]
+						if seq == nil {
+							// Lazily initialize sequence
+							seq = encoding.NewSequence(field.Expr.EncodedWidth(), exec.outPeriods)
+							seq.SetStart(exec.q.until)
+							en.fields[idx] = seq
+						}
 						seq.SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
 					}
 
@@ -383,22 +424,27 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		groupBy = append(groupBy, gb.Name)
 	}
 
+	// TODO: sort crosstab dims
 	rows := exec.sortRows(exec.mergedRows(groupBy))
+
+	fieldNames := make([]string, 0, len(exec.Fields))
+	for _, field := range exec.Fields {
+		fieldNames = append(fieldNames, field.Name)
+	}
 
 	result := &QueryResult{
 		Table:         exec.From,
 		AsOf:          exec.q.asOf,
 		Until:         exec.q.until,
 		Resolution:    exec.Resolution,
-		FieldNames:    make([]string, 0, len(exec.Fields)),
+		FieldNames:    fieldNames,
+		IsCrosstab:    exec.isCrosstab,
+		CrosstabDims:  exec.crosstabDims,
 		GroupBy:       groupBy,
 		NumPeriods:    exec.outPeriods,
 		Rows:          rows,
 		Stats:         stats,
 		ScannedPoints: exec.scannedPoints,
-	}
-	for _, field := range exec.Fields {
-		result.FieldNames = append(result.FieldNames, field.Name)
 	}
 
 	return result, nil
@@ -419,15 +465,29 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 					vo, ok := o[k]
 					if ok {
 						for x, os := range vo.fields {
-							ex := exec.Fields[x].Expr
-							res := v.fields[x].Merge(os, ex, exec.Resolution, exec.AsOf)
-							if log.IsTraceEnabled() {
-								log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.fields[x].String(ex), res.String(ex))
+							if os != nil {
+								fieldIdx := x
+								if exec.isCrosstab {
+									fieldIdx = x % len(exec.Fields)
+								}
+								ex := exec.Fields[fieldIdx].Expr
+								if x >= len(v.fields) {
+									// Grow
+									orig := v.fields
+									v.fields = make([]encoding.Sequence, x+1)
+									copy(v.fields, orig)
+									v.fields[x] = os
+								} else {
+									res := v.fields[x].Merge(os, ex, exec.Resolution, exec.AsOf)
+									if log.IsTraceEnabled() {
+										log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.fields[x].String(ex), res.String(ex))
+									}
+									v.fields[x] = res
+								}
 							}
-							v.fields[x] = res
-						}
-						if exec.Having != nil {
-							v.havingTest = v.havingTest.Merge(vo.havingTest, exec.Having, exec.Resolution, exec.AsOf)
+							if exec.Having != nil {
+								v.havingTest = v.havingTest.Merge(vo.havingTest, exec.Having, exec.Resolution, exec.AsOf)
+							}
 						}
 						delete(o, k)
 					}
@@ -446,12 +506,20 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 						continue
 					}
 				}
-				values := make([]float64, 0, len(exec.Fields))
+				numFields := len(v.fields)
+				values := make([]float64, numFields)
 				hasData := false
-				for i, field := range exec.Fields {
-					vals := v.fields[i]
+				for i, vals := range v.fields {
+					if vals == nil {
+						continue
+					}
+					fieldIdx := i
+					if exec.isCrosstab {
+						fieldIdx = i % len(exec.Fields)
+					}
+					field := exec.Fields[fieldIdx]
 					val, wasSet := vals.ValueAt(t, field.Expr)
-					values = append(values, val)
+					values[i] = val
 					if wasSet {
 						hasData = true
 					}

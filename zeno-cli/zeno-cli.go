@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/appdir"
 	"github.com/getlantern/golog"
@@ -111,11 +112,24 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, cs
 		return err
 	}
 
+	if log.IsTraceEnabled() {
+		log.Tracef("Query response: %v", spew.Sdump(result))
+		_nextRow := nextRow
+		nextRow = func() (*zenodb.Row, error) {
+			row, err := _nextRow()
+			if err != nil {
+				log.Tracef("Error fetching row: %v", err)
+				return row, err
+			}
+			log.Tracef("Got row: %v", spew.Sdump(row))
+			return row, err
+		}
+	}
+
 	if csv {
 		return dumpCSV(stdout, result, nextRow)
-	} else {
-		return dumpPlainText(stdout, sql, result, nextRow)
 	}
+	return dumpPlainText(stdout, sql, result, nextRow)
 }
 
 func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nextRow func() (*zenodb.Row, error)) error {
@@ -135,9 +149,14 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		rows = append(rows, row)
 	}
 
+	numFields := len(result.FieldNames)
+	if result.IsCrosstab {
+		numFields = numFields * len(result.CrosstabDims)
+	}
+
 	// Calculate widths for dimensions and fields
 	dimWidths := make([]int, len(result.GroupBy))
-	fieldWidths := make([]int, len(result.FieldNames))
+	fieldWidths := make([]int, numFields)
 
 	for i, dim := range result.GroupBy {
 		width := len(dim)
@@ -148,7 +167,16 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 
 	for i, field := range result.FieldNames {
 		width := len(field)
-		if width > fieldWidths[i] {
+		if result.IsCrosstab {
+			for j, dim := range result.CrosstabDims {
+				cw := len(fmt.Sprint(dim))
+				if cw > width {
+					width = cw
+				}
+				idx := j*len(result.FieldNames) + i
+				fieldWidths[idx] = width
+			}
+		} else {
 			fieldWidths[i] = width
 		}
 	}
@@ -187,9 +215,31 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		fmt.Fprintf(stdout, dimFormats[i], dim)
 	}
 	for i, field := range result.FieldNames {
-		fmt.Fprintf(stdout, fieldLabelFormats[i], field)
+		if result.IsCrosstab {
+			for j := range result.CrosstabDims {
+				idx := j*len(result.FieldNames) + i
+				fmt.Fprintf(stdout, fieldLabelFormats[idx], field)
+			}
+		} else {
+			fmt.Fprintf(stdout, fieldLabelFormats[i], field)
+		}
 	}
 	fmt.Fprint(stdout, "\n")
+
+	if result.IsCrosstab {
+		// Print 2nd header row for crosstab
+		fmt.Fprintf(stdout, "# %-33v", "")
+		for i := range result.GroupBy {
+			fmt.Fprintf(stdout, dimFormats[i], "")
+		}
+		for i, crosstabDim := range result.CrosstabDims {
+			for j := range result.FieldNames {
+				idx := j*len(result.FieldNames) + i
+				fmt.Fprintf(stdout, fieldLabelFormats[idx], crosstabDim)
+			}
+		}
+		fmt.Fprint(stdout, "\n")
+	}
 
 	for _, row := range rows {
 		fmt.Fprintf(stdout, "%-35v", result.Until.Add(-1*time.Duration(row.Period)*result.Resolution).In(time.UTC).Format(time.RFC1123))
