@@ -22,7 +22,7 @@ SELECT
 	IF(dim = 'test', AVG(myfield)) AS the_avg
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host' AND dim_f != true
-GROUP BY dim_a, ISP(ip) AS isp, ASN(ip) AS asn, CITY(ip) AS city, REGION(ip) AS state, REGION_CITY(ip) AS city_state, COUNTRY_CODE(ip) AS country, period('5s') // period is a special function
+GROUP BY dim_a, CROSSTAB(dim_b), ISP(ip) AS isp, ASN(ip) AS asn, CITY(ip) AS city, REGION(ip) AS state, REGION_CITY(ip) AS city_state, COUNTRY_CODE(ip) AS country, period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, X
 LIMIT 100, 10
@@ -72,6 +72,7 @@ LIMIT 100, 10
 		assert.Equal(t, NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[6])
 	}
 	assert.False(t, q.GroupByAll)
+	assert.Equal(t, goexpr.Param("dim_b"), q.Crosstab)
 	assert.Equal(t, -60*time.Minute, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
 	if assert.Len(t, q.OrderBy, 2) {

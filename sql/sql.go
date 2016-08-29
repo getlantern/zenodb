@@ -24,6 +24,7 @@ var (
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
 	ErrIFArity            = errors.New("The IF function requires two parameters, like IF(dim = 1, SUM(b))")
+	ErrCROSSTABArity      = fmt.Errorf("CROSSTAB allows only one argument")
 	ErrAggregateArity     = errors.New("Aggregate functions take only one parameter, like SUM(b)")
 	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
 	ErrNestedFunctionCall = errors.New("Nested function calls are not currently supported in SELECT")
@@ -121,11 +122,13 @@ type Query struct {
 	// GroupBy are the GroupBy expressions ordered alphabetically by name.
 	GroupBy    []GroupBy
 	GroupByAll bool
-	Having     expr.Expr
-	OrderBy    []Order
-	Offset     int
-	Limit      int
-	fieldsMap  map[string]Field
+	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
+	Crosstab  goexpr.Expr
+	Having    expr.Expr
+	OrderBy   []Order
+	Offset    int
+	Limit     int
+	fieldsMap map[string]Field
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -286,7 +289,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			return fmt.Errorf("Unexpected expression in Group By: %v", exprToString(e))
 		}
 		fn, ok := nse.Expr.(*sqlparser.FuncExpr)
-		if ok && strings.EqualFold("period", string(fn.Name)) {
+		if ok && strings.EqualFold("PERIOD", string(fn.Name)) {
 			log.Trace("Detected period in group by")
 			if len(fn.Exprs) != 1 {
 				return ErrInvalidPeriod
@@ -298,23 +301,42 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			}
 			q.Resolution = res
 		} else {
-			log.Trace("Dimension specified in group by")
-			ex, err := q.goExprFor(nse.Expr)
+			var nestedEx sqlparser.Expr
+			isCrosstab := ok && strings.EqualFold("CROSSTAB", string(fn.Name))
+			if isCrosstab {
+				log.Trace("Detected crosstab in group by")
+				if len(fn.Exprs) != 1 {
+					return ErrCROSSTABArity
+				}
+				_subEx, ok := fn.Exprs[0].(*sqlparser.NonStarExpr)
+				if !ok {
+					return ErrWildcardNotAllowed
+				}
+				nestedEx = _subEx.Expr
+			} else {
+				log.Trace("Dimension specified in group by")
+				nestedEx = nse.Expr
+			}
+			ex, err := q.goExprFor(nestedEx)
 			if err != nil {
 				return err
 			}
-			name := string(nse.As)
-			if len(name) == 0 {
-				cname, ok := nse.Expr.(*sqlparser.ColName)
-				if ok {
-					name = string(cname.Name)
+			if isCrosstab {
+				q.Crosstab = ex
+			} else {
+				name := string(nse.As)
+				if len(name) == 0 {
+					cname, ok := nestedEx.(*sqlparser.ColName)
+					if ok {
+						name = string(cname.Name)
+					}
 				}
+				if len(name) == 0 {
+					return fmt.Errorf("Expression %v needs to be named via an AS", exprToString(nse))
+				}
+				groupBy[name] = NewGroupBy(name, ex)
+				groupByNames = append(groupByNames, name)
 			}
-			if len(name) == 0 {
-				return fmt.Errorf("Expression %v needs to be named via an AS", exprToString(nse))
-			}
-			groupBy[name] = NewGroupBy(name, ex)
-			groupByNames = append(groupByNames, name)
 		}
 	}
 
@@ -504,7 +526,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 
 func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	if log.IsTraceEnabled() {
-		log.Tracef("Parsing boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
+		log.Tracef("Parsing goexpr of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
 	switch e := _e.(type) {
 	case *sqlparser.AndExpr:

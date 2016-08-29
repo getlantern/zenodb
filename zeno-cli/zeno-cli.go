@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/chzyer/readline"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/appdir"
 	"github.com/getlantern/golog"
@@ -22,6 +23,7 @@ import (
 const (
 	basePrompt  = "zeno-cli >"
 	emptyPrompt = "            "
+	totalLabel  = "*total*"
 )
 
 var (
@@ -111,11 +113,24 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, cs
 		return err
 	}
 
+	if log.IsTraceEnabled() {
+		log.Tracef("Query response: %v", spew.Sdump(result))
+		_nextRow := nextRow
+		nextRow = func() (*zenodb.Row, error) {
+			row, err := _nextRow()
+			if err != nil {
+				log.Tracef("Error fetching row: %v", err)
+				return row, err
+			}
+			log.Tracef("Got row: %v", spew.Sdump(row))
+			return row, err
+		}
+	}
+
 	if csv {
 		return dumpCSV(stdout, result, nextRow)
-	} else {
-		return dumpPlainText(stdout, sql, result, nextRow)
 	}
+	return dumpPlainText(stdout, sql, result, nextRow)
 }
 
 func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nextRow func() (*zenodb.Row, error)) error {
@@ -135,36 +150,67 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		rows = append(rows, row)
 	}
 
+	numFields := numFieldsFor(result)
+
 	// Calculate widths for dimensions and fields
 	dimWidths := make([]int, len(result.GroupBy))
-	fieldWidths := make([]int, len(result.FieldNames))
-
-	for i, dim := range result.GroupBy {
-		width := len(dim)
-		if width > dimWidths[i] {
-			dimWidths[i] = width
-		}
-	}
-
-	for i, field := range result.FieldNames {
-		width := len(field)
-		if width > fieldWidths[i] {
-			fieldWidths[i] = width
-		}
-	}
+	fieldWidths := make([]int, numFields)
+	totalLabelWidth := len(totalLabel)
 
 	for _, row := range rows {
 		for i, val := range row.Dims {
 			width := len(fmt.Sprint(val))
+			labelWidth := len(result.GroupBy[i])
+			if labelWidth > width {
+				width = labelWidth
+			}
 			if width > dimWidths[i] {
 				dimWidths[i] = width
 			}
 		}
 
-		for i, val := range row.Values {
-			width := len(fmt.Sprintf("%.4f", val))
-			if width > fieldWidths[i] {
-				fieldWidths[i] = width
+		outIdx := 0
+		for i, fieldName := range result.FieldNames {
+			labelWidth := len(fieldName)
+			if !result.IsCrosstab {
+				val := row.Values[i]
+				width := len(fmt.Sprintf("%.4f", val))
+				if labelWidth > width {
+					width = labelWidth
+				}
+				if width > fieldWidths[i] {
+					fieldWidths[i] = width
+				}
+			} else {
+				for j, crosstabDim := range result.CrosstabDims {
+					idx := i*len(result.CrosstabDims) + j
+					if result.PopulatedColumns[idx] {
+						val := row.Values[idx]
+						width := len(fmt.Sprintf("%.4f", val))
+						if labelWidth > width {
+							width = labelWidth
+						}
+						crosstabDimWidth := len(fmt.Sprint(crosstabDim))
+						if crosstabDimWidth > width {
+							width = crosstabDimWidth
+						}
+						if width > fieldWidths[outIdx] {
+							fieldWidths[outIdx] = width
+						}
+						outIdx++
+					}
+				}
+				width := len(fmt.Sprintf("%.4f", row.Totals[i]))
+				if labelWidth > width {
+					width = labelWidth
+				}
+				if totalLabelWidth > width {
+					width = totalLabelWidth
+				}
+				if width > fieldWidths[outIdx] {
+					fieldWidths[outIdx] = width
+				}
+				outIdx++
 			}
 		}
 	}
@@ -186,18 +232,65 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 	for i, dim := range result.GroupBy {
 		fmt.Fprintf(stdout, dimFormats[i], dim)
 	}
+	outIdx := 0
 	for i, field := range result.FieldNames {
-		fmt.Fprintf(stdout, fieldLabelFormats[i], field)
+		if result.IsCrosstab {
+			for j := range result.CrosstabDims {
+				idx := i*len(result.CrosstabDims) + j
+				if result.PopulatedColumns[idx] {
+					fmt.Fprintf(stdout, fieldLabelFormats[outIdx], field)
+					outIdx++
+				}
+			}
+			fmt.Fprintf(stdout, fieldLabelFormats[outIdx], field)
+			outIdx++
+		} else {
+			fmt.Fprintf(stdout, fieldLabelFormats[i], field)
+		}
 	}
 	fmt.Fprint(stdout, "\n")
+
+	if result.IsCrosstab {
+		// Print 2nd header row for crosstab
+		fmt.Fprintf(stdout, "# %-33v", "")
+		for i := range result.GroupBy {
+			fmt.Fprintf(stdout, dimFormats[i], "")
+		}
+		outIdx := 0
+		for i := range result.FieldNames {
+			for j, crosstabDim := range result.CrosstabDims {
+				idx := i*len(result.CrosstabDims) + j
+				if result.PopulatedColumns[idx] {
+					fmt.Fprintf(stdout, fieldLabelFormats[outIdx], crosstabDim)
+					outIdx++
+				}
+			}
+			fmt.Fprintf(stdout, fieldLabelFormats[outIdx], totalLabel)
+			outIdx++
+		}
+		fmt.Fprint(stdout, "\n")
+	}
 
 	for _, row := range rows {
 		fmt.Fprintf(stdout, "%-35v", result.Until.Add(-1*time.Duration(row.Period)*result.Resolution).In(time.UTC).Format(time.RFC1123))
 		for i, dim := range row.Dims {
 			fmt.Fprintf(stdout, dimFormats[i], dim)
 		}
-		for i, val := range row.Values {
-			fmt.Fprintf(stdout, fieldFormats[i], val)
+		outIdx := 0
+		for i := range result.FieldNames {
+			if !result.IsCrosstab {
+				fmt.Fprintf(stdout, fieldFormats[i], row.Values[i])
+			} else {
+				for j := range result.CrosstabDims {
+					idx := i*len(result.CrosstabDims) + j
+					if result.PopulatedColumns[idx] {
+						fmt.Fprintf(stdout, fieldFormats[outIdx], row.Values[idx])
+						outIdx++
+					}
+				}
+				fmt.Fprintf(stdout, fieldFormats[outIdx], row.Totals[i])
+				outIdx++
+			}
 		}
 		fmt.Fprint(stdout, "\n")
 	}
@@ -211,16 +304,49 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 	w := csv.NewWriter(stdout)
 	defer w.Flush()
 
-	rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.FieldNames))
+	numFields := numFieldsFor(result)
+
+	// Write header
+	rowStrings := make([]string, 0, 1+len(result.GroupBy)+numFields)
 	rowStrings = append(rowStrings, "time")
 	for _, dim := range result.GroupBy {
 		rowStrings = append(rowStrings, dim)
 	}
-	for _, field := range result.FieldNames {
-		rowStrings = append(rowStrings, field)
+	for i, field := range result.FieldNames {
+		if result.IsCrosstab {
+			for j := range result.CrosstabDims {
+				idx := i*len(result.CrosstabDims) + j
+				if result.PopulatedColumns[idx] {
+					rowStrings = append(rowStrings, field)
+				}
+			}
+			rowStrings = append(rowStrings, field)
+		} else {
+			rowStrings = append(rowStrings, field)
+		}
 	}
 	w.Write(rowStrings)
 	w.Flush()
+
+	if result.IsCrosstab {
+		// Write 2nd header row
+		rowStrings := make([]string, 0, 1+len(result.GroupBy)+numFields)
+		rowStrings = append(rowStrings, "")
+		for range result.GroupBy {
+			rowStrings = append(rowStrings, "")
+		}
+		for i := range result.FieldNames {
+			for j, crosstabDim := range result.CrosstabDims {
+				idx := i*len(result.CrosstabDims) + j
+				if result.PopulatedColumns[idx] {
+					rowStrings = append(rowStrings, fmt.Sprint(crosstabDim))
+				}
+			}
+			rowStrings = append(rowStrings, totalLabel)
+		}
+		w.Write(rowStrings)
+		w.Flush()
+	}
 
 	i := 0
 	for {
@@ -237,8 +363,18 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 		for _, dim := range row.Dims {
 			rowStrings = append(rowStrings, fmt.Sprint(dim))
 		}
-		for _, field := range row.Values {
-			rowStrings = append(rowStrings, fmt.Sprint(field))
+		for i := range result.FieldNames {
+			if !result.IsCrosstab {
+				rowStrings = append(rowStrings, fmt.Sprint(row.Values[i]))
+			} else {
+				for j := range result.CrosstabDims {
+					idx := i*len(result.CrosstabDims) + j
+					if result.PopulatedColumns[idx] {
+						rowStrings = append(rowStrings, fmt.Sprint(row.Values[idx]))
+					}
+				}
+				rowStrings = append(rowStrings, fmt.Sprint(row.Totals[i]))
+			}
 		}
 		w.Write(rowStrings)
 		i++
@@ -248,6 +384,18 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 	}
 
 	return nil
+}
+
+func numFieldsFor(result *zenodb.QueryResult) int {
+	numFields := len(result.FieldNames)
+	if result.IsCrosstab {
+		for _, populated := range result.PopulatedColumns {
+			if populated {
+				numFields++
+			}
+		}
+	}
+	return numFields
 }
 
 func printQueryStats(stderr io.Writer, result *zenodb.QueryResult) {
