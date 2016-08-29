@@ -31,7 +31,7 @@ var (
 	ErrInvalidPeriod      = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
 )
 
-var aggregateFuncs = map[string]func(param interface{}) expr.Expr{
+var aggregateFuncs = map[string]func(interface{}) expr.Expr{
 	"SUM":   expr.SUM,
 	"MIN":   expr.MIN,
 	"MAX":   expr.MAX,
@@ -39,14 +39,14 @@ var aggregateFuncs = map[string]func(param interface{}) expr.Expr{
 	"AVG":   expr.AVG,
 }
 
-var operators = map[string]func(left interface{}, right interface{}) expr.Expr{
+var operators = map[string]func(interface{}, interface{}) expr.Expr{
 	"+": expr.ADD,
 	"-": expr.SUB,
 	"*": expr.MULT,
 	"/": expr.DIV,
 }
 
-var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
+var conditions = map[string]func(interface{}, interface{}) expr.Expr{
 	"<":  expr.LT,
 	"<=": expr.LTE,
 	"=":  expr.EQ,
@@ -56,13 +56,17 @@ var conditions = map[string]func(left interface{}, right interface{}) expr.Expr{
 	">":  expr.GT,
 }
 
-var unaryGoExpr = map[string]func(ex goexpr.Expr) goexpr.Expr{
+var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"CITY":         geo.CITY,
 	"REGION":       geo.REGION,
 	"REGION_CITY":  geo.REGION_CITY,
 	"COUNTRY_CODE": geo.COUNTRY_CODE,
 	"ISP":          isp.ISP,
 	"ASN":          isp.ASN,
+}
+
+var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
+	"CONCAT": goexpr.Concat,
 }
 
 // Field is a named Expr.
@@ -600,7 +604,23 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			}
 			return fn(wrapped), nil
 		default:
-			return nil, fmt.Errorf("Function %v expects 1 argument", fname)
+			fn, found := varGoExpr[fname]
+			if !found {
+				return nil, fmt.Errorf("Unknown function %v", fname)
+			}
+			exprs := make([]goexpr.Expr, 0, len(e.Exprs))
+			for _, _ex := range e.Exprs {
+				nse, ok := _ex.(*sqlparser.NonStarExpr)
+				if !ok {
+					return nil, ErrWildcardNotAllowed
+				}
+				ex, err := q.goExprFor(nse.Expr)
+				if err != nil {
+					return nil, err
+				}
+				exprs = append(exprs, ex)
+			}
+			return fn(exprs...), nil
 		}
 	default:
 		return nil, fmt.Errorf("Unknown boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
