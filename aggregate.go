@@ -18,12 +18,19 @@ import (
 )
 
 type Row struct {
-	Period        int
-	Dims          []interface{}
-	Values        []float64
-	orderByValues []float64
-	groupBy       []string
-	fields        []sql.Field
+	// The period in time relative to QueryResult.Until end-date
+	// (i.e. T-0, T-1, etc)
+	Period int
+	// The dimensions, in the same order as QueryResult.GroupBy
+	Dims []interface{}
+	// The values, in the same order as QueryResult.FieldNames.
+	// If QueryResult.IsCrosstab, this will be FieldNames * CrosstabDims
+	Values []float64
+	// If QueryResult.IsCrosstab, this will have the total values for each Field
+	// in QueryResult.FieldNames, otherwise it is nil.
+	Totals  []float64
+	groupBy []string
+	fields  []sql.Field
 }
 
 // Get implements the interface method from goexpr.Params
@@ -31,8 +38,8 @@ func (row *Row) get(param string) interface{} {
 	// First look at fields
 	for i, field := range row.fields {
 		if field.Name == param {
-			if row.orderByValues != nil {
-				return row.orderByValues[i]
+			if row.Totals != nil {
+				return row.Totals[i]
 			}
 			return row.Values[i]
 		}
@@ -86,10 +93,10 @@ type subMergeSpec struct {
 // entry is an intermediary data holder for aggregating data during the
 // execution of a query.
 type entry struct {
-	dims          map[string]interface{}
-	values        []encoding.Sequence
-	orderByValues []encoding.Sequence
-	havingTest    encoding.Sequence
+	dims       map[string]interface{}
+	values     []encoding.Sequence
+	totals     []encoding.Sequence
+	havingTest encoding.Sequence
 }
 
 type queryExecution struct {
@@ -297,10 +304,10 @@ func (exec *queryExecution) prepare() error {
 					values: make([]encoding.Sequence, len(exec.Fields)),
 				}
 				if exec.isCrosstab {
-					// Store orderByValues separately from values
-					en.orderByValues = make([]encoding.Sequence, 0, len(exec.Fields))
+					// Store totals separately from values
+					en.totals = make([]encoding.Sequence, 0, len(exec.Fields))
 					for _, field := range exec.Fields {
-						en.orderByValues = append(en.orderByValues, encoding.NewSequence(field.Expr.EncodedWidth(), exec.outPeriods))
+						en.totals = append(en.totals, encoding.NewSequence(field.Expr.EncodedWidth(), exec.outPeriods))
 					}
 				}
 
@@ -381,7 +388,7 @@ func (exec *queryExecution) prepare() error {
 						}
 						seq.SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
 						if exec.isCrosstab {
-							en.orderByValues[f].SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
+							en.totals[f].SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
 						}
 					}
 
@@ -515,11 +522,11 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 							}
 						}
 						if exec.isCrosstab {
-							// Also merge orderByValues
-							for x, os := range vo.orderByValues {
+							// Also merge totals
+							for x, os := range vo.totals {
 								if os != nil {
 									ex := exec.Fields[x].Expr
-									v.orderByValues[x] = v.orderByValues[x].Merge(os, ex, exec.Resolution, exec.AsOf)
+									v.totals[x] = v.totals[x].Merge(os, ex, exec.Resolution, exec.AsOf)
 								}
 							}
 						}
@@ -548,9 +555,9 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 					numFields = numFields * len(exec.crosstabDims)
 				}
 				values := make([]float64, numFields)
-				var orderByValues []float64
+				var totals []float64
 				if exec.isCrosstab {
-					orderByValues = make([]float64, len(exec.Fields))
+					totals = make([]float64, len(exec.Fields))
 				}
 				hasData := false
 				for i, vals := range v.values {
@@ -574,14 +581,14 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 					}
 				}
 				if exec.isCrosstab {
-					for i, vals := range v.orderByValues {
+					for i, vals := range v.totals {
 						if vals == nil {
 							continue
 						}
 						ex := exec.Fields[i].Expr
 						val, wasSet := vals.ValueAt(t, ex)
 						if wasSet {
-							orderByValues[i] = val
+							totals[i] = val
 						}
 					}
 				}
@@ -591,12 +598,12 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 					continue
 				}
 				rows = append(rows, &Row{
-					Period:        t,
-					Dims:          dims,
-					Values:        values,
-					orderByValues: orderByValues,
-					groupBy:       groupBy,
-					fields:        exec.Fields,
+					Period:  t,
+					Dims:    dims,
+					Values:  values,
+					Totals:  totals,
+					groupBy: groupBy,
+					fields:  exec.Fields,
 				})
 			}
 		}
