@@ -278,15 +278,19 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		}
 		outIdx := 0
 		for i := range result.FieldNames {
-			for j := range result.CrosstabDims {
-				idx := i*len(result.CrosstabDims) + j
-				if result.PopulatedColumns[idx] {
-					fmt.Fprintf(stdout, fieldFormats[outIdx], row.Values[idx])
-					outIdx++
+			if !result.IsCrosstab {
+				fmt.Fprintf(stdout, fieldFormats[i], row.Values[i])
+			} else {
+				for j := range result.CrosstabDims {
+					idx := i*len(result.CrosstabDims) + j
+					if result.PopulatedColumns[idx] {
+						fmt.Fprintf(stdout, fieldFormats[outIdx], row.Values[idx])
+						outIdx++
+					}
 				}
+				fmt.Fprintf(stdout, fieldFormats[outIdx], row.Totals[i])
+				outIdx++
 			}
-			fmt.Fprintf(stdout, fieldFormats[outIdx], row.Totals[i])
-			outIdx++
 		}
 		fmt.Fprint(stdout, "\n")
 	}

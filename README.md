@@ -96,16 +96,16 @@ SELECT
   requests,
   AVG(load_avg) AS load_avg
 FROM inbound GROUP BY *, period(5m)
-
-DEBUG zenodb: schema.go:78 MaxMemStoreBytes: 1 B    MaxFlushLatency: 0    MinFlushLatency: 0
-DEBUG zenodb: table.go:101 MinFlushLatency disabled
-DEBUG zenodb: table.go:105 MaxFlushLatency disabled
+DEBUG zenodb: schema.go:78 MaxMemStoreBytes: 1 B    MaxFlushLatency: 0s    MinFlushLatency: 0s
+DEBUG zenodb: table.go:118 MinFlushLatency disabled
+DEBUG zenodb: table.go:122 MaxFlushLatency disabled
 DEBUG zenodb: schema.go:83 Created table combined
-DEBUG zenodb: zenodb.go:43 Dir: zenodb    SchemaFile: schema.yaml
-Opened database at zenodb
+DEBUG zenodb: zenodb.go:63 Enabling geolocation functions
+DEBUG zenodb.combined: row_store.go:111 Will flush after 2562047h47m16.854775807s
+DEBUG zenodb: zenodb.go:75 Dir: /Users/ox.to.a.cart//zeno-quickstart    SchemaFile: /Users/ox.to.a.cart//zeno-quickstart/schema.yaml
+Opened database at /Users/ox.to.a.cart//zeno-quickstart
 Listening for gRPC connections at 127.0.0.1:17712
 Listening for HTTP connections at 127.0.0.1:17713
-DEBUG zenodb.combined: row_store.go:109 Will flush after 2562047h47m16.854775807s
 ```
 
 Terminal 2
@@ -113,15 +113,15 @@ Terminal 2
 ```bash
 > # Submit some data via the REST API. Omit the ts parameter to use current time.
 > curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html", "status": 200}, "vals": {"requests": 56}}
-{"dims": {"server": "56.234.163.23", "path": "/login", "status": 200}, "vals": {"requests": 34}}
-{"dims": {"server": "56.234.163.23", "path": "/login", "status": 500}, "vals": {"requests": 12}}
-{"dims": {"server": "56.234.163.23"}, "vals": {"load_avg": 1.7}}
-{"dims": {"server": "56.234.163.24", "path": "/index.html", "status": 200}, "vals": {"requests": 523}}
-{"dims": {"server": "56.234.163.24", "path": "/login", "status": 200}, "vals": {"requests": 411}}
-{"dims": {"server": "56.234.163.24", "path": "/login", "status": 500}, "vals": {"requests": 28}}
-{"dims": {"server": "56.234.163.24"}, "vals": {"load_avg": 0.3}}' http://localhost:17713/insert/inbound
+quote> {"dims": {"server": "56.234.163.23", "path": "/login", "status": 200}, "vals": {"requests": 34}}
+quote> {"dims": {"server": "56.234.163.23", "path": "/login", "status": 500}, "vals": {"requests": 12}}
+quote> {"dims": {"server": "56.234.163.23"}, "vals": {"load_avg": 1.7}}
+quote> {"dims": {"server": "56.234.163.24", "path": "/index.html", "status": 200}, "vals": {"requests": 523}}
+quote> {"dims": {"server": "56.234.163.24", "path": "/login", "status": 200}, "vals": {"requests": 411}}
+quote> {"dims": {"server": "56.234.163.24", "path": "/login", "status": 500}, "vals": {"requests": 28}}
+quote> {"dims": {"server": "56.234.163.24"}, "vals": {"load_avg": 0.3}}' http://localhost:17713/insert/inbound
 HTTP/1.1 201 Created
-Date: Sun, 14 Aug 2016 01:47:48 GMT
+Date: Mon, 29 Aug 2016 03:00:38 GMT
 Content-Length: 0
 Content-Type: text/plain; charset=utf-8
 ```
@@ -156,14 +156,14 @@ ORDER BY requests DESC
 Will save history to /Users/ox.to.a.cart/Library/Application Support/zeno-cli/history
 zeno-cli > SELECT _points, requests, load_avg FROM combined GROUP BY * ORDER BY requests DESC;
 # time                             path           server           status        _points    requests    load_avg
-Sun, 14 Aug 2016 16:30:00 UTC      /index.html    56.234.163.24    200            1.0000    523.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.24    200            1.0000    411.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /index.html    56.234.163.23    200            1.0000     56.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.23    200            1.0000     34.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.24    500            1.0000     28.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.23    500            1.0000     12.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      <nil>          56.234.163.23    <nil>          1.0000      0.0000      1.7000
-Sun, 14 Aug 2016 16:30:00 UTC      <nil>          56.234.163.24    <nil>          1.0000      0.0000      0.3000
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.24    200            1.0000    523.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    200            1.0000    411.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.23    200            1.0000     56.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    200            1.0000     34.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    500            1.0000     28.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    500            1.0000     12.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.23    <nil>          1.0000      0.0000      1.7000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.24    <nil>          1.0000      0.0000      0.3000
 ```
 
 Notice that:
@@ -184,14 +184,14 @@ Then run the same query again.
 ```sql
 zeno-cli > SELECT _points, requests, load_avg FROM combined GROUP BY * ORDER BY requests DESC;
 # time                             path           server           status        _points     requests    load_avg
-Sun, 14 Aug 2016 16:30:00 UTC      /index.html    56.234.163.24    200            2.0000    1046.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.24    200            2.0000     822.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /index.html    56.234.163.23    200            2.0000     112.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.23    200            2.0000      68.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.24    500            2.0000      56.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      /login         56.234.163.23    500            2.0000      24.0000      0.0000
-Sun, 14 Aug 2016 16:30:00 UTC      <nil>          56.234.163.24    <nil>          2.0000       0.0000      0.3000
-Sun, 14 Aug 2016 16:30:00 UTC      <nil>          56.234.163.23    <nil>          2.0000       0.0000      1.7000
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.24    200            2.0000    1046.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    200            2.0000     822.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.23    200            2.0000     112.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    200            2.0000      68.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    500            2.0000      56.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    500            2.0000      24.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.23    <nil>          2.0000       0.0000      1.7000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.24    <nil>          2.0000       0.0000      0.3000
 ```
 
 Notice that the number of rows hasn't changed, Zeno just aggregated the data
@@ -211,6 +211,30 @@ rpc error: code = 2 desc = No column found for load_avg (SUM(load_avg))
 ```
 
 The underlying column is an `AVG(load_avg)`, so taking a SUM is not possible!
+
+Sometimes, it's useful to show a dimension in columns rather than rows. You can
+do this using the CROSSTAB function.
+
+```sql
+SELECT
+  requests,
+  load_avg
+FROM combined
+GROUP BY server, CROSSTAB(path)
+ORDER BY requests;
+```
+
+```sql
+zeno-cli > SELECT requests, load_avg FROM combined GROUP BY server, CROSSTAB(path) ORDER BY requests;
+# time                             server                  requests    requests     requests    load_avg    load_avg
+#                                                       /index.html      /login      *total*       <nil>     *total*
+Mon, 29 Aug 2016 03:05:00 UTC      56.234.163.23           112.0000     92.0000     204.0000      1.7000      1.7000
+Mon, 29 Aug 2016 03:05:00 UTC      56.234.163.24          1046.0000    878.0000    1924.0000      0.3000      0.3000
+```
+
+Notice how there's a second header row now that shows the different values of
+path. Notice also how paths that don't have any data are not shown, and notice
+that a *total* column is automatically included for each field.
 
 Now let's do some correlation using the `IF` function.  `IF` takes two
 parameters, a conditional expression that determines whether or not to include a
@@ -238,14 +262,14 @@ ORDER BY error_rate DESC
 ```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY * ORDER BY error_rate DESC;
 # time                             path           server           status         errors     requests    error_rate    load_avg
-Sun, 14 Aug 2016 16:35:00 UTC      /login         56.234.163.23    500           24.0000      24.0000        1.0000      0.0000
-Sun, 14 Aug 2016 16:35:00 UTC      /login         56.234.163.24    500           56.0000      56.0000        1.0000      0.0000
-Sun, 14 Aug 2016 16:35:00 UTC      /index.html    56.234.163.23    200            0.0000     112.0000        0.0000      0.0000
-Sun, 14 Aug 2016 16:35:00 UTC      /login         56.234.163.24    200            0.0000     822.0000        0.0000      0.0000
-Sun, 14 Aug 2016 16:35:00 UTC      /index.html    56.234.163.24    200            0.0000    1046.0000        0.0000      0.0000
-Sun, 14 Aug 2016 16:35:00 UTC      /login         56.234.163.23    200            0.0000      68.0000        0.0000      0.0000
-Sun, 14 Aug 2016 16:35:00 UTC      <nil>          56.234.163.23    <nil>          0.0000       0.0000        0.0000      1.7000
-Sun, 14 Aug 2016 16:35:00 UTC      <nil>          56.234.163.24    <nil>          0.0000       0.0000        0.0000      0.3000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    500           56.0000      56.0000        1.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    500           24.0000      24.0000        1.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    200            0.0000      68.0000        0.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.23    <nil>          0.0000       0.0000        0.0000      1.7000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.24    <nil>          0.0000       0.0000        0.0000      0.3000
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.23    200            0.0000     112.0000        0.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    200            0.0000     822.0000        0.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.24    200            0.0000    1046.0000        0.0000      0.0000
 ```
 
 Okay, this distinguishes between errors and other requests, but errors and other
@@ -275,8 +299,8 @@ ORDER BY error_rate DESC
 ```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY server ORDER BY error_rate DESC;
 # time                             server                errors     requests    error_rate    load_avg
-Sun, 14 Aug 2016 16:35:00 UTC      56.234.163.23        24.0000     204.0000        0.1176      1.7000
-Sun, 14 Aug 2016 16:35:00 UTC      56.234.163.24        56.0000    1924.0000        0.0291      0.3000
+Mon, 29 Aug 2016 03:00:00 UTC      56.234.163.23        24.0000     204.0000        0.1176      1.7000
+Mon, 29 Aug 2016 03:00:00 UTC      56.234.163.24        56.0000    1924.0000        0.0291      0.3000
 ```
 
 That looks better!  We're getting a meaningful error rate, and we can even see
@@ -307,7 +331,7 @@ LIMIT 1
 ```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY server ORDER BY error_rate DESC LIMIT 1;
 # time                             server                errors    requests    error_rate    load_avg
-Sun, 14 Aug 2016 16:35:00 UTC      56.234.163.23        24.0000    204.0000        0.1176      1.7000
+Mon, 29 Aug 2016 03:00:00 UTC      56.234.163.23        24.0000    204.0000        0.1176      1.7000
 ```
 
 Or you can we can use the `HAVING` clause to filter based on the actual data:
@@ -331,8 +355,10 @@ ORDER BY error_rate DESC
 ```sql
 zeno-cli > SELECT IF(status <> 200, requests) AS errors, requests, errors / requests AS error_rate, load_avg FROM combined GROUP BY server HAVING error_rate > 0.1 ORDER BY error_rate DESC;
 # time                             server                errors    requests    error_rate    load_avg
-Sun, 14 Aug 2016 16:35:00 UTC      56.234.163.23        24.0000    204.0000        0.1176      1.7000
+Mon, 29 Aug 2016 03:05:00 UTC      56.234.163.23        24.0000    204.0000        0.1176      1.7000
 ```
+
+
 
 There!  You've just aggregated, correlated and gained valuable insights into
 your server infrastructure.  At [Lantern](https://www.getlantern.org) we do this
