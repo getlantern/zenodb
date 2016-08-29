@@ -18,11 +18,12 @@ import (
 )
 
 type Row struct {
-	Period  int
-	Dims    []interface{}
-	Values  []float64
-	groupBy []string
-	fields  []sql.Field
+	Period        int
+	Dims          []interface{}
+	Values        []float64
+	orderByValues []float64
+	groupBy       []string
+	fields        []sql.Field
 }
 
 // Get implements the interface method from goexpr.Params
@@ -30,6 +31,9 @@ func (row *Row) get(param string) interface{} {
 	// First look at fields
 	for i, field := range row.fields {
 		if field.Name == param {
+			if row.orderByValues != nil {
+				return row.orderByValues[i]
+			}
 			return row.Values[i]
 		}
 	}
@@ -82,9 +86,10 @@ type subMergeSpec struct {
 // entry is an intermediary data holder for aggregating data during the
 // execution of a query.
 type entry struct {
-	dims       map[string]interface{}
-	fields     []encoding.Sequence
-	havingTest encoding.Sequence
+	dims          map[string]interface{}
+	values        []encoding.Sequence
+	orderByValues []encoding.Sequence
+	havingTest    encoding.Sequence
 }
 
 type queryExecution struct {
@@ -289,7 +294,14 @@ func (exec *queryExecution) prepare() error {
 			if en == nil {
 				en = &entry{
 					dims:   kb.AsMap(),
-					fields: make([]encoding.Sequence, len(exec.Fields)),
+					values: make([]encoding.Sequence, len(exec.Fields)),
+				}
+				if exec.isCrosstab {
+					// Store orderByValues separately from values
+					en.orderByValues = make([]encoding.Sequence, 0, len(exec.Fields))
+					for _, field := range exec.Fields {
+						en.orderByValues = append(en.orderByValues, encoding.NewSequence(field.Expr.EncodedWidth(), exec.outPeriods))
+					}
 				}
 
 				if exec.GroupByAll {
@@ -354,20 +366,23 @@ func (exec *queryExecution) prepare() error {
 						if exec.isCrosstab {
 							idx = crosstabDimIdx*len(exec.Fields) + f
 						}
-						if idx >= len(en.fields) {
-							// Grow fields
-							orig := en.fields
-							en.fields = make([]encoding.Sequence, idx+1)
-							copy(en.fields, orig)
+						if idx >= len(en.values) {
+							// Grow values
+							orig := en.values
+							en.values = make([]encoding.Sequence, idx+1)
+							copy(en.values, orig)
 						}
-						seq := en.fields[idx]
+						seq := en.values[idx]
 						if seq == nil {
 							// Lazily initialize sequence
 							seq = encoding.NewSequence(field.Expr.EncodedWidth(), exec.outPeriods)
 							seq.SetStart(exec.q.until)
-							en.fields[idx] = seq
+							en.values[idx] = seq
 						}
 						seq.SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
+						if exec.isCrosstab {
+							en.orderByValues[f].SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
+						}
 					}
 
 					// Calculate havings
@@ -477,30 +492,39 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 				if j != i {
 					vo, ok := o[k]
 					if ok {
-						for x, os := range vo.fields {
+						for x, os := range vo.values {
 							if os != nil {
 								fieldIdx := x
 								if exec.isCrosstab {
 									fieldIdx = x % len(exec.Fields)
 								}
 								ex := exec.Fields[fieldIdx].Expr
-								if x >= len(v.fields) {
+								if x >= len(v.values) {
 									// Grow
-									orig := v.fields
-									v.fields = make([]encoding.Sequence, x+1)
-									copy(v.fields, orig)
-									v.fields[x] = os
+									orig := v.values
+									v.values = make([]encoding.Sequence, x+1)
+									copy(v.values, orig)
+									v.values[x] = os
 								} else {
-									res := v.fields[x].Merge(os, ex, exec.Resolution, exec.AsOf)
+									res := v.values[x].Merge(os, ex, exec.Resolution, exec.AsOf)
 									if log.IsTraceEnabled() {
-										log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.fields[x].String(ex), res.String(ex))
+										log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.values[x].String(ex), res.String(ex))
 									}
-									v.fields[x] = res
+									v.values[x] = res
 								}
 							}
-							if exec.Having != nil {
-								v.havingTest = v.havingTest.Merge(vo.havingTest, exec.Having, exec.Resolution, exec.AsOf)
+						}
+						if exec.isCrosstab {
+							// Also merge orderByValues
+							for x, os := range vo.orderByValues {
+								if os != nil {
+									ex := exec.Fields[x].Expr
+									v.orderByValues[x] = v.orderByValues[x].Merge(os, ex, exec.Resolution, exec.AsOf)
+								}
 							}
+						}
+						if exec.Having != nil {
+							v.havingTest = v.havingTest.Merge(vo.havingTest, exec.Having, exec.Resolution, exec.AsOf)
 						}
 						delete(o, k)
 					}
@@ -524,8 +548,12 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 					numFields = numFields * len(exec.crosstabDims)
 				}
 				values := make([]float64, numFields)
+				var orderByValues []float64
+				if exec.isCrosstab {
+					orderByValues = make([]float64, len(exec.Fields))
+				}
 				hasData := false
-				for i, vals := range v.fields {
+				for i, vals := range v.values {
 					if vals == nil {
 						continue
 					}
@@ -537,12 +565,24 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 						sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
 						outIdx = fieldIdx*len(exec.crosstabDims) + sortedDimIdx
 					}
-					field := exec.Fields[fieldIdx]
-					val, wasSet := vals.ValueAt(t, field.Expr)
-					values[outIdx] = val
+					ex := exec.Fields[fieldIdx].Expr
+					val, wasSet := vals.ValueAt(t, ex)
 					if wasSet {
+						values[outIdx] = val
 						hasData = true
 						exec.populatedColumns[outIdx] = true
+					}
+				}
+				if exec.isCrosstab {
+					for i, vals := range v.orderByValues {
+						if vals == nil {
+							continue
+						}
+						ex := exec.Fields[i].Expr
+						val, wasSet := vals.ValueAt(t, ex)
+						if wasSet {
+							orderByValues[i] = val
+						}
 					}
 				}
 				if !hasData {
@@ -551,11 +591,12 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 					continue
 				}
 				rows = append(rows, &Row{
-					Period:  t,
-					Dims:    dims,
-					Values:  values,
-					groupBy: groupBy,
-					fields:  exec.Fields,
+					Period:        t,
+					Dims:          dims,
+					Values:        values,
+					orderByValues: orderByValues,
+					groupBy:       groupBy,
+					fields:        exec.Fields,
 				})
 			}
 		}
