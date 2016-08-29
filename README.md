@@ -29,9 +29,9 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Stored statistics (database-level, table-level, size, throughput, dimensions, etc.)
  * Optimized queries using expression references (avoid recomputing same expression when referenced multiple times in same row)
  * Completely parallel query processing
- * Interuptable queries using Context
+ * Interruptible queries using Context
  * User-level authentication/authorization
- * Crosstab queries
+ * Multi-dimensional crosstab queries
  * Read-only query server replication using rsync?
 
 ## Standalone Quick Start
@@ -213,7 +213,7 @@ rpc error: code = 2 desc = No column found for load_avg (SUM(load_avg))
 The underlying column is an `AVG(load_avg)`, so taking a SUM is not possible!
 
 Sometimes, it's useful to show a dimension in columns rather than rows. You can
-do this using the CROSSTAB function.
+do this using the `CROSSTAB` function.
 
 ```sql
 SELECT
