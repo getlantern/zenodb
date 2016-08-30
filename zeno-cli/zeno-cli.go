@@ -365,15 +365,15 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 		}
 		for i := range result.FieldNames {
 			if !result.IsCrosstab {
-				rowStrings = append(rowStrings, fmt.Sprint(row.Values[i]))
+				rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Values[i]))
 			} else {
 				for j := range result.CrosstabDims {
 					idx := i*len(result.CrosstabDims) + j
 					if result.PopulatedColumns[idx] {
-						rowStrings = append(rowStrings, fmt.Sprint(row.Values[idx]))
+						rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Values[idx]))
 					}
 				}
-				rowStrings = append(rowStrings, fmt.Sprint(row.Totals[i]))
+				rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Totals[i]))
 			}
 		}
 		w.Write(rowStrings)
