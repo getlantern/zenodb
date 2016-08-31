@@ -90,6 +90,15 @@ func (db *DB) CreateView(opts *TableOpts) error {
 	// TODO: populate view with existing data from table
 	q.From = t.From
 
+	if q.GroupBy == nil {
+		q.GroupBy = t.GroupBy
+		q.GroupByAll = t.GroupByAll
+	}
+
+	if q.Resolution == 0 {
+		q.Resolution = t.Resolution
+	}
+
 	// Combine where clauses
 	if t.Where != nil {
 		if q.Where == nil {

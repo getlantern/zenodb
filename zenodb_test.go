@@ -77,7 +77,7 @@ view_a:
     SELECT *
     FROM teSt_a
     WHERE r = 'A'
-    GROUP BY u, b, period(1ms)`
+    GROUP BY u, b`
 	log.Debug("Writing schemaB")
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaB), 0644)
 	if !assert.NoError(t, err, "Unable to write schemaB") {
