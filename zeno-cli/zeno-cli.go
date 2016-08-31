@@ -153,8 +153,8 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 	numFields := numFieldsFor(result)
 
 	// Calculate widths for dimensions and fields
-	dimWidths := make([]int, len(result.GroupBy))
-	fieldWidths := make([]int, numFields)
+	dimWidths := make([]int, 0, len(result.GroupBy))
+	fieldWidths := make([]int, 0, numFields)
 	totalLabelWidth := len(totalLabel)
 
 	for _, dim := range result.GroupBy {
@@ -206,7 +206,9 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 						if crosstabDimWidth > width {
 							width = crosstabDimWidth
 						}
-						if width > fieldWidths[outIdx] {
+						if len(fieldWidths) <= outIdx {
+							fieldWidths = append(fieldWidths, width)
+						} else if width > fieldWidths[outIdx] {
 							fieldWidths[outIdx] = width
 						}
 						outIdx++
@@ -318,47 +320,53 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 
 	numFields := numFieldsFor(result)
 
-	// Write header
-	rowStrings := make([]string, 0, 1+len(result.GroupBy)+numFields)
-	rowStrings = append(rowStrings, "time")
-	for _, dim := range result.GroupBy {
-		rowStrings = append(rowStrings, dim)
-	}
-	for i, field := range result.FieldNames {
-		if result.IsCrosstab {
-			rowStrings = append(rowStrings, field)
-			for j := range result.CrosstabDims {
-				idx := j*len(result.FieldNames) + i
-				if result.PopulatedColumns[idx] {
-					rowStrings = append(rowStrings, field)
-				}
-			}
-		} else {
-			rowStrings = append(rowStrings, field)
-		}
-	}
-	w.Write(rowStrings)
-	w.Flush()
-
 	if result.IsCrosstab {
-		// Write 2nd header row
+		// Write crosstab dimensions
 		rowStrings := make([]string, 0, 1+len(result.GroupBy)+numFields)
 		rowStrings = append(rowStrings, "")
 		for range result.GroupBy {
 			rowStrings = append(rowStrings, "")
 		}
-		for i := range result.FieldNames {
+		// Totals
+		for range result.FieldNames {
 			rowStrings = append(rowStrings, totalLabel)
-			for j, crosstabDim := range result.CrosstabDims {
-				idx := i*len(result.CrosstabDims) + j
-				if result.PopulatedColumns[idx] {
-					rowStrings = append(rowStrings, fmt.Sprint(crosstabDim))
+		}
+		if result.IsCrosstab {
+			// Per crosstab dimension
+			for i, crosstabDim := range result.CrosstabDims {
+				for j := range result.FieldNames {
+					idx := i*len(result.FieldNames) + j
+					if result.PopulatedColumns[idx] {
+						rowStrings = append(rowStrings, fmt.Sprint(crosstabDim))
+					}
 				}
 			}
 		}
 		w.Write(rowStrings)
 		w.Flush()
 	}
+
+	// Write header
+	rowStrings := make([]string, 0, 1+len(result.GroupBy)+numFields)
+	rowStrings = append(rowStrings, "time")
+	for _, dim := range result.GroupBy {
+		rowStrings = append(rowStrings, dim)
+	}
+	for _, fieldName := range result.FieldNames {
+		rowStrings = append(rowStrings, fieldName)
+	}
+	if result.IsCrosstab {
+		for i := range result.CrosstabDims {
+			for j, fieldName := range result.FieldNames {
+				idx := i*len(result.FieldNames) + j
+				if result.PopulatedColumns[idx] {
+					rowStrings = append(rowStrings, fieldName)
+				}
+			}
+		}
+	}
+	w.Write(rowStrings)
+	w.Flush()
 
 	i := 0
 	for {
@@ -376,12 +384,18 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 			rowStrings = append(rowStrings, fmt.Sprint(dim))
 		}
 		for i := range result.FieldNames {
-			if !result.IsCrosstab {
-				rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Values[i]))
+			var value float64
+			if result.IsCrosstab {
+				value = row.Totals[i]
 			} else {
-				rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Totals[i]))
-				for j := range result.CrosstabDims {
-					idx := i*len(result.CrosstabDims) + j
+				value = row.Values[i]
+			}
+			rowStrings = append(rowStrings, fmt.Sprintf("%f", value))
+		}
+		if result.IsCrosstab {
+			for i := range result.CrosstabDims {
+				for j := range result.FieldNames {
+					idx := i*len(result.FieldNames) + j
 					if result.PopulatedColumns[idx] {
 						rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Values[idx]))
 					}
