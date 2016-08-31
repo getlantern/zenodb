@@ -59,6 +59,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
+		if err != nil {
+			return nil, fmt.Errorf("Unable to apply schema: %v", err)
+		}
 	}
 	log.Debug("Enabling geolocation functions")
 	err = geo.Init(filepath.Join(opts.Dir, "geoip.dat.gz"))
