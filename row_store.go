@@ -135,7 +135,7 @@ func (rs *rowStore) processInserts() {
 			flushIdx++
 			rs.mx.Unlock()
 		default:
-			log.Debug("Unable to post flush request, will try again later")
+			log.Trace("Unable to post flush request, will try again later")
 		}
 	}
 

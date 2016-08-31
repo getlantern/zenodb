@@ -178,10 +178,16 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 				if labelWidth > width {
 					width = labelWidth
 				}
-				if width > fieldWidths[i] {
-					fieldWidths[i] = width
-				}
+				fieldWidths[i] = width
 			} else {
+				width := len(fmt.Sprintf("%.4f", row.Totals[i]))
+				if labelWidth > width {
+					width = labelWidth
+				}
+				if totalLabelWidth > width {
+					width = totalLabelWidth
+				}
+				fieldWidths[outIdx] = width
 				for j, crosstabDim := range result.CrosstabDims {
 					idx := i*len(result.CrosstabDims) + j
 					if result.PopulatedColumns[idx] {
@@ -194,21 +200,9 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 						if crosstabDimWidth > width {
 							width = crosstabDimWidth
 						}
-						if width > fieldWidths[outIdx] {
-							fieldWidths[outIdx] = width
-						}
+						fieldWidths[outIdx] = width
 						outIdx++
 					}
-				}
-				width := len(fmt.Sprintf("%.4f", row.Totals[i]))
-				if labelWidth > width {
-					width = labelWidth
-				}
-				if totalLabelWidth > width {
-					width = totalLabelWidth
-				}
-				if width > fieldWidths[outIdx] {
-					fieldWidths[outIdx] = width
 				}
 				outIdx++
 			}
@@ -235,6 +229,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 	outIdx := 0
 	for i, field := range result.FieldNames {
 		if result.IsCrosstab {
+			fmt.Fprintf(stdout, fieldLabelFormats[outIdx], field)
 			for j := range result.CrosstabDims {
 				idx := i*len(result.CrosstabDims) + j
 				if result.PopulatedColumns[idx] {
@@ -242,7 +237,6 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 					outIdx++
 				}
 			}
-			fmt.Fprintf(stdout, fieldLabelFormats[outIdx], field)
 			outIdx++
 		} else {
 			fmt.Fprintf(stdout, fieldLabelFormats[i], field)
@@ -258,6 +252,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 		}
 		outIdx := 0
 		for i := range result.FieldNames {
+			fmt.Fprintf(stdout, fieldLabelFormats[outIdx], totalLabel)
 			for j, crosstabDim := range result.CrosstabDims {
 				idx := i*len(result.CrosstabDims) + j
 				if result.PopulatedColumns[idx] {
@@ -265,7 +260,6 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 					outIdx++
 				}
 			}
-			fmt.Fprintf(stdout, fieldLabelFormats[outIdx], totalLabel)
 			outIdx++
 		}
 		fmt.Fprint(stdout, "\n")
@@ -281,6 +275,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 			if !result.IsCrosstab {
 				fmt.Fprintf(stdout, fieldFormats[i], row.Values[i])
 			} else {
+				fmt.Fprintf(stdout, fieldFormats[outIdx], row.Totals[i])
 				for j := range result.CrosstabDims {
 					idx := i*len(result.CrosstabDims) + j
 					if result.PopulatedColumns[idx] {
@@ -288,7 +283,6 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 						outIdx++
 					}
 				}
-				fmt.Fprintf(stdout, fieldFormats[outIdx], row.Totals[i])
 				outIdx++
 			}
 		}
@@ -314,13 +308,13 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 	}
 	for i, field := range result.FieldNames {
 		if result.IsCrosstab {
+			rowStrings = append(rowStrings, field)
 			for j := range result.CrosstabDims {
 				idx := i*len(result.CrosstabDims) + j
 				if result.PopulatedColumns[idx] {
 					rowStrings = append(rowStrings, field)
 				}
 			}
-			rowStrings = append(rowStrings, field)
 		} else {
 			rowStrings = append(rowStrings, field)
 		}
@@ -336,13 +330,13 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 			rowStrings = append(rowStrings, "")
 		}
 		for i := range result.FieldNames {
+			rowStrings = append(rowStrings, totalLabel)
 			for j, crosstabDim := range result.CrosstabDims {
 				idx := i*len(result.CrosstabDims) + j
 				if result.PopulatedColumns[idx] {
 					rowStrings = append(rowStrings, fmt.Sprint(crosstabDim))
 				}
 			}
-			rowStrings = append(rowStrings, totalLabel)
 		}
 		w.Write(rowStrings)
 		w.Flush()
@@ -367,13 +361,13 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 			if !result.IsCrosstab {
 				rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Values[i]))
 			} else {
+				rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Totals[i]))
 				for j := range result.CrosstabDims {
 					idx := i*len(result.CrosstabDims) + j
 					if result.PopulatedColumns[idx] {
 						rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Values[idx]))
 					}
 				}
-				rowStrings = append(rowStrings, fmt.Sprintf("%f", row.Totals[i]))
 			}
 		}
 		w.Write(rowStrings)
