@@ -14,12 +14,14 @@ import (
 func TestSQL(t *testing.T) {
 	known := AVG("k")
 	knownfield := Field{known, "knownfield"}
+	oknownfield := Field{SUM("o"), "oknownfield"}
 	q, err := Parse(`
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
 	myfield,
 	knownfield,
-	IF(dim = 'test', AVG(myfield)) AS the_avg
+	IF(dim = 'test', AVG(myfield)) AS the_avg,
+	*
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host' AND dim_f != true
 GROUP BY
@@ -36,13 +38,13 @@ GROUP BY
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, X
 LIMIT 100, 10
-`, knownfield)
+`, knownfield, oknownfield)
 	if !assert.NoError(t, err) {
 		return
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	if assert.Len(t, q.Fields, 4) {
+	if assert.Len(t, q.Fields, 5) {
 		field := q.Fields[0]
 		expected := Field{rate, "rate"}.String()
 		actual := field.String()
@@ -68,6 +70,11 @@ LIMIT 100, 10
 			return
 		}
 		expected = Field{ifEx, "the_avg"}.String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = q.Fields[4]
+		expected = oknownfield.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}

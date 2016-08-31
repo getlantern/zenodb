@@ -74,10 +74,7 @@ view_a:
   maxmemstorebytes: 1
   retentionperiod: 200ms
   sql: >
-    SELECT
-      i,
-      ii,
-      iii
+    SELECT *
     FROM teSt_a
     WHERE r = 'A'
     GROUP BY u, b, period(1ms)`
@@ -311,15 +308,15 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 	aq, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
 	iii / 2 AS ciii,
-	IF(b != true, ii) AS  ii,
-	i,
+	IF(b != true, ii) AS ii,
+	*,
 	IF(b = true, i) AS i_filtered,
 	_points
 FROM test_a
 ASOF '%v' UNTIL '%v'
 WHERE b != true
 GROUP BY r, u, period('%v')
--- HAVING ii * 2 = 488 OR ii = 42
+HAVING ii * 2 = 488 OR ii = 42
 ORDER BY u DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
 	if !assert.NoError(t, err, "Unable to create SQL query") {
@@ -350,19 +347,24 @@ ORDER BY u DESC
 	for _, field := range result.FieldNames {
 		fields = append(fields, field)
 	}
-	assert.Equal(t, []string{"ciii", "ii", "i", "i_filtered", "_points"}, fields)
+	assert.Equal(t, []string{"ciii", "ii", "newfield", "_points", "i", "iii", "i_filtered"}, fields)
 
-	assert.EqualValues(t, 3, rows[1].Values[4], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 0, rows[1].Values[3], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 122, rows[1].Values[2], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 244, rows[1].Values[1], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[0], "Wrong derived value, bucketing may not be working correctly")
+	pointsIdx := 3
+	iIdx := 4
+	iiIdx := 1
+	ciiiIdx := 0
+	iFilteredIdx := 6
+	assert.EqualValues(t, 3, rows[1].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 0, rows[1].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 122, rows[1].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 244, rows[1].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
 
-	assert.EqualValues(t, 3, rows[1].Values[4], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 0, rows[0].Values[3], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 31, rows[0].Values[2], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 42, rows[0].Values[1], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[0], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 3, rows[1].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 0, rows[0].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 31, rows[0].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 42, rows[0].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
 
 	// Test having on non-existent field
 	aq, err = db.SQLQuery(fmt.Sprintf(`

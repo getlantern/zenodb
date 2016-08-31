@@ -159,7 +159,7 @@ func Parse(sql string, knownFields ...Field) (*Query, error) {
 	}
 	stmt := parsed.(*sqlparser.Select)
 	if len(stmt.SelectExprs) > 0 {
-		err = q.applySelect(stmt)
+		err = q.applySelect(stmt, knownFields)
 		if err != nil {
 			return nil, err
 		}
@@ -201,37 +201,52 @@ func Parse(sql string, knownFields ...Field) (*Query, error) {
 	return q, nil
 }
 
-func (q *Query) applySelect(stmt *sqlparser.Select) error {
+func (q *Query) applySelect(stmt *sqlparser.Select, knownFields []Field) error {
 	for _, _e := range stmt.SelectExprs {
-		e, ok := _e.(*sqlparser.NonStarExpr)
-		if !ok {
-			return ErrWildcardNotAllowed
-		}
-		if len(e.As) == 0 {
-			col, isColName := e.Expr.(*sqlparser.ColName)
-			if !isColName {
-				return ErrSelectNoName
+		switch e := _e.(type) {
+		case *sqlparser.StarExpr:
+			for _, field := range knownFields {
+				q.addField(field)
 			}
-			e.As = col.Name
+		case *sqlparser.NonStarExpr:
+			if len(e.As) == 0 {
+				col, isColName := e.Expr.(*sqlparser.ColName)
+				if !isColName {
+					return ErrSelectNoName
+				}
+				e.As = col.Name
+			}
+			_fe, err := q.exprFor(e.Expr, true)
+			if err != nil {
+				return err
+			}
+			fe, ok := _fe.(expr.Expr)
+			if !ok {
+				return fmt.Errorf("Not an Expr: %v", _fe)
+			}
+			err = fe.Validate()
+			if err != nil {
+				return fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
+			}
+			q.addField(Field{fe.(expr.Expr), strings.ToLower(string(e.As))})
 		}
-		_fe, err := q.exprFor(e.Expr, true)
-		if err != nil {
-			return err
-		}
-		fe, ok := _fe.(expr.Expr)
-		if !ok {
-			return fmt.Errorf("Not an Expr: %v", _fe)
-		}
-		err = fe.Validate()
-		if err != nil {
-			return fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
-		}
-		field := Field{fe.(expr.Expr), strings.ToLower(string(e.As))}
-		q.Fields = append(q.Fields, field)
-		q.fieldsMap[field.Name] = field
 	}
 
 	return nil
+}
+
+func (q *Query) addField(field Field) {
+	fieldAlreadySelected := false
+	for _, existingField := range q.Fields {
+		if existingField.Name == field.Name {
+			fieldAlreadySelected = true
+			break
+		}
+	}
+	if !fieldAlreadySelected {
+		q.Fields = append(q.Fields, field)
+	}
+	q.fieldsMap[field.Name] = field
 }
 
 func (q *Query) applyFrom(stmt *sqlparser.Select) error {
