@@ -570,7 +570,7 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 						fieldIdx = i % len(exec.Fields)
 						dimIdx := i / len(exec.Fields)
 						sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
-						outIdx = fieldIdx*len(exec.crosstabDims) + sortedDimIdx
+						outIdx = sortedDimIdx*len(exec.Fields) + fieldIdx
 					}
 					ex := exec.Fields[fieldIdx].Expr
 					val, wasSet := vals.ValueAt(t, ex)
