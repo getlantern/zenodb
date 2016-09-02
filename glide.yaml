@@ -1,0 +1,31 @@
+package: github.com/getlantern/zenodb
+import:
+- package: github.com/chzyer/readline
+- package: github.com/davecgh/go-spew
+  subpackages:
+  - spew
+- package: github.com/dustin/go-humanize
+- package: github.com/getlantern/appdir
+- package: github.com/getlantern/bytemap
+- package: github.com/getlantern/errors
+- package: github.com/getlantern/goexpr
+  subpackages:
+  - geo
+  - isp
+- package: github.com/getlantern/golog
+- package: github.com/getlantern/sqlparser
+- package: github.com/getlantern/vtime
+- package: github.com/getlantern/yaml
+- package: github.com/golang/snappy
+- package: github.com/gorilla/mux
+- package: github.com/jmcvetta/randutil
+- package: github.com/oxtoacart/emsort
+- package: golang.org/x/net
+  subpackages:
+  - context
+- package: google.golang.org/grpc
+- package: gopkg.in/vmihailenco/msgpack.v2
+testImport:
+- package: github.com/stretchr/testify
+  subpackages:
+  - assert
