@@ -362,6 +362,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	if !groupedByAnything {
 		q.GroupByAll = true
 	} else {
+		// Important - GroupBy needs to be sorted alphabetically
 		sort.Strings(groupByNames)
 		for _, name := range groupByNames {
 			q.GroupBy = append(q.GroupBy, groupBy[name])

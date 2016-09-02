@@ -175,5 +175,5 @@ func TestSequenceMergeValueAt(t *testing.T) {
 }
 
 func randBelow(res time.Duration) time.Duration {
-	return time.Duration(rand.Intn(int(res)))
+	return time.Duration(-1 * rand.Intn(int(res)))
 }

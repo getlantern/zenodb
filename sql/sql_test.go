@@ -13,8 +13,8 @@ import (
 
 func TestSQL(t *testing.T) {
 	known := AVG("k")
-	knownfield := Field{known, "knownfield"}
-	oknownfield := Field{SUM("o"), "oknownfield"}
+	knownField := Field{known, "knownfield"}
+	oknownField := Field{SUM("o"), "oknownfield"}
 	q, err := Parse(`
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
@@ -38,7 +38,7 @@ GROUP BY
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, X
 LIMIT 100, 10
-`, knownfield, oknownfield)
+`, knownField, oknownField)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -56,7 +56,7 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[2]
-		expected = knownfield.String()
+		expected = knownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
@@ -74,7 +74,7 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[4]
-		expected = oknownfield.String()
+		expected = oknownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}

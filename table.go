@@ -136,7 +136,10 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	newFields := make([]sql.Field, 0, len(q.Fields)+1)
 	newFields = append(newFields, sql.NewField("_points", expr.SUM("_point")))
 	for _, field := range q.Fields {
-		newFields = append(newFields, field)
+		// Don't add _points twice
+		if field.Name != "_points" {
+			newFields = append(newFields, field)
+		}
 	}
 	q.Fields = newFields
 

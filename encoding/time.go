@@ -21,8 +21,8 @@ func TimeFromBytes(b []byte) time.Time {
 
 func RoundTime(ts time.Time, resolution time.Duration) time.Time {
 	rounded := ts.Round(resolution)
-	if rounded.After(ts) {
-		rounded = rounded.Add(-1 * resolution)
+	if rounded.Before(ts) {
+		rounded = rounded.Add(1 * resolution)
 	}
 	return rounded
 }

@@ -21,7 +21,7 @@ import (
 func TestRoundTime(t *testing.T) {
 	ts := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	rounded := encoding.RoundTime(ts, time.Second)
-	expected := time.Date(2015, 5, 6, 7, 8, 9, 0, time.UTC)
+	expected := time.Date(2015, 5, 6, 7, 8, 10, 0, time.UTC)
 	assert.Equal(t, expected, rounded)
 }
 
@@ -118,7 +118,7 @@ view_a:
 	}
 
 	randBelowRes := func() time.Duration {
-		return time.Duration(rand.Intn(int(resolution)))
+		return time.Duration(-1 * rand.Intn(int(resolution)))
 	}
 
 	db.Insert("inbound", &Point{
