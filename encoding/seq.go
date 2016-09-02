@@ -60,6 +60,7 @@ func (seq Sequence) ValueAtTime(t time.Time, e expr.Expr, resolution time.Durati
 	if len(seq) == 0 {
 		return 0, false
 	}
+	t = RoundTime(t, resolution)
 	start := seq.Start()
 	if t.After(start) {
 		return 0, false
@@ -127,6 +128,7 @@ func (seq Sequence) DataAtOffset(offset int, e expr.Expr) (data []byte, found bo
 // dimensions associated to the value). The time is translated to a period by
 // assuming that each period represents 1 * resolution of time.
 func (seq Sequence) UpdateValueAtTime(t time.Time, resolution time.Duration, e expr.Expr, params expr.Params, metadata goexpr.Params) {
+	t = RoundTime(t, resolution)
 	start := seq.Start()
 	period := int(start.Sub(t) / resolution)
 	seq.UpdateValueAt(period, e, params, metadata)
@@ -204,6 +206,8 @@ func (seq Sequence) Update(tsp TSParams, metadata goexpr.Params, e expr.Expr, re
 // sequence grew).
 func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
 	periodWidth := e.EncodedWidth()
+	ts = RoundTime(ts, resolution)
+	truncateBefore = RoundTime(truncateBefore, resolution)
 
 	if log.IsTraceEnabled() {
 		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.Start().In(time.UTC), params, ts.In(time.UTC), truncateBefore.In(time.UTC))
@@ -280,6 +284,7 @@ func (seq Sequence) Merge(other Sequence, e expr.Expr, resolution time.Duration,
 		return seq
 	}
 
+	truncateBefore = RoundTime(truncateBefore, resolution)
 	sa := seq
 	sb := other
 	startA := sa.Start()
@@ -361,6 +366,7 @@ func (seq Sequence) Truncate(periodWidth int, resolution time.Duration, truncate
 	if len(seq) == 0 {
 		return nil
 	}
+	truncateBefore = RoundTime(truncateBefore, resolution)
 	maxPeriods := int(seq.Start().Sub(truncateBefore) / resolution)
 	if maxPeriods <= 0 {
 		// Entire sequence falls outside of truncation range

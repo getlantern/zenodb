@@ -3,6 +3,7 @@ package zenodb
 import (
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"time"
 
@@ -49,7 +50,8 @@ Test_a:
     SELECT
       SUM(i) AS i,
       ii,
-      i * ii / COUNT(ii) AS iii
+      i * ii / COUNT(ii) AS iii,
+      z
     FROM inbound
     WHERE r = 'A'
     GROUP BY *, period(1ms)
@@ -115,8 +117,12 @@ view_a:
 		time.Sleep(100 * time.Millisecond)
 	}
 
+	randBelowRes := func() time.Duration {
+		return time.Duration(rand.Intn(int(resolution)))
+	}
+
 	db.Insert("inbound", &Point{
-		Ts: now,
+		Ts: now.Add(randBelowRes()),
 		Dims: map[string]interface{}{
 			"r": "A",
 			"u": 1,
@@ -131,7 +137,7 @@ view_a:
 
 	// This should get excluded by the filter
 	db.Insert("inbound", &Point{
-		Ts: now,
+		Ts: now.Add(randBelowRes()),
 		Dims: map[string]interface{}{
 			"r": "B",
 			"u": 1,
@@ -145,7 +151,7 @@ view_a:
 	shuffleFields()
 
 	db.Insert("inbound", &Point{
-		Ts: now,
+		Ts: now.Add(randBelowRes()),
 		Dims: map[string]interface{}{
 			"r": "A",
 			"u": 1,
@@ -169,7 +175,7 @@ view_a:
 	advance(resolution)
 
 	db.Insert("inbound", &Point{
-		Ts: now,
+		Ts: now.Add(randBelowRes()),
 		Dims: map[string]interface{}{
 			"r": "A",
 			"u": 1,
@@ -183,7 +189,7 @@ view_a:
 	shuffleFields()
 
 	db.Insert("inbound", &Point{
-		Ts: now,
+		Ts: now.Add(randBelowRes()),
 		Dims: map[string]interface{}{
 			"r": "A",
 			"u": 2,
@@ -192,12 +198,13 @@ view_a:
 		Vals: map[string]float64{
 			"i":  31,
 			"ii": 42,
+			"z":  53,
 		},
 	})
 	shuffleFields()
 
 	db.Insert("inbound", &Point{
-		Ts: now,
+		Ts: now.Add(randBelowRes()),
 		Dims: map[string]interface{}{
 			"r": "A",
 			"u": 2,
@@ -291,11 +298,10 @@ view_a:
 	})
 
 	log.Debug("E")
-	test(epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "ii", func(result map[int][]float64) {
+	test(epoch.Add(-2*resolution), epoch.Add(resolution*2), "u", "z", func(result map[int][]float64) {
 		log.Debug(result)
-		if assert.Len(t, result, 2) {
-			assert.Equal(t, []float64{222, 22}, result[1])
-			assert.Equal(t, []float64{42}, result[2])
+		if assert.Len(t, result, 1) {
+			assert.Equal(t, []float64{53}, result[2])
 		}
 	})
 
@@ -347,13 +353,14 @@ ORDER BY u DESC
 	for _, field := range result.FieldNames {
 		fields = append(fields, field)
 	}
-	assert.Equal(t, []string{"ciii", "ii", "newfield", "_points", "i", "iii", "i_filtered"}, fields)
+	assert.Equal(t, []string{"ciii", "ii", "newfield", "_points", "i", "iii", "z", "i_filtered"}, fields)
 
 	pointsIdx := 3
 	iIdx := 4
 	iiIdx := 1
 	ciiiIdx := 0
-	iFilteredIdx := 6
+	zIdx := 6
+	iFilteredIdx := 7
 	assert.EqualValues(t, 3, rows[1].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[1].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 122, rows[1].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
@@ -364,6 +371,7 @@ ORDER BY u DESC
 	assert.EqualValues(t, 0, rows[0].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 31, rows[0].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 42, rows[0].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 53, rows[0].Values[zIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
 
 	// Test having on non-existent field

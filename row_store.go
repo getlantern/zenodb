@@ -120,7 +120,7 @@ func (rs *rowStore) processInserts() {
 		}
 		// Temporarily disable flush timer while we're flushing
 		flushTimer.Reset(100000 * time.Hour)
-		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.Bytes())))
+		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.Bytes())))
 		previousMemStore := currentMemStore
 		shouldSort := flushIdx%10 == 0
 		rs.mx.Lock()

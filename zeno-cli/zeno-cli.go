@@ -206,7 +206,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 						if crosstabDimWidth > width {
 							width = crosstabDimWidth
 						}
-						if len(fieldWidths) <= outIdx {
+						if len(fieldWidths) <= outIdx-1 {
 							fieldWidths = append(fieldWidths, width)
 						} else if width > fieldWidths[outIdx] {
 							fieldWidths[outIdx] = width
