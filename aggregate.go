@@ -593,9 +593,12 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 					}
 				}
 				if !hasData {
-					// Exclude rows that have no data
-					// TODO: add ability to fill
-					continue
+					firstPeriodOfFieldlessQuery := len(exec.Fields) == 0 && t == 0
+					if !firstPeriodOfFieldlessQuery {
+						// Exclude rows that have no data
+						// TODO: add ability to fill
+						continue
+					}
 				}
 				rows = append(rows, &Row{
 					Period:  t,

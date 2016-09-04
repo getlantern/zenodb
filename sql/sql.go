@@ -203,6 +203,10 @@ func Parse(sql string, knownFields ...Field) (*Query, error) {
 
 func (q *Query) applySelect(stmt *sqlparser.Select, knownFields []Field) error {
 	for _, _e := range stmt.SelectExprs {
+		if exprToString(_e) == "_" {
+			// Ignore underscore
+			continue
+		}
 		switch e := _e.(type) {
 		case *sqlparser.StarExpr:
 			for _, field := range knownFields {

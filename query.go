@@ -33,9 +33,6 @@ type QueryStats struct {
 }
 
 func (q *query) init(db *DB) error {
-	if len(q.fields) == 0 {
-		return fmt.Errorf("Please specify at least one field")
-	}
 	q.t = db.getTable(q.table)
 	if q.t == nil {
 		return fmt.Errorf("Unknown table %v", q.table)

@@ -117,11 +117,12 @@ LIMIT 100, 10
 
 func TestSQLDefaults(t *testing.T) {
 	q, err := Parse(`
-SELECT SUM(a) AS the_sum
+SELECT _
 FROM Table_A
 `)
 	if !assert.NoError(t, err) {
 		return
 	}
+	assert.Empty(t, q.Fields)
 	assert.True(t, q.GroupByAll)
 }
