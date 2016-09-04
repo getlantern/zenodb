@@ -638,8 +638,18 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			}
 			return fn(exprs...), nil
 		}
+	case *sqlparser.NullCheck:
+		wrapped, err := q.goExprFor(e.Expr)
+		if err != nil {
+			return nil, err
+		}
+		op := "=="
+		if "is not null" == e.Operator {
+			op = "<>"
+		}
+		return goexpr.Binary(op, wrapped, nil)
 	default:
-		return nil, fmt.Errorf("Unknown boolean expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
+		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
 	}
 }
 

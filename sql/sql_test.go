@@ -23,7 +23,7 @@ SELECT
 	IF(dim = 'test', AVG(myfield)) AS the_avg,
 	*
 FROM Table_A ASOF '-60m' UNTIL '-15m'
-WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host' AND dim_f != true
+WHERE Dim_a LIKE '172.56.' AND (dim_b > 10 OR dim_c = 20) OR dim_d <> 'thing' AND dim_e NOT LIKE 'no such host' AND dim_f != true AND dim_g IS NULL AND dim_h IS NOT NULL
 GROUP BY
 	dim_a,
 	CROSSTAB(dim_b),
@@ -100,9 +100,7 @@ LIMIT 100, 10
 		assert.False(t, q.OrderBy[1].Descending)
 	}
 	assert.Equal(t, 5*time.Second, q.Resolution)
-	// TODO: reenable this
-	log.Debug(q.Where)
-	// assert.Equal(t, "dim_a =~ '172.56.' && (dim_b > 10 || dim_c == 20) || dim_d != 'thing' && dim_e !~ 'no such host'", q.Where.String())
+	assert.Equal(t, "(((dim_a LIKE 172.56.) AND ((dim_b > 10) OR (dim_c == 20))) OR (((((dim_d != thing) AND (dim_e LIKE no such host)) AND (dim_f != true)) AND (dim_g == <nil>)) AND (dim_h != <nil>)))", q.Where.String())
 	expectedHaving := AND(GT(rate, 15), LT(SUM("h"), 2)).String()
 	actualHaving := q.Having.String()
 	assert.Equal(t, expectedHaving, actualHaving)
