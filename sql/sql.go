@@ -578,15 +578,31 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		}
 		return goexpr.Not(wrapped), nil
 	case *sqlparser.ComparisonExpr:
+		op := strings.ToUpper(e.Operator)
 		left, err := q.goExprFor(e.Left)
 		if err != nil {
 			return nil, err
+		}
+		if op == "IN" {
+			_right, ok := e.Right.(sqlparser.ValTuple)
+			if !ok {
+				return nil, fmt.Errorf("IN requires a list of values on the right hand side")
+			}
+			right := make([]goexpr.Expr, 0, len(_right))
+			for _, ve := range _right {
+				valE, err := q.goExprFor(ve)
+				if err != nil {
+					return nil, err
+				}
+				right = append(right, valE)
+			}
+			return goexpr.In(left, right...), nil
 		}
 		right, err := q.goExprFor(e.Right)
 		if err != nil {
 			return nil, err
 		}
-		return goexpr.Binary(strings.ToUpper(e.Operator), left, right)
+		return goexpr.Binary(op, left, right)
 	case *sqlparser.ColName:
 		colName := strings.TrimSpace(strings.ToLower(string(e.Name)))
 		bl, err := strconv.ParseBool(colName)
