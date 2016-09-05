@@ -12,6 +12,7 @@ import (
 	"github.com/getlantern/goexpr/isp"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
+	"github.com/getlantern/zenodb/sql"
 )
 
 var (
@@ -127,4 +128,20 @@ func (db *DB) getTable(table string) *table {
 	t := db.tables[strings.ToLower(table)]
 	db.tablesMutex.RUnlock()
 	return t
+}
+
+func (db *DB) getFields(table string) ([]sql.Field, error) {
+	t := db.getTable(table)
+	if t == nil {
+		return nil, fmt.Errorf("Table '%v' not found", table)
+	}
+	return t.Fields, nil
+}
+
+func (db *DB) getFieldsOptional(table string) ([]sql.Field, error) {
+	t := db.getTable(table)
+	if t == nil {
+		return nil, nil
+	}
+	return t.Fields, nil
 }

@@ -62,7 +62,7 @@ type table struct {
 
 // CreateTable creates a table based on the given opts.
 func (db *DB) CreateTable(opts *TableOpts) error {
-	q, err := sql.Parse(opts.SQL)
+	q, err := sql.Parse(opts.SQL, nil)
 	if err != nil {
 		return err
 	}
@@ -81,7 +81,7 @@ func (db *DB) CreateView(opts *TableOpts) error {
 	if t == nil {
 		return fmt.Errorf("Table '%v' not found", table)
 	}
-	q, err := sql.Parse(opts.SQL, t.Fields...)
+	q, err := sql.Parse(opts.SQL, db.getFieldsOptional)
 	if err != nil {
 		return err
 	}

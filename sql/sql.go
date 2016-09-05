@@ -122,9 +122,9 @@ type SubQuery struct {
 
 func newSubQuery(query *Query) *SubQuery {
 	sq := &SubQuery{Query: *query, dim: query.Fields[0].Name}
-	// Blank out fields since the single field in a SubQuery is actually the name
+	// Remove first field the first field in a SubQuery is actually the name
 	// of a dimension, not a field.
-	sq.Fields = nil
+	sq.Fields = sq.Fields[1:]
 	return sq
 }
 
@@ -155,13 +155,22 @@ type Query struct {
 	GroupBy    []GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab   goexpr.Expr
-	Having     expr.Expr
-	OrderBy    []Order
-	Offset     int
-	Limit      int
-	SubQueries []*SubQuery
-	fieldsMap  map[string]Field
+	Crosstab    goexpr.Expr
+	Having      expr.Expr
+	OrderBy     []Order
+	Offset      int
+	Limit       int
+	SubQueries  []*SubQuery
+	fieldSource FieldSource
+	knownFields []Field
+	fieldsMap   map[string]Field
+}
+
+// FieldSource is a function that returns the known fields for a given table.
+type FieldSource func(table string) ([]Field, error)
+
+func noopFieldSource(table string) ([]Field, error) {
+	return []Field{}, nil
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -174,47 +183,54 @@ func TableFor(sql string) (string, error) {
 	return strings.ToLower(nodeToString(stmt.From[0])), nil
 }
 
-// Parse parses a SQL statement and returns a corresponding *Query object.
-func Parse(sql string, knownFields ...Field) (*Query, error) {
+// Parse parses a SQL statement and returns a corresponding *Query object. If
+// a FieldSource is supplied, existing fields will be referenced based on it.
+func Parse(sql string, fieldSource FieldSource) (*Query, error) {
 	parsed, err := sqlparser.Parse(sql)
 	if err != nil {
 		return nil, err
 	}
-	return parse(parsed.(*sqlparser.Select), knownFields...)
+	return parse(parsed.(*sqlparser.Select), fieldSource)
 }
 
-func parse(stmt *sqlparser.Select, knownFields ...Field) (*Query, error) {
-	q := &Query{
-		fieldsMap: make(map[string]Field),
+func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
+	if fieldSource == nil {
+		fieldSource = noopFieldSource
 	}
-	for _, field := range knownFields {
+	q := &Query{
+		fieldsMap:   make(map[string]Field),
+		fieldSource: fieldSource,
+	}
+	err := q.applyFrom(stmt)
+	if err != nil {
+		return nil, err
+	}
+	q.knownFields, err = fieldSource(q.From)
+	if err != nil {
+		return nil, err
+	}
+	for _, field := range q.knownFields {
 		q.fieldsMap[field.Name] = field
 	}
 	if len(stmt.SelectExprs) > 0 {
-		err := q.applySelect(stmt, knownFields)
-		if err != nil {
-			return nil, err
-		}
-	}
-	if len(stmt.From) > 0 {
-		err := q.applyFrom(stmt)
+		err = q.applySelect(stmt)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if stmt.Where != nil {
-		err := q.applyWhere(stmt)
+		err = q.applyWhere(stmt)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if stmt.TimeRange != nil {
-		err := q.applyTimeRange(stmt)
+		err = q.applyTimeRange(stmt)
 		if err != nil {
 			return nil, err
 		}
 	}
-	err := q.applyGroupBy(stmt)
+	err = q.applyGroupBy(stmt)
 	if err != nil {
 		return nil, err
 	}
@@ -233,7 +249,7 @@ func parse(stmt *sqlparser.Select, knownFields ...Field) (*Query, error) {
 	return q, nil
 }
 
-func (q *Query) applySelect(stmt *sqlparser.Select, knownFields []Field) error {
+func (q *Query) applySelect(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.SelectExprs {
 		if nodeToString(_e) == "_" {
 			// Ignore underscore
@@ -241,7 +257,7 @@ func (q *Query) applySelect(stmt *sqlparser.Select, knownFields []Field) error {
 		}
 		switch e := _e.(type) {
 		case *sqlparser.StarExpr:
-			for _, field := range knownFields {
+			for _, field := range q.knownFields {
 				q.addField(field)
 			}
 		case *sqlparser.NonStarExpr:
@@ -423,6 +439,14 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.OrderBy {
 		field := nodeToString(_e.Expr)
+		// If we're selecting a known field from the table, add it to the select
+		// clause.
+		for _, known := range q.knownFields {
+			if field == known.Name {
+				q.addField(known)
+				break
+			}
+		}
 		desc := strings.EqualFold("desc", _e.Direction)
 		q.OrderBy = append(q.OrderBy, Order{field, desc})
 	}
@@ -637,12 +661,12 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				if !ok {
 					return nil, fmt.Errorf("Subquery requires a SELECT statement")
 				}
-				_sq, parseErr := parse(stmt)
+				_sq, parseErr := parse(stmt, q.fieldSource)
 				if parseErr != nil {
 					return nil, fmt.Errorf("In subquery %v: %v", nodeToString(stmt), parseErr)
 				}
-				if len(_sq.Fields) != 1 {
-					return nil, fmt.Errorf("Subqueries must select 1 and only 1 field")
+				if len(_sq.Fields) < 1 {
+					return nil, fmt.Errorf("Subqueries must select at least 1 field")
 				}
 				sq := newSubQuery(_sq)
 				q.SubQueries = append(q.SubQueries, sq)

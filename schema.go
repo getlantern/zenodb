@@ -83,7 +83,7 @@ func (db *DB) ApplySchema(schema Schema) error {
 			log.Debugf("Created %v %v", tableType, name)
 		} else {
 			// TODO: support more comprehensive altering of tables (maybe)
-			q, err := sql.Parse(opts.SQL)
+			q, err := sql.Parse(opts.SQL, nil)
 			if err != nil {
 				return err
 			}

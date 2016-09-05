@@ -1,6 +1,7 @@
 package sql
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -14,7 +15,8 @@ import (
 func TestSQL(t *testing.T) {
 	known := AVG("k")
 	knownField := Field{known, "knownfield"}
-	oknownField := Field{SUM("o"), "oknownfield"}
+	oKnownField := Field{SUM("o"), "oknownfield"}
+	xKnownField := Field{SUM("x"), "x"}
 	q, err := Parse(`
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
@@ -44,15 +46,23 @@ GROUP BY
 	CONCAT('|', part_a, part_b) AS joined,
 	period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
-ORDER BY Rate DESC, X
+ORDER BY Rate DESC, x, y
 LIMIT 100, 10
-`, knownField, oknownField)
+`, func(table string) ([]Field, error) {
+		if table == "table_a" {
+			return []Field{knownField, oKnownField, xKnownField}, nil
+		}
+		if table == "subtable" {
+			return []Field{}, nil
+		}
+		return nil, fmt.Errorf("Unknown table %v", table)
+	})
 	if !assert.NoError(t, err) {
 		return
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	if assert.Len(t, q.Fields, 5) {
+	if assert.Len(t, q.Fields, 6) {
 		field := q.Fields[0]
 		expected := Field{rate, "rate"}.String()
 		actual := field.String()
@@ -82,7 +92,12 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[4]
-		expected = oknownField.String()
+		expected = oKnownField.String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = q.Fields[5]
+		expected = xKnownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}
@@ -101,11 +116,13 @@ LIMIT 100, 10
 	assert.Equal(t, goexpr.Param("dim_b"), q.Crosstab)
 	assert.Equal(t, -60*time.Minute, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
-	if assert.Len(t, q.OrderBy, 2) {
+	if assert.Len(t, q.OrderBy, 3) {
 		assert.Equal(t, "rate", q.OrderBy[0].Field)
 		assert.True(t, q.OrderBy[0].Descending)
 		assert.Equal(t, "x", q.OrderBy[1].Field)
 		assert.False(t, q.OrderBy[1].Descending)
+		assert.Equal(t, "y", q.OrderBy[2].Field)
+		assert.False(t, q.OrderBy[2].Descending)
 	}
 	assert.Equal(t, 5*time.Second, q.Resolution)
 	// TODO: reenable this
@@ -121,7 +138,9 @@ func TestSQLDefaults(t *testing.T) {
 	q, err := Parse(`
 SELECT _
 FROM Table_A
-`)
+`, func(table string) ([]Field, error) {
+		return []Field{}, nil
+	})
 	if !assert.NoError(t, err) {
 		return
 	}

@@ -123,16 +123,7 @@ type queryExecution struct {
 }
 
 func (db *DB) SQLQuery(sqlString string) (*Query, error) {
-	table, err := sql.TableFor(sqlString)
-	if err != nil {
-		return nil, err
-	}
-	t := db.getTable(table)
-	if t == nil {
-		return nil, fmt.Errorf("Table '%v' not found", table)
-	}
-
-	query, err := sql.Parse(sqlString, t.Fields...)
+	query, err := sql.Parse(sqlString, db.getFields)
 	if err != nil {
 		return nil, err
 	}
