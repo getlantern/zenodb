@@ -320,8 +320,8 @@ SELECT
 	_points
 FROM test_a
 ASOF '%v' UNTIL '%v'
-WHERE b != true
-GROUP BY r, u, period('%v')
+WHERE b != true AND r IN (SELECT r FROM test_a GROUP BY r, period(50000h))
+GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42
 ORDER BY u DESC
 `, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
