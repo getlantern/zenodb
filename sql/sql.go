@@ -592,15 +592,15 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			if !ok {
 				return nil, fmt.Errorf("IN requires a list of values on the right hand side")
 			}
-			right := make([]goexpr.Expr, 0, len(_right))
+			right := make(goexpr.ArrayList, 0, len(_right))
 			for _, ve := range _right {
-				valE, err := q.goExprFor(ve)
-				if err != nil {
-					return nil, err
+				valE, valErr := q.goExprFor(ve)
+				if valErr != nil {
+					return nil, valErr
 				}
 				right = append(right, valE)
 			}
-			return goexpr.In(left, right...), nil
+			return goexpr.In(left, right), nil
 		}
 		right, err := q.goExprFor(e.Right)
 		if err != nil {
