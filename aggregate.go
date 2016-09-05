@@ -179,6 +179,10 @@ func (exec *queryExecution) run() (*QueryResult, error) {
 
 func (exec *queryExecution) runSubQueries() error {
 	for _, sq := range exec.SubQueries {
+		t := exec.db.getTable(sq.Query.From)
+		if t == nil {
+			return fmt.Errorf("Table '%v' not found", sq.Query.From)
+		}
 		_result, err := exec.db.Query(&sq.Query).Run()
 		if err != nil {
 			return fmt.Errorf("Error running subquery: %v", err)
