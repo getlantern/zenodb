@@ -111,6 +111,34 @@ type Order struct {
 	Descending bool
 }
 
+// SubQuery is a placeholder for a sub query within a query. Executors of a
+// query should first execute all SubQueries and then call SetResult to set the
+// results of the subquery. The subquery
+type SubQuery struct {
+	Query
+	dim    string
+	result []goexpr.Expr
+}
+
+func newSubQuery(query *Query) *SubQuery {
+	sq := &SubQuery{Query: *query, dim: query.Fields[0].Name}
+	// Blank out fields since the single field in a SubQuery is actually the name
+	// of a dimension, not a field.
+	sq.Fields = nil
+	return sq
+}
+
+func (sq *SubQuery) SetResult(result []goexpr.Params) {
+	sq.result = make([]goexpr.Expr, 0, len(result))
+	for _, params := range result {
+		sq.result = append(sq.result, goexpr.Constant(params.Get(sq.dim)))
+	}
+}
+
+func (sq *SubQuery) Values() []goexpr.Expr {
+	return sq.result
+}
+
 // Query represents the result of parsing a SELECT query.
 type Query struct {
 	// Fields are the fields from the SELECT clause in the order they appear.
@@ -127,12 +155,13 @@ type Query struct {
 	GroupBy    []GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab  goexpr.Expr
-	Having    expr.Expr
-	OrderBy   []Order
-	Offset    int
-	Limit     int
-	fieldsMap map[string]Field
+	Crosstab   goexpr.Expr
+	Having     expr.Expr
+	OrderBy    []Order
+	Offset     int
+	Limit      int
+	SubQueries []*SubQuery
+	fieldsMap  map[string]Field
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -142,47 +171,50 @@ func TableFor(sql string) (string, error) {
 		return "", err
 	}
 	stmt := parsed.(*sqlparser.Select)
-	return strings.ToLower(exprToString(stmt.From[0])), nil
+	return strings.ToLower(nodeToString(stmt.From[0])), nil
 }
 
 // Parse parses a SQL statement and returns a corresponding *Query object.
 func Parse(sql string, knownFields ...Field) (*Query, error) {
+	parsed, err := sqlparser.Parse(sql)
+	if err != nil {
+		return nil, err
+	}
+	return parse(parsed.(*sqlparser.Select), knownFields...)
+}
+
+func parse(stmt *sqlparser.Select, knownFields ...Field) (*Query, error) {
 	q := &Query{
 		fieldsMap: make(map[string]Field),
 	}
 	for _, field := range knownFields {
 		q.fieldsMap[field.Name] = field
 	}
-	parsed, err := sqlparser.Parse(sql)
-	if err != nil {
-		return nil, err
-	}
-	stmt := parsed.(*sqlparser.Select)
 	if len(stmt.SelectExprs) > 0 {
-		err = q.applySelect(stmt, knownFields)
+		err := q.applySelect(stmt, knownFields)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(stmt.From) > 0 {
-		err = q.applyFrom(stmt)
+		err := q.applyFrom(stmt)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if stmt.Where != nil {
-		err = q.applyWhere(stmt)
+		err := q.applyWhere(stmt)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if stmt.TimeRange != nil {
-		err = q.applyTimeRange(stmt)
+		err := q.applyTimeRange(stmt)
 		if err != nil {
 			return nil, err
 		}
 	}
-	err = q.applyGroupBy(stmt)
+	err := q.applyGroupBy(stmt)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +235,7 @@ func Parse(sql string, knownFields ...Field) (*Query, error) {
 
 func (q *Query) applySelect(stmt *sqlparser.Select, knownFields []Field) error {
 	for _, _e := range stmt.SelectExprs {
-		if exprToString(_e) == "_" {
+		if nodeToString(_e) == "_" {
 			// Ignore underscore
 			continue
 		}
@@ -254,7 +286,7 @@ func (q *Query) addField(field Field) {
 }
 
 func (q *Query) applyFrom(stmt *sqlparser.Select) error {
-	q.From = strings.ToLower(exprToString(stmt.From[0]))
+	q.From = strings.ToLower(nodeToString(stmt.From[0]))
 	return nil
 }
 
@@ -309,7 +341,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 		}
 		nse, ok := e.(*sqlparser.NonStarExpr)
 		if !ok {
-			return fmt.Errorf("Unexpected expression in Group By: %v", exprToString(e))
+			return fmt.Errorf("Unexpected expression in Group By: %v", nodeToString(e))
 		}
 		fn, ok := nse.Expr.(*sqlparser.FuncExpr)
 		if ok && strings.EqualFold("PERIOD", string(fn.Name)) {
@@ -317,7 +349,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			if len(fn.Exprs) != 1 {
 				return ErrInvalidPeriod
 			}
-			period := exprToString(fn.Exprs[0])
+			period := nodeToString(fn.Exprs[0])
 			res, err := time.ParseDuration(strings.ToLower(strings.Replace(strings.Trim(period, "''"), " as ", "", 1)))
 			if err != nil {
 				return fmt.Errorf("Unable to parse period %v: %v", period, err)
@@ -355,7 +387,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 					}
 				}
 				if len(name) == 0 {
-					return fmt.Errorf("Expression %v needs to be named via an AS", exprToString(nse))
+					return fmt.Errorf("Expression %v needs to be named via an AS", nodeToString(nse))
 				}
 				groupBy[name] = NewGroupBy(name, ex)
 				groupByNames = append(groupByNames, name)
@@ -390,7 +422,7 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 
 func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.OrderBy {
-		field := exprToString(_e.Expr)
+		field := nodeToString(_e.Expr)
 		desc := strings.EqualFold("desc", _e.Direction)
 		q.OrderBy = append(q.OrderBy, Order{field, desc})
 	}
@@ -400,7 +432,7 @@ func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 func (q *Query) applyLimit(stmt *sqlparser.Select) error {
 	if stmt.Limit != nil {
 		if stmt.Limit.Rowcount != nil {
-			_limit := exprToString(stmt.Limit.Rowcount)
+			_limit := nodeToString(stmt.Limit.Rowcount)
 			limit, err := strconv.Atoi(strings.ToLower(strings.Trim(_limit, "''")))
 			if err != nil {
 				return fmt.Errorf("Unable to parse limit %v: %v", _limit, err)
@@ -409,7 +441,7 @@ func (q *Query) applyLimit(stmt *sqlparser.Select) error {
 		}
 
 		if stmt.Limit.Offset != nil {
-			_offset := exprToString(stmt.Limit.Offset)
+			_offset := nodeToString(stmt.Limit.Offset)
 			offset, err := strconv.Atoi(strings.ToLower(strings.Trim(_offset, "''")))
 			if err != nil {
 				return fmt.Errorf("Unable to parse offset %v: %v", _offset, err)
@@ -423,7 +455,7 @@ func (q *Query) applyLimit(stmt *sqlparser.Select) error {
 
 func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, error) {
 	if log.IsTraceEnabled() {
-		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
+		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
 	switch e := _e.(type) {
 	case *sqlparser.ColName:
@@ -475,11 +507,11 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		if !ok {
 			return nil, ErrWildcardNotAllowed
 		}
-		return f(exprToString(_param.Expr)), nil
+		return f(nodeToString(_param.Expr)), nil
 	case *sqlparser.ComparisonExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {
-			log.Tracef("Parsing ComparisonExpr %v %v %v", exprToString(e.Left), _op, exprToString(e.Right))
+			log.Tracef("Parsing ComparisonExpr %v %v %v", nodeToString(e.Left), _op, nodeToString(e.Right))
 		}
 		cond, ok := conditions[_op]
 		if !ok {
@@ -497,7 +529,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 	case *sqlparser.BinaryExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {
-			log.Tracef("Parsing BinaryExpr %v %v %v", exprToString(e.Left), _op, exprToString(e.Right))
+			log.Tracef("Parsing BinaryExpr %v %v %v", nodeToString(e.Left), _op, nodeToString(e.Right))
 		}
 		op, ok := operators[_op]
 		if !ok {
@@ -542,7 +574,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		// expression tree
 		return q.exprFor(e.Expr, defaultToSum)
 	default:
-		str := exprToString(_e)
+		str := nodeToString(_e)
 		log.Tracef("Returning string for expression: %v", str)
 		return str, nil
 	}
@@ -550,7 +582,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 
 func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	if log.IsTraceEnabled() {
-		log.Tracef("Parsing goexpr of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
+		log.Tracef("Parsing goexpr of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
 	switch e := _e.(type) {
 	case *sqlparser.AndExpr:
@@ -588,17 +620,35 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			return nil, err
 		}
 		if op == "IN" {
-			_right, ok := e.Right.(sqlparser.ValTuple)
-			if !ok {
-				return nil, fmt.Errorf("IN requires a list of values on the right hand side")
-			}
-			right := make(goexpr.ArrayList, 0, len(_right))
-			for _, ve := range _right {
-				valE, valErr := q.goExprFor(ve)
-				if valErr != nil {
-					return nil, valErr
+			var right goexpr.List
+			switch _right := e.Right.(type) {
+			case sqlparser.ValTuple:
+				list := make(goexpr.ArrayList, 0, len(_right))
+				for _, ve := range _right {
+					valE, valErr := q.goExprFor(ve)
+					if valErr != nil {
+						return nil, valErr
+					}
+					list = append(list, valE)
 				}
-				right = append(right, valE)
+				right = list
+			case *sqlparser.Subquery:
+				stmt, ok := _right.Select.(*sqlparser.Select)
+				if !ok {
+					return nil, fmt.Errorf("Subquery requires a SELECT statement")
+				}
+				_sq, parseErr := parse(stmt)
+				if parseErr != nil {
+					return nil, fmt.Errorf("In subquery %v: %v", nodeToString(stmt), parseErr)
+				}
+				if len(_sq.Fields) != 1 {
+					return nil, fmt.Errorf("Subqueries must select 1 and only 1 field")
+				}
+				sq := newSubQuery(_sq)
+				q.SubQueries = append(q.SubQueries, sq)
+				right = sq
+			default:
+				return nil, fmt.Errorf("IN requires a list of values on the right hand side, not %v %v", reflect.TypeOf(e.Right), nodeToString(e.Right))
 			}
 			return goexpr.In(left, right), nil
 		}
@@ -669,11 +719,11 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		}
 		return goexpr.Binary(op, wrapped, nil)
 	default:
-		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), exprToString(_e))
+		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
 }
 
-func exprToString(node sqlparser.SQLNode) string {
+func nodeToString(node sqlparser.SQLNode) string {
 	buf := sqlparser.NewTrackedBuffer(nil)
 	node.Format(buf)
 	return buf.String()

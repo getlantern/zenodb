@@ -34,7 +34,7 @@ type Row struct {
 }
 
 // Get implements the interface method from goexpr.Params
-func (row *Row) get(param string) interface{} {
+func (row *Row) Get(param string) interface{} {
 	// First look at fields
 	for i, field := range row.fields {
 		if field.Name == param {
@@ -166,11 +166,30 @@ func (aq *Query) Run() (*QueryResult, error) {
 }
 
 func (exec *queryExecution) run() (*QueryResult, error) {
-	err := exec.prepare()
+	err := exec.runSubQueries()
+	if err != nil {
+		return nil, err
+	}
+	err = exec.prepare()
 	if err != nil {
 		return nil, err
 	}
 	return exec.finish()
+}
+
+func (exec *queryExecution) runSubQueries() error {
+	for _, sq := range exec.SubQueries {
+		_result, err := exec.db.Query(&sq.Query).Run()
+		if err != nil {
+			return fmt.Errorf("Error running subquery: %v", err)
+		}
+		result := make([]goexpr.Params, 0, len(_result.Rows))
+		for _, row := range _result.Rows {
+			result = append(result, row)
+		}
+		sq.SetResult(result)
+	}
+	return nil
 }
 
 func (exec *queryExecution) prepare() error {
@@ -666,8 +685,8 @@ func (r orderedRows) Less(i, j int) bool {
 		}
 
 		// sort by field or dim
-		va := a.get(order.Field)
-		vb := b.get(order.Field)
+		va := a.Get(order.Field)
+		vb := b.Get(order.Field)
 		if order.Descending {
 			va, vb = vb, va
 		}
