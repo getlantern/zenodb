@@ -202,11 +202,11 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 						if labelWidth > width {
 							width = labelWidth
 						}
-						crosstabDimWidth := len(fmt.Sprint(crosstabDim))
+						crosstabDimWidth := len(fmt.Sprint(nilToDash(crosstabDim)))
 						if crosstabDimWidth > width {
 							width = crosstabDimWidth
 						}
-						if len(fieldWidths) <= outIdx-1 {
+						if len(fieldWidths) <= outIdx {
 							fieldWidths = append(fieldWidths, width)
 						} else if width > fieldWidths[outIdx] {
 							fieldWidths[outIdx] = width
@@ -247,7 +247,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 			for j := range result.FieldNames {
 				idx := i*len(result.FieldNames) + j
 				if result.PopulatedColumns[idx] {
-					fmt.Fprintf(stdout, fieldLabelFormats[outIdx], crosstabDim)
+					fmt.Fprintf(stdout, fieldLabelFormats[outIdx], nilToDash(crosstabDim))
 					outIdx++
 				}
 			}
@@ -258,7 +258,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 	// Print header row
 	fmt.Fprintf(stdout, "# %-33v", "time")
 	for i, dim := range result.GroupBy {
-		fmt.Fprintf(stdout, dimFormats[i], dim)
+		fmt.Fprintf(stdout, dimFormats[i], nilToDash(dim))
 	}
 	outIdx := 0
 	for i, fieldName := range result.FieldNames {
@@ -281,7 +281,7 @@ func dumpPlainText(stdout io.Writer, sql string, result *zenodb.QueryResult, nex
 	for _, row := range rows {
 		fmt.Fprintf(stdout, "%-35v", result.Until.Add(-1*time.Duration(row.Period)*result.Resolution).In(time.UTC).Format(time.RFC1123))
 		for i, dim := range row.Dims {
-			fmt.Fprintf(stdout, dimFormats[i], dim)
+			fmt.Fprintf(stdout, dimFormats[i], nilToDash(dim))
 		}
 
 		outIdx := 0
@@ -337,7 +337,7 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 				for j := range result.FieldNames {
 					idx := i*len(result.FieldNames) + j
 					if result.PopulatedColumns[idx] {
-						rowStrings = append(rowStrings, fmt.Sprint(crosstabDim))
+						rowStrings = append(rowStrings, fmt.Sprint(nilToBlank(crosstabDim)))
 					}
 				}
 			}
@@ -381,7 +381,7 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 		rowStrings := make([]string, 0, 1+len(result.GroupBy)+len(result.FieldNames))
 		rowStrings = append(rowStrings, result.Until.Add(-1*result.Resolution*time.Duration(row.Period)).In(time.UTC).Format(time.RFC3339))
 		for _, dim := range row.Dims {
-			rowStrings = append(rowStrings, fmt.Sprint(dim))
+			rowStrings = append(rowStrings, fmt.Sprint(nilToBlank(dim)))
 		}
 		for i := range result.FieldNames {
 			var value float64
@@ -410,6 +410,20 @@ func dumpCSV(stdout io.Writer, result *zenodb.QueryResult, nextRow func() (*zeno
 	}
 
 	return nil
+}
+
+func nilToBlank(val interface{}) interface{} {
+	if val == nil {
+		return ""
+	}
+	return val
+}
+
+func nilToDash(val interface{}) interface{} {
+	if val == nil {
+		return "-----"
+	}
+	return val
 }
 
 func numFieldsFor(result *zenodb.QueryResult) int {
