@@ -29,7 +29,15 @@ import (
 const (
 	// File format versions
 	FileVersion_2      = 2
-	CurrentFileVersion = FileVersion_2
+	FileVersion_3      = 3
+	CurrentFileVersion = FileVersion_3
+)
+
+var (
+	fieldsDelims = map[int]string{
+		FileVersion_2: ",",
+		FileVersion_3: "|",
+	}
 )
 
 type rowStoreOptions struct {
@@ -205,7 +213,7 @@ func (rs *rowStore) processFlushes() {
 		for _, field := range rs.t.Fields {
 			fieldStrings = append(fieldStrings, field.String())
 		}
-		headerBytes := []byte(strings.Join(fieldStrings, ","))
+		headerBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
 		headerLength := uint32(len(headerBytes))
 		err = binary.Write(bout, encoding.Binary, headerLength)
 		if err != nil {
@@ -466,7 +474,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 			if err != nil {
 				return err
 			}
-			fieldStrings := strings.Split(string(headerBytes), ",")
+			delim := fieldsDelims[fileVersion]
+			fieldStrings := strings.Split(string(headerBytes), delim)
 			fileFields = make([]sql.Field, 0, len(fieldStrings))
 			for _, fieldString := range fieldStrings {
 				foundField := false
