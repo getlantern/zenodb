@@ -148,7 +148,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		Query:     *q,
 		db:        db,
 		log:       golog.LoggerFor("zenodb." + opts.Name),
-		inserts:   make(chan *insert, 100000),
+		inserts:   make(chan *insert, 10000),
 	}
 
 	t.applyWhere(q.Where)
