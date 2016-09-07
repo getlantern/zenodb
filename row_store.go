@@ -187,7 +187,11 @@ func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []enc
 
 func (rs *rowStore) processFlushes() {
 	for req := range rs.flushes {
-		rs.t.log.Debug("Starting flush")
+		willSort := "not sorted"
+		if req.sort {
+			willSort = "sorted"
+		}
+		rs.t.log.Debugf("Starting flush, %v", willSort)
 		start := time.Now()
 		out, err := ioutil.TempFile("", "nextrowstore")
 		if err != nil {
@@ -350,14 +354,10 @@ func (rs *rowStore) processFlushes() {
 
 		flushDuration := time.Now().Sub(start)
 		rs.flushFinished <- flushDuration
-		wasSorted := "not sorted"
-		if req.sort {
-			wasSorted = "sorted"
-		}
 		if fi != nil {
-			rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), wasSorted)
+			rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
 		} else {
-			rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, wasSorted)
+			rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
 		}
 	}
 }

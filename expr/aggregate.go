@@ -26,7 +26,7 @@ func validateWrappedInAggregate(wrapped Expr) error {
 		return fmt.Errorf("Aggregate cannot wrap nil expression")
 	}
 	typeOfWrapped := reflect.TypeOf(wrapped)
-	if typeOfWrapped != fieldType && typeOfWrapped != constType {
+	if typeOfWrapped != fieldType && typeOfWrapped != constType && typeOfWrapped != boundedType {
 		return fmt.Errorf("Aggregate can only wrap field and constant expressions, not %v", typeOfWrapped)
 	}
 	return wrapped.Validate()

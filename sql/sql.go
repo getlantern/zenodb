@@ -26,6 +26,7 @@ var (
 	ErrIFArity            = errors.New("The IF function requires two parameters, like IF(dim = 1, SUM(b))")
 	ErrCROSSTABArity      = fmt.Errorf("CROSSTAB allows only one argument")
 	ErrAggregateArity     = errors.New("Aggregate functions take only one parameter, like SUM(b)")
+	ErrBoundedArity       = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
 	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
 	ErrNestedFunctionCall = errors.New("Nested function calls are not currently supported in SELECT")
 	ErrInvalidPeriod      = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
@@ -484,17 +485,17 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 	switch e := _e.(type) {
 	case *sqlparser.ColName:
 		name := strings.ToLower(string(e.Name))
+		// Default to a sum over the field
+		ex := expr.FIELD(name)
+		if !defaultToSum {
+			return ex, nil
+		}
 		f, found := q.fieldsMap[name]
 		if found {
 			// Use existing expression referenced by this name
 			return f.Expr, nil
 		}
-		// Default to a sum over the field
-		ex := expr.FIELD(name)
-		if defaultToSum {
-			ex = expr.SUM(ex)
-		}
-		return ex, nil
+		return expr.SUM(ex), nil
 	case *sqlparser.FuncExpr:
 		fname := strings.ToUpper(string(e.Name))
 		if fname == "IF" {
@@ -519,6 +520,36 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 			}
 			return expr.IF(boolEx, valueEx)
 		}
+		if fname == "BOUNDED" {
+			if len(e.Exprs) != 3 {
+				return nil, ErrBoundedArity
+			}
+			param0, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			param1, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			param2, ok := e.Exprs[2].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			wrapped, err := q.exprFor(param0.Expr, defaultToSum)
+			if err != nil {
+				return nil, err
+			}
+			min, err := strconv.ParseFloat(nodeToString(param1.Expr), 64)
+			if err != nil {
+				return nil, fmt.Errorf("Unable to parse min parameter to BOUNDED: %v", err)
+			}
+			max, err := strconv.ParseFloat(nodeToString(param2.Expr), 64)
+			if err != nil {
+				return nil, fmt.Errorf("Unable to parse max parameter to BOUNDED: %v", err)
+			}
+			return expr.BOUNDED(wrapped, min, max), nil
+		}
 		if len(e.Exprs) != 1 {
 			return nil, ErrAggregateArity
 		}
@@ -531,7 +562,11 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		if !ok {
 			return nil, ErrWildcardNotAllowed
 		}
-		return f(nodeToString(_param.Expr)), nil
+		se, err := q.exprFor(_param.Expr, false)
+		if err != nil {
+			return nil, err
+		}
+		return f(se), nil
 	case *sqlparser.ComparisonExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {

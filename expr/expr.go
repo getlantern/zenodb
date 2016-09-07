@@ -22,6 +22,7 @@ var (
 
 	fieldType     = reflect.TypeOf((*field)(nil))
 	constType     = reflect.TypeOf((*constant)(nil))
+	boundedType   = reflect.TypeOf((*bounded)(nil))
 	aggregateType = reflect.TypeOf((*aggregate)(nil))
 	ifType        = reflect.TypeOf((*ifExpr)(nil))
 	avgType       = reflect.TypeOf((*avg)(nil))

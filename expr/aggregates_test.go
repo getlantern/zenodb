@@ -8,15 +8,15 @@ import (
 )
 
 func TestSUM(t *testing.T) {
-	doTestAggregate(t, SUM("a"), 13.2)
+	doTestAggregate(t, SUM(boundedA()), 13.2)
 }
 
 func TestMIN(t *testing.T) {
-	doTestAggregate(t, MIN("a"), 4.4)
+	doTestAggregate(t, MIN(boundedA()), 4.4)
 }
 
 func TestMAX(t *testing.T) {
-	doTestAggregate(t, MAX("a"), 8.8)
+	doTestAggregate(t, MAX(boundedA()), 8.8)
 }
 
 func TestCOUNT(t *testing.T) {
@@ -24,7 +24,7 @@ func TestCOUNT(t *testing.T) {
 }
 
 func TestAVG(t *testing.T) {
-	doTestAggregate(t, AVG("a"), 6.6)
+	doTestAggregate(t, AVG(boundedA()), 6.6)
 }
 
 func TestSUMConditional(t *testing.T) {
@@ -44,6 +44,10 @@ func TestValidateAggregate(t *testing.T) {
 	assert.NoError(t, ok.Validate())
 	ok2 := AVG(FIELD("b"))
 	assert.NoError(t, ok2.Validate())
+}
+
+func boundedA() Expr {
+	return BOUNDED("a", 0.1, 8.8)
 }
 
 func doTestAggregate(t *testing.T, e Expr, expected float64) {
@@ -69,12 +73,20 @@ func doTestAggregate(t *testing.T, e Expr, expected float64) {
 	md4 := goexpr.MapParams{
 		"i": true,
 	}
-
+	// params5 and params6 will be ignored because they fall outside of the bounds
+	params5 := Map{
+		"a": 0.01,
+	}
+	params6 := Map{
+		"a": 8.9,
+	}
 	b := make([]byte, e.EncodedWidth())
 	e.Update(b, params1, md1)
 	e.Update(b, params2, md2)
 	e.Update(b, params3, md3)
 	e.Update(b, params4, md4)
+	e.Update(b, params5, md1)
+	e.Update(b, params6, md1)
 	val, wasSet, _ := e.Get(b)
 	if assert.True(t, wasSet) {
 		assertFloatEquals(t, expected, val)
