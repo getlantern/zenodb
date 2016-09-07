@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -122,7 +123,7 @@ func (rs *rowStore) processInserts() {
 		flushTimer.Reset(100000 * time.Hour)
 		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.Bytes())))
 		previousMemStore := currentMemStore
-		shouldSort := flushIdx%10 == 0
+		shouldSort := rand.Int()%10 == 0
 		rs.mx.Lock()
 		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore, shouldSort}
 		rs.mx.Unlock()
@@ -186,6 +187,7 @@ func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []enc
 
 func (rs *rowStore) processFlushes() {
 	for req := range rs.flushes {
+		rs.t.log.Debug("Starting flush")
 		start := time.Now()
 		out, err := ioutil.TempFile("", "nextrowstore")
 		if err != nil {
@@ -233,7 +235,7 @@ func (rs *rowStore) processFlushes() {
 			}
 
 			var sortErr error
-			cout, sortErr = emsort.New(bout, chunk, less, rs.opts.maxMemStoreBytes/2)
+			cout, sortErr = emsort.New(bout, chunk, less, rs.opts.maxMemStoreBytes*5)
 			if sortErr != nil {
 				panic(sortErr)
 			}
