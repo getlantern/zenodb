@@ -23,6 +23,7 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Populate views with historical data upon creation
  * Byte array buffers to avoid allocations for sequences and ByteMaps
  * Limit query memory consumption to avoid OOM killer
+ * Smart sorting - e.g. only sort data files if a substantial number of new keys have been added
  * More validations/error checking
  * TLS in RPC
  * TLS in HTTP
