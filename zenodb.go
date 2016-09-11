@@ -44,11 +44,14 @@ type DBOpts struct {
 
 // DB is a zenodb database.
 type DB struct {
-	opts        *DBOpts
-	clock       vtime.Clock
-	streams     map[string][]*table
-	tables      map[string]*table
-	tablesMutex sync.RWMutex
+	opts            *DBOpts
+	clock           vtime.Clock
+	streams         map[string][]*table
+	tables          map[string]*table
+	orderedTables   []*table
+	tablesMutex     sync.RWMutex
+	isSorting       bool
+	nextTableToSort int
 }
 
 // NewDB creates a database using the given options.

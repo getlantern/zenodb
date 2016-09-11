@@ -80,18 +80,24 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		stats.Scanned++
 
+		testedInclude := false
+		shouldInclude := func() (bool, error) {
+			return true, nil
+		}
 		if q.filter != nil {
-			include := q.filter.Eval(key)
-			inc, ok := include.(bool)
-			if !ok {
-				log.Errorf("Filter expression returned something other than a boolean: %v", include)
-				return
+			shouldInclude = func() (bool, error) {
+				include := q.filter.Eval(key)
+				inc, ok := include.(bool)
+				if !ok {
+					return false, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
+				}
+				if !inc {
+					stats.FilterReject++
+					return false, nil
+				}
+				stats.FilterPass++
+				return true, nil
 			}
-			if !inc {
-				stats.FilterReject++
-				return
-			}
-			stats.FilterPass++
 		}
 
 		for i := 0; i < len(columns); i++ {
@@ -107,6 +113,17 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 				}
 				seq = seq.Truncate(encodedWidth, q.t.Resolution, q.asOf)
 				if seq != nil {
+					if !testedInclude {
+						include, includeErr := shouldInclude()
+						if includeErr != nil {
+							log.Error(includeErr)
+							return
+						}
+						if !include {
+							return
+						}
+						testedInclude = true
+					}
 					stats.InTimeRange++
 					startOffset := int(seq.Start().Sub(q.until) / q.t.Resolution)
 					q.onValues(key, field.Name, e, seq, startOffset)

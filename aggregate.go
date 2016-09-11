@@ -142,7 +142,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		until:       aq.Until,
 		untilOffset: aq.UntilOffset,
 	}
-	numWorkers := runtime.NumCPU()
+	numWorkers := runtime.NumCPU() / 2
 	exec := &queryExecution{
 		Query:       aq.Query,
 		db:          aq.db,

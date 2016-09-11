@@ -148,7 +148,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		Query:     *q,
 		db:        db,
 		log:       golog.LoggerFor("zenodb." + opts.Name),
-		inserts:   make(chan *insert, 10000),
+		inserts:   make(chan *insert, 100000), // TODO: make this tuneable
 	}
 
 	t.applyWhere(q.Where)
@@ -173,6 +173,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		return fmt.Errorf("Table %v already exists", t.Name)
 	}
 	db.tables[t.Name] = t
+	db.orderedTables = append(db.orderedTables, t)
 	db.streams[q.From] = append(db.streams[q.From], t)
 
 	return nil
@@ -186,4 +187,27 @@ func (t *table) applyWhere(where goexpr.Expr) {
 
 func (t *table) truncateBefore() time.Time {
 	return t.db.clock.Now().Add(-1 * t.RetentionPeriod)
+}
+
+// shouldSort determines whether or not a flush should be sorted. The flush will
+// sort if the table is the next table in line to be sorted, and no other sort
+// is currently happening. If shouldSort returns true, the flushing process
+// must call stopSorting when finished so that other tables have a chance to
+// sort.
+func (t *table) shouldSort() bool {
+	t.db.tablesMutex.RLock()
+	if t.db.nextTableToSort >= len(t.db.orderedTables) {
+		t.db.nextTableToSort = 0
+	}
+	nextTableToSort := t.db.orderedTables[t.db.nextTableToSort]
+	result := t.Name == nextTableToSort.Name && !t.db.isSorting
+	t.db.tablesMutex.RUnlock()
+	return result
+}
+
+func (t *table) stopSorting() {
+	t.db.tablesMutex.RLock()
+	t.db.isSorting = false
+	t.db.nextTableToSort++
+	t.db.tablesMutex.RUnlock()
 }

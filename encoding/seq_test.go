@@ -174,6 +174,16 @@ func TestSequenceMergeValueAt(t *testing.T) {
 	}
 }
 
+func TestSequenceTruncate(t *testing.T) {
+	res := 1 * time.Hour
+	e := SUM("a")
+	seq := NewSequence(e.EncodedWidth(), 10)
+	seq.SetStart(epoch)
+	assert.Nil(t, seq.Truncate(e.EncodedWidth(), res, epoch))
+	assert.Nil(t, seq.Truncate(e.EncodedWidth(), res, epoch.Add(-1*res)))
+	assert.Equal(t, 1, seq.Truncate(e.EncodedWidth(), res, epoch.Add(-2*res)).NumPeriods(e.EncodedWidth()))
+}
+
 func randBelow(res time.Duration) time.Duration {
 	return time.Duration(-1 * rand.Intn(int(res)))
 }

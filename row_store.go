@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -50,7 +49,6 @@ type rowStoreOptions struct {
 type flushRequest struct {
 	idx      int
 	memstore *bytetree.Tree
-	sort     bool
 }
 
 type rowStore struct {
@@ -131,9 +129,8 @@ func (rs *rowStore) processInserts() {
 		flushTimer.Reset(100000 * time.Hour)
 		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.Bytes())))
 		previousMemStore := currentMemStore
-		shouldSort := rand.Int()%10 == 0
 		rs.mx.Lock()
-		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore, shouldSort}
+		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore}
 		rs.mx.Unlock()
 		select {
 		case rs.flushes <- fr:
@@ -195,178 +192,185 @@ func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []enc
 
 func (rs *rowStore) processFlushes() {
 	for req := range rs.flushes {
-		willSort := "not sorted"
-		if req.sort {
-			willSort = "sorted"
+		rs.processFlush(req)
+	}
+}
+
+func (rs *rowStore) processFlush(req *flushRequest) {
+	shouldSort := rs.t.shouldSort()
+	willSort := "not sorted"
+	if shouldSort {
+		defer rs.t.stopSorting()
+		willSort = "sorted"
+	}
+
+	rs.t.log.Debugf("Starting flush, %v", willSort)
+	start := time.Now()
+	out, err := ioutil.TempFile("", "nextrowstore")
+	if err != nil {
+		panic(err)
+	}
+	sout := snappy.NewWriter(out)
+	bout := bufio.NewWriterSize(sout, 65536)
+
+	// Write header with field strings
+	fieldStrings := make([]string, 0, len(rs.t.Fields))
+	for _, field := range rs.t.Fields {
+		fieldStrings = append(fieldStrings, field.String())
+	}
+	headerBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
+	headerLength := uint32(len(headerBytes))
+	err = binary.Write(bout, encoding.Binary, headerLength)
+	if err != nil {
+		panic(fmt.Errorf("Unable to write header length: %v", err))
+	}
+	_, err = bout.Write(headerBytes)
+	if err != nil {
+		panic(fmt.Errorf("Unable to write header: %v", err))
+	}
+
+	var cout io.WriteCloser
+	if !shouldSort {
+		cout = &closerAdapter{bout}
+	} else {
+		chunk := func(r io.Reader) ([]byte, error) {
+			rowLength := uint64(0)
+			readErr := binary.Read(r, encoding.Binary, &rowLength)
+			if readErr != nil {
+				return nil, readErr
+			}
+			_row := make([]byte, rowLength)
+			row := _row
+			encoding.Binary.PutUint64(row, rowLength)
+			row = row[encoding.Width64bits:]
+			_, err = io.ReadFull(r, row)
+			return _row, err
 		}
-		rs.t.log.Debugf("Starting flush, %v", willSort)
-		start := time.Now()
-		out, err := ioutil.TempFile("", "nextrowstore")
+
+		less := func(a []byte, b []byte) bool {
+			return bytes.Compare(a, b) < 0
+		}
+
+		var sortErr error
+		cout, sortErr = emsort.New(bout, chunk, less, rs.opts.maxMemStoreBytes*5)
+		if sortErr != nil {
+			panic(sortErr)
+		}
+	}
+
+	truncateBefore := rs.t.truncateBefore()
+	write := func(key bytemap.ByteMap, columns []encoding.Sequence) {
+		hasActiveSequence := false
+		for i, seq := range columns {
+			seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore)
+			columns[i] = seq
+			if seq != nil {
+				hasActiveSequence = true
+			}
+		}
+
+		if !hasActiveSequence {
+			// all encoding.Sequences expired, remove key
+			return
+		}
+
+		rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
+		for _, seq := range columns {
+			rowLength += encoding.Width64bits + len(seq)
+		}
+
+		var o io.Writer = cout
+		var buf *bytes.Buffer
+		if shouldSort {
+			// When sorting, we need to write the entire row as a single byte array,
+			// so use a ByteBuffer. We don't do this otherwise because we're already
+			// using a buffered writer, so we can avoid the copying
+			b := make([]byte, 0, rowLength)
+			buf = bytes.NewBuffer(b)
+			o = buf
+		}
+
+		err = binary.Write(o, encoding.Binary, uint64(rowLength))
 		if err != nil {
 			panic(err)
 		}
-		sout := snappy.NewWriter(out)
-		bout := bufio.NewWriterSize(sout, 65536)
 
-		// Write header with field strings
-		fieldStrings := make([]string, 0, len(rs.t.Fields))
-		for _, field := range rs.t.Fields {
-			fieldStrings = append(fieldStrings, field.String())
-		}
-		headerBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
-		headerLength := uint32(len(headerBytes))
-		err = binary.Write(bout, encoding.Binary, headerLength)
+		err = binary.Write(o, encoding.Binary, uint16(len(key)))
 		if err != nil {
-			panic(fmt.Errorf("Unable to write header length: %v", err))
+			panic(err)
 		}
-		_, err = bout.Write(headerBytes)
+		_, err = o.Write(key)
 		if err != nil {
-			panic(fmt.Errorf("Unable to write header: %v", err))
+			panic(err)
 		}
 
-		var cout io.WriteCloser
-		if !req.sort {
-			cout = &closerAdapter{bout}
-		} else {
-			chunk := func(r io.Reader) ([]byte, error) {
-				rowLength := uint64(0)
-				readErr := binary.Read(r, encoding.Binary, &rowLength)
-				if readErr != nil {
-					return nil, readErr
-				}
-				_row := make([]byte, rowLength)
-				row := _row
-				encoding.Binary.PutUint64(row, rowLength)
-				row = row[encoding.Width64bits:]
-				_, err = io.ReadFull(r, row)
-				return _row, err
-			}
-
-			less := func(a []byte, b []byte) bool {
-				return bytes.Compare(a, b) < 0
-			}
-
-			var sortErr error
-			cout, sortErr = emsort.New(bout, chunk, less, rs.opts.maxMemStoreBytes*5)
-			if sortErr != nil {
-				panic(sortErr)
-			}
+		err = binary.Write(o, encoding.Binary, uint16(len(columns)))
+		if err != nil {
+			panic(err)
 		}
-
-		truncateBefore := rs.t.truncateBefore()
-		write := func(key bytemap.ByteMap, columns []encoding.Sequence) {
-			hasActiveSequence := false
-			for i, seq := range columns {
-				seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore)
-				columns[i] = seq
-				if seq != nil {
-					hasActiveSequence = true
-				}
-			}
-
-			if !hasActiveSequence {
-				// all encoding.Sequences expired, remove key
-				return
-			}
-
-			rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
-			for _, seq := range columns {
-				rowLength += encoding.Width64bits + len(seq)
-			}
-
-			var o io.Writer = cout
-			var buf *bytes.Buffer
-			if req.sort {
-				// When sorting, we need to write the entire row as a single byte array,
-				// so use a ByteBuffer. We don't do this otherwise because we're already
-				// using a buffered writer, so we can avoid the copying
-				b := make([]byte, 0, rowLength)
-				buf = bytes.NewBuffer(b)
-				o = buf
-			}
-
-			err = binary.Write(o, encoding.Binary, uint64(rowLength))
+		for _, seq := range columns {
+			err = binary.Write(o, encoding.Binary, uint64(len(seq)))
 			if err != nil {
 				panic(err)
 			}
-
-			err = binary.Write(o, encoding.Binary, uint16(len(key)))
+		}
+		for _, seq := range columns {
+			_, err = o.Write(seq)
 			if err != nil {
 				panic(err)
 			}
-			_, err = o.Write(key)
-			if err != nil {
-				panic(err)
-			}
-
-			err = binary.Write(o, encoding.Binary, uint16(len(columns)))
-			if err != nil {
-				panic(err)
-			}
-			for _, seq := range columns {
-				err = binary.Write(o, encoding.Binary, uint64(len(seq)))
-				if err != nil {
-					panic(err)
-				}
-			}
-			for _, seq := range columns {
-				_, err = o.Write(seq)
-				if err != nil {
-					panic(err)
-				}
-			}
-
-			if req.sort {
-				// flush buffer
-				_b := buf.Bytes()
-				_, writeErr := cout.Write(_b)
-				if writeErr != nil {
-					panic(writeErr)
-				}
-			}
-		}
-		rs.mx.RLock()
-		fs := rs.fileStore
-		rs.mx.RUnlock()
-		fs.iterate(write, []*bytetree.Tree{req.memstore})
-		err = cout.Close()
-		if err != nil {
-			panic(err)
-		}
-		err = bout.Flush()
-		if err != nil {
-			panic(err)
-		}
-		err = sout.Close()
-		if err != nil {
-			panic(err)
 		}
 
-		fi, err := out.Stat()
-		if err != nil {
-			rs.t.log.Errorf("Unable to stat output file to get size: %v", err)
+		if shouldSort {
+			// flush buffer
+			_b := buf.Bytes()
+			_, writeErr := cout.Write(_b)
+			if writeErr != nil {
+				panic(writeErr)
+			}
 		}
-		// Note - we left-pad the unix nano value to the widest possible length to
-		// ensure lexicographical sort matches time-based sort (e.g. on directory
-		// listing).
-		newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
-		err = os.Rename(out.Name(), newFileStoreName)
-		if err != nil {
-			panic(err)
-		}
+	}
+	rs.mx.RLock()
+	fs := rs.fileStore
+	rs.mx.RUnlock()
+	fs.iterate(write, []*bytetree.Tree{req.memstore})
+	err = cout.Close()
+	if err != nil {
+		panic(err)
+	}
+	err = bout.Flush()
+	if err != nil {
+		panic(err)
+	}
+	err = sout.Close()
+	if err != nil {
+		panic(err)
+	}
 
-		rs.mx.Lock()
-		delete(rs.memStores, req.idx)
-		rs.fileStore = &fileStore{rs.t, rs.opts, newFileStoreName}
-		rs.mx.Unlock()
+	fi, err := out.Stat()
+	if err != nil {
+		rs.t.log.Errorf("Unable to stat output file to get size: %v", err)
+	}
+	// Note - we left-pad the unix nano value to the widest possible length to
+	// ensure lexicographical sort matches time-based sort (e.g. on directory
+	// listing).
+	newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
+	err = os.Rename(out.Name(), newFileStoreName)
+	if err != nil {
+		panic(err)
+	}
 
-		flushDuration := time.Now().Sub(start)
-		rs.flushFinished <- flushDuration
-		if fi != nil {
-			rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
-		} else {
-			rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
-		}
+	rs.mx.Lock()
+	delete(rs.memStores, req.idx)
+	rs.fileStore = &fileStore{rs.t, rs.opts, newFileStoreName}
+	rs.mx.Unlock()
+
+	flushDuration := time.Now().Sub(start)
+	rs.flushFinished <- flushDuration
+	if fi != nil {
+		rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
+	} else {
+		rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
 	}
 }
 
