@@ -100,7 +100,7 @@ func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
 func (e *binaryExpr) Get(b []byte) (float64, bool, []byte) {
 	valueLeft, leftWasSet, remain := e.left.Get(b)
 	valueRight, rightWasSet, remain := e.right.Get(remain)
-	if !leftWasSet || !rightWasSet {
+	if !leftWasSet && !rightWasSet {
 		return 0, false, remain
 	}
 	return e.calc(valueLeft, valueRight), true, remain
