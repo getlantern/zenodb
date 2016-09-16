@@ -8,9 +8,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
+	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
 )
@@ -185,8 +187,24 @@ func (t *table) applyWhere(where goexpr.Expr) {
 	t.whereMutex.Unlock()
 }
 
+func (t *table) fields() []sql.Field {
+	return t.Fields
+}
+
+func (t *table) resolution() time.Duration {
+	return t.Resolution
+}
+
+func (t *table) retentionPeriod() time.Duration {
+	return t.RetentionPeriod
+}
+
 func (t *table) truncateBefore() time.Time {
 	return t.db.clock.Now().Add(-1 * t.RetentionPeriod)
+}
+
+func (t *table) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+	return t.rowStore.iterate(fields, onValue)
 }
 
 // shouldSort determines whether or not a flush should be sorted. The flush will

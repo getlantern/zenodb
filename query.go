@@ -8,7 +8,16 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
+	"github.com/getlantern/zenodb/sql"
 )
+
+type queryable interface {
+	fields() []sql.Field
+	resolution() time.Duration
+	retentionPeriod() time.Duration
+	truncateBefore() time.Time
+	iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
+}
 
 type query struct {
 	table       string
@@ -19,7 +28,7 @@ type query struct {
 	until       time.Time
 	untilOffset time.Duration
 	onValues    func(key bytemap.ByteMap, field string, e expr.Expr, seq encoding.Sequence, startOffset int)
-	t           *table
+	t           queryable
 }
 
 type QueryStats struct {
@@ -58,8 +67,8 @@ func (q *query) init(db *DB) error {
 			q.until = q.until.Add(q.untilOffset)
 		}
 	}
-	q.until = encoding.RoundTime(q.until, q.t.Resolution)
-	q.asOf = encoding.RoundTime(q.asOf, q.t.Resolution)
+	q.until = encoding.RoundTime(q.until, q.t.resolution())
+	q.asOf = encoding.RoundTime(q.asOf, q.t.resolution())
 
 	return nil
 }
@@ -74,10 +83,11 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			return nil, err
 		}
 	}
-	numPeriods := int(q.until.Sub(q.asOf) / q.t.Resolution)
+	numPeriods := int(q.until.Sub(q.asOf) / q.t.resolution())
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
-	q.t.rowStore.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
+	allFields := q.t.fields()
+	q.t.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		stats.Scanned++
 
 		testedInclude := false
@@ -102,7 +112,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 
 		for i := 0; i < len(columns); i++ {
 			stats.ReadValue++
-			field := q.t.Fields[i]
+			field := allFields[i]
 			e := field.Expr
 			encodedWidth := e.EncodedWidth()
 			seq := columns[i]
@@ -111,7 +121,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 				if log.IsTraceEnabled() {
 					log.Tracef("Reading encoding.Sequence %v", seq.String(e))
 				}
-				seq = seq.Truncate(encodedWidth, q.t.Resolution, q.asOf)
+				seq = seq.Truncate(encodedWidth, q.t.resolution(), q.asOf)
 				if seq != nil {
 					if !testedInclude {
 						include, includeErr := shouldInclude()
@@ -125,7 +135,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 						testedInclude = true
 					}
 					stats.InTimeRange++
-					startOffset := int(seq.Start().Sub(q.until) / q.t.Resolution)
+					startOffset := int(seq.Start().Sub(q.until) / q.t.resolution())
 					q.onValues(key, field.Name, e, seq, startOffset)
 				}
 			}

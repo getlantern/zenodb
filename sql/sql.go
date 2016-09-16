@@ -145,13 +145,14 @@ type Query struct {
 	// Fields are the fields from the SELECT clause in the order they appear.
 	Fields []Field
 	// From is the Table from the FROM clause
-	From        string
-	Resolution  time.Duration
-	Where       goexpr.Expr
-	AsOf        time.Time
-	AsOfOffset  time.Duration
-	Until       time.Time
-	UntilOffset time.Duration
+	From         string
+	FromSubQuery *Query
+	Resolution   time.Duration
+	Where        goexpr.Expr
+	AsOf         time.Time
+	AsOfOffset   time.Duration
+	Until        time.Time
+	UntilOffset  time.Duration
 	// GroupBy are the GroupBy expressions ordered alphabetically by name.
 	GroupBy    []GroupBy
 	GroupByAll bool
@@ -202,7 +203,7 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 		fieldsMap:   make(map[string]Field),
 		fieldSource: fieldSource,
 	}
-	err := q.applyFrom(stmt)
+	err := q.applyFrom(stmt, fieldSource)
 	if err != nil {
 		return nil, err
 	}
@@ -302,9 +303,26 @@ func (q *Query) addField(field Field) {
 	q.fieldsMap[field.Name] = field
 }
 
-func (q *Query) applyFrom(stmt *sqlparser.Select) error {
-	q.From = strings.ToLower(nodeToString(stmt.From[0]))
-	return nil
+func (q *Query) applyFrom(stmt *sqlparser.Select, fieldSource FieldSource) error {
+	switch f := stmt.From[0].(type) {
+	case *sqlparser.AliasedTableExpr:
+		switch e := f.Expr.(type) {
+		case *sqlparser.Subquery:
+			subSQL := nodeToString(stmt.From[0])
+			subSQL = subSQL[1:]
+			subSQL = subSQL[:len(subSQL)-1]
+			subQuery, err := Parse(subSQL, fieldSource)
+			if err != nil {
+				return fmt.Errorf("Unable to parse subquery: %v", err)
+			}
+			q.FromSubQuery = subQuery
+			return nil
+		case *sqlparser.TableName:
+			q.From = strings.ToLower(string(e.Name))
+			return nil
+		}
+	}
+	return fmt.Errorf("Unknown from expression of type %v", reflect.TypeOf(stmt.From[0]))
 }
 
 func (q *Query) applyWhere(stmt *sqlparser.Select) error {

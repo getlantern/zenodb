@@ -9,6 +9,7 @@ import (
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
 	. "github.com/getlantern/zenodb/expr"
+	"github.com/kylelemons/godebug/pretty"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -138,6 +139,31 @@ LIMIT 100, 10
 	assert.Equal(t, expectedHaving, actualHaving)
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
+}
+
+func TestFromSubQuery(t *testing.T) {
+	field := Field{MAX("field"), "field"}
+	fieldSource := func(table string) ([]Field, error) {
+		return []Field{field}, nil
+	}
+	subSQL := "SELECT name, * FROM the_table GROUP BY *, period('5s') HAVING stuff > 5"
+	subQuery, err := Parse(subSQL, fieldSource)
+	if !assert.NoError(t, err) {
+		return
+	}
+	q, err := Parse(fmt.Sprintf(`
+SELECT AVG(field) AS the_avg
+FROM (%s)
+GROUP BY *, period('10s')
+`, subSQL), fieldSource)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, q.From)
+	if !assert.NotNil(t, q.FromSubQuery) {
+		return
+	}
+	assert.Empty(t, pretty.Compare(q.FromSubQuery, subQuery))
 }
 
 func TestSQLDefaults(t *testing.T) {

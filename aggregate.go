@@ -102,8 +102,9 @@ type entry struct {
 type queryExecution struct {
 	db *DB
 	sql.Query
-	t                      *table
+	t                      queryable
 	q                      *query
+	allFields              []sql.Field
 	subMergers             [][]expr.SubMerge
 	havingSubMergers       []expr.SubMerge
 	dimsMap                map[string]bool
@@ -143,11 +144,13 @@ func (aq *Query) Run() (*QueryResult, error) {
 		untilOffset: aq.UntilOffset,
 	}
 	numWorkers := runtime.NumCPU() / 2
+	table := aq.db.getTable(aq.From)
 	exec := &queryExecution{
 		Query:       aq.Query,
 		db:          aq.db,
-		t:           aq.db.getTable(aq.From),
+		t:           table,
 		q:           q,
+		allFields:   table.Fields,
 		numWorkers:  numWorkers,
 		responsesCh: make(chan *queryResponse, numWorkers),
 		entriesCh:   make(chan map[string]*entry, numWorkers),
@@ -194,8 +197,8 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	// Figure out what to select
-	columns := make([]expr.Expr, 0, len(exec.t.Fields))
-	for _, column := range exec.t.Fields {
+	columns := make([]expr.Expr, 0, len(exec.allFields))
+	for _, column := range exec.allFields {
 		columns = append(columns, column.Expr)
 	}
 	includedColumns := make(map[int]bool)
@@ -227,7 +230,7 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	var fields []string
-	for i, column := range exec.t.Fields {
+	for i, column := range exec.allFields {
 		if includedColumns[i] {
 			fields = append(fields, column.Name)
 		}
@@ -246,14 +249,14 @@ func (exec *queryExecution) prepare() error {
 		return err
 	}
 
-	nativeResolution := exec.t.Resolution
+	nativeResolution := exec.t.resolution()
 	if exec.Resolution == 0 {
 		log.Trace("Defaulting to native resolution")
 		exec.Resolution = nativeResolution
 	}
-	if exec.Resolution > exec.t.RetentionPeriod {
+	if exec.Resolution > exec.t.retentionPeriod() {
 		log.Trace("Not allowing resolution lower than retention period")
-		exec.Resolution = exec.t.RetentionPeriod
+		exec.Resolution = exec.t.retentionPeriod()
 	}
 	if exec.Resolution < nativeResolution {
 		return fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", exec.Resolution, nativeResolution)
@@ -345,7 +348,7 @@ func (exec *queryExecution) prepare() error {
 			}
 
 			inPeriods := resp.seq.NumPeriods(resp.e.EncodedWidth()) - resp.startOffset
-			for c, column := range exec.t.Fields {
+			for c, column := range exec.allFields {
 				if column.Name != resp.field {
 					continue
 				}
