@@ -207,9 +207,13 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	q.knownFields, err = fieldSource(q.From)
-	if err != nil {
-		return nil, err
+	if q.FromSubQuery != nil {
+		q.knownFields = q.FromSubQuery.Fields
+	} else {
+		q.knownFields, err = fieldSource(q.From)
+		if err != nil {
+			return nil, err
+		}
 	}
 	for _, field := range q.knownFields {
 		q.fieldsMap[field.Name] = field

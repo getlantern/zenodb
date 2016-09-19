@@ -35,7 +35,7 @@ func MIN(expr interface{}) Expr {
 // MAX creates an Expr that keeps track of the maximum value of the wrapped
 // expression or field.
 func MAX(expr interface{}) Expr {
-	return &aggregate{"MIN", exprFor(expr), func(wasSet bool, current float64, next float64) float64 {
+	return &aggregate{"MAX", exprFor(expr), func(wasSet bool, current float64, next float64) float64 {
 		if !wasSet {
 			return next
 		}

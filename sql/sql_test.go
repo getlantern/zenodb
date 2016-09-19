@@ -144,6 +144,9 @@ LIMIT 100, 10
 func TestFromSubQuery(t *testing.T) {
 	field := Field{MAX("field"), "field"}
 	fieldSource := func(table string) ([]Field, error) {
+		if table != "the_table" {
+			return nil, fmt.Errorf("Table %v not found", table)
+		}
 		return []Field{field}, nil
 	}
 	subSQL := "SELECT name, * FROM the_table GROUP BY *, period('5s') HAVING stuff > 5"
@@ -152,7 +155,7 @@ func TestFromSubQuery(t *testing.T) {
 		return
 	}
 	q, err := Parse(fmt.Sprintf(`
-SELECT AVG(field) AS the_avg
+SELECT AVG(field) AS the_avg, *
 FROM (%s)
 GROUP BY *, period('10s')
 `, subSQL), fieldSource)
@@ -164,6 +167,22 @@ GROUP BY *, period('10s')
 		return
 	}
 	assert.Empty(t, pretty.Compare(q.FromSubQuery, subQuery))
+	if assert.Len(t, q.Fields, 3) {
+		field := q.Fields[0]
+		expected := Field{AVG("field"), "the_avg"}.String()
+		actual := field.String()
+		assert.Equal(t, expected, actual)
+
+		field = q.Fields[1]
+		expected = Field{SUM("name"), "name"}.String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = q.Fields[2]
+		expected = Field{MAX("field"), "field"}.String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+	}
 }
 
 func TestSQLDefaults(t *testing.T) {

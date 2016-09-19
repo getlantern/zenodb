@@ -20,7 +20,6 @@ type queryable interface {
 }
 
 type query struct {
-	table       string
 	fields      []string
 	filter      goexpr.Expr
 	asOf        time.Time
@@ -42,11 +41,6 @@ type QueryStats struct {
 }
 
 func (q *query) init(db *DB) error {
-	q.t = db.getTable(q.table)
-	if q.t == nil {
-		return fmt.Errorf("Unknown table %v", q.table)
-	}
-
 	// Set up time-based parameters
 	now := db.clock.Now()
 	truncateBefore := q.t.truncateBefore()

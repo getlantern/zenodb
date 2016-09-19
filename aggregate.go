@@ -69,6 +69,7 @@ type QueryResult struct {
 	Stats            *QueryStats
 	NumPeriods       int
 	ScannedPoints    int64
+	exec             *queryExecution
 }
 
 type Query struct {
@@ -104,7 +105,7 @@ type queryExecution struct {
 	sql.Query
 	t                      queryable
 	q                      *query
-	allFields              []sql.Field
+	knownFields            []sql.Field
 	subMergers             [][]expr.SubMerge
 	havingSubMergers       []expr.SubMerge
 	dimsMap                map[string]bool
@@ -126,7 +127,7 @@ type queryExecution struct {
 func (db *DB) SQLQuery(sqlString string) (*Query, error) {
 	query, err := sql.Parse(sqlString, db.getFields)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Unable to parse SQL: %v", err)
 	}
 	return db.Query(query), nil
 }
@@ -137,20 +138,31 @@ func (db *DB) Query(query *sql.Query) *Query {
 
 func (aq *Query) Run() (*QueryResult, error) {
 	q := &query{
-		table:       aq.From,
 		asOf:        aq.AsOf,
 		asOfOffset:  aq.AsOfOffset,
 		until:       aq.Until,
 		untilOffset: aq.UntilOffset,
 	}
 	numWorkers := runtime.NumCPU() / 2
-	table := aq.db.getTable(aq.From)
+	if aq.From != "" {
+		table := aq.db.getTable(aq.From)
+		if table == nil {
+			return nil, fmt.Errorf("Table '%v' not found", aq.From)
+		}
+		q.t = table
+	} else {
+		sq, err := aq.runSubQuery()
+		if err != nil {
+			return nil, fmt.Errorf("Unable to run subquery: %v", err)
+		}
+		q.t = sq
+	}
 	exec := &queryExecution{
 		Query:       aq.Query,
 		db:          aq.db,
-		t:           table,
+		t:           q.t,
 		q:           q,
-		allFields:   table.Fields,
+		knownFields: q.t.fields(),
 		numWorkers:  numWorkers,
 		responsesCh: make(chan *queryResponse, numWorkers),
 		entriesCh:   make(chan map[string]*entry, numWorkers),
@@ -197,8 +209,8 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	// Figure out what to select
-	columns := make([]expr.Expr, 0, len(exec.allFields))
-	for _, column := range exec.allFields {
+	columns := make([]expr.Expr, 0, len(exec.knownFields))
+	for _, column := range exec.knownFields {
 		columns = append(columns, column.Expr)
 	}
 	includedColumns := make(map[int]bool)
@@ -230,7 +242,7 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	var fields []string
-	for i, column := range exec.allFields {
+	for i, column := range exec.knownFields {
 		if includedColumns[i] {
 			fields = append(fields, column.Name)
 		}
@@ -348,7 +360,7 @@ func (exec *queryExecution) prepare() error {
 			}
 
 			inPeriods := resp.seq.NumPeriods(resp.e.EncodedWidth()) - resp.startOffset
-			for c, column := range exec.allFields {
+			for c, column := range exec.knownFields {
 				if column.Name != resp.field {
 					continue
 				}
@@ -497,6 +509,7 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		Rows:             rows,
 		Stats:            stats,
 		ScannedPoints:    exec.scannedPoints,
+		exec:             exec,
 	}
 
 	return result, nil
