@@ -36,7 +36,7 @@ WHERE
 	dim_h IS NOT NULL AND
 	dim_i IN (5, 6, 7, 8) AND
 	dim_j IN (SELECT subdim FROM subtable WHERE subdim > 20) AND
-	RAND(0.5) = true
+	RAND() < 0.5
 GROUP BY
 	dim_a,
 	CROSSTAB(dim_b),

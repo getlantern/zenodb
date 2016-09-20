@@ -57,6 +57,10 @@ var conditions = map[string]func(interface{}, interface{}) expr.Expr{
 	">":  expr.GT,
 }
 
+var nullaryGoExpr = map[string]func() goexpr.Expr{
+	"RAND": goexpr.Rand,
+}
+
 var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"CITY":         geo.CITY,
 	"REGION":       geo.REGION,
@@ -64,7 +68,6 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"COUNTRY_CODE": geo.COUNTRY_CODE,
 	"ISP":          isp.ISP,
 	"ASN":          isp.ASN,
-	"RAND":         goexpr.Rand,
 }
 
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
@@ -757,10 +760,16 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	case *sqlparser.FuncExpr:
 		fname := strings.ToUpper(string(e.Name))
 		switch len(e.Exprs) {
+		case 0:
+			fn, found := nullaryGoExpr[fname]
+			if !found {
+				return nil, fmt.Errorf("Unknown nullary function %v", fname)
+			}
+			return fn(), nil
 		case 1:
 			fn, found := unaryGoExpr[fname]
 			if !found {
-				return nil, fmt.Errorf("Unknown function %v", fname)
+				return nil, fmt.Errorf("Unknown unary function %v", fname)
 			}
 			nse, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
 			if !ok {
@@ -774,7 +783,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		default:
 			fn, found := varGoExpr[fname]
 			if !found {
-				return nil, fmt.Errorf("Unknown function %v", fname)
+				return nil, fmt.Errorf("Unknown var function %v", fname)
 			}
 			exprs := make([]goexpr.Expr, 0, len(e.Exprs))
 			for _, _ex := range e.Exprs {
