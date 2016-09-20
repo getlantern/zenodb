@@ -63,32 +63,41 @@ func (db *DB) ApplySchemaFromFile(filename string) error {
 }
 
 func (db *DB) ApplySchema(schema Schema) error {
-	for name, opts := range schema {
-		name = strings.ToLower(name)
-		opts.Name = name
-		t := db.getTable(name)
-		if t == nil {
-			tableType := "table"
-			create := db.CreateTable
-			if opts.View {
-				tableType = "view"
-				create = db.CreateView
+	// TODO: actually sequence dependencies correctly
+	for {
+		if len(schema) == 0 {
+			break
+		}
+		for name, opts := range schema {
+			name = strings.ToLower(name)
+			opts.Name = name
+			t := db.getTable(name)
+			if t == nil {
+				tableType := "table"
+				create := db.CreateTable
+				if opts.View {
+					tableType = "view"
+					create = db.CreateView
+				}
+				log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
+				log.Debugf("MaxMemStoreBytes: %v    MaxFlushLatency: %v    MinFlushLatency: %v", humanize.Bytes(uint64(opts.MaxMemStoreBytes)), opts.MaxFlushLatency, opts.MinFlushLatency)
+				err := create(opts)
+				if err != nil {
+					// TODO: instead of naively trying again on next loop, we should build a dependency tree and create these in the right order
+					// Ignore error for now and try again on next loop
+					continue
+				}
+				log.Debugf("Created %v %v", tableType, name)
+			} else {
+				// TODO: support more comprehensive altering of tables (maybe)
+				q, err := sql.Parse(opts.SQL, nil)
+				if err != nil {
+					return err
+				}
+				log.Debugf("Cowardly altering where and nothing else on table '%v': %v", name, q.Where)
+				t.applyWhere(q.Where)
 			}
-			log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
-			log.Debugf("MaxMemStoreBytes: %v    MaxFlushLatency: %v    MinFlushLatency: %v", humanize.Bytes(uint64(opts.MaxMemStoreBytes)), opts.MaxFlushLatency, opts.MinFlushLatency)
-			err := create(opts)
-			if err != nil {
-				return err
-			}
-			log.Debugf("Created %v %v", tableType, name)
-		} else {
-			// TODO: support more comprehensive altering of tables (maybe)
-			q, err := sql.Parse(opts.SQL, nil)
-			if err != nil {
-				return err
-			}
-			log.Debugf("Cowardly altering where and nothing else on table '%v': %v", name, q.Where)
-			t.applyWhere(q.Where)
+			delete(schema, name)
 		}
 	}
 
