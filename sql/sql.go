@@ -64,6 +64,7 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"COUNTRY_CODE": geo.COUNTRY_CODE,
 	"ISP":          isp.ISP,
 	"ASN":          isp.ASN,
+	"RAND":         goexpr.Rand,
 }
 
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
