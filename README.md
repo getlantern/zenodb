@@ -371,6 +371,14 @@ ZenoDB relies on a schema file (by default `schema.yaml`).
 
 TODO - fill this out
 
+## Functions
+
+TODO - fill out function reference
+
+## Subqueries
+
+TODO - explain how subqueries work
+
 ## Embedding
 
 Check out the [zenodbdemo](zenodbdemo/zenodbdemo.go) for an example of how to
