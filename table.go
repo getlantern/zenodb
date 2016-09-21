@@ -3,6 +3,7 @@ package zenodb
 import (
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
@@ -59,7 +61,7 @@ type table struct {
 	whereMutex sync.RWMutex
 	stats      TableStats
 	statsMutex sync.RWMutex
-	inserts    chan (*insert)
+	wal        *wal.Reader
 }
 
 // CreateTable creates a table based on the given opts.
@@ -150,7 +152,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		Query:     *q,
 		db:        db,
 		log:       golog.LoggerFor("zenodb." + opts.Name),
-		inserts:   make(chan *insert, 10000), // TODO: make this tuneable
 	}
 
 	t.applyWhere(q.Where)
@@ -166,8 +167,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		return rsErr
 	}
 
-	go t.processInserts()
-
 	db.tablesMutex.Lock()
 	defer db.tablesMutex.Unlock()
 
@@ -176,8 +175,27 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	}
 	db.tables[t.Name] = t
 	db.orderedTables = append(db.orderedTables, t)
-	db.streams[q.From] = append(db.streams[q.From], t)
+	var walErr error
+	w := db.streams[q.From]
+	if w == nil {
+		walDir := filepath.Join(db.opts.Dir, "_wal", q.From)
+		dirErr := os.MkdirAll(walDir, 0755)
+		if dirErr != nil && !os.IsExist(dirErr) {
+			return dirErr
+		}
+		w, walErr = wal.Open(walDir, 5*time.Second)
+		if walErr != nil {
+			return walErr
+		}
+		db.streams[q.From] = w
+	}
+	// TODO: read offset from most recent file on disk
+	t.wal, walErr = w.NewReader(nil)
+	if walErr != nil {
+		return walErr
+	}
 
+	go t.processInserts()
 	return nil
 }
 

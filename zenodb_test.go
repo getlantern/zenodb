@@ -121,47 +121,44 @@ view_a:
 		return time.Duration(-1 * rand.Intn(int(resolution)))
 	}
 
-	db.Insert("inbound", &Point{
-		Ts: now.Add(randBelowRes()),
-		Dims: map[string]interface{}{
+	db.Insert("inbound",
+		now.Add(randBelowRes()),
+		map[string]interface{}{
 			"r": "A",
 			"u": 1,
 			"b": false,
 		},
-		Vals: map[string]float64{
+		map[string]float64{
 			"i":  1,
 			"ii": 2,
-		},
-	})
+		})
 	shuffleFields()
 
 	// This should get excluded by the filter
-	db.Insert("inbound", &Point{
-		Ts: now.Add(randBelowRes()),
-		Dims: map[string]interface{}{
+	db.Insert("inbound",
+		now.Add(randBelowRes()),
+		map[string]interface{}{
 			"r": "B",
 			"u": 1,
 			"b": false,
 		},
-		Vals: map[string]float64{
+		map[string]float64{
 			"i":  1,
 			"ii": 2,
-		},
-	})
+		})
 	shuffleFields()
 
-	db.Insert("inbound", &Point{
-		Ts: now.Add(randBelowRes()),
-		Dims: map[string]interface{}{
+	db.Insert("inbound",
+		now.Add(randBelowRes()),
+		map[string]interface{}{
 			"r": "A",
 			"u": 1,
 			"b": false,
 		},
-		Vals: map[string]float64{
+		map[string]float64{
 			"i":  10,
 			"ii": 20,
-		},
-	})
+		})
 	shuffleFields()
 
 	// Change the schema a bit
@@ -174,47 +171,44 @@ view_a:
 
 	advance(resolution)
 
-	db.Insert("inbound", &Point{
-		Ts: now.Add(randBelowRes()),
-		Dims: map[string]interface{}{
+	db.Insert("inbound",
+		now.Add(randBelowRes()),
+		map[string]interface{}{
 			"r": "A",
 			"u": 1,
 			"b": false,
 		},
-		Vals: map[string]float64{
+		map[string]float64{
 			"i":  111,
 			"ii": 222,
-		},
-	})
+		})
 	shuffleFields()
 
-	db.Insert("inbound", &Point{
-		Ts: now.Add(randBelowRes()),
-		Dims: map[string]interface{}{
+	db.Insert("inbound",
+		now.Add(randBelowRes()),
+		map[string]interface{}{
 			"r": "A",
 			"u": 2,
 			"b": false,
 		},
-		Vals: map[string]float64{
+		map[string]float64{
 			"i":  31,
 			"ii": 42,
 			"z":  53,
-		},
-	})
+		})
 	shuffleFields()
 
-	db.Insert("inbound", &Point{
-		Ts: now.Add(randBelowRes()),
-		Dims: map[string]interface{}{
+	db.Insert("inbound",
+		now.Add(randBelowRes()),
+		map[string]interface{}{
 			"r": "A",
 			"u": 2,
 			"b": true,
 		},
-		Vals: map[string]float64{
+		map[string]float64{
 			"i":  30000,
 			"ii": 40000,
-		},
-	})
+		})
 	shuffleFields()
 
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[int][]float64, error) {
@@ -226,7 +220,7 @@ view_a:
 		toOffset := to.Sub(now)
 		result := make(map[int][]float64, 0)
 		q := &query{
-			table:       table,
+			t:           db.getTable(table),
 			fields:      []string{field},
 			asOfOffset:  fromOffset,
 			untilOffset: toOffset,

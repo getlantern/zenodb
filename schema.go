@@ -85,6 +85,7 @@ func (db *DB) ApplySchema(schema Schema) error {
 				if err != nil {
 					// TODO: instead of naively trying again on next loop, we should build a dependency tree and create these in the right order
 					// Ignore error for now and try again on next loop
+					log.Debugf("Error creating table %v. Will retry. : %v", name, err)
 					continue
 				}
 				log.Debugf("Created %v %v", tableType, name)

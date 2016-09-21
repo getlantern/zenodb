@@ -20,6 +20,12 @@ const (
 	ContentTypeJSON = "application/json"
 )
 
+type Point struct {
+	Ts   time.Time              `json:"ts,omitempty"`
+	Dims map[string]interface{} `json:"dims,omitempty"`
+	Vals map[string]float64     `json:"vals,omitempty"`
+}
+
 func serveHTTP(db *zenodb.DB, hl net.Listener) {
 	r := mux.NewRouter()
 	r.HandleFunc("/insert/{stream}", httpHandler(db))
@@ -52,7 +58,7 @@ func httpHandler(db *zenodb.DB) func(resp http.ResponseWriter, req *http.Request
 		stream := mux.Vars(req)["stream"]
 		dec := json.NewDecoder(req.Body)
 		for {
-			point := &zenodb.Point{}
+			point := &Point{}
 			err := dec.Decode(point)
 			if err == io.EOF {
 				// Done reading points
@@ -75,9 +81,9 @@ func httpHandler(db *zenodb.DB) func(resp http.ResponseWriter, req *http.Request
 				return
 			}
 
-			insertErr := db.Insert(stream, point)
+			insertErr := db.Insert(stream, point.Ts, point.Dims, point.Vals)
 			if insertErr != nil {
-				internalServerError(resp, "Error submitting point: %v", err)
+				internalServerError(resp, "Error submitting point: %v", insertErr)
 			}
 		}
 	}

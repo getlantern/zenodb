@@ -1,74 +1,85 @@
 package zenodb
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/encoding"
 )
 
-type Point struct {
-	Ts   time.Time              `json:"ts,omitempty"`
-	Dims map[string]interface{} `json:"dims,omitempty"`
-	Vals map[string]float64     `json:"vals,omitempty"`
+func (db *DB) Insert(stream string, ts time.Time, dims map[string]interface{}, vals map[string]float64) error {
+	return db.InsertRaw(stream, ts, bytemap.New(dims), bytemap.NewFloat(vals))
 }
 
-// Get implements the interface goexpr.Params
-func (p *Point) Get(name string) interface{} {
-	result := p.Dims[name]
-	if result == nil {
-		result = ""
-	}
-	return result
-}
-
-type insert struct {
-	key  bytemap.ByteMap
-	vals encoding.TSParams
-}
-
-func (db *DB) Insert(stream string, point *Point) error {
+func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) error {
 	stream = strings.TrimSpace(strings.ToLower(stream))
 	db.tablesMutex.Lock()
-	s := db.streams[stream]
+	w := db.streams[stream]
 	db.tablesMutex.Unlock()
-
-	for _, t := range s {
-		log.Tracef("Insert into '%v': %v", t.Name, point)
-		t.insert(point)
+	if w == nil {
+		return fmt.Errorf("No wal found for stream %v", stream)
 	}
-	return nil
+
+	tsd := make([]byte, encoding.Width64bits)
+	encoding.EncodeTime(tsd, ts)
+	_, err := w.Write(tsd)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(dims)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write(vals)
+	return err
 }
 
-func (t *table) insert(point *Point) {
+func (t *table) processInserts() {
+	for {
+		tsd, err := t.wal.Read()
+		if err != nil {
+			panic(fmt.Errorf("Unable to read from WAL: %v", err))
+		}
+		key, err := t.wal.Read()
+		if err != nil {
+			panic(fmt.Errorf("Unable to read from WAL: %v", err))
+		}
+		vals, err := t.wal.Read()
+		if err != nil {
+			panic(fmt.Errorf("Unable to read from WAL: %v", err))
+		}
+		t.insert(encoding.TimeFromBytes(tsd), bytemap.ByteMap(key), bytemap.ByteMap(vals))
+	}
+}
+
+func (t *table) insert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) {
 	t.whereMutex.RLock()
 	where := t.Where
 	t.whereMutex.RUnlock()
 
 	if where != nil {
-		ok := where.Eval(point)
+		ok := where.Eval(dims)
 		if !ok.(bool) {
-			t.log.Tracef("Filtering out inbound point: %v", point.Dims)
+			t.log.Tracef("Filtering out inbound point: %v", dims)
 			t.statsMutex.Lock()
 			t.stats.FilteredPoints++
 			t.statsMutex.Unlock()
 			return
 		}
 	}
-	t.db.clock.Advance(point.Ts)
+	t.db.clock.Advance(ts)
 
 	var key bytemap.ByteMap
 	if len(t.GroupBy) == 0 {
-		key = bytemap.New(point.Dims)
+		key = dims
 	} else {
 		// Reslice dimensions
 		names := make([]string, 0, len(t.GroupBy))
 		values := make([]interface{}, 0, len(t.GroupBy))
-		params := goexpr.MapParams(point.Dims)
 		for _, groupBy := range t.GroupBy {
-			val := groupBy.Expr.Eval(params)
+			val := groupBy.Expr.Eval(dims)
 			if val != nil {
 				names = append(names, groupBy.Name)
 				values = append(values, val)
@@ -77,30 +88,11 @@ func (t *table) insert(point *Point) {
 		key = bytemap.FromSortedKeysAndValues(names, values)
 	}
 
-	vals := encoding.NewTSParams(point.Ts, bytemap.NewFloat(point.Vals))
-	if t.db.opts.DiscardOnBackPressure {
-		select {
-		case t.inserts <- &insert{key, vals}:
-			t.recordQueued()
-		default:
-			t.statsMutex.Lock()
-			t.stats.DroppedPoints++
-			t.statsMutex.Unlock()
-		}
-	} else {
-		t.inserts <- &insert{key, vals}
-		t.recordQueued()
-	}
-}
-
-func (t *table) processInserts() {
-	for insert := range t.inserts {
-		t.rowStore.insert(insert)
-		t.statsMutex.Lock()
-		t.stats.QueuedPoints--
-		t.stats.InsertedPoints++
-		t.statsMutex.Unlock()
-	}
+	tsparams := encoding.NewTSParams(ts, vals)
+	t.rowStore.insert(&insert{key, tsparams})
+	t.statsMutex.Lock()
+	t.stats.InsertedPoints++
+	t.statsMutex.Unlock()
 }
 
 func (t *table) recordQueued() {

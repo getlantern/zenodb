@@ -12,6 +12,7 @@ import (
 	"github.com/getlantern/goexpr/isp"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/sql"
 )
 
@@ -30,9 +31,6 @@ type DBOpts struct {
 	// https://lite.ip2location.com/database/ip-asn. Specify this to allow the use
 	// of ISP functions.
 	ISPDatabase string
-	// DiscardOnBackPressure, when true, tells zenodb to discard new inserts if it
-	// is unable to keep up with the insert rate.
-	DiscardOnBackPressure bool
 	// IncludeMemStoreInQuery, when true, tells zenodb to include the current
 	// memstore when performing queries. This requires the memstore to be copied
 	// which can dramatically impact performance.
@@ -46,7 +44,7 @@ type DBOpts struct {
 type DB struct {
 	opts            *DBOpts
 	clock           vtime.Clock
-	streams         map[string][]*table
+	streams         map[string]*wal.WAL
 	tables          map[string]*table
 	orderedTables   []*table
 	tablesMutex     sync.RWMutex
@@ -57,7 +55,7 @@ type DB struct {
 // NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
-	db := &DB{opts: opts, clock: vtime.RealClock, tables: make(map[string]*table), streams: make(map[string][]*table)}
+	db := &DB{opts: opts, clock: vtime.RealClock, tables: make(map[string]*table), streams: make(map[string]*wal.WAL)}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
 	}

@@ -51,6 +51,11 @@ type flushRequest struct {
 	memstore *bytetree.Tree
 }
 
+type insert struct {
+	key  bytemap.ByteMap
+	vals encoding.TSParams
+}
+
 type rowStore struct {
 	t                  *table
 	opts               *rowStoreOptions
