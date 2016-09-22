@@ -1,5 +1,5 @@
 hash: 443101f2592b9eedc8d12361531badd852cb6dff48c1c890e74971623eb58031
-updated: 2016-09-21T20:32:01.430070728-05:00
+updated: 2016-09-21T20:34:18.104228015-05:00
 imports:
 - name: github.com/chzyer/readline
   version: 283f5429f7723ac628cb68a44a11097c11a7a9c1
@@ -37,7 +37,7 @@ imports:
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: f18c5b2457677ee0438fb8c004997b19e4b9c352
+  version: 086227609bad3148d1e4cdf441a8be96555e37e1
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/getlantern/zenodb
