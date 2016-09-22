@@ -1,5 +1,5 @@
 hash: 443101f2592b9eedc8d12361531badd852cb6dff48c1c890e74971623eb58031
-updated: 2016-09-21T20:34:18.104228015-05:00
+updated: 2016-09-22T11:21:03.364493426-05:00
 imports:
 - name: github.com/chzyer/readline
   version: 283f5429f7723ac628cb68a44a11097c11a7a9c1
@@ -18,7 +18,7 @@ imports:
 - name: github.com/getlantern/errors
   version: 99fa440517e8f3d1e4cd8d6dbed6b41f4c1ed3d6
 - name: github.com/getlantern/goexpr
-  version: fb329f7f68b5227fb8ce8df15557ef1c8f5faea4
+  version: c35559f6ddd7692a994d04cee8bbeb9bb7dd1c88
   subpackages:
   - geo
   - isp
@@ -37,7 +37,7 @@ imports:
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: 086227609bad3148d1e4cdf441a8be96555e37e1
+  version: c4b33a856d9d4dfaaa6168c53867da1cb47de87d
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/golang/protobuf
@@ -88,7 +88,7 @@ imports:
   - unix
   - windows
 - name: google.golang.org/appengine
-  version: 78199dcb0669fc381c22e919e1e97eba879e8f60
+  version: 45688856612892bdabe348fff413e5075ac72f46
   subpackages:
   - datastore
   - internal
