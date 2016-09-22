@@ -192,7 +192,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	}
 	t.wal, walErr = w.NewReader(walOffset)
 	if walErr != nil {
-		return walErr
+		return fmt.Errorf("Unable to obtain WAL reader: %v", walErr)
 	}
 
 	go t.processInserts()
