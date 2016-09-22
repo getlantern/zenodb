@@ -34,6 +34,8 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 }
 
 func (t *table) processInserts() {
+	start := time.Now()
+	inserted := 0
 	for {
 		data, err := t.wal.Read()
 		if err != nil {
@@ -46,6 +48,13 @@ func (t *table) processInserts() {
 		vals, data := encoding.Read(data, valsLen)
 		offset := t.wal.Offset()
 		t.insert(encoding.TimeFromBytes(tsd), bytemap.ByteMap(dims), bytemap.ByteMap(vals), offset)
+		inserted++
+		delta := time.Now().Sub(start)
+		if delta > 1*time.Minute {
+			t.log.Debugf("Inserted %d points at %f per second", inserted, float64(inserted)/delta.Seconds())
+			inserted = 0
+			start = time.Now()
+		}
 	}
 }
 
