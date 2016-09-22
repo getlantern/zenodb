@@ -49,9 +49,9 @@ func (e *binaryExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]
 	return remain, e.calc(leftValue, rightValue), updated
 }
 
-func (e *binaryExpr) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
-	remainB, remainX, remainY := e.left.Merge(b, x, y, metadata)
-	return e.right.Merge(remainB, remainX, remainY, metadata)
+func (e *binaryExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	remainB, remainX, remainY := e.left.Merge(b, x, y)
+	return e.right.Merge(remainB, remainX, remainY)
 }
 
 func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
@@ -75,7 +75,7 @@ func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
 }
 
 func (e *binaryExpr) subMerge(data []byte, other []byte, metadata goexpr.Params) {
-	e.Merge(data, data, other, metadata)
+	e.Merge(data, data, other)
 }
 
 func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {

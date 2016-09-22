@@ -32,11 +32,8 @@ func (e *ifExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]byte
 	return remain, value, false
 }
 
-func (e *ifExpr) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
-	if e.include(metadata) {
-		return e.wrapped.Merge(b, x, y, metadata)
-	}
-	return b[e.encodedWidth:], x[e.encodedWidth:], y[e.encodedWidth:]
+func (e *ifExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	return e.wrapped.Merge(b, x, y)
 }
 
 func (e *ifExpr) SubMergers(subs []Expr) []SubMerge {
@@ -72,7 +69,7 @@ func (e *ifExpr) condSubMerger(wrapped SubMerge) SubMerge {
 }
 
 func (e *ifExpr) subMerge(data []byte, other []byte, metadata goexpr.Params) {
-	e.wrapped.Merge(data, data, other, metadata)
+	e.wrapped.Merge(data, data, other)
 }
 
 func (e *ifExpr) include(metadata goexpr.Params) bool {

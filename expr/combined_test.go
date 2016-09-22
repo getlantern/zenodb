@@ -37,7 +37,7 @@ func TestCombined(t *testing.T) {
 	b2 := make([]byte, e.EncodedWidth())
 	e.Update(b2, params3, md3)
 	b3 := make([]byte, e.EncodedWidth())
-	e.Merge(b3, b, b2, nil)
+	e.Merge(b3, b, b2)
 	val, _, _ = e.Get(b3)
 	assertFloatEquals(t, 7.33333333, val)
 

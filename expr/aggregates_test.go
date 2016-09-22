@@ -100,7 +100,7 @@ func doTestAggregate(t *testing.T, e Expr, expected float64) {
 	e.Update(b2, params3, md3)
 	e.Update(b2, params4, md4)
 	b3 := make([]byte, e.EncodedWidth())
-	e.Merge(b3, b1, b2, nil)
+	e.Merge(b3, b1, b2)
 	val, wasSet, _ = e.Get(b3)
 	if assert.True(t, wasSet) {
 		assertFloatEquals(t, expected, val)

@@ -27,7 +27,7 @@ func (e *constant) Update(b []byte, params Params, metadata goexpr.Params) ([]by
 	return b, e.value, false
 }
 
-func (e *constant) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
+func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, x, y
 }
 

@@ -162,7 +162,7 @@ func TestSequenceMergeValueAt(t *testing.T) {
 		if !assert.True(t, found) {
 			return
 		}
-		seq1.MergeValueAt(i, e, other, nil)
+		seq1.MergeValueAt(i, e, other)
 	}
 
 	for i, expected := range []float64{2, 2, 6} {

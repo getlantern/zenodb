@@ -42,8 +42,8 @@ func (e *bounded) test(val float64) bool {
 	return val >= e.min && val <= e.max
 }
 
-func (e *bounded) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
-	return e.wrapped.Merge(b, x, y, metadata)
+func (e *bounded) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
+	return e.wrapped.Merge(b, x, y)
 }
 
 func (e *bounded) SubMergers(subs []Expr) []SubMerge {

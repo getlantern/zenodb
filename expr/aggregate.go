@@ -46,7 +46,7 @@ func (e *aggregate) Update(b []byte, params Params, metadata goexpr.Params) ([]b
 	return remain, value, updated
 }
 
-func (e *aggregate) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
+func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	valueX, xWasSet, remainX := e.load(x)
 	valueY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -78,7 +78,7 @@ func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
 }
 
 func (e *aggregate) subMerge(data []byte, other []byte, metadata goexpr.Params) {
-	e.Merge(data, data, other, metadata)
+	e.Merge(data, data, other)
 }
 
 func (e *aggregate) Get(b []byte) (float64, bool, []byte) {

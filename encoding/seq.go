@@ -143,11 +143,9 @@ func (seq Sequence) UpdateValueAt(period int, e expr.Expr, params expr.Params, m
 }
 
 // MergeValueAt merges the other accumulator state into the accumulator state at
-// the given period, using the given Expr. metadata represents metadata about
-// the operation that's used by the Expr as well (e.g. information about the
-// dimensions associated to the value).
-func (seq Sequence) MergeValueAt(period int, e expr.Expr, other []byte, metadata goexpr.Params) {
-	seq.MergeValueAtOffset(period*e.EncodedWidth(), e, other, metadata)
+// the given period, using the given Expr.
+func (seq Sequence) MergeValueAt(period int, e expr.Expr, other []byte) {
+	seq.MergeValueAtOffset(period*e.EncodedWidth(), e, other)
 }
 
 // SubMergeValueAt sub merges the other accumulator state into the accumulator
@@ -168,13 +166,11 @@ func (seq Sequence) UpdateValueAtOffset(offset int, e expr.Expr, params expr.Par
 }
 
 // MergeValueAtOffset merges the other accumulator state into the accumulator
-// state at the given byte offset, using the given Expr. metadata represents
-// metadata about the operation that's used by the Expr as well (e.g.
-// information about the dimensions associated to the value).
-func (seq Sequence) MergeValueAtOffset(offset int, e expr.Expr, other []byte, metadata goexpr.Params) {
+// state at the given byte offset, using the given Expr.
+func (seq Sequence) MergeValueAtOffset(offset int, e expr.Expr, other []byte) {
 	offset = offset + Width64bits
 	orig := seq[offset:]
-	e.Merge(orig, orig, other, metadata)
+	e.Merge(orig, orig, other)
 }
 
 // SubMergeValueAtOffset sub merges the other accumulator state into the
@@ -341,7 +337,7 @@ func (seq Sequence) Merge(other Sequence, e expr.Expr, resolution time.Duration,
 		}
 		overlapPeriods -= leadNoOverlapPeriods
 		for i := 0; i < overlapPeriods; i++ {
-			sout, sa, sb = e.Merge(sout, sa, sb, nil)
+			sout, sa, sb = e.Merge(sout, sa, sb)
 		}
 	} else if startB.Before(endA) {
 		// Handle gap

@@ -36,7 +36,7 @@ func (e *avg) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, f
 	return remain, e.calc(count, total), updated
 }
 
-func (e *avg) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
+func (e *avg) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	countX, totalX, xWasSet, remainX := e.load(x)
 	countY, totalY, yWasSet, remainY := e.load(y)
 	if !xWasSet {
@@ -70,7 +70,7 @@ func (e *avg) SubMergers(subs []Expr) []SubMerge {
 }
 
 func (e *avg) subMerge(data []byte, other []byte, metadata goexpr.Params) {
-	e.Merge(data, data, other, metadata)
+	e.Merge(data, data, other)
 }
 
 func (e *avg) Get(b []byte) (float64, bool, []byte) {

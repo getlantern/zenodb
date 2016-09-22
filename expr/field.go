@@ -41,7 +41,7 @@ func (e *field) Update(b []byte, params Params, metadata goexpr.Params) ([]byte,
 	return b, val, ok
 }
 
-func (e *field) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
+func (e *field) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
 	return b, x, y
 }
 
