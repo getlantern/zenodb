@@ -68,8 +68,8 @@ func (db *DB) ApplySchema(schema Schema) error {
 		if len(schema) == 0 {
 			break
 		}
-		for name, opts := range schema {
-			name = strings.ToLower(name)
+		for _name, opts := range schema {
+			name := strings.ToLower(_name)
 			opts.Name = name
 			t := db.getTable(name)
 			if t == nil {
@@ -98,7 +98,7 @@ func (db *DB) ApplySchema(schema Schema) error {
 				log.Debugf("Cowardly altering where and nothing else on table '%v': %v", name, q.Where)
 				t.applyWhere(q.Where)
 			}
-			delete(schema, name)
+			delete(schema, _name)
 		}
 	}
 
