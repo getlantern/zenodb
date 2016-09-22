@@ -1,5 +1,5 @@
 hash: 443101f2592b9eedc8d12361531badd852cb6dff48c1c890e74971623eb58031
-updated: 2016-09-21T19:46:58.472173367-05:00
+updated: 2016-09-21T20:32:01.430070728-05:00
 imports:
 - name: github.com/chzyer/readline
   version: 283f5429f7723ac628cb68a44a11097c11a7a9c1
@@ -37,9 +37,17 @@ imports:
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: 9ba0a0b1701ee2e2d0f719cc5f873264bc860565
+  version: f18c5b2457677ee0438fb8c004997b19e4b9c352
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
+- name: github.com/getlantern/zenodb
+  version: c1eb6ee621a12dade9e9de6ac7e5771e25ea93e4
+  subpackages:
+  - bytetree
+  - encoding
+  - expr
+  - sql
+  - rpc
 - name: github.com/golang/protobuf
   version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
   subpackages:

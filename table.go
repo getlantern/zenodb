@@ -190,7 +190,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		}
 		db.streams[q.From] = w
 	}
-	// TODO: read offset from most recent file on disk
 	t.wal, walErr = w.NewReader(walOffset)
 	if walErr != nil {
 		return walErr

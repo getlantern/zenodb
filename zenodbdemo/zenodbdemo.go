@@ -30,7 +30,7 @@ func main() {
 	uniquesPerPeriod := 100
 	valuesPerPeriod := 5000
 	reportingPeriods := 100000
-	targetPointsPerSecond := 200000
+	targetPointsPerSecond := 40000
 	numWriters := 4
 	targetPointsPerSecondPerWriter := targetPointsPerSecond / numWriters
 	targetDeltaFor1000Points := 1000 * time.Second / time.Duration(targetPointsPerSecondPerWriter)
