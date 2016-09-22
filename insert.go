@@ -84,7 +84,7 @@ func (t *table) insert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap,
 	}
 
 	tsparams := encoding.NewTSParams(ts, vals)
-	t.rowStore.insert(&insert{key, tsparams, offset})
+	t.rowStore.insert(&insert{key, tsparams, dims, offset})
 	t.statsMutex.Lock()
 	t.stats.InsertedPoints++
 	t.statsMutex.Unlock()

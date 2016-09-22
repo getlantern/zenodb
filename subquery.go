@@ -31,7 +31,7 @@ func (aq *Query) newSubqueryResult(qr *QueryResult) *subqueryResult {
 		ts := qr.exec.q.until.Add(-1 * time.Duration(row.Period) * qr.exec.Resolution)
 		key := bytemap.FromSortedKeysAndValues(qr.GroupBy, row.Dims)
 		vals := encoding.NewTSParams(ts, bytemap.FromSortedKeysAndFloats(qr.FieldNames, row.Values))
-		bt.Update(aq.Fields, qr.exec.Resolution, qr.exec.q.asOf, key, vals)
+		bt.Update(aq.Fields, qr.exec.Resolution, qr.exec.q.asOf, key, vals, key)
 	}
 	return &subqueryResult{
 		bt:          bt,

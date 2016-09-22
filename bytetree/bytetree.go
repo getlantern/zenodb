@@ -143,8 +143,8 @@ func (bt *Tree) Copy() *Tree {
 
 // Update updates all of the fields at the given timestamp with the given
 // parameters.
-func (bt *Tree) Update(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, key []byte, vals encoding.TSParams) int {
-	bytesAdded, newNode := bt.doUpdate(fields, resolution, truncateBefore, key, vals)
+func (bt *Tree) Update(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, key []byte, vals encoding.TSParams, metadata bytemap.ByteMap) int {
+	bytesAdded, newNode := bt.doUpdate(fields, resolution, truncateBefore, key, vals, metadata)
 	bt.bytes += bytesAdded
 	if newNode {
 		bt.length++
@@ -152,7 +152,7 @@ func (bt *Tree) Update(fields []sql.Field, resolution time.Duration, truncateBef
 	return bytesAdded
 }
 
-func (bt *Tree) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) (int, bool) {
+func (bt *Tree) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams, metadata bytemap.ByteMap) (int, bool) {
 	n := bt.root
 	key := fullKey
 	// Try to update on existing edge
@@ -169,7 +169,7 @@ nodeLoop:
 			}
 			if i == keyLength && keyLength == labelLength {
 				// update existing node
-				return edge.target.doUpdate(fields, resolution, truncateBefore, fullKey, vals), false
+				return edge.target.doUpdate(fields, resolution, truncateBefore, fullKey, vals, metadata), false
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
 				n = edge.target
@@ -177,24 +177,23 @@ nodeLoop:
 				continue nodeLoop
 			} else if i > 0 {
 				// common substring, split on that
-				return edge.split(bt, fields, resolution, truncateBefore, i, fullKey, key, vals), true
+				return edge.split(bt, fields, resolution, truncateBefore, i, fullKey, key, vals, metadata), true
 			}
 		}
 
 		// Create new edge
 		target := &node{key: fullKey}
 		n.edges = append(n.edges, &edge{key, target})
-		return target.doUpdate(fields, resolution, truncateBefore, fullKey, vals) + len(key), true
+		return target.doUpdate(fields, resolution, truncateBefore, fullKey, vals, metadata) + len(key), true
 	}
 }
 
-func (n *node) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams) int {
+func (n *node) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams, metadata bytemap.ByteMap) int {
 	bytesAdded := 0
 	// Grow encoding.Sequences to match number of fields in table
 	for i := len(n.data); i < len(fields); i++ {
 		n.data = append(n.data, nil)
 	}
-	metadata := bytemap.ByteMap(fullKey)
 	for i, field := range fields {
 		current := n.data[i]
 		previousSize := len(current)
@@ -229,7 +228,7 @@ func (n *node) doRemoveFor(bt *Tree, ctx int64) {
 	bt.mx.Unlock()
 }
 
-func (e *edge) split(bt *Tree, fields []sql.Field, resolution time.Duration, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals encoding.TSParams) int {
+func (e *edge) split(bt *Tree, fields []sql.Field, resolution time.Duration, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals encoding.TSParams, metadata bytemap.ByteMap) int {
 	newNode := &node{edges: edges{&edge{e.label[splitOn:], e.target}}}
 	newLeaf := newNode
 	if splitOn != len(key) {
@@ -238,7 +237,7 @@ func (e *edge) split(bt *Tree, fields []sql.Field, resolution time.Duration, tru
 	}
 	e.label = e.label[:splitOn]
 	e.target = newNode
-	return len(key) - splitOn + newLeaf.doUpdate(fields, resolution, truncateBefore, fullKey, vals)
+	return len(key) - splitOn + newLeaf.doUpdate(fields, resolution, truncateBefore, fullKey, vals, metadata)
 }
 
 type edges []*edge

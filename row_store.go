@@ -53,9 +53,10 @@ type flushRequest struct {
 }
 
 type insert struct {
-	key    bytemap.ByteMap
-	vals   encoding.TSParams
-	offset wal.Offset
+	key      bytemap.ByteMap
+	vals     encoding.TSParams
+	metadata bytemap.ByteMap
+	offset   wal.Offset
 }
 
 type rowStore struct {
@@ -182,7 +183,7 @@ func (rs *rowStore) processInserts() {
 		case insert := <-rs.inserts:
 			truncateBefore := rs.t.truncateBefore()
 			rs.mx.Lock()
-			currentMemStore.tree.Update(rs.t.Fields, rs.t.Resolution, truncateBefore, insert.key, insert.vals)
+			currentMemStore.tree.Update(rs.t.Fields, rs.t.Resolution, truncateBefore, insert.key, insert.vals, insert.metadata)
 			currentMemStore.offset = insert.offset
 			rs.mx.Unlock()
 			if currentMemStore.tree.Bytes() >= rs.opts.maxMemStoreBytes {
@@ -247,7 +248,6 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	sout := snappy.NewWriter(out)
 	bout := bufio.NewWriterSize(sout, 65536)
 
-	// Write header with field strings
 	fieldStrings := make([]string, 0, len(rs.t.Fields))
 	for _, field := range rs.t.Fields {
 		fieldStrings = append(fieldStrings, field.String())
@@ -522,7 +522,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 					}
 				}
 				if !foundField {
-					panic(fmt.Errorf("Unable to find field for %v", fieldString))
+					panic(fmt.Errorf("Unable to find field %v on table %v", fieldString, fs.t.Name))
 				}
 			}
 		}

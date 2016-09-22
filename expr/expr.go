@@ -69,7 +69,7 @@ type Expr interface {
 	// portions of x and y.
 	Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) (remainB []byte, remainX []byte, remainY []byte)
 
-	// SubMergers returns a list of function that merge values of the given
+	// SubMergers returns a list of functions that merge values of the given
 	// subexpressions into this Expr. The list is the same length as the number of
 	// sub expressions. For any subexpression that is not represented in our
 	// Expression, the corresponding function in the list is nil.

@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"fmt"
 	"github.com/getlantern/goexpr"
 )
 
@@ -39,7 +40,20 @@ func (e *ifExpr) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]
 }
 
 func (e *ifExpr) SubMergers(subs []Expr) []SubMerge {
-	sms := e.wrapped.SubMergers(subs)
+	sms := make([]SubMerge, len(subs))
+	matched := false
+	for i, sub := range subs {
+		if e.String() == sub.String() {
+			sms[i] = e.subMerge
+			matched = true
+		}
+	}
+	if matched {
+		// We have an exact match, use that
+		return sms
+	}
+
+	sms = e.wrapped.SubMergers(subs)
 	for i, sm := range sms {
 		sms[i] = e.condSubMerger(sm)
 	}
@@ -74,5 +88,5 @@ func (e *ifExpr) Get(b []byte) (float64, bool, []byte) {
 }
 
 func (e *ifExpr) String() string {
-	return e.wrapped.String()
+	return fmt.Sprintf("IF(%v, %v)", e.cond, e.wrapped)
 }

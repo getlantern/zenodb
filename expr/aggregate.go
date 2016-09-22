@@ -68,13 +68,11 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) 
 }
 
 func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
-	result := make([]SubMerge, 0, len(subs))
-	for _, sub := range subs {
-		var sm SubMerge
+	result := make([]SubMerge, len(subs))
+	for i, sub := range subs {
 		if e.String() == sub.String() {
-			sm = e.subMerge
+			result[i] = e.subMerge
 		}
-		result = append(result, sm)
 	}
 	return result
 }

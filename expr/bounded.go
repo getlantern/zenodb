@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"fmt"
 	"github.com/getlantern/goexpr"
 )
 
@@ -10,15 +11,15 @@ func BOUNDED(expr interface{}, min float64, max float64) Expr {
 	wrapped := exprFor(expr)
 	return &bounded{
 		wrapped: wrapped,
-		test: func(val float64) bool {
-			return val >= min && val <= max
-		},
+		min:     min,
+		max:     max,
 	}
 }
 
 type bounded struct {
 	wrapped Expr
-	test    func(val float64) bool
+	min     float64
+	max     float64
 }
 
 func (e *bounded) Validate() error {
@@ -38,6 +39,10 @@ func (e *bounded) Update(b []byte, params Params, metadata goexpr.Params) ([]byt
 	return remain, value, updated
 }
 
+func (e *bounded) test(val float64) bool {
+	return val >= e.min && val <= e.max
+}
+
 func (e *bounded) Merge(b []byte, x []byte, y []byte, metadata goexpr.Params) ([]byte, []byte, []byte) {
 	return e.wrapped.Merge(b, x, y, metadata)
 }
@@ -55,5 +60,5 @@ func (e *bounded) Get(b []byte) (float64, bool, []byte) {
 }
 
 func (e *bounded) String() string {
-	return e.wrapped.String()
+	return fmt.Sprintf("BOUNDED(%v, %f, %f)", e.wrapped, e.min, e.max)
 }

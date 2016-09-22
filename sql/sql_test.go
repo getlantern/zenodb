@@ -82,7 +82,7 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[3]
-		cond, err := goexpr.Binary("==", goexpr.Param("dimension"), goexpr.Constant("test"))
+		cond, err := goexpr.Binary("==", goexpr.Param("dim"), goexpr.Constant("test"))
 		if !assert.NoError(t, err) {
 			return
 		}
