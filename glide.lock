@@ -1,10 +1,10 @@
-hash: 16e679efbebab1fe190ae21489968b23bf7a5a091782a98f5c25c98a91647800
-updated: 2016-09-01T16:11:30.351426-05:00
+hash: 443101f2592b9eedc8d12361531badd852cb6dff48c1c890e74971623eb58031
+updated: 2016-09-21T19:46:58.472173367-05:00
 imports:
 - name: github.com/chzyer/readline
-  version: 4ffff9f41c7765e965fc9543d0242dd1088766ef
+  version: 283f5429f7723ac628cb68a44a11097c11a7a9c1
 - name: github.com/davecgh/go-spew
-  version: 6cf5744a041a0022271cefed95ba843f6d87fd51
+  version: 6d212800a42e8ab5c146b8ace3490ee17e5225f9
   subpackages:
   - spew
 - name: github.com/dustin/go-humanize
@@ -12,13 +12,13 @@ imports:
 - name: github.com/getlantern/appdir
   version: 659a155d06e8f3dd8b9f79d6147445897499b56b
 - name: github.com/getlantern/bytemap
-  version: 665decc0805d17a2e11d86ca730a8a0253915d07
+  version: 158dc9154759e2fe0799892e2a82be17ddc86388
 - name: github.com/getlantern/context
   version: 624d99b1798d7c5375ea1d3ca4c5b04d58f7c775
 - name: github.com/getlantern/errors
   version: 99fa440517e8f3d1e4cd8d6dbed6b41f4c1ed3d6
 - name: github.com/getlantern/goexpr
-  version: ed2d1bc56d731140a4080ac5f00ee45af5816925
+  version: fb329f7f68b5227fb8ce8df15557ef1c8f5faea4
   subpackages:
   - geo
   - isp
@@ -31,11 +31,13 @@ imports:
 - name: github.com/getlantern/ops
   version: b70875f5d689a9438bca72aefd7142a2af889b18
 - name: github.com/getlantern/sqlparser
-  version: 973c96a6571cfc7e41c676b126ad8990634d1b6d
+  version: c80bd0ee9fa96f375cdf8797b7441d66d79fef3d
 - name: github.com/getlantern/stack
   version: 02f928aad224fbccd50d66edd776fc9d1e9f2f2b
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
+- name: github.com/getlantern/wal
+  version: 9ba0a0b1701ee2e2d0f719cc5f873264bc860565
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/golang/protobuf
@@ -47,56 +49,57 @@ imports:
 - name: github.com/gorilla/context
   version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/gorilla/mux
-  version: 0b13a922203ebdbfd236c818efcd5ed46097d690
+  version: 757bef944d0f21880861c2dd9c871ca543023cba
 - name: github.com/jmcvetta/randutil
   version: 2bb1b664bcff821e02b2a0644cd29c7e824d54f8
 - name: github.com/oschwald/geoip2-golang
-  version: ccee6e9d9b1ee5cee16ac664bc1982952edfb13d
+  version: 496a3cbcb65a3cb54497fe4ae2273319e85160a4
 - name: github.com/oschwald/maxminddb-golang
-  version: f4aa55714a3f843869ca9a38625e177a627c1ce6
+  version: 2af0544f8e032bc7a363e897fbd9c6ed4884a1d6
 - name: github.com/oxtoacart/bpool
   version: 4e1c5567d7c2dd59fa4c7c83d34c2f3528b025d6
 - name: github.com/oxtoacart/emsort
-  version: 5fb62cb0f83928493f3adc5c23fab7e1c9fb91e7
+  version: e467347e335434365584bc76ce22b8d23190da6e
 - name: github.com/Workiva/go-datastructures
   version: 9398e38ebb7eb017f923e6aca1e0f5aa32461685
   subpackages:
-  - trie/xfast
   - trie/yfast
+  - trie/xfast
 - name: github.com/xwb1989/sqlparser
   version: dbfc8580724c42e86a20e9586b75a65b806cd88b
   subpackages:
+  - dependency/sqltypes
   - dependency/bson
   - dependency/bytes2
   - dependency/hack
-  - dependency/sqltypes
 - name: golang.org/x/net
-  version: 6250b412798208e6c90b03b7c4f226de5aa299e2
+  version: 6d3beaea10370160dea67f5c9327ed791afd5389
   subpackages:
   - context
   - http2
-  - http2/hpack
-  - internal/timeseries
-  - lex/httplex
   - trace
+  - http2/hpack
+  - idna
+  - lex/httplex
+  - internal/timeseries
 - name: golang.org/x/sys
-  version: a646d33e2ee3172a661fc09bca23bb4889a41bc8
+  version: 8f0908ab3b2457e2e15403d3697c9ef5cb4b57a9
   subpackages:
   - unix
   - windows
 - name: google.golang.org/appengine
-  version: 4f7eeb5305a4ba1966344836ba4af9996b7b4e05
+  version: 78199dcb0669fc381c22e919e1e97eba879e8f60
   subpackages:
   - datastore
   - internal
-  - internal/app_identity
-  - internal/base
   - internal/datastore
-  - internal/log
+  - internal/app_identity
   - internal/modules
+  - internal/base
+  - internal/log
   - internal/remote_api
 - name: google.golang.org/grpc
-  version: 79b7c349179cdd6efd8bac4a1ce7f01b98c16e9b
+  version: 71d2ea4f75286a63b606aca2422cd17ff37fd5b8
   subpackages:
   - codes
   - credentials
@@ -104,18 +107,10 @@ imports:
   - internal
   - metadata
   - naming
-  - peer
   - transport
+  - peer
 - name: gopkg.in/vmihailenco/msgpack.v2
   version: 38f3708c44f1402aeb2f137dd9a9dfb12bae2204
   subpackages:
   - codes
-testImports:
-- name: github.com/pmezard/go-difflib
-  version: 792786c7400a136282c1664665ae0a8db921c6c2
-  subpackages:
-  - difflib
-- name: github.com/stretchr/testify
-  version: d77da356e56a7428ad25149ca77381849a6a5232
-  subpackages:
-  - assert
+devImports: []
