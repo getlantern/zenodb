@@ -1,7 +1,6 @@
 package expr
 
 import (
-	"fmt"
 	"github.com/getlantern/goexpr"
 )
 
@@ -60,5 +59,5 @@ func (e *bounded) Get(b []byte) (float64, bool, []byte) {
 }
 
 func (e *bounded) String() string {
-	return fmt.Sprintf("BOUNDED(%v, %f, %f)", e.wrapped, e.min, e.max)
+	return e.wrapped.String()
 }
