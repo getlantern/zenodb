@@ -16,6 +16,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
@@ -23,19 +24,19 @@ import (
 	"github.com/oxtoacart/emsort"
 )
 
-// TODO: add WAL
-
 const (
 	// File format versions
 	FileVersion_2      = 2
 	FileVersion_3      = 3
-	CurrentFileVersion = FileVersion_3
+	FileVersion_4      = 4
+	CurrentFileVersion = FileVersion_4
 )
 
 var (
 	fieldsDelims = map[int]string{
 		FileVersion_2: ",",
 		FileVersion_3: "|",
+		FileVersion_4: "|",
 	}
 )
 
@@ -48,18 +49,19 @@ type rowStoreOptions struct {
 
 type flushRequest struct {
 	idx      int
-	memstore *bytetree.Tree
+	memstore *memstore
 }
 
 type insert struct {
-	key  bytemap.ByteMap
-	vals encoding.TSParams
+	key    bytemap.ByteMap
+	vals   encoding.TSParams
+	offset wal.Offset
 }
 
 type rowStore struct {
 	t                  *table
 	opts               *rowStoreOptions
-	memStores          map[int]*bytetree.Tree
+	memStores          map[int]*memstore
 	currentMemStoreIdx int
 	fileStore          *fileStore
 	inserts            chan *insert
@@ -68,28 +70,53 @@ type rowStore struct {
 	mx                 sync.RWMutex
 }
 
-func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
+type memstore struct {
+	tree   *bytetree.Tree
+	offset wal.Offset
+}
+
+func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, error) {
 	err := os.MkdirAll(opts.dir, 0755)
 	if err != nil && !os.IsExist(err) {
-		return nil, fmt.Errorf("Unable to create folder for row store: %v", err)
+		return nil, nil, fmt.Errorf("Unable to create folder for row store: %v", err)
 	}
 
 	existingFileName := ""
 	files, err := ioutil.ReadDir(opts.dir)
 	if err != nil {
-		return nil, fmt.Errorf("Unable to read contents of directory: %v", err)
+		return nil, nil, fmt.Errorf("Unable to read contents of directory: %v", err)
 	}
+	var walOffset wal.Offset
 	if len(files) > 0 {
 		// files are sorted by name, in our case timestamp, so the last file in the
 		// list is the most recent.  That's the one that we want.
 		existingFileName = filepath.Join(opts.dir, files[len(files)-1].Name())
+		fileVersion := versionFor(existingFileName)
+		if fileVersion >= FileVersion_4 {
+			log.Debug("Recent version")
+			// Get WAL offset
+			file, err := os.Open(existingFileName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("Unable to open existing file %v: %v", existingFileName, err)
+			}
+			defer file.Close()
+			r := snappy.NewReader(file)
+			// Skip header length
+			walOffset = make(wal.Offset, wal.OffsetSize+4)
+			_, err = io.ReadFull(r, walOffset)
+			if err != nil {
+				return nil, nil, fmt.Errorf("Unable to read offset from existing file %v: %v", existingFileName, err)
+			}
+			// Skip header length
+			walOffset = walOffset[4:]
+		}
 		t.log.Debugf("Initializing row store from %v", existingFileName)
 	}
 
 	rs := &rowStore{
 		opts:               opts,
 		t:                  t,
-		memStores:          make(map[int]*bytetree.Tree, 2),
+		memStores:          make(map[int]*memstore, 2),
 		currentMemStoreIdx: 0,
 		inserts:            make(chan *insert),
 		flushes:            make(chan *flushRequest, 1),
@@ -105,7 +132,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, error) {
 	go rs.processFlushes()
 	go rs.removeOldFiles()
 
-	return rs, nil
+	return rs, walOffset, nil
 }
 
 func (rs *rowStore) insert(insert *insert) {
@@ -113,7 +140,7 @@ func (rs *rowStore) insert(insert *insert) {
 }
 
 func (rs *rowStore) processInserts() {
-	currentMemStore := bytetree.New()
+	currentMemStore := &memstore{tree: bytetree.New()}
 	rs.mx.Lock()
 	rs.memStores[rs.currentMemStoreIdx] = currentMemStore
 	rs.mx.Unlock()
@@ -124,7 +151,7 @@ func (rs *rowStore) processInserts() {
 
 	flushIdx := 0
 	flush := func() {
-		if currentMemStore.Length() == 0 {
+		if currentMemStore.tree.Length() == 0 {
 			rs.t.log.Trace("Nothing to flush")
 			// Immediately reset flushTimer
 			flushTimer.Reset(flushInterval)
@@ -132,7 +159,7 @@ func (rs *rowStore) processInserts() {
 		}
 		// Temporarily disable flush timer while we're flushing
 		flushTimer.Reset(100000 * time.Hour)
-		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.Bytes())))
+		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(currentMemStore.tree.Bytes())))
 		previousMemStore := currentMemStore
 		rs.mx.Lock()
 		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore}
@@ -140,7 +167,7 @@ func (rs *rowStore) processInserts() {
 		select {
 		case rs.flushes <- fr:
 			rs.mx.Lock()
-			currentMemStore = bytetree.New()
+			currentMemStore = &memstore{tree: bytetree.New()}
 			rs.currentMemStoreIdx++
 			rs.memStores[rs.currentMemStoreIdx] = currentMemStore
 			flushIdx++
@@ -155,9 +182,10 @@ func (rs *rowStore) processInserts() {
 		case insert := <-rs.inserts:
 			truncateBefore := rs.t.truncateBefore()
 			rs.mx.Lock()
-			currentMemStore.Update(rs.t.Fields, rs.t.Resolution, truncateBefore, insert.key, insert.vals)
+			currentMemStore.tree.Update(rs.t.Fields, rs.t.Resolution, truncateBefore, insert.key, insert.vals)
+			currentMemStore.offset = insert.offset
 			rs.mx.Unlock()
-			if currentMemStore.Bytes() >= rs.opts.maxMemStoreBytes {
+			if currentMemStore.tree.Bytes() >= rs.opts.maxMemStoreBytes {
 				flush()
 			}
 		case <-flushTimer.C:
@@ -178,7 +206,8 @@ func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []enc
 	rs.mx.RLock()
 	fs := rs.fileStore
 	memStoresCopy := make([]*bytetree.Tree, 0, len(rs.memStores))
-	for i, ms := range rs.memStores {
+	for i, _ms := range rs.memStores {
+		ms := _ms.tree
 		onCurrentMemStore := i == rs.currentMemStoreIdx
 		if onCurrentMemStore {
 			// Current memstore is still getting writes.  Either omit, or copy.
@@ -223,13 +252,17 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	for _, field := range rs.t.Fields {
 		fieldStrings = append(fieldStrings, field.String())
 	}
-	headerBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
-	headerLength := uint32(len(headerBytes))
+	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
+	headerLength := uint32(len(req.memstore.offset) + len(fieldsBytes))
 	err = binary.Write(bout, encoding.Binary, headerLength)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header length: %v", err))
 	}
-	_, err = bout.Write(headerBytes)
+	_, err = bout.Write(req.memstore.offset)
+	if err != nil {
+		panic(fmt.Errorf("Unable to write header: %v", err))
+	}
+	_, err = bout.Write(fieldsBytes)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header: %v", err))
 	}
@@ -338,7 +371,7 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	rs.mx.RUnlock()
-	fs.iterate(write, []*bytetree.Tree{req.memstore})
+	fs.iterate(write, []*bytetree.Tree{req.memstore.tree})
 	err = cout.Close()
 	if err != nil {
 		panic(err)
@@ -458,33 +491,26 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 		}
 		r := snappy.NewReader(bufio.NewReaderSize(file, 65536))
 
-		fileVersion := 0
-		parts := strings.Split(filepath.Base(fs.filename), "_")
-		if len(parts) == 3 {
-			versionString := strings.Split(parts[2], ".")[0]
-			var versionErr error
-			fileVersion, err = strconv.Atoi(versionString)
-			if versionErr != nil {
-				panic(fmt.Errorf("Unable to determine file version for file %v: %v", fs.filename, versionErr))
-			}
-		}
-
+		fileVersion := versionFor(fs.filename)
 		fileFields := fs.t.Fields
-
 		if fileVersion >= FileVersion_2 {
 			// File contains header with field info, use it
 			headerLength := uint32(0)
-			versionErr := binary.Read(r, encoding.Binary, &headerLength)
-			if versionErr != nil {
-				return fmt.Errorf("Unexpected error reading header length: %v", versionErr)
+			lengthErr := binary.Read(r, encoding.Binary, &headerLength)
+			if lengthErr != nil {
+				return fmt.Errorf("Unexpected error reading header length: %v", lengthErr)
 			}
-			headerBytes := make([]byte, headerLength)
-			_, err = io.ReadFull(r, headerBytes)
+			fieldsBytes := make([]byte, headerLength)
+			_, err = io.ReadFull(r, fieldsBytes)
 			if err != nil {
 				return err
 			}
+			if fileVersion >= FileVersion_4 {
+				// Strip offset
+				fieldsBytes = fieldsBytes[wal.OffsetSize:]
+			}
 			delim := fieldsDelims[fileVersion]
-			fieldStrings := strings.Split(string(headerBytes), delim)
+			fieldStrings := strings.Split(string(fieldsBytes), delim)
 			fileFields = make([]sql.Field, 0, len(fieldStrings))
 			for _, fieldString := range fieldStrings {
 				foundField := false
@@ -644,4 +670,18 @@ func (ca *closerAdapter) Write(b []byte) (int, error) {
 
 func (ca *closerAdapter) Close() error {
 	return nil
+}
+
+func versionFor(filename string) int {
+	fileVersion := 0
+	parts := strings.Split(filepath.Base(filename), "_")
+	if len(parts) == 3 {
+		versionString := strings.Split(parts[2], ".")[0]
+		var versionErr error
+		fileVersion, versionErr = strconv.Atoi(versionString)
+		if versionErr != nil {
+			panic(fmt.Errorf("Unable to determine file version for file %v: %v", filename, versionErr))
+		}
+	}
+	return fileVersion
 }

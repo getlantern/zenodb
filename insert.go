@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
 )
 
@@ -50,11 +51,12 @@ func (t *table) processInserts() {
 		if err != nil {
 			panic(fmt.Errorf("Unable to read from WAL: %v", err))
 		}
-		t.insert(encoding.TimeFromBytes(tsd), bytemap.ByteMap(key), bytemap.ByteMap(vals))
+		offset := t.wal.Offset()
+		t.insert(encoding.TimeFromBytes(tsd), bytemap.ByteMap(key), bytemap.ByteMap(vals), offset)
 	}
 }
 
-func (t *table) insert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) {
+func (t *table) insert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) {
 	t.whereMutex.RLock()
 	where := t.Where
 	t.whereMutex.RUnlock()
@@ -89,7 +91,7 @@ func (t *table) insert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap)
 	}
 
 	tsparams := encoding.NewTSParams(ts, vals)
-	t.rowStore.insert(&insert{key, tsparams})
+	t.rowStore.insert(&insert{key, tsparams, offset})
 	t.statsMutex.Lock()
 	t.stats.InsertedPoints++
 	t.statsMutex.Unlock()

@@ -157,7 +157,8 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	t.applyWhere(q.Where)
 
 	var rsErr error
-	t.rowStore, rsErr = t.openRowStore(&rowStoreOptions{
+	var walOffset wal.Offset
+	t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
 		dir:              filepath.Join(db.opts.Dir, t.Name),
 		maxMemStoreBytes: t.MaxMemStoreBytes,
 		minFlushLatency:  t.MinFlushLatency,
@@ -190,7 +191,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		db.streams[q.From] = w
 	}
 	// TODO: read offset from most recent file on disk
-	t.wal, walErr = w.NewReader(nil)
+	t.wal, walErr = w.NewReader(walOffset)
 	if walErr != nil {
 		return walErr
 	}
