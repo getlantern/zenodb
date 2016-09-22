@@ -51,7 +51,7 @@ func (t *table) processInserts() {
 		inserted++
 		delta := time.Now().Sub(start)
 		if delta > 1*time.Minute {
-			t.log.Debugf("Inserted %d points at %f per second", inserted, float64(inserted)/delta.Seconds())
+			t.log.Debugf("Inserted %d points at %.0f per second", inserted, float64(inserted)/delta.Seconds())
 			inserted = 0
 			start = time.Now()
 		}
