@@ -134,20 +134,18 @@ GROUP BY period(168h)
 				}
 				for r := 0; r < numReporters/numWriters; r++ {
 					for v := 0; v < valuesPerPeriod; v++ {
-						p := &zenodb.Point{
-							Ts: time.Now(),
-							Dims: map[string]interface{}{
+						ierr := db.Insert("inbound",
+							time.Now(),
+							map[string]interface{}{
 								"r": reporters[rand.Intn(len(reporters))],
 								"u": uniques[uqs[rand.Intn(uniquesPerPeriod)]],
 								"b": rand.Float64() > 0.99,
 								"x": 1,
 							},
-							Vals: map[string]float64{
+							map[string]float64{
 								"i":  float64(rand.Intn(100000)),
 								"ii": 1,
-							},
-						}
-						ierr := db.Insert("inbound", p)
+							})
 						if ierr != nil {
 							log.Errorf("Unable to insert: %v", err)
 							return

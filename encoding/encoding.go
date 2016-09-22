@@ -9,6 +9,7 @@ import (
 
 const (
 	Width16bits = 2
+	Width32bits = 4
 	Width64bits = 8
 )
 
@@ -27,6 +28,16 @@ func WriteInt16(b []byte, i int) []byte {
 	return b[Width16bits:]
 }
 
+func ReadInt32(b []byte) (int, []byte) {
+	i := Binary.Uint32(b)
+	return int(i), b[Width32bits:]
+}
+
+func WriteInt32(b []byte, i int) []byte {
+	Binary.PutUint32(b, uint32(i))
+	return b[Width32bits:]
+}
+
 func ReadInt64(b []byte) (int, []byte) {
 	i := Binary.Uint64(b)
 	return int(i), b[Width64bits:]
@@ -41,8 +52,13 @@ func ReadByteMap(b []byte, l int) (bytemap.ByteMap, []byte) {
 	return bytemap.ByteMap(b[:l]), b[l:]
 }
 
+func Read(b []byte, l int) ([]byte, []byte) {
+	return b[:l], b[l:]
+}
+
 func ReadSequence(b []byte, l int) (Sequence, []byte) {
-	return Sequence(b[:l]), b[l:]
+	s, r := Read(b, l)
+	return Sequence(s), r
 }
 
 func Write(b []byte, d []byte) []byte {

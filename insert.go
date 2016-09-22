@@ -25,34 +25,27 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 
 	tsd := make([]byte, encoding.Width64bits)
 	encoding.EncodeTime(tsd, ts)
-	_, err := w.Write(tsd)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(dims)
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(vals)
+	dimsLen := make([]byte, encoding.Width32bits)
+	encoding.WriteInt32(dimsLen, len(dims))
+	valsLen := make([]byte, encoding.Width32bits)
+	encoding.WriteInt32(valsLen, len(vals))
+	_, err := w.Write(tsd, dimsLen, dims, valsLen, vals)
 	return err
 }
 
 func (t *table) processInserts() {
 	for {
-		tsd, err := t.wal.Read()
+		data, err := t.wal.Read()
 		if err != nil {
 			panic(fmt.Errorf("Unable to read from WAL: %v", err))
 		}
-		key, err := t.wal.Read()
-		if err != nil {
-			panic(fmt.Errorf("Unable to read from WAL: %v", err))
-		}
-		vals, err := t.wal.Read()
-		if err != nil {
-			panic(fmt.Errorf("Unable to read from WAL: %v", err))
-		}
+		tsd, data := encoding.Read(data, encoding.Width64bits)
+		dimsLen, data := encoding.ReadInt32(data)
+		dims, data := encoding.Read(data, dimsLen)
+		valsLen, data := encoding.ReadInt32(data)
+		vals, data := encoding.Read(data, valsLen)
 		offset := t.wal.Offset()
-		t.insert(encoding.TimeFromBytes(tsd), bytemap.ByteMap(key), bytemap.ByteMap(vals), offset)
+		t.insert(encoding.TimeFromBytes(tsd), bytemap.ByteMap(dims), bytemap.ByteMap(vals), offset)
 	}
 }
 
