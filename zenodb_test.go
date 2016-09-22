@@ -226,7 +226,7 @@ view_a:
 		toOffset := to.Sub(now)
 		result := make(map[int][]float64, 0)
 		q := &query{
-			table:       table,
+			t:           db.getTable(table),
 			fields:      []string{field},
 			asOfOffset:  fromOffset,
 			untilOffset: toOffset,
