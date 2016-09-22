@@ -12,20 +12,22 @@ client and server metrics at [Lantern](https://www.getlantern.org).
  * Auto-correlation
  * Reasonably efficient storage model
  * (Mostly) parallel query processing
+ * Crosstab queries
+ * FROM subqueries
+ * Write-ahead Log
  * Seems pretty fast
+ * Materialized views (with historical data from write-ahead log)
  * Some unit tests
 
 ## Future Stuff
 
- * Write Ahead Log
+ * Auto cleanup of Write-ahead Log
  * Harmonize field vs column language
  * More unit tests and general code cleanup
- * Populate views with historical data upon creation
  * Byte array buffers to avoid allocations for sequences and ByteMaps
  * Limit query memory consumption to avoid OOM killer
  * Smart sorting - e.g. only sort data files if a substantial number of new keys have been added
  * More validations/error checking
- * TLS in RPC
  * TLS in HTTP
  * Stored statistics (database-level, table-level, size, throughput, dimensions, etc.)
  * Optimized queries using expression references (avoid recomputing same expression when referenced multiple times in same row)
