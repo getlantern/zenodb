@@ -243,6 +243,10 @@ view_a:
 				}
 			},
 		}
+		err := q.init(db)
+		if err != nil {
+			return nil, err
+		}
 		stats, err := q.run(db)
 		log.Debugf("Query stats - scanned: %d    filterpass: %d    datavalid: %d    intimerange: %d", stats.Scanned, stats.FilterPass, stats.DataValid, stats.InTimeRange)
 		log.Debugf("Result: %v", result)
