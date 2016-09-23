@@ -38,6 +38,8 @@ type DBOpts struct {
 	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
 	// based on the timestamps of Points received via inserts.
 	VirtualTime bool
+	// MaxWALAge limits how far back we keep WAL files.
+	MaxWALAge time.Duration
 }
 
 // DB is a zenodb database.
@@ -64,6 +66,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Unable to apply schema: %v", err)
 		}
+	}
+	if opts.MaxWALAge == 0 {
+		opts.MaxWALAge = 24 * time.Hour
 	}
 	log.Debug("Enabling geolocation functions")
 	err = geo.Init(filepath.Join(opts.Dir, "geoip.dat.gz"))
@@ -145,4 +150,14 @@ func (db *DB) getFieldsOptional(table string) ([]sql.Field, error) {
 		return nil, nil
 	}
 	return t.Fields, nil
+}
+
+func (db *DB) capWALAge(wal *wal.WAL) {
+	for {
+		time.Sleep(1 * time.Minute)
+		err := wal.TruncateBeforeTime(time.Now().Add(-1 * db.opts.MaxWALAge))
+		if err != nil {
+			log.Errorf("Error truncating WAL: %v", err)
+		}
+	}
 }

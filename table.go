@@ -188,6 +188,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		if walErr != nil {
 			return walErr
 		}
+		go db.capWALAge(w)
 		db.streams[q.From] = w
 	}
 	t.wal, walErr = w.NewReader(walOffset)

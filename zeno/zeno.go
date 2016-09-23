@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb"
@@ -18,6 +19,7 @@ var (
 	ispdb     = flag.String("ispdb", "", "In order to enable ISP functions, point this to an IP2Location Lite ISP database file like the one here - https://lite.ip2location.com/database/ip-asn")
 	fresh     = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
 	vtime     = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time.  When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
+	maxWALAge = flag.Duration("maxwalage", 24*time.Hour, "Maximum age for WAL files. Files older than this will be deleted.")
 	addr      = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC connections, defaults to localhost:17712")
 	httpAddr  = flag.String("http-addr", "localhost:17713", "The address at which to listen for JSON over HTTP connections, defaults to localhost:17713")
 	pprofAddr = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
@@ -42,6 +44,7 @@ func main() {
 		ISPDatabase:            *ispdb,
 		IncludeMemStoreInQuery: *fresh,
 		VirtualTime:            *vtime,
+		MaxWALAge:              *maxWALAge,
 	})
 
 	if err != nil {
