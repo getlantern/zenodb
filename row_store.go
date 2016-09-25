@@ -1,7 +1,6 @@
 package zenodb
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"fmt"
@@ -245,8 +244,7 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	if err != nil {
 		panic(err)
 	}
-	sout := snappy.NewWriter(out)
-	bout := bufio.NewWriterSize(sout, 65536)
+	sout := snappy.NewBufferedWriter(out)
 
 	fieldStrings := make([]string, 0, len(rs.t.Fields))
 	for _, field := range rs.t.Fields {
@@ -254,22 +252,22 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	}
 	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
 	headerLength := uint32(len(req.memstore.offset) + len(fieldsBytes))
-	err = binary.Write(bout, encoding.Binary, headerLength)
+	err = binary.Write(sout, encoding.Binary, headerLength)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header length: %v", err))
 	}
-	_, err = bout.Write(req.memstore.offset)
+	_, err = sout.Write(req.memstore.offset)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header: %v", err))
 	}
-	_, err = bout.Write(fieldsBytes)
+	_, err = sout.Write(fieldsBytes)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header: %v", err))
 	}
 
 	var cout io.WriteCloser
 	if !shouldSort {
-		cout = &closerAdapter{bout}
+		cout = &closerAdapter{sout}
 	} else {
 		chunk := func(r io.Reader) ([]byte, error) {
 			rowLength := uint64(0)
@@ -290,7 +288,7 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 		}
 
 		var sortErr error
-		cout, sortErr = emsort.New(bout, chunk, less, rs.opts.maxMemStoreBytes*5)
+		cout, sortErr = emsort.New(sout, chunk, less, rs.opts.maxMemStoreBytes*5)
 		if sortErr != nil {
 			panic(sortErr)
 		}
@@ -373,10 +371,6 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	rs.mx.RUnlock()
 	fs.iterate(write, []*bytetree.Tree{req.memstore.tree})
 	err = cout.Close()
-	if err != nil {
-		panic(err)
-	}
-	err = bout.Flush()
 	if err != nil {
 		panic(err)
 	}
@@ -489,7 +483,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 		if err != nil {
 			return fmt.Errorf("Unable to open file %v: %v", fs.filename, err)
 		}
-		r := snappy.NewReader(bufio.NewReaderSize(file, 65536))
+		r := snappy.NewReader(file)
 
 		fileVersion := versionFor(fs.filename)
 		fileFields := fs.t.Fields
