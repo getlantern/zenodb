@@ -1,5 +1,5 @@
 hash: 443101f2592b9eedc8d12361531badd852cb6dff48c1c890e74971623eb58031
-updated: 2016-09-22T11:21:03.364493426-05:00
+updated: 2016-09-23T06:28:55.038959238-05:00
 imports:
 - name: github.com/chzyer/readline
   version: 283f5429f7723ac628cb68a44a11097c11a7a9c1
@@ -37,7 +37,7 @@ imports:
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: c4b33a856d9d4dfaaa6168c53867da1cb47de87d
+  version: 8b4210e52a39160462595d3a66c4ee27a37df771
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/golang/protobuf

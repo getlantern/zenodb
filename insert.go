@@ -42,12 +42,17 @@ func (t *table) processInserts() {
 			panic(fmt.Errorf("Unable to read from WAL: %v", err))
 		}
 		tsd, data := encoding.Read(data, encoding.Width64bits)
+		ts := encoding.TimeFromBytes(tsd)
 		dimsLen, data := encoding.ReadInt32(data)
 		dims, data := encoding.Read(data, dimsLen)
 		valsLen, data := encoding.ReadInt32(data)
-		vals, data := encoding.Read(data, valsLen)
+		vals, _ := encoding.Read(data, valsLen)
+		if ts.Before(t.truncateBefore()) {
+			// Ignore old data
+			continue
+		}
 		offset := t.wal.Offset()
-		t.insert(encoding.TimeFromBytes(tsd), bytemap.ByteMap(dims), bytemap.ByteMap(vals), offset)
+		t.insert(ts, bytemap.ByteMap(dims), bytemap.ByteMap(vals), offset)
 		inserted++
 		delta := time.Now().Sub(start)
 		if delta > 1*time.Minute {
