@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
@@ -56,7 +57,7 @@ func (t *table) processInserts() {
 		inserted++
 		delta := time.Now().Sub(start)
 		if delta > 1*time.Minute {
-			t.log.Debugf("Inserted %d points at %.0f per second", inserted, float64(inserted)/delta.Seconds())
+			t.log.Debugf("Inserted %v points at %v per second", humanize.Comma(int64(inserted)), humanize.Commaf(float64(inserted)/delta.Seconds()))
 			inserted = 0
 			start = time.Now()
 		}

@@ -244,6 +244,7 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	if err != nil {
 		panic(err)
 	}
+	defer out.Close()
 	sout := snappy.NewBufferedWriter(out)
 
 	fieldStrings := make([]string, 0, len(rs.t.Fields))
@@ -267,7 +268,7 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 
 	var cout io.WriteCloser
 	if !shouldSort {
-		cout = &closerAdapter{sout}
+		cout = sout
 	} else {
 		chunk := func(r io.Reader) ([]byte, error) {
 			rowLength := uint64(0)
@@ -371,10 +372,6 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	rs.mx.RUnlock()
 	fs.iterate(write, []*bytetree.Tree{req.memstore.tree})
 	err = cout.Close()
-	if err != nil {
-		panic(err)
-	}
-	err = sout.Close()
 	if err != nil {
 		panic(err)
 	}
@@ -651,18 +648,6 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 		})
 	}
 
-	return nil
-}
-
-type closerAdapter struct {
-	w io.Writer
-}
-
-func (ca *closerAdapter) Write(b []byte) (int, error) {
-	return ca.w.Write(b)
-}
-
-func (ca *closerAdapter) Close() error {
 	return nil
 }
 

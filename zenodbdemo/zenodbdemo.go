@@ -48,8 +48,11 @@ func main() {
 	}
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
-		SchemaFile: "schema.yaml",
-		Dir:        "/tmp/zenodbdemo",
+		SchemaFile:        "schema.yaml",
+		Dir:               "/tmp/zenodbdemo",
+		WALSyncInterval:   1 * time.Minute,
+		MaxWALAge:         5 * time.Minute,
+		WALCompressionAge: 30 * time.Second,
 	})
 	if err != nil {
 		log.Fatal(err)

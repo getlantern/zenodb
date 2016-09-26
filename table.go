@@ -184,7 +184,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		if dirErr != nil && !os.IsExist(dirErr) {
 			return dirErr
 		}
-		w, walErr = wal.Open(walDir, 5*time.Second)
+		w, walErr = wal.Open(walDir, db.opts.WALSyncInterval)
 		if walErr != nil {
 			return walErr
 		}

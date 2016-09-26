@@ -38,8 +38,14 @@ type DBOpts struct {
 	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
 	// based on the timestamps of Points received via inserts.
 	VirtualTime bool
+	// WALSyncInterval governs how frequently to sync the WAL to disk. 0 means
+	// it syncs after every write (which is not great for performance).
+	WALSyncInterval time.Duration
 	// MaxWALAge limits how far back we keep WAL files.
 	MaxWALAge time.Duration
+	// WALCompressionAge sets a cutoff for the age of WAL files that will be
+	// gzipped
+	WALCompressionAge time.Duration
 }
 
 // DB is a zenodb database.
@@ -69,6 +75,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.MaxWALAge == 0 {
 		opts.MaxWALAge = 24 * time.Hour
+	}
+	if opts.WALCompressionAge == 0 {
+		opts.WALCompressionAge = opts.MaxWALAge / 10
 	}
 	log.Debug("Enabling geolocation functions")
 	err = geo.Init(filepath.Join(opts.Dir, "geoip.dat.gz"))
@@ -158,6 +167,10 @@ func (db *DB) capWALAge(wal *wal.WAL) {
 		err := wal.TruncateBeforeTime(time.Now().Add(-1 * db.opts.MaxWALAge))
 		if err != nil {
 			log.Errorf("Error truncating WAL: %v", err)
+		}
+		err = wal.CompressBeforeTime(time.Now().Add(-1 * db.opts.WALCompressionAge))
+		if err != nil {
+			log.Errorf("Error compressing WAL: %v", err)
 		}
 	}
 }
