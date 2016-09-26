@@ -30,11 +30,16 @@ func (tsp TSParams) TimeAndParams() (time.Time, expr.Params) {
 type bytemapParams bytemap.ByteMap
 
 func (bmp bytemapParams) Get(field string) (float64, bool) {
+	var result interface{}
 	// To support counting points, handle _point magic field specially
 	if "_point" == field {
-		return 1, true
+		result = bytemap.ByteMap(bmp).Get("_points")
+		if result == nil {
+			return 1, true
+		}
+	} else {
+		result = bytemap.ByteMap(bmp).Get(field)
 	}
-	result := bytemap.ByteMap(bmp).Get(field)
 	if result == nil {
 		return 0, false
 	}

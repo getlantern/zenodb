@@ -49,7 +49,12 @@ func (sr *subqueryResult) resolution() time.Duration {
 }
 
 func (sr *subqueryResult) retentionPeriod() time.Duration {
-	return sr.qr.exec.q.until.Sub(sr.qr.exec.q.asOf)
+	retentionPeriod := sr.qr.exec.q.until.Sub(sr.qr.exec.q.asOf)
+	resolution := sr.resolution()
+	if retentionPeriod < resolution {
+		retentionPeriod = resolution
+	}
+	return retentionPeriod
 }
 
 func (sr *subqueryResult) truncateBefore() time.Time {

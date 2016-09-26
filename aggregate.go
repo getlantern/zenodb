@@ -263,11 +263,11 @@ func (exec *queryExecution) prepare() error {
 
 	nativeResolution := exec.t.resolution()
 	if exec.Resolution == 0 {
-		log.Trace("Defaulting to native resolution")
+		log.Tracef("Defaulting to native resolution of %v", nativeResolution)
 		exec.Resolution = nativeResolution
 	}
 	if exec.Resolution > exec.t.retentionPeriod() {
-		log.Trace("Not allowing resolution lower than retention period")
+		log.Tracef("Not allowing resolution %v lower than retention period %v", exec.Resolution, exec.t.retentionPeriod())
 		exec.Resolution = exec.t.retentionPeriod()
 	}
 	if exec.Resolution < nativeResolution {

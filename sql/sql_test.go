@@ -151,11 +151,13 @@ func TestFromSubQuery(t *testing.T) {
 		}
 		return []Field{field}, nil
 	}
-	subSQL := "SELECT name, * FROM the_table GROUP BY *, period('5s') HAVING stuff > 5"
+	subSQL := "SELECT name, * FROM the_table ASOF '-2h' UNTIL '-1h' GROUP BY *, period('5s') HAVING stuff > 5"
 	subQuery, err := Parse(subSQL, fieldSource)
 	if !assert.NoError(t, err) {
 		return
 	}
+	assert.Equal(t, -2*time.Hour, subQuery.AsOfOffset)
+	assert.Equal(t, -1*time.Hour, subQuery.UntilOffset)
 	q, err := Parse(fmt.Sprintf(`
 SELECT AVG(field) AS the_avg, *
 FROM (%s)
@@ -168,6 +170,8 @@ GROUP BY *, period('10s')
 	if !assert.NotNil(t, q.FromSubQuery) {
 		return
 	}
+	assert.Equal(t, -2*time.Hour, q.AsOfOffset)
+	assert.Equal(t, -1*time.Hour, q.UntilOffset)
 	assert.Empty(t, pretty.Compare(q.FromSubQuery, subQuery))
 	if assert.Len(t, q.Fields, 3) {
 		field := q.Fields[0]

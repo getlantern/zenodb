@@ -324,6 +324,10 @@ func (q *Query) applyFrom(stmt *sqlparser.Select, fieldSource FieldSource) error
 				return fmt.Errorf("Unable to parse subquery: %v", err)
 			}
 			q.FromSubQuery = subQuery
+			q.AsOf = subQuery.AsOf
+			q.AsOfOffset = subQuery.AsOfOffset
+			q.Until = subQuery.Until
+			q.UntilOffset = subQuery.UntilOffset
 			return nil
 		case *sqlparser.TableName:
 			q.From = strings.ToLower(string(e.Name))

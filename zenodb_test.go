@@ -48,7 +48,7 @@ Test_a:
   retentionperiod: 200ms
   sql: >
     SELECT
-      SUM(i) AS i,
+      IF(md = 'glub', SUM(i)) AS i,
       ii,
       i * ii / COUNT(ii) AS iii,
       z
@@ -124,9 +124,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowRes()),
 		map[string]interface{}{
-			"r": "A",
-			"u": 1,
-			"b": false,
+			"r":  "A",
+			"u":  1,
+			"b":  false,
+			"md": "glub",
 		},
 		map[string]float64{
 			"i":  1,
@@ -138,9 +139,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowRes()),
 		map[string]interface{}{
-			"r": "B",
-			"u": 1,
-			"b": false,
+			"r":  "B",
+			"u":  1,
+			"b":  false,
+			"md": "glub",
 		},
 		map[string]float64{
 			"i":  1,
@@ -151,9 +153,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowRes()),
 		map[string]interface{}{
-			"r": "A",
-			"u": 1,
-			"b": false,
+			"r":  "A",
+			"u":  1,
+			"b":  false,
+			"md": "glub",
 		},
 		map[string]float64{
 			"i":  10,
@@ -174,9 +177,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowRes()),
 		map[string]interface{}{
-			"r": "A",
-			"u": 1,
-			"b": false,
+			"r":  "A",
+			"u":  1,
+			"b":  false,
+			"md": "glub",
 		},
 		map[string]float64{
 			"i":  111,
@@ -187,9 +191,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowRes()),
 		map[string]interface{}{
-			"r": "A",
-			"u": 2,
-			"b": false,
+			"r":  "A",
+			"u":  2,
+			"b":  false,
+			"md": "glub",
 		},
 		map[string]float64{
 			"i":  31,
@@ -201,9 +206,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowRes()),
 		map[string]interface{}{
-			"r": "A",
-			"u": 2,
-			"b": true,
+			"r":  "A",
+			"u":  2,
+			"b":  true,
+			"md": "glub",
 		},
 		map[string]float64{
 			"i":  30000,
@@ -398,7 +404,7 @@ HAVING unknown = 5
 
 	result, err = aq.Run()
 	if assert.NoError(t, err, "Unable to run query with defaults") {
-		assert.Equal(t, []string{"b", "r", "u"}, result.GroupBy)
+		assert.Equal(t, []string{"b", "md", "r", "u"}, result.GroupBy)
 		assert.NotNil(t, result.Until)
 	}
 
