@@ -1,5 +1,5 @@
 hash: 443101f2592b9eedc8d12361531badd852cb6dff48c1c890e74971623eb58031
-updated: 2016-09-23T06:28:55.038959238-05:00
+updated: 2016-09-26T14:19:33.091810124-05:00
 imports:
 - name: github.com/chzyer/readline
   version: 283f5429f7723ac628cb68a44a11097c11a7a9c1
@@ -8,7 +8,7 @@ imports:
   subpackages:
   - spew
 - name: github.com/dustin/go-humanize
-  version: 2fcb5204cdc65b4bec9fd0a87606bb0d0e3c54e8
+  version: bd88f87ad3a420f7bcf05e90566fd1ceb351fa7f
 - name: github.com/getlantern/appdir
   version: 659a155d06e8f3dd8b9f79d6147445897499b56b
 - name: github.com/getlantern/bytemap
@@ -31,17 +31,17 @@ imports:
 - name: github.com/getlantern/ops
   version: b70875f5d689a9438bca72aefd7142a2af889b18
 - name: github.com/getlantern/sqlparser
-  version: c80bd0ee9fa96f375cdf8797b7441d66d79fef3d
+  version: 813d09d4d8b3d70f253bc5b84bbb86e9407d8f04
 - name: github.com/getlantern/stack
   version: 02f928aad224fbccd50d66edd776fc9d1e9f2f2b
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: 8b4210e52a39160462595d3a66c4ee27a37df771
+  version: bdd38c0c8667c177e4c0dbbdcceddd5e97dc0d53
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/golang/protobuf
-  version: 1f49d83d9aa00e6ce4fc8258c71cc7786aec968a
+  version: 87c000235d3d852c1628dc9490cd21ab36a7d69f
   subpackages:
   - proto
 - name: github.com/golang/snappy
@@ -73,7 +73,7 @@ imports:
   - dependency/bytes2
   - dependency/hack
 - name: golang.org/x/net
-  version: 6d3beaea10370160dea67f5c9327ed791afd5389
+  version: f09c4662a0bd6bd8943ac7b4931e185df9471da4
   subpackages:
   - context
   - http2
@@ -99,7 +99,7 @@ imports:
   - internal/log
   - internal/remote_api
 - name: google.golang.org/grpc
-  version: 71d2ea4f75286a63b606aca2422cd17ff37fd5b8
+  version: 364424271a76049040de16708520fa7251d19b31
   subpackages:
   - codes
   - credentials
