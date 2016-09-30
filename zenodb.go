@@ -66,12 +66,6 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
 	}
-	if opts.SchemaFile != "" {
-		err = db.pollForSchema(opts.SchemaFile)
-		if err != nil {
-			return nil, fmt.Errorf("Unable to apply schema: %v", err)
-		}
-	}
 	if opts.MaxWALAge == 0 {
 		opts.MaxWALAge = 24 * time.Hour
 	}
@@ -85,6 +79,12 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.ISPProvider != nil {
 		isp.SetProvider(opts.ISPProvider)
+	}
+	if opts.SchemaFile != "" {
+		err = db.pollForSchema(opts.SchemaFile)
+		if err != nil {
+			return nil, fmt.Errorf("Unable to apply schema: %v", err)
+		}
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 	return db, err
