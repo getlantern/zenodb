@@ -4,8 +4,12 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"strings"
 	"time"
 
+	"github.com/getlantern/goexpr/isp"
+	"github.com/getlantern/goexpr/isp/ip2location"
+	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/rpc"
@@ -16,7 +20,8 @@ var (
 
 	dbdir             = flag.String("dbdir", "zenodb", "The directory in which to store the database files, defaults to ./zenodb")
 	schema            = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
-	ispdb             = flag.String("ispdb", "", "In order to enable ISP functions, point this to an IP2Location Lite ISP database file like the one here - https://lite.ip2location.com/database/ip-asn")
+	ispformat         = flag.String("ispformat", "ip2location", "ip2location or maxmind")
+	ispdb             = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
 	fresh             = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
 	vtime             = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
 	walSync           = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
@@ -40,10 +45,29 @@ func main() {
 		log.Fatalf("Unable to listen for HTTP connections at %v: %v", *httpAddr, err)
 	}
 
+	var ispProvider isp.Provider
+	var providerErr error
+	if *ispformat != "" && *ispdb != "" {
+		log.Debugf("Enabling ISP functions using format %v with db file at %v", *ispformat, *ispdb)
+
+		switch strings.ToLower(strings.TrimSpace(*ispformat)) {
+		case "ip2location":
+			ispProvider, providerErr = ip2location.NewProvider(*ispdb)
+		case "maxmind":
+			ispProvider, providerErr = maxmind.NewProvider(*ispdb)
+		default:
+			log.Errorf("Unknown ispdb format %v", *ispformat)
+		}
+		if providerErr != nil {
+			log.Errorf("Unable to initialize ISP provider %v from %v: %v", *ispformat, *ispdb, err)
+			ispProvider = nil
+		}
+	}
+
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		Dir:                    *dbdir,
 		SchemaFile:             *schema,
-		ISPDatabase:            *ispdb,
+		ISPProvider:            ispProvider,
 		IncludeMemStoreInQuery: *fresh,
 		VirtualTime:            *vtime,
 		WALSyncInterval:        *walSync,

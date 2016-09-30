@@ -27,10 +27,9 @@ type DBOpts struct {
 	// SchemaFile points at a YAML schema file that configures the tables and
 	// views in the database.
 	SchemaFile string
-	// ISPDatabase points at an ISP database like the one from here:
-	// https://lite.ip2location.com/database/ip-asn. Specify this to allow the use
-	// of ISP functions.
-	ISPDatabase string
+	// ISPProvider configures a provider of ISP lookups. Specify this to allow the
+	// use of ISP functions.
+	ISPProvider isp.Provider
 	// IncludeMemStoreInQuery, when true, tells zenodb to include the current
 	// memstore when performing queries. This requires the memstore to be copied
 	// which can dramatically impact performance.
@@ -84,12 +83,8 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if err != nil {
 		return nil, fmt.Errorf("Unable to initialize geo: %v", err)
 	}
-	if opts.ISPDatabase != "" {
-		log.Debugf("Enabling ISP functions using file at %v", opts.ISPDatabase)
-		err = isp.Init(opts.ISPDatabase)
-		if err != nil {
-			return nil, fmt.Errorf("Unable to initialize ISP functions from file at %v: %v", opts.ISPDatabase, err)
-		}
+	if opts.ISPProvider != nil {
+		isp.SetProvider(opts.ISPProvider)
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 	return db, err

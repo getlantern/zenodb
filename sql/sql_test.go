@@ -41,6 +41,7 @@ GROUP BY
 	dim_a,
 	CROSSTAB(dim_b),
 	ISP(ip) AS isp,
+	ORG(ip) AS org,
 	ASN(ip) AS asn,
 	CITY(ip) AS city,
 	REGION(ip) AS state,
@@ -110,15 +111,16 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, "table_a", q.From)
-	if assert.Len(t, q.GroupBy, 8) {
-		assert.Equal(t, NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))), q.GroupBy[0])
+	if assert.Len(t, q.GroupBy, 9) {
+		assert.Equal(t, NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[0].String())
 		assert.Equal(t, NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[1])
 		assert.Equal(t, NewGroupBy("city_state", geo.REGION_CITY(goexpr.Param("ip"))), q.GroupBy[2])
 		assert.Equal(t, NewGroupBy("country", geo.COUNTRY_CODE(goexpr.Param("ip"))), q.GroupBy[3])
 		assert.Equal(t, NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[4])
-		assert.Equal(t, NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))), q.GroupBy[5])
+		assert.Equal(t, NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))).String(), q.GroupBy[5].String())
 		assert.Equal(t, NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))), q.GroupBy[6])
-		assert.Equal(t, NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[7])
+		assert.Equal(t, NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[7].String())
+		assert.Equal(t, NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[8])
 	}
 	assert.False(t, q.GroupByAll)
 	assert.Equal(t, goexpr.Param("dim_b"), q.Crosstab)
