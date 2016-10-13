@@ -1,6 +1,7 @@
 package zenodb
 
 import (
+	"fmt"
 	"io/ioutil"
 	"os"
 	"strings"
@@ -62,45 +63,77 @@ func (db *DB) ApplySchemaFromFile(filename string) error {
 	return db.ApplySchema(schema)
 }
 
-func (db *DB) ApplySchema(schema Schema) error {
-	// TODO: actually sequence dependencies correctly
-	for {
-		if len(schema) == 0 {
-			break
-		}
-		for _name, opts := range schema {
-			name := strings.ToLower(_name)
-			opts.Name = name
-			t := db.getTable(name)
-			if t == nil {
-				tableType := "table"
-				create := db.CreateTable
-				if opts.View {
-					tableType = "view"
-					create = db.CreateView
-				}
-				log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
-				log.Debugf("MaxMemStoreBytes: %v    MaxFlushLatency: %v    MinFlushLatency: %v", humanize.Bytes(uint64(opts.MaxMemStoreBytes)), opts.MaxFlushLatency, opts.MinFlushLatency)
-				err := create(opts)
-				if err != nil {
-					// TODO: instead of naively trying again on next loop, we should build a dependency tree and create these in the right order
-					// Ignore error for now and try again on next loop
-					log.Debugf("Error creating table %v. Will retry. : %v", name, err)
-					continue
-				}
-				log.Debugf("Created %v %v", tableType, name)
-			} else {
-				// TODO: support more comprehensive altering of tables (maybe)
-				q, err := sql.Parse(opts.SQL, nil)
-				if err != nil {
-					return err
-				}
-				log.Debugf("Cowardly altering where and nothing else on table '%v': %v", name, q.Where)
-				t.applyWhere(q.Where)
+func (db *DB) ApplySchema(_schema Schema) error {
+	schema := make(Schema, len(_schema))
+	// Convert all names in schema to lowercase
+	for name, opts := range _schema {
+		opts.Name = strings.ToLower(name)
+		schema[opts.Name] = opts
+	}
+
+	// Identify dependencies
+	var tables []*TableOpts
+	for name, opts := range schema {
+		if !opts.View {
+			tables = append(tables, opts)
+		} else {
+			dependsOn, err := sql.TableFor(opts.SQL)
+			if err != nil {
+				return fmt.Errorf("Unable to determine underlying table for view %v: %v", name, err)
 			}
-			delete(schema, _name)
+			table, found := schema[dependsOn]
+			if !found {
+				return fmt.Errorf("Table %v needed by view %v not found", name, dependsOn)
+			}
+			table.dependencyOf = append(table.dependencyOf, opts)
+		}
+	}
+	// Apply tables in order of dependencies
+	bd := &byDependency{}
+	for _, opts := range tables {
+		bd.add(opts)
+	}
+	log.Debugf("Applying tables in order: %v", strings.Join(bd.names, ", "))
+	for _, opts := range bd.opts {
+		name := opts.Name
+		t := db.getTable(name)
+		if t == nil {
+			tableType := "table"
+			create := db.CreateTable
+			if opts.View {
+				tableType = "view"
+				create = db.CreateView
+			}
+			log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
+			log.Debugf("MaxMemStoreBytes: %v    MaxFlushLatency: %v    MinFlushLatency: %v", humanize.Bytes(uint64(opts.MaxMemStoreBytes)), opts.MaxFlushLatency, opts.MinFlushLatency)
+			err := create(opts)
+			if err != nil {
+				return fmt.Errorf("Error creating table %v: %v", name, err)
+			}
+			log.Debugf("Created %v %v", tableType, name)
+		} else {
+			// TODO: support more comprehensive altering of tables (maybe)
+			q, err := sql.Parse(opts.SQL, nil)
+			if err != nil {
+				return err
+			}
+			log.Debugf("Cowardly altering where and nothing else on table '%v': %v", name, q.Where)
+			t.applyWhere(q.Where)
 		}
 	}
 
 	return nil
+}
+
+type byDependency struct {
+	opts  []*TableOpts
+	names []string
+}
+
+func (bd *byDependency) add(opts *TableOpts) {
+	bd.opts = append(bd.opts, opts)
+	bd.names = append(bd.names, opts.Name)
+	for _, dep := range opts.dependencyOf {
+		bd.add(dep)
+	}
 }

@@ -49,7 +49,8 @@ type TableOpts struct {
 	RetentionPeriod time.Duration
 	// SQL is the SELECT query that determines the fields, filtering and input
 	// source for this table.
-	SQL string
+	SQL          string
+	dependencyOf []*TableOpts
 }
 
 type table struct {
