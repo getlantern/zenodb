@@ -193,7 +193,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		db.streams[q.From] = w
 	}
 	log.Debugf("%v will read inserts from %v at offset %v", t.Name, q.From, walOffset)
-	t.wal, walErr = w.NewReader(walOffset)
+	t.wal, walErr = w.NewReader(t.Name, walOffset)
 	if walErr != nil {
 		return fmt.Errorf("Unable to obtain WAL reader: %v", walErr)
 	}
