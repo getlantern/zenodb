@@ -69,11 +69,6 @@ func (t *table) processInserts() {
 
 func (t *table) insert(ts time.Time, data []byte) {
 	offset := t.wal.Offset()
-	defer func() {
-		if r := recover(); r != nil {
-			t.log.Errorf("Panic at offset %v, likely a corrupted WAL file: %v", offset, r)
-		}
-	}()
 	dimsLen, remain := encoding.ReadInt32(data)
 	dims, remain := encoding.Read(remain, dimsLen)
 	valsLen, remain := encoding.ReadInt32(remain)
@@ -82,11 +77,6 @@ func (t *table) insert(ts time.Time, data []byte) {
 }
 
 func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) {
-	defer func() {
-		if r := recover(); r != nil {
-			t.log.Errorf("Panic at offset %v, likely a corrupted WAL file: %v", offset, r)
-		}
-	}()
 	t.whereMutex.RLock()
 	where := t.Where
 	t.whereMutex.RUnlock()
