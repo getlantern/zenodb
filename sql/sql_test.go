@@ -14,6 +14,9 @@ import (
 )
 
 func TestSQL(t *testing.T) {
+	RegisterUnaryDIMFunction("TEST", func(val goexpr.Expr) goexpr.Expr {
+		return &testexpr{val}
+	})
 	known := AVG("k")
 	knownField := Field{known, "knownfield"}
 	oKnownField := Field{SUM("o"), "oknownfield"}
@@ -48,6 +51,7 @@ GROUP BY
 	REGION_CITY(ip) AS city_state,
 	COUNTRY_CODE(ip) AS country,
 	CONCAT('|', part_a, part_b) AS joined,
+	TEST(dim_k) AS test_dim_k,
 	period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
@@ -111,7 +115,7 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, "table_a", q.From)
-	if assert.Len(t, q.GroupBy, 9) {
+	if assert.Len(t, q.GroupBy, 10) {
 		assert.Equal(t, NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[0].String())
 		assert.Equal(t, NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[1])
 		assert.Equal(t, NewGroupBy("city_state", geo.REGION_CITY(goexpr.Param("ip"))), q.GroupBy[2])
@@ -121,6 +125,7 @@ LIMIT 100, 10
 		assert.Equal(t, NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))), q.GroupBy[6])
 		assert.Equal(t, NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[7].String())
 		assert.Equal(t, NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[8])
+		assert.Equal(t, NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[9])
 	}
 	assert.False(t, q.GroupByAll)
 	assert.Equal(t, goexpr.Param("dim_b"), q.Crosstab)
@@ -205,4 +210,17 @@ FROM Table_A
 	}
 	assert.Empty(t, q.Fields)
 	assert.True(t, q.GroupByAll)
+}
+
+type testexpr struct {
+	val goexpr.Expr
+}
+
+func (e *testexpr) Eval(params goexpr.Params) interface{} {
+	v := e.val.Eval(params)
+	return fmt.Sprintf("test: %v", v)
+}
+
+func (e *testexpr) String() string {
+	return fmt.Sprintf("TEST(%v)", e.val.String())
 }

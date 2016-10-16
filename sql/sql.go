@@ -71,6 +71,16 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"ASN":          isp.ASN,
 }
 
+func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {
+	name = strings.ToUpper(name)
+	_, found := unaryGoExpr[name]
+	if found {
+		return fmt.Errorf("Expression %v already registered", name)
+	}
+	unaryGoExpr[name] = fn
+	return nil
+}
+
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CONCAT": goexpr.Concat,
 }
