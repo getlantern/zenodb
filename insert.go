@@ -38,38 +38,55 @@ func (t *table) processInserts() {
 	start := time.Now()
 	inserted := 0
 	skipped := 0
+	bytesRead := 0
 	for {
 		data, err := t.wal.Read()
 		if err != nil {
 			panic(fmt.Errorf("Unable to read from WAL: %v", err))
 		}
+		bytesRead += len(data)
 		tsd, data := encoding.Read(data, encoding.Width64bits)
 		ts := encoding.TimeFromBytes(tsd)
-		dimsLen, data := encoding.ReadInt32(data)
-		dims, data := encoding.Read(data, dimsLen)
-		valsLen, data := encoding.ReadInt32(data)
-		vals, _ := encoding.Read(data, valsLen)
 		if ts.Before(t.truncateBefore()) {
 			// Ignore old data
 			skipped++
-			continue
 		} else {
-			offset := t.wal.Offset()
-			t.insert(ts, bytemap.ByteMap(dims), bytemap.ByteMap(vals), offset)
+			t.insert(ts, data)
 			inserted++
 		}
 		delta := time.Now().Sub(start)
 		if delta > 1*time.Minute {
+			t.log.Debugf("Read %v at %v per second", humanize.Bytes(uint64(bytesRead)), humanize.Bytes(uint64(float64(bytesRead)/delta.Seconds())))
 			t.log.Debugf("Inserted %v points at %v per second", humanize.Comma(int64(inserted)), humanize.Commaf(float64(inserted)/delta.Seconds()))
 			t.log.Debugf("Skipped %v points at %v per second", humanize.Comma(int64(skipped)), humanize.Commaf(float64(skipped)/delta.Seconds()))
 			inserted = 0
 			skipped = 0
+			bytesRead = 0
 			start = time.Now()
 		}
 	}
 }
 
-func (t *table) insert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) {
+func (t *table) insert(ts time.Time, data []byte) {
+	offset := t.wal.Offset()
+	defer func() {
+		if r := recover(); r != nil {
+			t.log.Errorf("Panic at offset %v, likely a corrupted WAL file: %v", offset, r)
+		}
+	}()
+	dimsLen, remain := encoding.ReadInt32(data)
+	dims, remain := encoding.Read(remain, dimsLen)
+	valsLen, remain := encoding.ReadInt32(remain)
+	vals, _ := encoding.Read(remain, valsLen)
+	t.doInsert(ts, bytemap.ByteMap(dims), bytemap.ByteMap(vals), offset)
+}
+
+func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.log.Errorf("Panic at offset %v, likely a corrupted WAL file: %v", offset, r)
+		}
+	}()
 	t.whereMutex.RLock()
 	where := t.Where
 	t.whereMutex.RUnlock()
