@@ -196,10 +196,10 @@ func (n *node) doUpdate(fields []sql.Field, resolution time.Duration, truncateBe
 	}
 	for i, field := range fields {
 		current := n.data[i]
-		previousSize := len(current)
+		previousSize := cap(current)
 		updated := current.Update(vals, metadata, field.Expr, resolution, truncateBefore)
 		n.data[i] = updated
-		bytesAdded += len(updated) - previousSize
+		bytesAdded += cap(updated) - previousSize
 	}
 	return bytesAdded
 }

@@ -73,7 +73,12 @@ func (t *table) insert(ts time.Time, data []byte) {
 	dims, remain := encoding.Read(remain, dimsLen)
 	valsLen, remain := encoding.ReadInt32(remain)
 	vals, _ := encoding.Read(remain, valsLen)
-	t.doInsert(ts, bytemap.ByteMap(dims), bytemap.ByteMap(vals), offset)
+	// Split the dims and vals so that holding on to one doesn't force holding on to the other
+	dimsBM := make(bytemap.ByteMap, len(dims))
+	valsBM := make(bytemap.ByteMap, len(vals))
+	copy(dimsBM, dims)
+	copy(valsBM, vals)
+	t.doInsert(ts, dimsBM, valsBM, offset)
 }
 
 func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) {
