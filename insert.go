@@ -73,7 +73,9 @@ func (t *table) insert(ts time.Time, data []byte) {
 	dims, remain := encoding.Read(remain, dimsLen)
 	valsLen, remain := encoding.ReadInt32(remain)
 	vals, _ := encoding.Read(remain, valsLen)
-	// Split the dims and vals so that holding on to one doesn't force holding on to the other
+	// Split the dims and vals so that holding on to one doesn't force holding on
+	// to the other. Also, we need copies for both because the WAL read buffer
+	// will change on next call to wal.Read().
 	dimsBM := make(bytemap.ByteMap, len(dims))
 	valsBM := make(bytemap.ByteMap, len(vals))
 	copy(dimsBM, dims)

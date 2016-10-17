@@ -164,17 +164,13 @@ func (rs *rowStore) processInserts() {
 		rs.mx.Lock()
 		fr := &flushRequest{rs.currentMemStoreIdx, previousMemStore}
 		rs.mx.Unlock()
-		select {
-		case rs.flushes <- fr:
-			rs.mx.Lock()
-			currentMemStore = &memstore{tree: bytetree.New()}
-			rs.currentMemStoreIdx++
-			rs.memStores[rs.currentMemStoreIdx] = currentMemStore
-			flushIdx++
-			rs.mx.Unlock()
-		default:
-			log.Trace("Unable to post flush request, will try again later")
-		}
+		rs.flushes <- fr
+		rs.mx.Lock()
+		currentMemStore = &memstore{tree: bytetree.New()}
+		rs.currentMemStoreIdx++
+		rs.memStores[rs.currentMemStoreIdx] = currentMemStore
+		flushIdx++
+		rs.mx.Unlock()
 	}
 
 	for {
@@ -186,9 +182,11 @@ func (rs *rowStore) processInserts() {
 			currentMemStore.offset = insert.offset
 			rs.mx.Unlock()
 			if currentMemStore.tree.Bytes() >= rs.opts.maxMemStoreBytes {
+				rs.t.log.Debug("Requesting flush due to memstore size limit")
 				flush()
 			}
 		case <-flushTimer.C:
+			rs.t.log.Debug("Requesting flush due to flush interval")
 			flush()
 		case flushDuration := <-rs.flushFinished:
 			flushInterval = flushDuration * 10
