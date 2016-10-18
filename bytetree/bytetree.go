@@ -35,10 +35,9 @@ func New() *Tree {
 	return &Tree{root: &node{}}
 }
 
-// Bytes returns the number of bytes stored in this Tree (not including
-// overhead).
+// Bytes returns an estimate of the number of bytes stored in this Tree.
 func (bt *Tree) Bytes() int {
-	return bt.bytes
+	return bt.bytes * 2
 }
 
 // Length returns the number of nodes in this Tree.
@@ -191,8 +190,10 @@ nodeLoop:
 func (n *node) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams, metadata bytemap.ByteMap) int {
 	bytesAdded := 0
 	// Grow encoding.Sequences to match number of fields in table
-	for i := len(n.data); i < len(fields); i++ {
-		n.data = append(n.data, nil)
+	if len(n.data) < len(fields) {
+		newData := make([]encoding.Sequence, len(fields))
+		copy(newData, n.data)
+		n.data = newData
 	}
 	for i, field := range fields {
 		current := n.data[i]
