@@ -5,6 +5,10 @@ import (
 	"google.golang.org/grpc"
 )
 
+const (
+	passwordKey = "pwd"
+)
+
 var (
 	log = golog.LoggerFor("zenodb.rpc")
 

@@ -30,6 +30,7 @@ var (
 	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC connections, defaults to localhost:17712")
 	httpAddr          = flag.String("http-addr", "localhost:17713", "The address at which to listen for JSON over HTTP connections, defaults to localhost:17713")
 	pprofAddr         = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
+	password          = flag.String("password", "", "if specified, will authenticate clients using this password")
 )
 
 func main() {
@@ -88,7 +89,9 @@ func main() {
 }
 
 func serveRPC(db *zenodb.DB, l net.Listener) {
-	err := rpc.Serve(db, l)
+	err := rpc.Serve(db, l, &rpc.ServerOpts{
+		Password: *password,
+	})
 	if err != nil {
 		log.Fatalf("Error serving gRPC: %v", err)
 	}

@@ -6,7 +6,14 @@ import (
 	"github.com/getlantern/zenodb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 )
+
+type ClientOpts struct {
+	// Password, if specified, is the password that client will present to server
+	// in order to gain access.
+	Password string
+}
 
 type Client interface {
 	Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*zenodb.QueryResult, func() (*zenodb.Row, error), error)
@@ -14,7 +21,7 @@ type Client interface {
 	Close() error
 }
 
-func Dial(addr string) (Client, error) {
+func Dial(addr string, opts *ClientOpts) (Client, error) {
 	conn, err := grpc.Dial(addr,
 		grpc.WithInsecure(),
 		grpc.WithCodec(msgpackCodec),
@@ -24,15 +31,16 @@ func Dial(addr string) (Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &client{conn}, nil
+	return &client{conn, opts.Password}, nil
 }
 
 type client struct {
-	cc *grpc.ClientConn
+	cc       *grpc.ClientConn
+	password string
 }
 
 func (c *client) Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*zenodb.QueryResult, func() (*zenodb.Row, error), error) {
-	stream, err := grpc.NewClientStream(ctx, &serviceDesc.Streams[0], c.cc, "/zenodb/query", opts...)
+	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[0], c.cc, "/zenodb/query", opts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -59,4 +67,12 @@ func (c *client) Query(ctx context.Context, in *Query, opts ...grpc.CallOption) 
 
 func (c *client) Close() error {
 	return c.cc.Close()
+}
+
+func (c *client) authenticated(ctx context.Context) context.Context {
+	if c.password == "" {
+		return ctx
+	}
+	md := metadata.New(map[string]string{passwordKey: c.password})
+	return metadata.NewContext(ctx, md)
 }

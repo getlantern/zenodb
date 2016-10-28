@@ -31,6 +31,7 @@ var (
 
 	addr       = flag.String("addr", ":17712", "The address to which to connect, defaults to localhost:17712")
 	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
+	password   = flag.String("password", "", "if specified, will authenticate against server using this password")
 )
 
 func main() {
@@ -44,7 +45,9 @@ func main() {
 	historyFile := filepath.Join(clidir, "history")
 	fmt.Fprintf(os.Stderr, "Will save history to %v\n", historyFile)
 
-	client, err := rpc.Dial(*addr)
+	client, err := rpc.Dial(*addr, &rpc.ClientOpts{
+		Password: *password,
+	})
 	if err != nil {
 		log.Fatalf("Unable to dial server at %v: %v", *addr, err)
 	}
