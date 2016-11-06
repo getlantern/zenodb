@@ -3,6 +3,7 @@ package rpc
 import (
 	"time"
 
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
@@ -17,6 +18,8 @@ type ClientOpts struct {
 
 type Client interface {
 	Query(ctx context.Context, in *Query, opts ...grpc.CallOption) (*zenodb.QueryResult, func() (*zenodb.Row, error), error)
+
+	Follow(ctx context.Context, in *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
 
 	Close() error
 }
@@ -65,6 +68,29 @@ func (c *client) Query(ctx context.Context, in *Query, opts ...grpc.CallOption) 
 	return result, nextRow, nil
 }
 
+func (c *client) Follow(ctx context.Context, in *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error) {
+	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[0], c.cc, "/zenodb/follow", opts...)
+	if err != nil {
+		return nil, err
+	}
+	if err := stream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := stream.CloseSend(); err != nil {
+		return nil, err
+	}
+
+	point := &Point{}
+	next := func() ([]byte, wal.Offset, error) {
+		err := stream.RecvMsg(point)
+		if err != nil {
+			return nil, nil, err
+		}
+		return point.Data, point.Offset, nil
+	}
+
+	return next, nil
+}
 func (c *client) Close() error {
 	return c.cc.Close()
 }

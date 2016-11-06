@@ -11,8 +11,10 @@ import (
 	"github.com/getlantern/goexpr/isp/ip2location"
 	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/rpc"
+	"golang.org/x/net/context"
 )
 
 var (
@@ -28,9 +30,13 @@ var (
 	maxWALAge         = flag.Duration("maxwalage", 336*time.Hour, "Maximum age for WAL files. Files older than this will be deleted. Defaults to 336 hours (2 weeks).")
 	walCompressionAge = flag.Duration("walcompressage", 1*time.Hour, "Age at which to start compressing WAL files with gzip. Defaults to 1 hour.")
 	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC connections, defaults to localhost:17712")
-	httpAddr          = flag.String("http-addr", "localhost:17713", "The address at which to listen for JSON over HTTP connections, defaults to localhost:17713")
+	httpAddr          = flag.String("httpaddr", "localhost:17713", "The address at which to listen for JSON over HTTP connections, defaults to localhost:17713")
 	pprofAddr         = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
 	password          = flag.String("password", "", "if specified, will authenticate clients using this password")
+	lead              = flag.Bool("lead", false, "set to true to make this node a leader that feeds data to follower nodes. Requires -partitions to be specified.")
+	follow            = flag.String("follow", "", "if specified, point at the leader at the given address to receive updates, authentication with value of -password")
+	partitions        = flag.Int("partitions", 1, "The number of partitions available to distribute amongst followers")
+	partition         = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 )
 
 func main() {
@@ -65,6 +71,33 @@ func main() {
 		}
 	}
 
+	var registerFollower func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
+	if *follow != "" {
+		client, dialErr := rpc.Dial(*follow, &rpc.ClientOpts{
+			Password: *password,
+		})
+		if dialErr != nil {
+			log.Fatalf("Unable to connect to leader at %v: %v", *follow, dialErr)
+		}
+		registerFollower = func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error) {
+			followFunc, followErr := client.Follow(context.Background(), f)
+			if followErr != nil {
+				log.Fatalf("Error following stream %v: %v", f.Stream, followErr)
+			}
+			for {
+				data, newOffset, followErr := followFunc()
+				if followErr != nil {
+					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
+				}
+				log.Debugf("Got data for %v", f.Stream)
+				followErr = cb(data, newOffset)
+				if err != nil {
+					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
+				}
+			}
+		}
+	}
+
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		Dir:                    *dbdir,
 		SchemaFile:             *schema,
@@ -74,6 +107,8 @@ func main() {
 		WALSyncInterval:        *walSync,
 		MaxWALAge:              *maxWALAge,
 		WALCompressionAge:      *walCompressionAge,
+		Leader:                 *lead,
+		Follow:                 registerFollower,
 	})
 
 	if err != nil {

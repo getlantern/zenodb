@@ -3,6 +3,7 @@ package rpc
 import (
 	"net"
 
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -10,6 +11,8 @@ import (
 
 type Server interface {
 	Query(*Query, grpc.ServerStream) error
+
+	Follow(*zenodb.Follow, grpc.ServerStream) error
 }
 
 type ServerOpts struct {
@@ -66,6 +69,18 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 	}
 
 	return nil
+}
+
+func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
+	authorizeErr := s.authorize(stream)
+	if authorizeErr != nil {
+		return authorizeErr
+	}
+
+	log.Debug("Follower joined")
+	return s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
+		return stream.SendMsg(&Point{data, newOffset})
+	})
 }
 
 func (s *server) authorize(stream grpc.ServerStream) error {

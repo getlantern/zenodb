@@ -191,7 +191,33 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		}
 		go db.capWALAge(w)
 		db.streams[q.From] = w
+
+		if db.opts.Follow != nil {
+			var offset wal.Offset
+			latest, _, err := w.Latest()
+			if err != nil || len(latest) < wal.OffsetSize {
+				log.Debugf("Unable to obtain latest data from wal, assuming we're at beginning: %v", err)
+			} else {
+				// Followers store offset as first 16 bytes of data in WAL
+				offset = wal.Offset(latest[:wal.OffsetSize])
+			}
+			log.Debugf("Following stream %v starting at %v", q.From, offset)
+			go db.opts.Follow(&Follow{q.From, offset}, func(data []byte, newOffset wal.Offset) error {
+				log.Debugf("Writing %v", q.From)
+				_, err := w.Write(newOffset, data)
+				if err != nil {
+					log.Debug(err)
+				}
+				return err
+			})
+		}
 	}
+
+	if db.opts.Leader {
+		log.Debugf("Leader will not insert data to table %v", t.Name)
+		return nil
+	}
+
 	log.Debugf("%v will read inserts from %v at offset %v", t.Name, q.From, walOffset)
 	t.wal, walErr = w.NewReader(t.Name, walOffset)
 	if walErr != nil {

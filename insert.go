@@ -7,6 +7,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
 )
@@ -16,6 +17,10 @@ func (db *DB) Insert(stream string, ts time.Time, dims map[string]interface{}, v
 }
 
 func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) error {
+	if db.opts.Follow != nil {
+		return errors.New("Declining to insert data directly to follower")
+	}
+
 	stream = strings.TrimSpace(strings.ToLower(stream))
 	db.tablesMutex.Lock()
 	w := db.streams[stream]
@@ -35,6 +40,7 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 }
 
 func (t *table) processInserts() {
+	isFollower := t.db.opts.Follow != nil
 	start := time.Now()
 	inserted := 0
 	skipped := 0
@@ -43,6 +49,10 @@ func (t *table) processInserts() {
 		data, err := t.wal.Read()
 		if err != nil {
 			panic(fmt.Errorf("Unable to read from WAL: %v", err))
+		}
+		if isFollower {
+			// first 16 bytes of data are offset, strip it
+			data = data[wal.OffsetSize:]
 		}
 		bytesRead += len(data)
 		tsd, data := encoding.Read(data, encoding.Width64bits)

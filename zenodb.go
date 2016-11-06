@@ -45,6 +45,9 @@ type DBOpts struct {
 	// WALCompressionAge sets a cutoff for the age of WAL files that will be
 	// gzipped
 	WALCompressionAge time.Duration
+	// Leader flags this node as a leader (won't store data in tables, just WAL).
+	Leader bool
+	Follow func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
 }
 
 // DB is a zenodb database.
