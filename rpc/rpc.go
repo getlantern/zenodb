@@ -26,6 +26,14 @@ type Point struct {
 	Offset wal.Offset
 }
 
+type RemoteQueryRelated struct {
+	ID           int
+	Query        string
+	Entry        *zenodb.Entry
+	Error        error
+	EndOfResults bool
+}
+
 var serviceDesc = grpc.ServiceDesc{
 	ServiceName: "zenodb",
 	HandlerType: (*Server)(nil),
@@ -41,21 +49,35 @@ var serviceDesc = grpc.ServiceDesc{
 			Handler:       followHandler,
 			ServerStreams: true,
 		},
+		{
+			StreamName:    "remoteQuery",
+			Handler:       remoteQueryHandler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
 	},
 }
 
 func queryHandler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Query)
-	if err := stream.RecvMsg(m); err != nil {
+	q := new(Query)
+	if err := stream.RecvMsg(q); err != nil {
 		return err
 	}
-	return srv.(Server).Query(m, stream)
+	return srv.(Server).Query(q, stream)
 }
 
 func followHandler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(zenodb.Follow)
-	if err := stream.RecvMsg(m); err != nil {
+	f := new(zenodb.Follow)
+	if err := stream.RecvMsg(f); err != nil {
 		return err
 	}
-	return srv.(Server).Follow(m, stream)
+	return srv.(Server).Follow(f, stream)
+}
+
+func remoteQueryHandler(srv interface{}, stream grpc.ServerStream) error {
+	r := new(zenodb.RegisterQueryHandler)
+	if err := stream.RecvMsg(r); err != nil {
+		return err
+	}
+	return srv.(Server).HandleRemoteQueries(r, stream)
 }

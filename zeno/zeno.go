@@ -72,6 +72,7 @@ func main() {
 	}
 
 	var registerFollower func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
+	var registerQueryHandler func(r *zenodb.RegisterQueryHandler, query func(sql string, onEntry func(*zenodb.Entry) error) error)
 	if *follow != "" {
 		client, dialErr := rpc.Dial(*follow, &rpc.ClientOpts{
 			Password: *password,
@@ -96,6 +97,12 @@ func main() {
 				}
 			}
 		}
+		registerQueryHandler = func(r *zenodb.RegisterQueryHandler, query func(sql string, onEntry func(*zenodb.Entry) error) error) {
+			registerErr := client.HandleRemoteQueries(context.Background(), r, query)
+			if registerErr != nil {
+				log.Fatalf("Error registering as remote query handler: %v", registerErr)
+			}
+		}
 	}
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
@@ -111,6 +118,7 @@ func main() {
 		NumPartitions:          *numPartitions,
 		Partition:              *partition,
 		Follow:                 registerFollower,
+		RegisterRemoteQueryHandler: registerQueryHandler,
 	})
 
 	if err != nil {

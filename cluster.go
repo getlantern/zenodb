@@ -1,10 +1,12 @@
 package zenodb
 
 import (
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
 	"hash/crc32"
+	"math/rand"
 )
 
 type Follow struct {
@@ -12,6 +14,12 @@ type Follow struct {
 	Offset    wal.Offset
 	Partition int
 }
+
+type RegisterQueryHandler struct {
+	Partition int
+}
+
+type QueryRemote func(sql string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
 
 func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	db.tablesMutex.RLock()
@@ -48,4 +56,49 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 			}
 		}
 	}
+}
+
+func (db *DB) RegisterQueryHandler(r *RegisterQueryHandler, query QueryRemote) {
+	db.tablesMutex.Lock()
+	defer db.tablesMutex.Unlock()
+	db.remoteQueryHandlers[r.Partition] = append(db.remoteQueryHandlers[r.Partition], query)
+}
+
+type remoteQueryable struct {
+	*table
+	db  *DB
+	sql string
+}
+
+func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+	rq.db.tablesMutex.RLock()
+	handlers := make(map[int][]QueryRemote, len(rq.db.remoteQueryHandlers))
+	for k, v := range rq.db.remoteQueryHandlers {
+		handlers[k] = v
+	}
+	rq.db.tablesMutex.RUnlock()
+
+	results := make(chan error, rq.db.opts.NumPartitions)
+	expectedResults := 0
+	for i := 0; i < rq.db.opts.NumPartitions; i++ {
+		qhs := handlers[i]
+		if len(qhs) == 0 {
+			log.Debugf("No live handlers for partition %d, skipping!", i)
+			continue
+		}
+		expectedResults++
+		qh := qhs[rand.Intn(len(qhs))]
+		go func() {
+			results <- qh(rq.sql, onValue)
+		}()
+	}
+
+	for i := 0; i < expectedResults; i++ {
+		err := <-results
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

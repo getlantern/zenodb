@@ -157,6 +157,7 @@ func (sq *SubQuery) Values() []goexpr.Expr {
 
 // Query represents the result of parsing a SELECT query.
 type Query struct {
+	SQL string
 	// Fields are the fields from the SELECT clause in the order they appear.
 	Fields []Field
 	// From is the Table from the FROM clause
@@ -215,6 +216,7 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 		fieldSource = noopFieldSource
 	}
 	q := &Query{
+		SQL:         nodeToString(stmt),
 		fieldsMap:   make(map[string]Field),
 		fieldSource: fieldSource,
 	}

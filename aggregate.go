@@ -100,6 +100,11 @@ type entry struct {
 	havingTest encoding.Sequence
 }
 
+type Entry struct {
+	Dims bytemap.ByteMap
+	Vals []encoding.Sequence
+}
+
 type queryExecution struct {
 	db *DB
 	sql.Query
@@ -137,6 +142,33 @@ func (db *DB) Query(query *sql.Query) *Query {
 }
 
 func (aq *Query) Run() (*QueryResult, error) {
+	exec, err := aq.prepareExecution()
+	if err != nil {
+		return nil, err
+	}
+	return exec.run()
+}
+
+func (db *DB) QueryForRemote(sql string, onEntry func(*Entry) error) error {
+	query, err := db.SQLQuery(sql)
+	if err != nil {
+		return err
+	}
+	return query.runForRemote(onEntry)
+}
+
+func (aq *Query) runForRemote(onEntry func(*Entry) error) error {
+	// Clear out unnecessary bits
+	aq.Having = nil
+	aq.OrderBy = nil
+	exec, err := aq.prepareExecution()
+	if err != nil {
+		return err
+	}
+	return exec.runForRemote(onEntry)
+}
+
+func (aq *Query) prepareExecution() (*queryExecution, error) {
 	q := &query{
 		asOf:        aq.AsOf,
 		asOfOffset:  aq.AsOfOffset,
@@ -145,7 +177,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 	}
 	numWorkers := runtime.NumCPU() / 2
 	if aq.From != "" {
-		table := aq.db.getTable(aq.From)
+		table := aq.db.getTableForQuery(aq.From, aq.SQL)
 		if table == nil {
 			return nil, fmt.Errorf("Table '%v' not found", aq.From)
 		}
@@ -168,7 +200,7 @@ func (aq *Query) Run() (*QueryResult, error) {
 		entriesCh:   make(chan map[string]*entry, numWorkers),
 	}
 	exec.wg.Add(numWorkers)
-	return exec.run()
+	return exec, nil
 }
 
 func (exec *queryExecution) run() (*QueryResult, error) {
@@ -181,6 +213,18 @@ func (exec *queryExecution) run() (*QueryResult, error) {
 		return nil, err
 	}
 	return exec.finish()
+}
+
+func (exec *queryExecution) runForRemote(onEntry func(*Entry) error) error {
+	err := exec.runSubQueries()
+	if err != nil {
+		return err
+	}
+	err = exec.prepare()
+	if err != nil {
+		return err
+	}
+	return exec.finishForRemote(onEntry)
 }
 
 func (exec *queryExecution) runSubQueries() error {
@@ -449,15 +493,9 @@ func (exec *queryExecution) prepare() error {
 }
 
 func (exec *queryExecution) finish() (*QueryResult, error) {
-	stats, err := exec.q.run(exec.db)
+	stats, err := exec.exec()
 	if err != nil {
 		return nil, err
-	}
-	close(exec.responsesCh)
-	exec.wg.Wait()
-	close(exec.entriesCh)
-	if log.IsTraceEnabled() {
-		log.Tracef("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
 	}
 
 	if len(exec.GroupBy) == 0 {
@@ -488,7 +526,11 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		numColumns = numColumns * len(exec.crosstabDims)
 	}
 	exec.populatedColumns = make([]bool, numColumns)
-	rows := exec.sortRows(exec.mergedRows(groupBy))
+	mergedRows, mergeErr := exec.mergedRows(groupBy)
+	if mergeErr != nil {
+		return nil, mergeErr
+	}
+	rows := exec.sortRows(mergedRows)
 
 	fieldNames := make([]string, 0, len(exec.Fields))
 	for _, field := range exec.Fields {
@@ -515,13 +557,121 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	return result, nil
 }
 
-func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
+func (exec *queryExecution) finishForRemote(onEntry func(*Entry) error) error {
+	_, err := exec.exec()
+	if err != nil {
+		return err
+	}
+
+	return exec.merged(func(k string, v *entry) error {
+		return onEntry(&Entry{
+			bytemap.New(v.dims),
+			v.values,
+		})
+	})
+}
+
+func (exec *queryExecution) exec() (*QueryStats, error) {
+	stats, err := exec.q.run(exec.db)
+	if err != nil {
+		return nil, err
+	}
+	close(exec.responsesCh)
+	exec.wg.Wait()
+	close(exec.entriesCh)
+	if log.IsTraceEnabled() {
+		log.Tracef("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
+	}
+	return stats, nil
+}
+
+func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
+	var rows []*Row
+	mergeErr := exec.merged(func(k string, v *entry) error {
+		dims := make([]interface{}, 0, len(exec.dimsMap))
+		for _, groupBy := range exec.GroupBy {
+			dims = append(dims, v.dims[groupBy.Name])
+		}
+		for t := 0; t < exec.outPeriods; t++ {
+			if exec.Having != nil {
+				testResult, ok := v.havingTest.ValueAt(t, exec.Having)
+				if !ok || int(testResult) != 1 {
+					// Didn't meet having criteria, ignore
+					continue
+				}
+			}
+			numFields := len(exec.Fields)
+			if exec.isCrosstab {
+				numFields = numFields * len(exec.crosstabDims)
+			}
+			values := make([]float64, numFields)
+			var totals []float64
+			if exec.isCrosstab {
+				totals = make([]float64, len(exec.Fields))
+			}
+			hasData := false
+			for i, vals := range v.values {
+				if vals == nil {
+					continue
+				}
+				fieldIdx := i
+				outIdx := i
+				if exec.isCrosstab {
+					fieldIdx = i % len(exec.Fields)
+					dimIdx := i / len(exec.Fields)
+					sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
+					outIdx = sortedDimIdx*len(exec.Fields) + fieldIdx
+				}
+				ex := exec.Fields[fieldIdx].Expr
+				val, wasSet := vals.ValueAt(t, ex)
+				if wasSet {
+					values[outIdx] = val
+					hasData = true
+					exec.populatedColumns[outIdx] = true
+				}
+			}
+			if exec.isCrosstab {
+				for i, vals := range v.totals {
+					if vals == nil {
+						continue
+					}
+					ex := exec.Fields[i].Expr
+					val, wasSet := vals.ValueAt(t, ex)
+					if wasSet {
+						totals[i] = val
+					}
+				}
+			}
+			if !hasData {
+				firstPeriodOfFieldlessQuery := len(exec.Fields) == 0 && t == 0
+				if !firstPeriodOfFieldlessQuery {
+					// Exclude rows that have no data
+					// TODO: add ability to fill
+					continue
+				}
+			}
+			rows = append(rows, &Row{
+				Period:  t,
+				Dims:    dims,
+				Values:  values,
+				Totals:  totals,
+				groupBy: groupBy,
+				fields:  exec.Fields,
+			})
+		}
+
+		return nil
+	})
+
+	return rows, mergeErr
+}
+
+func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 	var entries []map[string]*entry
 	for e := range exec.entriesCh {
 		entries = append(entries, e)
 	}
 
-	var rows []*Row
 	for i, e := range entries {
 		for k, v := range e {
 			for j := i; j < len(entries); j++ {
@@ -568,81 +718,14 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 				}
 			}
 
-			dims := make([]interface{}, 0, len(exec.dimsMap))
-			for _, groupBy := range exec.GroupBy {
-				dims = append(dims, v.dims[groupBy.Name])
-			}
-			for t := 0; t < exec.outPeriods; t++ {
-				if exec.Having != nil {
-					testResult, ok := v.havingTest.ValueAt(t, exec.Having)
-					if !ok || int(testResult) != 1 {
-						// Didn't meet having criteria, ignore
-						continue
-					}
-				}
-				numFields := len(exec.Fields)
-				if exec.isCrosstab {
-					numFields = numFields * len(exec.crosstabDims)
-				}
-				values := make([]float64, numFields)
-				var totals []float64
-				if exec.isCrosstab {
-					totals = make([]float64, len(exec.Fields))
-				}
-				hasData := false
-				for i, vals := range v.values {
-					if vals == nil {
-						continue
-					}
-					fieldIdx := i
-					outIdx := i
-					if exec.isCrosstab {
-						fieldIdx = i % len(exec.Fields)
-						dimIdx := i / len(exec.Fields)
-						sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
-						outIdx = sortedDimIdx*len(exec.Fields) + fieldIdx
-					}
-					ex := exec.Fields[fieldIdx].Expr
-					val, wasSet := vals.ValueAt(t, ex)
-					if wasSet {
-						values[outIdx] = val
-						hasData = true
-						exec.populatedColumns[outIdx] = true
-					}
-				}
-				if exec.isCrosstab {
-					for i, vals := range v.totals {
-						if vals == nil {
-							continue
-						}
-						ex := exec.Fields[i].Expr
-						val, wasSet := vals.ValueAt(t, ex)
-						if wasSet {
-							totals[i] = val
-						}
-					}
-				}
-				if !hasData {
-					firstPeriodOfFieldlessQuery := len(exec.Fields) == 0 && t == 0
-					if !firstPeriodOfFieldlessQuery {
-						// Exclude rows that have no data
-						// TODO: add ability to fill
-						continue
-					}
-				}
-				rows = append(rows, &Row{
-					Period:  t,
-					Dims:    dims,
-					Values:  values,
-					Totals:  totals,
-					groupBy: groupBy,
-					fields:  exec.Fields,
-				})
+			cbErr := cb(k, v)
+			if cbErr != nil {
+				return cbErr
 			}
 		}
 	}
 
-	return rows
+	return nil
 }
 
 func (exec *queryExecution) sortRows(rows []*Row) []*Row {

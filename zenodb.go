@@ -53,25 +53,33 @@ type DBOpts struct {
 	Partition int
 	// Follow is a function that allows a follower to request following a stream
 	// from its leader.
-	Follow func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
+	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
+	RegisterRemoteQueryHandler func(r *RegisterQueryHandler, query func(sql string, onEntry func(*Entry) error) error)
 }
 
 // DB is a zenodb database.
 type DB struct {
-	opts            *DBOpts
-	clock           vtime.Clock
-	streams         map[string]*wal.WAL
-	tables          map[string]*table
-	orderedTables   []*table
-	tablesMutex     sync.RWMutex
-	isSorting       bool
-	nextTableToSort int
+	opts                *DBOpts
+	clock               vtime.Clock
+	streams             map[string]*wal.WAL
+	tables              map[string]*table
+	orderedTables       []*table
+	tablesMutex         sync.RWMutex
+	isSorting           bool
+	nextTableToSort     int
+	remoteQueryHandlers map[int][]QueryRemote
 }
 
 // NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
-	db := &DB{opts: opts, clock: vtime.RealClock, tables: make(map[string]*table), streams: make(map[string]*wal.WAL)}
+	db := &DB{
+		opts:                opts,
+		clock:               vtime.RealClock,
+		tables:              make(map[string]*table),
+		streams:             make(map[string]*wal.WAL),
+		remoteQueryHandlers: make(map[int][]QueryRemote),
+	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
 	}
@@ -96,6 +104,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		}
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
+	if db.opts.RegisterRemoteQueryHandler != nil {
+		go db.opts.RegisterRemoteQueryHandler(&RegisterQueryHandler{db.opts.Partition}, db.QueryForRemote)
+	}
 	return db, err
 }
 
@@ -146,6 +157,18 @@ func (db *DB) getTable(table string) *table {
 	db.tablesMutex.RLock()
 	t := db.tables[strings.ToLower(table)]
 	db.tablesMutex.RUnlock()
+	return t
+}
+
+func (db *DB) getTableForQuery(table string, sql string) (t queryable) {
+	tbl := db.getTable(table)
+	if tbl == nil {
+		return nil
+	}
+	t = tbl
+	if db.opts.Leader {
+		t = &remoteQueryable{tbl, db, sql}
+	}
 	return t
 }
 

@@ -2,9 +2,12 @@ package rpc
 
 import (
 	"net"
+	"sync"
 
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/encoding"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -13,6 +16,8 @@ type Server interface {
 	Query(*Query, grpc.ServerStream) error
 
 	Follow(*zenodb.Follow, grpc.ServerStream) error
+
+	HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc.ServerStream) error
 }
 
 type ServerOpts struct {
@@ -81,6 +86,61 @@ func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
 	return s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
 		return stream.SendMsg(&Point{data, newOffset})
 	})
+}
+
+func (s *server) HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc.ServerStream) error {
+	var mx sync.RWMutex
+	id := 0
+	results := make(map[int]chan *RemoteQueryRelated)
+	s.db.RegisterQueryHandler(r, func(sql string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+		resultCh := make(chan *RemoteQueryRelated)
+		mx.Lock()
+		qid := id
+		results[qid] = resultCh
+		id++
+		mx.Unlock()
+		defer func() {
+			mx.Lock()
+			delete(results, qid)
+			mx.Unlock()
+		}()
+
+		stream.SendMsg(&RemoteQueryRelated{ID: qid, Query: sql})
+		for result := range resultCh {
+			if result.Error != nil {
+				return result.Error
+			}
+			onValue(result.Entry.Dims, result.Entry.Vals)
+		}
+		return nil
+	})
+
+	for {
+		m := &RemoteQueryRelated{}
+		recvErr := stream.RecvMsg(m)
+		if recvErr != nil {
+			m.Error = recvErr
+			mx.RLock()
+			defer mx.RUnlock()
+			for _, resultCh := range results {
+				resultCh <- m
+				close(resultCh)
+			}
+			return recvErr
+		}
+		mx.RLock()
+		resultCh := results[m.ID]
+		mx.RUnlock()
+		if resultCh == nil {
+			log.Errorf("Received result for unknown id: %d", id)
+			continue
+		}
+		if m.EndOfResults {
+			close(resultCh)
+			continue
+		}
+		resultCh <- m
+	}
 }
 
 func (s *server) authorize(stream grpc.ServerStream) error {
