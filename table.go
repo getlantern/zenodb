@@ -202,8 +202,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 				offset = wal.Offset(latest[:wal.OffsetSize])
 			}
 			log.Debugf("Following stream %v starting at %v", q.From, offset)
-			go db.opts.Follow(&Follow{q.From, offset}, func(data []byte, newOffset wal.Offset) error {
-				log.Debugf("Writing %v", q.From)
+			go db.opts.Follow(&Follow{q.From, offset, db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
 				_, err := w.Write(newOffset, data)
 				if err != nil {
 					log.Debug(err)

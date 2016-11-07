@@ -47,6 +47,12 @@ type DBOpts struct {
 	WALCompressionAge time.Duration
 	// Leader flags this node as a leader (won't store data in tables, just WAL).
 	Leader bool
+	// NumPartitions identifies how many partitions to split
+	NumPartitions int
+	// Partition identies the partition owned by this follower
+	Partition int
+	// Follow is a function that allows a follower to request following a stream
+	// from its leader.
 	Follow func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
 }
 

@@ -35,7 +35,7 @@ var (
 	password          = flag.String("password", "", "if specified, will authenticate clients using this password")
 	lead              = flag.Bool("lead", false, "set to true to make this node a leader that feeds data to follower nodes. Requires -partitions to be specified.")
 	follow            = flag.String("follow", "", "if specified, point at the leader at the given address to receive updates, authentication with value of -password")
-	partitions        = flag.Int("partitions", 1, "The number of partitions available to distribute amongst followers")
+	numPartitions     = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition         = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 )
 
@@ -89,7 +89,7 @@ func main() {
 				if followErr != nil {
 					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
 				}
-				log.Debugf("Got data for %v", f.Stream)
+				log.Tracef("Got data for %v", f.Stream)
 				followErr = cb(data, newOffset)
 				if err != nil {
 					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
@@ -108,6 +108,8 @@ func main() {
 		MaxWALAge:              *maxWALAge,
 		WALCompressionAge:      *walCompressionAge,
 		Leader:                 *lead,
+		NumPartitions:          *numPartitions,
+		Partition:              *partition,
 		Follow:                 registerFollower,
 	})
 

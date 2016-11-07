@@ -186,7 +186,7 @@ func (rs *rowStore) processInserts() {
 				flush()
 			}
 		case <-flushTimer.C:
-			rs.t.log.Debug("Requesting flush due to flush interval")
+			rs.t.log.Trace("Requesting flush due to flush interval")
 			flush()
 		case flushDuration := <-rs.flushFinished:
 			flushInterval = flushDuration * 10
