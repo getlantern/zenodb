@@ -2,7 +2,6 @@ package zenodb
 
 import (
 	"fmt"
-	"math"
 	"runtime"
 	"sort"
 	"sync"
@@ -19,7 +18,7 @@ import (
 )
 
 var (
-	maxDuration = time.Duration(math.MaxInt64)
+	largeDuration = 1000000 * time.Hour
 )
 
 type Row struct {
@@ -233,8 +232,10 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 		exec.Fields[0].Expr = expr.SUM("_point")
 		exec.Fields[0].Name = "_points"
 
-		// Time periods are pointless for subqueries, so set resolution to max possible
-		exec.Resolution = maxDuration
+		// Time periods are pointless for subqueries, so set resolution to an
+		// arbitrarily large duration.
+		exec.Resolution = largeDuration
+		exec.q.asOfOffset = -1 * exec.Resolution
 	}
 
 	exec.wg.Add(numWorkers)
@@ -290,6 +291,7 @@ func (exec *queryExecution) getTable() (queryable, error) {
 		if err != nil {
 			return nil, err
 		}
+		log.Debugf("Resolution for remote: %v", resolution)
 		t = &remoteQueryable{tbl, exec, resolution}
 	} else {
 		log.Debugf("Using local for query: %v", exec.SQL)
@@ -301,13 +303,18 @@ func (exec *queryExecution) resolutionFor(t queryable) (time.Duration, error) {
 	nativeResolution := t.resolution()
 	resolution := exec.Resolution
 
+	if resolution < 0 {
+		retentionPeriod := t.retentionPeriod()
+		log.Debugf("Defaulting resolution to retention period of %v", retentionPeriod)
+		resolution = retentionPeriod
+	}
 	if resolution == 0 {
-		log.Tracef("Defaulting to native resolution of %v", nativeResolution)
+		log.Debugf("Defaulting to native resolution of %v", nativeResolution)
 		resolution = nativeResolution
 	}
-	if resolution > exec.t.retentionPeriod() {
-		log.Tracef("Not allowing resolution %v lower than retention period %v", resolution, exec.t.retentionPeriod())
-		resolution = exec.t.retentionPeriod()
+	if resolution > t.retentionPeriod() {
+		log.Debugf("Not allowing resolution %v lower than retention period %v", resolution, t.retentionPeriod())
+		resolution = t.retentionPeriod()
 	}
 	if resolution < nativeResolution {
 		return 0, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", resolution, nativeResolution)
@@ -413,7 +420,10 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	exec.scalingFactor = int(exec.Resolution / nativeResolution)
-	log.Tracef("Scaling factor: %d", exec.scalingFactor)
+	log.Debugf("Scaling factor: %d", exec.scalingFactor)
+	log.Debugf("Resolution: %v", exec.Resolution)
+	log.Debugf("Native resolution: %v", nativeResolution)
+	log.Debugf("AsOf: %v   Until: %v", exec.q.asOf, exec.q.until)
 
 	exec.inPeriods = int(exec.q.until.Sub(exec.q.asOf) / nativeResolution)
 	// Limit inPeriods based on what we can fit into outPeriods
@@ -423,7 +433,7 @@ func (exec *queryExecution) prepare() error {
 		exec.outPeriods = 1
 	}
 	exec.inPeriods = exec.outPeriods * exec.scalingFactor
-	log.Tracef("In: %d   Out: %d", exec.inPeriods, exec.outPeriods)
+	log.Debugf("In: %d   Out: %d", exec.inPeriods, exec.outPeriods)
 
 	var dimsMapMutex sync.Mutex
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
@@ -460,6 +470,7 @@ func (exec *queryExecution) prepare() error {
 	worker := func() {
 		entries := make(map[string]*entry, 0)
 		for resp := range exec.responsesCh {
+			log.Debugf("Processing resp %v %v: %v", resp.field, resp.key.AsMap(), resp.seq)
 			kb := sliceKey(resp.key)
 			en := entries[string(kb)]
 			if en == nil {
@@ -499,6 +510,7 @@ func (exec *queryExecution) prepare() error {
 				if column.Name != resp.field {
 					continue
 				}
+				log.Debugf("Column name matched field: %v", resp.field)
 				for t := 0; t < inPeriods && t < exec.inPeriods; t++ {
 					other, wasSet := resp.seq.DataAt(t+resp.startOffset, resp.e)
 					if !wasSet {
@@ -532,6 +544,7 @@ func (exec *queryExecution) prepare() error {
 						if subMerge == nil {
 							continue
 						}
+						log.Debugf("Found submerger for %v", field.Name)
 
 						idx := f
 						if exec.isCrosstab {
@@ -547,7 +560,7 @@ func (exec *queryExecution) prepare() error {
 						if seq == nil {
 							// Lazily initialize sequence
 							seq = encoding.NewSequence(field.Expr.EncodedWidth(), exec.outPeriods)
-							seq.SetStart(exec.q.until)
+							seq.SetStart(encoding.RoundTime(exec.q.until, exec.Resolution))
 							en.values[idx] = seq
 						}
 						seq.SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
@@ -568,6 +581,7 @@ func (exec *queryExecution) prepare() error {
 			}
 		}
 
+		log.Debugf("Submitting %d entries", len(entries))
 		exec.entriesCh <- entries
 		exec.wg.Done()
 	}
@@ -735,13 +749,15 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 				}
 			}
 			if !hasData {
-				firstPeriodOfFieldlessQuery := len(exec.Fields) == 0 && t == 0
-				if !firstPeriodOfFieldlessQuery {
+				firstPeriodOfRegularQuery := !exec.isSubQuery && t == 0
+				if !firstPeriodOfRegularQuery {
+					log.Debugf("Excluding row with no data")
 					// Exclude rows that have no data
 					// TODO: add ability to fill
 					continue
 				}
 			}
+			log.Debug("Appending row")
 			rows = append(rows, &Row{
 				Period:  t,
 				Dims:    dims,
@@ -764,6 +780,11 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 		entries = append(entries, e)
 	}
 
+	totalEntries := 0
+	for _, entry := range entries {
+		totalEntries += len(entry)
+	}
+	log.Debugf("Merging %d entries", totalEntries)
 	for i, e := range entries {
 		for k, v := range e {
 			for j := i; j < len(entries); j++ {
@@ -810,6 +831,7 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 				}
 			}
 
+			log.Debug("Calling callback")
 			cbErr := cb(k, v)
 			if cbErr != nil {
 				return cbErr

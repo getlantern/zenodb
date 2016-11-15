@@ -70,6 +70,7 @@ func TestCluster(t *testing.T) {
 					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
 						log.Debugf("Got entry %v: %v", entry.Dims.AsMap(), entry.Vals)
 						onValue(entry.Dims, entry.Vals)
+						log.Debug("Done with entry")
 						return nil
 					})
 					log.Debug("Done handling query")
@@ -102,6 +103,7 @@ func TestCluster(t *testing.T) {
 					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
 						log.Debugf("Got entry %v: %v", entry.Dims.AsMap(), entry.Vals)
 						onValue(entry.Dims, entry.Vals)
+						log.Debug("Done with entry")
 						return nil
 					})
 					log.Debug("Done handling query")
@@ -270,8 +272,10 @@ view_a:
 
 	advance(resolution)
 
+	nextTS := now.Add(randBelowRes())
+	advanceClock(nextTS)
 	db.Insert("inbound",
-		now.Add(randBelowRes()),
+		nextTS,
 		map[string]interface{}{
 			"r":  "A",
 			"u":  1,
@@ -284,8 +288,10 @@ view_a:
 		})
 	shuffleFields()
 
+	nextTS = now.Add(randBelowRes())
+	advanceClock(nextTS)
 	db.Insert("inbound",
-		now.Add(randBelowRes()),
+		nextTS,
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,
@@ -299,8 +305,10 @@ view_a:
 		})
 	shuffleFields()
 
+	nextTS = now.Add(randBelowRes())
+	advanceClock(nextTS)
 	db.Insert("inbound",
-		now.Add(randBelowRes()),
+		nextTS,
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,

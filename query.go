@@ -45,14 +45,15 @@ func (q *query) init(db *DB) error {
 	now := db.clock.Now()
 	truncateBefore := q.t.truncateBefore()
 	if q.asOf.IsZero() && q.asOfOffset >= 0 {
-		log.Trace("No asOf and no positive asOfOffset, defaulting to retention period")
+		log.Debug("No asOf and no positive asOfOffset, defaulting to retention period")
 		q.asOf = truncateBefore
 	}
 	if q.asOf.IsZero() {
 		q.asOf = now.Add(q.asOfOffset)
+		log.Debugf("Defaulting asOf to %v based on now %v and asOfOffset %v", q.asOf, now, q.asOfOffset)
 	}
 	if q.asOf.Before(truncateBefore) {
-		log.Tracef("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
+		log.Debugf("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
 		q.asOf = truncateBefore
 	}
 	if q.until.IsZero() {
@@ -106,18 +107,21 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			}
 		}
 
+		log.Debugf("Num columns: %d", len(columns))
 		for i := 0; i < len(columns); i++ {
 			stats.ReadValue++
 			field := allFields[i]
 			e := field.Expr
 			encodedWidth := e.EncodedWidth()
 			seq := columns[i]
+			log.Debugf("Sequence is: %v", seq.String(e))
 			if len(seq) > 0 {
 				stats.DataValid++
 				if log.IsTraceEnabled() {
 					log.Tracef("Reading encoding.Sequence %v", seq.String(e))
 				}
 				seq = seq.Truncate(encodedWidth, q.t.resolution(), q.asOf)
+				log.Debugf("Truncated Sequence as of %v at resolution %v is: %v", q.asOf, q.t.resolution(), seq.String(e))
 				if seq != nil {
 					if !testedInclude {
 						include, includeErr := shouldInclude()

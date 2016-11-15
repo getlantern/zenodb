@@ -77,14 +77,13 @@ func (rq *remoteQueryable) fields() []sql.Field {
 }
 
 func (rq *remoteQueryable) resolution() time.Duration {
-	return rq.exec.Resolution
+	return rq.res
 }
 
 func (rq *remoteQueryable) retentionPeriod() time.Duration {
 	retentionPeriod := rq.exec.q.until.Sub(rq.exec.q.asOf)
-	resolution := rq.res
-	if retentionPeriod < resolution {
-		retentionPeriod = resolution
+	if retentionPeriod < rq.res {
+		retentionPeriod = rq.res
 	}
 	return retentionPeriod
 }
@@ -112,7 +111,9 @@ func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap
 		expectedResults++
 		qh := qhs[rand.Intn(len(qhs))]
 		go func() {
-			results <- qh(rq.exec.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, onValue)
+			results <- qh(rq.exec.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
+				onValue(key, values)
+			})
 		}()
 	}
 
