@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"strings"
 	"time"
@@ -14,6 +15,7 @@ import (
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/rpc"
+	"github.com/getlantern/zenodb/sql"
 	"golang.org/x/net/context"
 )
 
@@ -72,7 +74,8 @@ func main() {
 	}
 
 	var registerFollower func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
-	var registerQueryHandler func(r *zenodb.RegisterQueryHandler, query func(sql string, onEntry func(*zenodb.Entry) error) error)
+	var registerQueryHandler func(r *zenodb.RegisterQueryHandler, query func(q *sql.Query, onEntry func(*zenodb.Entry) error) error)
+	var queryCluster func(query *sql.Query) (*zenodb.QueryResult, error)
 	if *follow != "" {
 		client, dialErr := rpc.Dial(*follow, &rpc.ClientOpts{
 			Password: *password,
@@ -97,10 +100,27 @@ func main() {
 				}
 			}
 		}
-		registerQueryHandler = func(r *zenodb.RegisterQueryHandler, query func(sql string, onEntry func(*zenodb.Entry) error) error) {
+		registerQueryHandler = func(r *zenodb.RegisterQueryHandler, query func(q *sql.Query, onEntry func(*zenodb.Entry) error) error) {
 			registerErr := client.HandleRemoteQueries(context.Background(), r, query)
 			if registerErr != nil {
 				log.Fatalf("Error registering as remote query handler: %v", registerErr)
+			}
+		}
+		queryCluster = func(query *sql.Query) (*zenodb.QueryResult, error) {
+			result, nextRow, queryErr := client.Query(context.Background(), query)
+			if queryErr != nil {
+				return nil, queryErr
+			}
+
+			for {
+				row, rowErr := nextRow()
+				if rowErr != nil {
+					if rowErr != io.EOF {
+						return nil, rowErr
+					}
+					return result, nil
+				}
+				result.Rows = append(result.Rows, row)
 			}
 		}
 	}
@@ -119,6 +139,7 @@ func main() {
 		Partition:              *partition,
 		Follow:                 registerFollower,
 		RegisterRemoteQueryHandler: registerQueryHandler,
+		QueryCluster:               queryCluster,
 	})
 
 	if err != nil {

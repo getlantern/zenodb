@@ -101,6 +101,10 @@ func (e *aggregate) save(b []byte, value float64) []byte {
 	return b[width64bits+1:]
 }
 
+func (e *aggregate) IsConstant() bool {
+	return e.wrapped.IsConstant()
+}
+
 func (e *aggregate) String() string {
 	return fmt.Sprintf("%v(%v)", e.name, e.wrapped)
 }

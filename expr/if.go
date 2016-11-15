@@ -84,6 +84,10 @@ func (e *ifExpr) Get(b []byte) (float64, bool, []byte) {
 	return e.wrapped.Get(b)
 }
 
+func (e *ifExpr) IsConstant() bool {
+	return e.wrapped.IsConstant()
+}
+
 func (e *ifExpr) String() string {
 	return fmt.Sprintf("IF(%v, %v)", e.cond, e.wrapped)
 }

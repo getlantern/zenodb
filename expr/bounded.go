@@ -58,6 +58,10 @@ func (e *bounded) Get(b []byte) (float64, bool, []byte) {
 	return val, wasSet, remain
 }
 
+func (e *bounded) IsConstant() bool {
+	return e.wrapped.IsConstant()
+}
+
 func (e *bounded) String() string {
 	return e.wrapped.String()
 }

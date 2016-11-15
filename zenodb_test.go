@@ -5,11 +5,13 @@ import (
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
@@ -25,7 +27,108 @@ func TestRoundTime(t *testing.T) {
 	assert.Equal(t, expected, rounded)
 }
 
-func TestIntegration(t *testing.T) {
+func testSingleDB(t *testing.T) {
+	doTest(t, false, func(tmpDir string, tmpFile string) (*DB, func(time.Time)) {
+		db, err := NewDB(&DBOpts{
+			Dir:         filepath.Join(tmpDir, "leader"),
+			SchemaFile:  tmpFile,
+			VirtualTime: true,
+		})
+		if !assert.NoError(t, err, "Unable to create leader DB") {
+			t.Fatal()
+		}
+		return db, func(t time.Time) {
+			db.clock.Advance(t)
+		}
+	})
+}
+
+func TestCluster(t *testing.T) {
+	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time)) {
+		leader, err := NewDB(&DBOpts{
+			Dir:           filepath.Join(tmpDir, "leader"),
+			SchemaFile:    tmpFile,
+			VirtualTime:   true,
+			Leader:        true,
+			NumPartitions: 2,
+		})
+		if !assert.NoError(t, err, "Unable to create leader DB") {
+			t.Fatal()
+		}
+
+		follower1, err := NewDB(&DBOpts{
+			Dir:         filepath.Join(tmpDir, "follower1"),
+			SchemaFile:  tmpFile,
+			VirtualTime: true,
+			Partition:   0,
+			Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
+				leader.Follow(f, cb)
+			},
+			RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
+				leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
+					log.Debugf("Handling query: %v", sqlString)
+					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
+						log.Debugf("Got entry %v: %v", entry.Dims.AsMap(), entry.Vals)
+						onValue(entry.Dims, entry.Vals)
+						return nil
+					})
+					log.Debug("Done handling query")
+					return err
+				})
+			},
+			QueryCluster: func(sqlString string) (*QueryResult, error) {
+				query, err := leader.SQLQuery(sqlString)
+				if err != nil {
+					return nil, err
+				}
+				return query.Run(false)
+			},
+		})
+		if !assert.NoError(t, err, "Unable to create follower1 DB") {
+			t.Fatal()
+		}
+
+		follower2, err := NewDB(&DBOpts{
+			Dir:         filepath.Join(tmpDir, "follower2"),
+			SchemaFile:  tmpFile,
+			VirtualTime: true,
+			Partition:   1,
+			Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
+				leader.Follow(f, cb)
+			},
+			RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
+				leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
+					log.Debugf("Handling query: %v", sqlString)
+					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
+						log.Debugf("Got entry %v: %v", entry.Dims.AsMap(), entry.Vals)
+						onValue(entry.Dims, entry.Vals)
+						return nil
+					})
+					log.Debug("Done handling query")
+					return err
+				})
+			},
+			QueryCluster: func(sqlString string) (*QueryResult, error) {
+				query, err := leader.SQLQuery(sqlString)
+				if err != nil {
+					return nil, err
+				}
+				return query.Run(false)
+			},
+		})
+		if !assert.NoError(t, err, "Unable to create follower1 DB") {
+			t.Fatal()
+		}
+
+		return leader, func(t time.Time) {
+			leader.clock.Advance(t)
+			follower1.clock.Advance(t)
+			follower2.clock.Advance(t)
+		}
+	})
+}
+
+func doTest(t *testing.T, isClustered bool, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time))) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	tmpDir, err := ioutil.TempDir("", "zenodbtest")
@@ -61,14 +164,7 @@ Test_a:
 		return
 	}
 
-	db, err := NewDB(&DBOpts{
-		Dir:         tmpDir,
-		SchemaFile:  tmpFile.Name(),
-		VirtualTime: true,
-	})
-	if !assert.NoError(t, err, "Unable to create DB") {
-		return
-	}
+	db, advanceClock := buildDB(tmpDir, tmpFile.Name())
 
 	schemaB := schemaA + `
 view_a:
@@ -101,7 +197,7 @@ view_a:
 	advance := func(d time.Duration) {
 		time.Sleep(250 * time.Millisecond)
 		now = now.Add(d)
-		db.clock.Advance(now)
+		advanceClock(now)
 		time.Sleep(250 * time.Millisecond)
 		for _, table := range []string{"test_a", "view_a"} {
 			log.Debug(db.PrintTableStats(table))
@@ -217,6 +313,17 @@ view_a:
 		})
 	shuffleFields()
 
+	// Give archiver time to catch up
+	time.Sleep(2 * time.Second)
+
+	if !isClustered {
+		testQueries(t, epoch, resolution, now, db)
+	}
+
+	testAggregateQuery(t, db, now, epoch, resolution)
+}
+
+func testQueries(t *testing.T, epoch time.Time, resolution time.Duration, now time.Time, db *DB) {
 	query := func(table string, from time.Time, to time.Time, dim string, field string) (map[int][]float64, error) {
 		filter, queryErr := goexpr.Binary("!=", goexpr.Param("b"), goexpr.Constant(true))
 		if queryErr != nil {
@@ -258,9 +365,6 @@ view_a:
 		log.Debugf("Result: %v", result)
 		return result, err
 	}
-
-	// Give archiver time to catch up
-	time.Sleep(2 * time.Second)
 
 	test := func(from time.Time, to time.Time, dim string, field string, onResult func(map[int][]float64)) {
 		for _, table := range []string{"Test_A", "view_A"} {
@@ -309,7 +413,6 @@ view_a:
 		}
 	})
 
-	testAggregateQuery(t, db, now, epoch, resolution)
 }
 
 func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration) {
@@ -324,7 +427,7 @@ SELECT
 	_points
 FROM test_a
 ASOF '%v' UNTIL '%v'
-WHERE b != true AND r IN (SELECT r FROM test_a GROUP BY r, period(50000h))
+WHERE b != true AND r IN (SELECT r FROM test_a)
 GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
@@ -333,7 +436,7 @@ ORDER BY u DESC
 		return
 	}
 
-	result, err := aq.Run()
+	result, err := aq.Run(false)
 	if !assert.NoError(t, err, "Unable to run query") {
 		return
 	}
@@ -388,7 +491,7 @@ HAVING unknown = 5
 	if !assert.NoError(t, err, "Unable to creat query") {
 		return
 	}
-	result, err = aq.Run()
+	result, err = aq.Run(false)
 	if !assert.NoError(t, err, "Unable to run query") {
 		return
 	}
@@ -402,7 +505,7 @@ HAVING unknown = 5
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})
 
-	result, err = aq.Run()
+	result, err = aq.Run(false)
 	if assert.NoError(t, err, "Unable to run query with defaults") {
 		assert.Equal(t, []string{"b", "md", "r", "u"}, result.GroupBy)
 		assert.NotNil(t, result.Until)
@@ -428,5 +531,5 @@ func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Dur
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})
 
-	aq.Run()
+	aq.Run(false)
 }

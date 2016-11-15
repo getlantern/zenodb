@@ -80,6 +80,9 @@ type Expr interface {
 	// after consuming the underlying data.
 	Get(b []byte) (value float64, ok bool, remain []byte)
 
+	// IsConstant indicates whether or not this is a constant expression
+	IsConstant() bool
+
 	String() string
 }
 

@@ -15,28 +15,39 @@ type subqueryResult struct {
 	knownFields []sql.Field
 }
 
-func (aq *Query) runSubQuery() (queryable, error) {
-	subQuery := &Query{db: aq.db, Query: *aq.FromSubQuery}
-	// TODO: there's probably a more efficient way to get a queryable
-	result, err := subQuery.Run()
+func (exec *queryExecution) runSubQuery() (queryable, error) {
+	var result *QueryResult
+	var err error
+	if exec.db.opts.QueryCluster != nil {
+		log.Debug("Going remote for from subquery")
+		// Query the cluster
+		result, err = exec.db.opts.QueryCluster(exec.FromSubQuery.SQL)
+	} else {
+		log.Debug("Going local for from subquery")
+		// Query locally
+		subQuery := &Query{db: exec.db, Query: *exec.FromSubQuery}
+		// TODO: there's probably a more efficient way to get a queryable
+		result, err = subQuery.Run(false)
+	}
 	if err != nil {
 		return nil, err
 	}
-	return aq.newSubqueryResult(result), nil
+	return exec.newSubqueryResult(result), nil
 }
 
-func (aq *Query) newSubqueryResult(qr *QueryResult) *subqueryResult {
+func (exec *queryExecution) newSubqueryResult(qr *QueryResult) *subqueryResult {
 	bt := bytetree.New()
 	for _, row := range qr.Rows {
 		ts := qr.exec.q.until.Add(-1 * time.Duration(row.Period) * qr.exec.Resolution)
 		key := bytemap.FromSortedKeysAndValues(qr.GroupBy, row.Dims)
 		vals := encoding.NewTSParams(ts, bytemap.FromSortedKeysAndFloats(qr.FieldNames, row.Values))
-		bt.Update(aq.Fields, qr.exec.Resolution, qr.exec.q.asOf, key, vals, key)
+		log.Debugf("SubQuery row: %v", key.AsMap())
+		bt.Update(exec.Fields, qr.exec.Resolution, qr.exec.q.asOf, key, vals, key)
 	}
 	return &subqueryResult{
 		bt:          bt,
 		qr:          qr,
-		knownFields: aq.Fields,
+		knownFields: exec.Fields,
 	}
 }
 

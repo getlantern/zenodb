@@ -2,6 +2,7 @@ package zenodb
 
 import (
 	"fmt"
+	"math"
 	"runtime"
 	"sort"
 	"sync"
@@ -15,6 +16,10 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
+)
+
+var (
+	maxDuration = time.Duration(math.MaxInt64)
 )
 
 type Row struct {
@@ -108,7 +113,9 @@ type Entry struct {
 type queryExecution struct {
 	db *DB
 	sql.Query
+	isSubQuery             bool
 	t                      queryable
+	subQueryResults        [][]interface{}
 	q                      *query
 	knownFields            []sql.Field
 	subMergers             [][]expr.SubMerge
@@ -141,34 +148,63 @@ func (db *DB) Query(query *sql.Query) *Query {
 	return &Query{db: db, Query: *query}
 }
 
-func (aq *Query) Run() (*QueryResult, error) {
-	exec, err := aq.prepareExecution()
+func (aq *Query) Run(isSubQuery bool) (*QueryResult, error) {
+	log.Debugf("Running query (subquery? %v): %v", isSubQuery, aq.SQL)
+	subQueryResults, err := aq.runSubQueries()
 	if err != nil {
+		return nil, err
+	}
+
+	exec, err := aq.prepareExecution(isSubQuery, subQueryResults)
+	if err != nil {
+		log.Debugf("Query error: %v", err)
 		return nil, err
 	}
 	return exec.run()
 }
 
-func (db *DB) QueryForRemote(sql string, onEntry func(*Entry) error) error {
-	query, err := db.SQLQuery(sql)
+func (db *DB) SubQuery(sqlString string) ([]interface{}, error) {
+	query, err := db.SQLQuery(sqlString)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := query.Run(true)
+	if err != nil {
+		return nil, err
+	}
+
+	vals := make([]interface{}, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		vals = append(vals, row.Dims[0])
+	}
+
+	return vals, nil
+}
+
+func (db *DB) QueryForRemote(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
+	query, err := db.SQLQuery(sqlString)
 	if err != nil {
 		return err
 	}
-	return query.runForRemote(onEntry)
+
+	return query.runForRemote(isSubQuery, subQueryResults, onEntry)
 }
 
-func (aq *Query) runForRemote(onEntry func(*Entry) error) error {
+func (aq *Query) runForRemote(isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
+	log.Debugf("Running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
+
 	// Clear out unnecessary bits
 	aq.Having = nil
 	aq.OrderBy = nil
-	exec, err := aq.prepareExecution()
+	exec, err := aq.prepareExecution(isSubQuery, subQueryResults)
 	if err != nil {
 		return err
 	}
 	return exec.runForRemote(onEntry)
 }
 
-func (aq *Query) prepareExecution() (*queryExecution, error) {
+func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface{}) (*queryExecution, error) {
 	q := &query{
 		asOf:        aq.AsOf,
 		asOfOffset:  aq.AsOfOffset,
@@ -176,77 +212,139 @@ func (aq *Query) prepareExecution() (*queryExecution, error) {
 		untilOffset: aq.UntilOffset,
 	}
 	numWorkers := runtime.NumCPU() / 2
-	if aq.From != "" {
-		table := aq.db.getTableForQuery(aq.From, aq.SQL)
-		if table == nil {
-			return nil, fmt.Errorf("Table '%v' not found", aq.From)
-		}
-		q.t = table
-	} else {
-		sq, err := aq.runSubQuery()
-		if err != nil {
-			return nil, fmt.Errorf("Unable to run subquery: %v", err)
-		}
-		q.t = sq
-	}
+
 	exec := &queryExecution{
-		Query:       aq.Query,
-		db:          aq.db,
-		t:           q.t,
-		q:           q,
-		knownFields: q.t.fields(),
-		numWorkers:  numWorkers,
-		responsesCh: make(chan *queryResponse, numWorkers),
-		entriesCh:   make(chan map[string]*entry, numWorkers),
+		Query:           aq.Query,
+		isSubQuery:      isSubQuery,
+		db:              aq.db,
+		q:               q,
+		subQueryResults: subQueryResults,
+		numWorkers:      numWorkers,
+		responsesCh:     make(chan *queryResponse, numWorkers),
+		entriesCh:       make(chan map[string]*entry, numWorkers),
 	}
+	if isSubQuery {
+		log.Debugf("Running %v as subquery", aq.SQL)
+		// The first field in a SubQuery is actually the name of a dimension, not a
+		// field. Replace it with the build-in "_points" field and also use it as
+		// the sole member of the Group By
+		dim := exec.Fields[0].Name
+		exec.GroupBy = []sql.GroupBy{sql.GroupBy{Expr: goexpr.Param(dim), Name: dim}}
+		exec.Fields[0].Expr = expr.SUM("_point")
+		exec.Fields[0].Name = "_points"
+
+		// Time periods are pointless for subqueries, so set resolution to max possible
+		exec.Resolution = maxDuration
+	}
+
 	exec.wg.Add(numWorkers)
 	return exec, nil
 }
 
+func (aq *Query) runSubQueries() ([][]interface{}, error) {
+	results := make([][]interface{}, 0, len(aq.SubQueries))
+	for _, sq := range aq.SubQueries {
+		var result []interface{}
+		var err error
+		result, err = aq.db.SubQuery(sq.SQL)
+		if err != nil {
+			return nil, fmt.Errorf("Error running subquery: %v", err)
+		}
+		log.Debugf("SubQuery results: %d", len(result))
+		results = append(results, result)
+	}
+	return results, nil
+}
+
 func (exec *queryExecution) run() (*QueryResult, error) {
-	err := exec.runSubQueries()
+	log.Debugf("Running %v", exec.Query.SQL)
+	err := exec.prepare()
 	if err != nil {
 		return nil, err
 	}
-	err = exec.prepare()
-	if err != nil {
-		return nil, err
+	result, err := exec.finish()
+	log.Debugf("Ran %v: %v", exec.Query.SQL, err)
+	if err == nil {
+		log.Debugf("NumRows: %d", len(result.Rows))
 	}
-	return exec.finish()
+	return result, err
 }
 
 func (exec *queryExecution) runForRemote(onEntry func(*Entry) error) error {
-	err := exec.runSubQueries()
-	if err != nil {
-		return err
-	}
-	err = exec.prepare()
+	err := exec.prepare()
 	if err != nil {
 		return err
 	}
 	return exec.finishForRemote(onEntry)
 }
 
-func (exec *queryExecution) runSubQueries() error {
-	for _, sq := range exec.SubQueries {
-		t := exec.db.getTable(sq.Query.From)
-		if t == nil {
-			return fmt.Errorf("Table '%v' not found", sq.Query.From)
-		}
-		_result, err := exec.db.Query(&sq.Query).Run()
-		if err != nil {
-			return fmt.Errorf("Error running subquery: %v", err)
-		}
-		result := make([]goexpr.Params, 0, len(_result.Rows))
-		for _, row := range _result.Rows {
-			result = append(result, row)
-		}
-		sq.SetResult(result)
+func (exec *queryExecution) getTable() (queryable, error) {
+	tbl := exec.db.getTable(exec.From)
+	if tbl == nil {
+		return nil, fmt.Errorf("Table '%v' not found", exec.From)
 	}
-	return nil
+	var t queryable = tbl
+	if exec.db.opts.Leader {
+		log.Debugf("Using remote for query: %v", exec.SQL)
+		resolution, err := exec.resolutionFor(tbl)
+		if err != nil {
+			return nil, err
+		}
+		t = &remoteQueryable{tbl, exec, resolution}
+	} else {
+		log.Debugf("Using local for query: %v", exec.SQL)
+	}
+	return t, nil
+}
+
+func (exec *queryExecution) resolutionFor(t queryable) (time.Duration, error) {
+	nativeResolution := t.resolution()
+	resolution := exec.Resolution
+
+	if resolution == 0 {
+		log.Tracef("Defaulting to native resolution of %v", nativeResolution)
+		resolution = nativeResolution
+	}
+	if resolution > exec.t.retentionPeriod() {
+		log.Tracef("Not allowing resolution %v lower than retention period %v", resolution, exec.t.retentionPeriod())
+		resolution = exec.t.retentionPeriod()
+	}
+	if resolution < nativeResolution {
+		return 0, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", resolution, nativeResolution)
+	}
+	if resolution%nativeResolution != 0 {
+		return 0, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", resolution, nativeResolution)
+	}
+
+	return resolution, nil
 }
 
 func (exec *queryExecution) prepare() error {
+	if len(exec.subQueryResults) != len(exec.SubQueries) {
+		return fmt.Errorf("Got %d sub query results but have %d sub queries in SQL", len(exec.subQueryResults), len(exec.SubQueries))
+	}
+
+	// Add subQueryResults to sub queries
+	for i, sq := range exec.SubQueries {
+		sq.SetResult(exec.subQueryResults[i])
+	}
+
+	if exec.From != "" {
+		table, err := exec.getTable()
+		if err != nil {
+			return err
+		}
+		exec.t = table
+	} else {
+		sq, err := exec.runSubQuery()
+		if err != nil {
+			return fmt.Errorf("Unable to run subquery: %v", err)
+		}
+		exec.t = sq
+	}
+	exec.q.t = exec.t
+	exec.knownFields = exec.q.t.fields()
+
 	exec.isCrosstab = exec.Crosstab != nil
 	if exec.isCrosstab {
 		exec.crosstabDimIdxs = make(map[interface{}]int, 0)
@@ -263,21 +361,24 @@ func (exec *queryExecution) prepare() error {
 	for _, field := range exec.Fields {
 		sms := field.Expr.SubMergers(columns)
 		subMergers = append(subMergers, sms)
-		columnFound := false
-		for j, sm := range sms {
-			if sm != nil {
-				columnFound = true
-				includedColumns[j] = true
+		if !field.Expr.IsConstant() {
+			columnFound := false
+			for j, sm := range sms {
+				if sm != nil {
+					columnFound = true
+					includedColumns[j] = true
+				}
 			}
-		}
-		if !columnFound {
-			return fmt.Errorf("No column found for %v", field.String())
+			if !columnFound {
+				return fmt.Errorf("No column found for %v", field.String())
+			}
 		}
 	}
 
 	var havingSubMergers []expr.SubMerge
 	if exec.Having != nil {
 		havingSubMergers = exec.Having.SubMergers(columns)
+		log.Debugf("Adding %d havingSubMergers", len(havingSubMergers))
 		for j, sm := range havingSubMergers {
 			if sm != nil {
 				includedColumns[j] = true
@@ -306,19 +407,9 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	nativeResolution := exec.t.resolution()
-	if exec.Resolution == 0 {
-		log.Tracef("Defaulting to native resolution of %v", nativeResolution)
-		exec.Resolution = nativeResolution
-	}
-	if exec.Resolution > exec.t.retentionPeriod() {
-		log.Tracef("Not allowing resolution %v lower than retention period %v", exec.Resolution, exec.t.retentionPeriod())
-		exec.Resolution = exec.t.retentionPeriod()
-	}
-	if exec.Resolution < nativeResolution {
-		return fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", exec.Resolution, nativeResolution)
-	}
-	if exec.Resolution%nativeResolution != 0 {
-		return fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", exec.Resolution, nativeResolution)
+	exec.Resolution, err = exec.resolutionFor(exec.t)
+	if err != nil {
+		return err
 	}
 
 	exec.scalingFactor = int(exec.Resolution / nativeResolution)
@@ -597,6 +688,7 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 				testResult, ok := v.havingTest.ValueAt(t, exec.Having)
 				if !ok || int(testResult) != 1 {
 					// Didn't meet having criteria, ignore
+					log.Debugf("HAVING rejected %v: %v", v.dims, v.totals)
 					continue
 				}
 			}

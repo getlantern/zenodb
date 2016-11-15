@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"errors"
 	"net"
 	"sync"
 
@@ -13,7 +14,7 @@ import (
 )
 
 type Server interface {
-	Query(*Query, grpc.ServerStream) error
+	Query(string, grpc.ServerStream) error
 
 	Follow(*zenodb.Follow, grpc.ServerStream) error
 
@@ -40,17 +41,18 @@ type server struct {
 	password string
 }
 
-func (s *server) Query(query *Query, stream grpc.ServerStream) error {
+func (s *server) Query(sqlString string, stream grpc.ServerStream) error {
 	authorizeErr := s.authorize(stream)
 	if authorizeErr != nil {
 		return authorizeErr
 	}
 
-	q, err := s.db.SQLQuery(query.SQL)
+	query, err := s.db.SQLQuery(sqlString)
 	if err != nil {
 		return err
 	}
-	result, err := q.Run()
+
+	result, err := query.Run(false)
 	if err != nil {
 		return err
 	}
@@ -92,7 +94,7 @@ func (s *server) HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc
 	var mx sync.RWMutex
 	id := 0
 	results := make(map[int]chan *RemoteQueryRelated)
-	s.db.RegisterQueryHandler(r, func(sql string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+	s.db.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 		resultCh := make(chan *RemoteQueryRelated)
 		mx.Lock()
 		qid := id
@@ -105,10 +107,15 @@ func (s *server) HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc
 			mx.Unlock()
 		}()
 
-		stream.SendMsg(&RemoteQueryRelated{ID: qid, Query: sql})
+		stream.SendMsg(&RemoteQueryRelated{
+			ID:              qid,
+			SQLString:       sqlString,
+			IsSubQuery:      isSubQuery,
+			SubQueryResults: subQueryResults,
+		})
 		for result := range resultCh {
-			if result.Error != nil {
-				return result.Error
+			if result.Error != "" {
+				return errors.New(result.Error)
 			}
 			onValue(result.Entry.Dims, result.Entry.Vals)
 		}
@@ -119,7 +126,7 @@ func (s *server) HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc
 		m := &RemoteQueryRelated{}
 		recvErr := stream.RecvMsg(m)
 		if recvErr != nil {
-			m.Error = recvErr
+			m.Error = recvErr.Error()
 			mx.RLock()
 			defer mx.RUnlock()
 			for _, resultCh := range results {

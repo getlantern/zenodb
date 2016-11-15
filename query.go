@@ -81,7 +81,8 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
 	allFields := q.t.fields()
-	q.t.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
+	iterateErr := q.t.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
+		log.Debugf("onValues %v %v : %v", allFields, key.AsMap(), columns)
 		stats.Scanned++
 
 		testedInclude := false
@@ -96,6 +97,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 					return false, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
 				}
 				if !inc {
+					log.Debugf("WHERE rejected %v", key.AsMap())
 					stats.FilterReject++
 					return false, nil
 				}
@@ -137,5 +139,5 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	})
 
 	stats.Runtime = time.Now().Sub(start)
-	return stats, nil
+	return stats, iterateErr
 }

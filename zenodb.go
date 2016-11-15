@@ -2,6 +2,7 @@ package zenodb
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -20,6 +21,8 @@ var (
 	log = golog.LoggerFor("zenodb")
 )
 
+type QueryFN func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
+
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
 	// Dir points at the directory that contains the data files.
@@ -27,6 +30,8 @@ type DBOpts struct {
 	// SchemaFile points at a YAML schema file that configures the tables and
 	// views in the database.
 	SchemaFile string
+	// EnableGeo enables geolocation functions
+	EnableGeo bool
 	// ISPProvider configures a provider of ISP lookups. Specify this to allow the
 	// use of ISP functions.
 	ISPProvider isp.Provider
@@ -54,7 +59,8 @@ type DBOpts struct {
 	// Follow is a function that allows a follower to request following a stream
 	// from its leader.
 	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
-	RegisterRemoteQueryHandler func(r *RegisterQueryHandler, query func(sql string, onEntry func(*Entry) error) error)
+	RegisterRemoteQueryHandler func(r *RegisterQueryHandler, query QueryFN)
+	QueryCluster               func(sqlString string) (*QueryResult, error)
 }
 
 // DB is a zenodb database.
@@ -89,12 +95,23 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.WALCompressionAge == 0 {
 		opts.WALCompressionAge = opts.MaxWALAge / 10
 	}
-	log.Debug("Enabling geolocation functions")
-	err = geo.Init(filepath.Join(opts.Dir, "geoip.dat.gz"))
-	if err != nil {
-		return nil, fmt.Errorf("Unable to initialize geo: %v", err)
+
+	// Create db dir
+	err = os.MkdirAll(opts.Dir, 0755)
+	if err != nil && !os.IsExist(err) {
+		return nil, fmt.Errorf("Unable to create db dir at %v: %v", opts.Dir, err)
 	}
+
+	if opts.EnableGeo {
+		log.Debug("Enabling geolocation functions")
+		err = geo.Init(filepath.Join(opts.Dir, "geoip.dat"))
+		if err != nil {
+			return nil, fmt.Errorf("Unable to initialize geo: %v", err)
+		}
+	}
+
 	if opts.ISPProvider != nil {
+		log.Debugf("Setting ISP provider to %v", opts.ISPProvider)
 		isp.SetProvider(opts.ISPProvider)
 	}
 	if opts.SchemaFile != "" {
@@ -157,18 +174,6 @@ func (db *DB) getTable(table string) *table {
 	db.tablesMutex.RLock()
 	t := db.tables[strings.ToLower(table)]
 	db.tablesMutex.RUnlock()
-	return t
-}
-
-func (db *DB) getTableForQuery(table string, sql string) (t queryable) {
-	tbl := db.getTable(table)
-	if tbl == nil {
-		return nil
-	}
-	t = tbl
-	if db.opts.Leader {
-		t = &remoteQueryable{tbl, db, sql}
-	}
 	return t
 }
 

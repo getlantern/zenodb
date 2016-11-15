@@ -27,11 +27,13 @@ type Point struct {
 }
 
 type RemoteQueryRelated struct {
-	ID           int
-	Query        string
-	Entry        *zenodb.Entry
-	Error        error
-	EndOfResults bool
+	ID              int
+	SQLString       string
+	IsSubQuery      bool
+	SubQueryResults [][]interface{}
+	Entry           *zenodb.Entry
+	Error           string
+	EndOfResults    bool
 }
 
 var serviceDesc = grpc.ServiceDesc{
@@ -43,6 +45,10 @@ var serviceDesc = grpc.ServiceDesc{
 			StreamName:    "query",
 			Handler:       queryHandler,
 			ServerStreams: true,
+		},
+		{
+			StreamName: "subquery",
+			Handler:    subQueryHandler,
 		},
 		{
 			StreamName:    "follow",
@@ -63,7 +69,15 @@ func queryHandler(srv interface{}, stream grpc.ServerStream) error {
 	if err := stream.RecvMsg(q); err != nil {
 		return err
 	}
-	return srv.(Server).Query(q, stream)
+	return srv.(Server).Query(q.SQL, stream)
+}
+
+func subQueryHandler(srv interface{}, stream grpc.ServerStream) error {
+	q := new(Query)
+	if err := stream.RecvMsg(q); err != nil {
+		return err
+	}
+	return srv.(Server).SubQuery(q.SQL, stream)
 }
 
 func followHandler(srv interface{}, stream grpc.ServerStream) error {

@@ -53,6 +53,10 @@ func (e *field) Get(b []byte) (float64, bool, []byte) {
 	return 0, false, b
 }
 
+func (e *field) IsConstant() bool {
+	return false
+}
+
 func (e *field) String() string {
 	return e.name
 }

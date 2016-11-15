@@ -18,9 +18,8 @@ import (
 	"github.com/getlantern/zenodb/expr"
 )
 
-var (
-	log = golog.LoggerFor("zenodb.sql")
-)
+var log = golog.LoggerFor("zenodb.sql")
+
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
 	ErrIFArity            = errors.New("The IF function requires two parameters, like IF(dim = 1, SUM(b))")
@@ -131,23 +130,23 @@ type Order struct {
 // query should first execute all SubQueries and then call SetResult to set the
 // results of the subquery. The subquery
 type SubQuery struct {
-	Query
-	dim    string
+	SQL    string
 	result []goexpr.Expr
 }
 
-func newSubQuery(query *Query) *SubQuery {
-	sq := &SubQuery{Query: *query, dim: query.Fields[0].Name}
-	// Remove first field the first field in a SubQuery is actually the name
-	// of a dimension, not a field.
-	sq.Fields = sq.Fields[1:]
-	return sq
-}
+// func newSubQuery(sql string) *SubQuery {
+// 	sq :=
+// // , dim: query.Fields[0].Name
+// 	// Remove first field the first field in a SubQuery is actually the name
+// 	// of a dimension, not a field.
+// 	// sq.Fields = sq.Fields[1:]
+// 	return sq
+// }
 
-func (sq *SubQuery) SetResult(result []goexpr.Params) {
+func (sq *SubQuery) SetResult(result []interface{}) {
 	sq.result = make([]goexpr.Expr, 0, len(result))
-	for _, params := range result {
-		sq.result = append(sq.result, goexpr.Constant(params.Get(sq.dim)))
+	for _, val := range result {
+		sq.result = append(sq.result, goexpr.Constant(val))
 	}
 }
 
@@ -746,7 +745,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				if len(_sq.Fields) < 1 {
 					return nil, fmt.Errorf("Subqueries must select at least 1 field")
 				}
-				sq := newSubQuery(_sq)
+				sq := &SubQuery{SQL: nodeToString(stmt)}
 				q.SubQueries = append(q.SubQueries, sq)
 				right = sq
 			default:

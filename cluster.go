@@ -5,8 +5,10 @@ import (
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/sql"
 	"hash/crc32"
 	"math/rand"
+	"time"
 )
 
 type Follow struct {
@@ -19,7 +21,7 @@ type RegisterQueryHandler struct {
 	Partition int
 }
 
-type QueryRemote func(sql string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
+type QueryRemote func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
 
 func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	db.tablesMutex.RLock()
@@ -66,8 +68,29 @@ func (db *DB) RegisterQueryHandler(r *RegisterQueryHandler, query QueryRemote) {
 
 type remoteQueryable struct {
 	*table
-	db  *DB
-	sql string
+	exec *queryExecution
+	res  time.Duration
+}
+
+func (rq *remoteQueryable) fields() []sql.Field {
+	return rq.exec.Fields
+}
+
+func (rq *remoteQueryable) resolution() time.Duration {
+	return rq.exec.Resolution
+}
+
+func (rq *remoteQueryable) retentionPeriod() time.Duration {
+	retentionPeriod := rq.exec.q.until.Sub(rq.exec.q.asOf)
+	resolution := rq.res
+	if retentionPeriod < resolution {
+		retentionPeriod = resolution
+	}
+	return retentionPeriod
+}
+
+func (rq *remoteQueryable) truncateBefore() time.Time {
+	return rq.exec.q.asOf
 }
 
 func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
@@ -89,10 +112,11 @@ func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap
 		expectedResults++
 		qh := qhs[rand.Intn(len(qhs))]
 		go func() {
-			results <- qh(rq.sql, onValue)
+			results <- qh(rq.exec.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, onValue)
 		}()
 	}
 
+	log.Debugf("Expected results: %d", expectedResults)
 	for i := 0; i < expectedResults; i++ {
 		err := <-results
 		if err != nil {
