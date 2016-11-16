@@ -28,7 +28,7 @@ func TestRoundTime(t *testing.T) {
 }
 
 func testSingleDB(t *testing.T) {
-	doTest(t, false, func(tmpDir string, tmpFile string) (*DB, func(time.Time)) {
+	doTest(t, false, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		db, err := NewDB(&DBOpts{
 			Dir:         filepath.Join(tmpDir, "leader"),
 			SchemaFile:  tmpFile,
@@ -38,13 +38,15 @@ func testSingleDB(t *testing.T) {
 			t.Fatal()
 		}
 		return db, func(t time.Time) {
-			db.clock.Advance(t)
-		}
+				db.clock.Advance(t)
+			}, func(tableName string, cb func(tbl *table)) {
+				cb(db.getTable(tableName))
+			}
 	})
 }
 
 func TestCluster(t *testing.T) {
-	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time)) {
+	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		leader, err := NewDB(&DBOpts{
 			Dir:           filepath.Join(tmpDir, "leader"),
 			SchemaFile:    tmpFile,
@@ -123,14 +125,18 @@ func TestCluster(t *testing.T) {
 		}
 
 		return leader, func(t time.Time) {
-			leader.clock.Advance(t)
-			follower1.clock.Advance(t)
-			follower2.clock.Advance(t)
-		}
+				leader.clock.Advance(t)
+				follower1.clock.Advance(t)
+				follower2.clock.Advance(t)
+			}, func(tableName string, cb func(tbl *table)) {
+				cb(leader.getTable(tableName))
+				cb(follower1.getTable(tableName))
+				cb(follower2.getTable(tableName))
+			}
 	})
 }
 
-func doTest(t *testing.T, isClustered bool, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time))) {
+func doTest(t *testing.T, isClustered bool, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table)))) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	tmpDir, err := ioutil.TempDir("", "zenodbtest")
@@ -166,7 +172,7 @@ Test_a:
 		return
 	}
 
-	db, advanceClock := buildDB(tmpDir, tmpFile.Name())
+	db, advanceClock, modifyTable := buildDB(tmpDir, tmpFile.Name())
 
 	schemaB := schemaA + `
 view_a:
@@ -206,12 +212,13 @@ view_a:
 		}
 	}
 
-	tab := db.getTable("test_a")
 	// This shuffles around fields to make sure that we're reading them correctly
 	// from the file stores.
 	shuffleFields := func() {
 		time.Sleep(100 * time.Millisecond)
-		tab.Fields[0], tab.Fields[1], tab.Fields[2] = tab.Fields[1], tab.Fields[2], tab.Fields[0]
+		modifyTable("test_a", func(tab *table) {
+			tab.Fields[0], tab.Fields[1], tab.Fields[2] = tab.Fields[1], tab.Fields[2], tab.Fields[0]
+		})
 		time.Sleep(100 * time.Millisecond)
 	}
 
@@ -263,12 +270,14 @@ view_a:
 	shuffleFields()
 
 	// Change the schema a bit
-	newFields := make([]sql.Field, 0, len(tab.Fields)+1)
-	newFields = append(newFields, sql.NewField("newfield", AVG("h")))
-	for _, field := range tab.Fields {
-		newFields = append(newFields, field)
-	}
-	tab.Fields = newFields
+	modifyTable("test_a", func(tab *table) {
+		newFields := make([]sql.Field, 0, len(tab.Fields)+1)
+		newFields = append(newFields, sql.NewField("newfield", AVG("h")))
+		for _, field := range tab.Fields {
+			newFields = append(newFields, field)
+		}
+		tab.Fields = newFields
+	})
 
 	advance(resolution)
 

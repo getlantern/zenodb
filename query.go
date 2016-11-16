@@ -82,6 +82,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
 	allFields := q.t.fields()
+	log.Debugf("All Fields: %v", allFields)
 	iterateErr := q.t.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		log.Debugf("onValues %v %v : %v", allFields, key.AsMap(), columns)
 		stats.Scanned++
@@ -114,7 +115,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			e := field.Expr
 			encodedWidth := e.EncodedWidth()
 			seq := columns[i]
-			log.Debugf("Sequence is: %v", seq.String(e))
+			log.Debugf("%v Sequence for %d is: %v", allFields, i, seq.String(e))
 			if len(seq) > 0 {
 				stats.DataValid++
 				if log.IsTraceEnabled() {

@@ -187,6 +187,7 @@ func (db *DB) QueryForRemote(sqlString string, isSubQuery bool, subQueryResults 
 		return err
 	}
 
+	query.AddPointsIfNecessary()
 	return query.runForRemote(isSubQuery, subQueryResults, onEntry)
 }
 
@@ -225,12 +226,13 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 	if isSubQuery {
 		log.Debugf("Running %v as subquery", aq.SQL)
 		// The first field in a SubQuery is actually the name of a dimension, not a
-		// field. Replace it with the build-in "_points" field and also use it as
-		// the sole member of the Group By
+		// field. Remove it and use it as the sole member of the Group By
 		dim := exec.Fields[0].Name
 		exec.GroupBy = []sql.GroupBy{sql.GroupBy{Expr: goexpr.Param(dim), Name: dim}}
-		exec.Fields[0].Expr = expr.SUM("_point")
-		exec.Fields[0].Name = "_points"
+		exec.Fields = exec.Fields[1:]
+
+		// Make sure that we have a _points field
+		exec.AddPointsIfNecessary()
 
 		// Time periods are pointless for subqueries, so set resolution to an
 		// arbitrarily large duration.
@@ -287,6 +289,7 @@ func (exec *queryExecution) getTable() (queryable, error) {
 	var t queryable = tbl
 	if exec.db.opts.Leader {
 		log.Debugf("Using remote for query: %v", exec.SQL)
+		exec.AddPointsIfNecessary()
 		resolution, err := exec.resolutionFor(tbl)
 		if err != nil {
 			return nil, err
@@ -784,7 +787,7 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 	for _, entry := range entries {
 		totalEntries += len(entry)
 	}
-	log.Debugf("Merging %d entries", totalEntries)
+	log.Debugf("Merging %d entries for %v", totalEntries, exec.Fields)
 	for i, e := range entries {
 		for k, v := range e {
 			for j := i; j < len(entries); j++ {
@@ -799,6 +802,7 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 									fieldIdx = x % len(exec.Fields)
 								}
 								ex := exec.Fields[fieldIdx].Expr
+								log.Debugf("QQQQQQQQ %d -> %v", fieldIdx, exec.Fields[fieldIdx])
 								if x >= len(v.values) {
 									// Grow
 									orig := v.values
@@ -807,9 +811,9 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 									v.values[x] = os
 								} else {
 									res := v.values[x].Merge(os, ex, exec.Resolution, exec.AsOf)
-									if log.IsTraceEnabled() {
-										log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.values[x].String(ex), res.String(ex))
-									}
+									// if log.IsTraceEnabled() {
+									log.Debugf("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.values[x].String(ex), res.String(ex))
+									// }
 									v.values[x] = res
 								}
 							}

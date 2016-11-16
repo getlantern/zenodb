@@ -18,7 +18,11 @@ import (
 	"github.com/getlantern/zenodb/expr"
 )
 
-var log = golog.LoggerFor("zenodb.sql")
+var (
+	log = golog.LoggerFor("zenodb.sql")
+
+	pointsField = NewField("_points", expr.SUM("_point"))
+)
 
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
@@ -843,4 +847,18 @@ func stringToTimeOrDuration(str string) (time.Time, time.Duration, error) {
 	}
 	d, err := time.ParseDuration(strings.ToLower(str))
 	return t, d, err
+}
+
+func (query *Query) AddPointsIfNecessary() {
+	// Add _points hidden field if necessary
+	foundPoints := false
+	for _, field := range query.Fields {
+		if field.String() == pointsField.String() {
+			foundPoints = true
+			break
+		}
+	}
+	if !foundPoints {
+		query.Fields = append(query.Fields, pointsField)
+	}
 }
