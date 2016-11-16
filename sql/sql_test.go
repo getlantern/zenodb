@@ -142,12 +142,14 @@ LIMIT 100, 10
 	assert.Equal(t, 5*time.Second, q.Resolution)
 	// TODO: reenable this
 	// assert.Equal(t, "(((dim_a LIKE 172.56.) AND (dim_b > 10)) OR (((((((dim_c == 20) OR (dim_d != thing)) AND (dim_e LIKE no such host)) AND (dim_f != true)) AND (dim_g == <nil>)) AND (dim_h != <nil>)) AND dim_i IN(5, 6, 7, 8)))", q.Where.String())
-	log.Debug(q.Where.String())
+	assert.Equal(t, " where dim_a like '172.56.' and dim_b > 10 or (dim_c = 20 or dim_d != 'thing') and dim_e not like 'no such host' and dim_f != true and dim_g is null and dim_h is not null and dim_i in (5, 6, 7, 8) and dim_j in (select subdim as subdim from subtable where subdim > 20) and rand() < 0.5", q.WhereSQL)
 	expectedHaving := AND(GT(rate, 15), LT(SUM("h"), 2)).String()
 	actualHaving := q.Having.String()
 	assert.Equal(t, expectedHaving, actualHaving)
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
+	assert.EqualValues(t, []string{"_points", "a", "b", "bfield", "c", "h", "knownfield", "myfield", "oknownfield", "rate", "x"}, q.IncludedFields)
+	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "ip", "part_a", "part_b"}, q.IncludedDims)
 }
 
 func TestFromSubQuery(t *testing.T) {

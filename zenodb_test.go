@@ -27,7 +27,7 @@ func TestRoundTime(t *testing.T) {
 	assert.Equal(t, expected, rounded)
 }
 
-func testSingleDB(t *testing.T) {
+func TestSingleDB(t *testing.T) {
 	doTest(t, false, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		db, err := NewDB(&DBOpts{
 			Dir:         filepath.Join(tmpDir, "leader"),
@@ -68,14 +68,10 @@ func TestCluster(t *testing.T) {
 			},
 			RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
 				leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
-					log.Debugf("Handling query: %v", sqlString)
 					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
-						log.Debugf("Got entry %v: %v", entry.Dims.AsMap(), entry.Vals)
 						onValue(entry.Dims, entry.Vals)
-						log.Debug("Done with entry")
 						return nil
 					})
-					log.Debug("Done handling query")
 					return err
 				})
 			},
@@ -101,14 +97,10 @@ func TestCluster(t *testing.T) {
 			},
 			RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
 				leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
-					log.Debugf("Handling query: %v", sqlString)
 					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
-						log.Debugf("Got entry %v: %v", entry.Dims.AsMap(), entry.Vals)
 						onValue(entry.Dims, entry.Vals)
-						log.Debug("Done with entry")
 						return nil
 					})
-					log.Debug("Done handling query")
 					return err
 				})
 			},
@@ -485,6 +477,7 @@ ORDER BY u DESC
 	ciiiIdx := 0
 	zIdx := 6
 	iFilteredIdx := 7
+
 	assert.EqualValues(t, 3, rows[1].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[1].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 122, rows[1].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
@@ -505,7 +498,7 @@ FROM test_a
 GROUP BY period('%v')
 HAVING unknown = 5
 `, resolution*time.Duration(scalingFactor)))
-	if !assert.NoError(t, err, "Unable to creat query") {
+	if !assert.NoError(t, err, "Unable to create query") {
 		return
 	}
 	result, err = aq.Run(false)
@@ -516,10 +509,11 @@ HAVING unknown = 5
 
 	// Test defaults
 	aq = db.Query(&sql.Query{
-		From:       "test_a",
-		Fields:     []sql.Field{sql.NewField("ii", SUM("ii"))},
-		GroupByAll: true,
-		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
+		From:           "test_a",
+		Fields:         []sql.Field{sql.NewField("ii", SUM("ii"))},
+		IncludedFields: []string{"_points", "ii"},
+		GroupByAll:     true,
+		AsOfOffset:     epoch.Add(-1 * resolution).Sub(now),
 	})
 
 	result, err = aq.Run(false)
@@ -532,8 +526,9 @@ HAVING unknown = 5
 }
 
 func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Duration, now time.Time, modifyTable func(string, func(*table))) {
+	var err error
 	defer func() {
-		assert.NotNil(t, recover(), "Query after removing fields should have panicked")
+		assert.True(t, err != nil || recover() != nil, "Query after removing fields should have panicked")
 	}()
 
 	modifyTable("test_a", func(tab *table) {
@@ -549,5 +544,5 @@ func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Dur
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
 	})
 
-	aq.Run(false)
+	_, err = aq.Run(false)
 }

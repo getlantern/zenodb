@@ -168,6 +168,7 @@ type Query struct {
 	FromSubQuery *Query
 	Resolution   time.Duration
 	Where        goexpr.Expr
+	WhereSQL     string
 	AsOf         time.Time
 	AsOfOffset   time.Duration
 	Until        time.Time
@@ -176,15 +177,21 @@ type Query struct {
 	GroupBy    []GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab    goexpr.Expr
-	Having      expr.Expr
-	OrderBy     []Order
-	Offset      int
-	Limit       int
-	SubQueries  []*SubQuery
-	fieldSource FieldSource
-	knownFields []Field
-	fieldsMap   map[string]Field
+	Crosstab   goexpr.Expr
+	Having     expr.Expr
+	OrderBy    []Order
+	Offset     int
+	Limit      int
+	SubQueries []*SubQuery
+	// IncludedFields are the names of all knownFields included in this query.
+	IncludedFields []string
+	includedFields map[string]bool
+	// IncludedDims are the names of all the dimensions needed by this query
+	IncludedDims []string
+	includedDims map[string]bool
+	fieldSource  FieldSource
+	knownFields  []Field
+	fieldsMap    map[string]Field
 }
 
 // FieldSource is a function that returns the known fields for a given table.
@@ -219,10 +226,14 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 		fieldSource = noopFieldSource
 	}
 	q := &Query{
-		SQL:         nodeToString(stmt),
-		fieldsMap:   make(map[string]Field),
-		fieldSource: fieldSource,
+		SQL:            nodeToString(stmt),
+		fieldsMap:      make(map[string]Field),
+		fieldSource:    fieldSource,
+		includedFields: make(map[string]bool),
+		includedDims:   make(map[string]bool),
 	}
+	// Always include "_points"
+	q.includedFields[pointsField.Name] = true
 	err := q.applyFrom(stmt, fieldSource)
 	if err != nil {
 		return nil, err
@@ -272,6 +283,7 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
+	q.processInclusions()
 	return q, nil
 }
 
@@ -285,6 +297,7 @@ func (q *Query) applySelect(stmt *sqlparser.Select) error {
 		case *sqlparser.StarExpr:
 			for _, field := range q.knownFields {
 				q.addField(field)
+				q.includedFields[field.Name] = true
 			}
 		case *sqlparser.NonStarExpr:
 			if len(e.As) == 0 {
@@ -360,6 +373,7 @@ func (q *Query) applyWhere(stmt *sqlparser.Select) error {
 	}
 	log.Tracef("Applying where: %v", where)
 	q.Where = where
+	q.WhereSQL = nodeToString(stmt.Where)
 	return err
 }
 
@@ -531,6 +545,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 	switch e := _e.(type) {
 	case *sqlparser.ColName:
 		name := strings.ToLower(string(e.Name))
+		q.includedFields[name] = true
 		// Default to a sum over the field
 		ex := expr.FIELD(name)
 		if !defaultToSum {
@@ -768,6 +783,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		if err == nil {
 			return goexpr.Constant(bl), nil
 		}
+		q.includedDims[colName] = true
 		return goexpr.Param(colName), nil
 	case sqlparser.StrVal:
 		return goexpr.Constant(string(e)), nil
@@ -832,6 +848,20 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	default:
 		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
+}
+
+func (q *Query) processInclusions() {
+	q.IncludedFields = make([]string, 0, len(q.includedFields))
+	for field := range q.includedFields {
+		q.IncludedFields = append(q.IncludedFields, field)
+	}
+	sort.Strings(q.IncludedFields)
+
+	q.IncludedDims = make([]string, 0, len(q.includedDims))
+	for dim := range q.includedDims {
+		q.IncludedDims = append(q.IncludedDims, dim)
+	}
+	sort.Strings(q.IncludedDims)
 }
 
 func nodeToString(node sqlparser.SQLNode) string {

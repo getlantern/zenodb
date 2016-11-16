@@ -68,12 +68,13 @@ func (db *DB) RegisterQueryHandler(r *RegisterQueryHandler, query QueryRemote) {
 
 type remoteQueryable struct {
 	*table
-	exec *queryExecution
-	res  time.Duration
+	exec  *queryExecution
+	query *sql.Query
+	res   time.Duration
 }
 
 func (rq *remoteQueryable) fields() []sql.Field {
-	return rq.exec.Fields
+	return rq.query.Fields
 }
 
 func (rq *remoteQueryable) resolution() time.Duration {
@@ -111,7 +112,7 @@ func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap
 		expectedResults++
 		qh := qhs[rand.Intn(len(qhs))]
 		go func() {
-			results <- qh(rq.exec.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
+			results <- qh(rq.query.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
 				onValue(key, values)
 			})
 		}()

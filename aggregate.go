@@ -17,6 +17,10 @@ import (
 	"github.com/getlantern/zenodb/sql"
 )
 
+const (
+	backtick = "`"
+)
+
 var (
 	largeDuration = 1000000 * time.Hour
 )
@@ -148,7 +152,7 @@ func (db *DB) Query(query *sql.Query) *Query {
 }
 
 func (aq *Query) Run(isSubQuery bool) (*QueryResult, error) {
-	log.Debugf("Running query (subquery? %v): %v", isSubQuery, aq.SQL)
+	log.Tracef("Running query (subquery? %v): %v", isSubQuery, aq.SQL)
 	subQueryResults, err := aq.runSubQueries()
 	if err != nil {
 		return nil, err
@@ -192,7 +196,7 @@ func (db *DB) QueryForRemote(sqlString string, isSubQuery bool, subQueryResults 
 }
 
 func (aq *Query) runForRemote(isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
-	log.Debugf("Running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
+	log.Tracef("Running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
 
 	// Clear out unnecessary bits
 	aq.Having = nil
@@ -280,15 +284,61 @@ func (exec *queryExecution) getTable() (queryable, error) {
 	}
 	var t queryable = tbl
 	if exec.db.opts.Leader {
-		log.Debugf("Using remote for query: %v", exec.SQL)
+		log.Tracef("Using remote for query: %v", exec.SQL)
 		exec.AddPointsIfNecessary()
 		resolution, err := exec.resolutionFor(tbl)
 		if err != nil {
 			return nil, err
 		}
-		t = &remoteQueryable{tbl, exec, resolution}
+		// Create a SQL query with the necessary fields and points and the right
+		// resolution.
+		fields := ""
+		first := true
+		for _, field := range exec.IncludedFields {
+			includeField := "_points" == field
+			if !includeField {
+				for _, known := range tbl.Fields {
+					if known.Name == field {
+						includeField = true
+						break
+					}
+				}
+			}
+			if !includeField {
+				continue
+			}
+
+			if !first {
+				fields += ", "
+			}
+			first = false
+			fields += backtick
+			fields += field
+			fields += backtick
+		}
+		groupBy := fmt.Sprintf("PERIOD(%v)", resolution)
+		if exec.GroupByAll {
+			groupBy += ", *"
+		} else {
+			for _, dim := range exec.IncludedDims {
+				groupBy += ", "
+				groupBy += backtick
+				groupBy += dim
+				groupBy += backtick
+			}
+		}
+		// TODO: handle FromSubQuery
+		sqlString := fmt.Sprintf("SELECT %v FROM `%v`%v GROUP BY %v", fields, exec.From, exec.WhereSQL, groupBy)
+		query := &exec.Query
+		if !exec.isSubQuery {
+			query, err = sql.Parse(sqlString, exec.db.getFields)
+			if err != nil {
+				return nil, err
+			}
+		}
+		t = &remoteQueryable{tbl, exec, query, resolution}
 	} else {
-		log.Debugf("Using local for query: %v", exec.SQL)
+		log.Tracef("Using local for query: %v", exec.SQL)
 	}
 	return t, nil
 }
@@ -379,10 +429,8 @@ func (exec *queryExecution) prepare() error {
 	var havingSubMergers []expr.SubMerge
 	if exec.Having != nil {
 		havingSubMergers = exec.Having.SubMergers(columns)
-		log.Debugf("Got a Having %v: %v", exec.Having, columns)
 		for j, sm := range havingSubMergers {
 			if sm != nil {
-				log.Debugf("Including column %d: %v for HAVING", j, columns[j].String())
 				includedColumns[j] = true
 			}
 		}
@@ -693,11 +741,6 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 				testResult, ok := v.havingTest.ValueAt(t, exec.Having)
 				if !ok || int(testResult) != 1 {
 					// Didn't meet having criteria, ignore
-					log.Debug("HAVING rejected")
-					for i, vals := range v.values {
-						field := exec.Fields[i]
-						log.Debugf("%v: %v", field.Name, vals.String(field.Expr))
-					}
 					continue
 				}
 			}
