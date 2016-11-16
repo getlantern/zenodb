@@ -337,7 +337,7 @@ view_a:
 		testQueries(t, epoch, resolution, now, db)
 	}
 
-	testAggregateQuery(t, db, now, epoch, resolution)
+	testAggregateQuery(t, db, now, epoch, resolution, modifyTable)
 }
 
 func testQueries(t *testing.T, epoch time.Time, resolution time.Duration, now time.Time, db *DB) {
@@ -432,7 +432,7 @@ func testQueries(t *testing.T, epoch time.Time, resolution time.Duration, now ti
 
 }
 
-func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration) {
+func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, modifyTable func(string, func(*table))) {
 	scalingFactor := 5
 
 	aq, err := db.SQLQuery(fmt.Sprintf(`
@@ -528,18 +528,19 @@ HAVING unknown = 5
 		assert.NotNil(t, result.Until)
 	}
 
-	testMissingField(t, db, epoch, resolution, now)
+	testMissingField(t, db, epoch, resolution, now, modifyTable)
 }
 
-func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Duration, now time.Time) {
+func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Duration, now time.Time, modifyTable func(string, func(*table))) {
 	defer func() {
 		assert.NotNil(t, recover(), "Query after removing fields should have panicked")
 	}()
 
-	tab := db.getTable("test_a")
-	for i, field := range tab.Fields {
-		tab.Fields[i] = sql.NewField("_"+field.Name, field.Expr)
-	}
+	modifyTable("test_a", func(tab *table) {
+		for i, field := range tab.Fields {
+			tab.Fields[i] = sql.NewField("_"+field.Name, field.Expr)
+		}
+	})
 
 	aq := db.Query(&sql.Query{
 		From:       "test_a",

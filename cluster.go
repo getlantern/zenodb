@@ -117,7 +117,6 @@ func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap
 		}()
 	}
 
-	log.Debugf("Expected results: %d", expectedResults)
 	for i := 0; i < expectedResults; i++ {
 		err := <-results
 		if err != nil {

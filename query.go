@@ -45,15 +45,15 @@ func (q *query) init(db *DB) error {
 	now := db.clock.Now()
 	truncateBefore := q.t.truncateBefore()
 	if q.asOf.IsZero() && q.asOfOffset >= 0 {
-		log.Debug("No asOf and no positive asOfOffset, defaulting to retention period")
+		log.Trace("No asOf and no positive asOfOffset, defaulting to retention period")
 		q.asOf = truncateBefore
 	}
 	if q.asOf.IsZero() {
 		q.asOf = now.Add(q.asOfOffset)
-		log.Debugf("Defaulting asOf to %v based on now %v and asOfOffset %v", q.asOf, now, q.asOfOffset)
+		log.Tracef("Defaulting asOf to %v based on now %v and asOfOffset %v", q.asOf, now, q.asOfOffset)
 	}
 	if q.asOf.Before(truncateBefore) {
-		log.Debugf("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
+		log.Tracef("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
 		q.asOf = truncateBefore
 	}
 	if q.until.IsZero() {
@@ -82,9 +82,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
 	allFields := q.t.fields()
-	log.Debugf("All Fields: %v", allFields)
 	iterateErr := q.t.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
-		log.Debugf("onValues %v %v : %v", allFields, key.AsMap(), columns)
 		stats.Scanned++
 
 		testedInclude := false
@@ -99,7 +97,6 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 					return false, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
 				}
 				if !inc {
-					log.Debugf("WHERE rejected %v", key.AsMap())
 					stats.FilterReject++
 					return false, nil
 				}
@@ -108,21 +105,18 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			}
 		}
 
-		log.Debugf("Num columns: %d", len(columns))
 		for i := 0; i < len(columns); i++ {
 			stats.ReadValue++
 			field := allFields[i]
 			e := field.Expr
 			encodedWidth := e.EncodedWidth()
 			seq := columns[i]
-			log.Debugf("%v Sequence for %d is: %v", allFields, i, seq.String(e))
 			if len(seq) > 0 {
 				stats.DataValid++
 				if log.IsTraceEnabled() {
 					log.Tracef("Reading encoding.Sequence %v", seq.String(e))
 				}
 				seq = seq.Truncate(encodedWidth, q.t.resolution(), q.asOf)
-				log.Debugf("Truncated Sequence as of %v at resolution %v is: %v", q.asOf, q.t.resolution(), seq.String(e))
 				if seq != nil {
 					if !testedInclude {
 						include, includeErr := shouldInclude()

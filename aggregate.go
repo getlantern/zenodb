@@ -224,7 +224,6 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 		entriesCh:       make(chan map[string]*entry, numWorkers),
 	}
 	if isSubQuery {
-		log.Debugf("Running %v as subquery", aq.SQL)
 		// The first field in a SubQuery is actually the name of a dimension, not a
 		// field. Remove it and use it as the sole member of the Group By
 		dim := exec.Fields[0].Name
@@ -253,24 +252,17 @@ func (aq *Query) runSubQueries() ([][]interface{}, error) {
 		if err != nil {
 			return nil, fmt.Errorf("Error running subquery: %v", err)
 		}
-		log.Debugf("SubQuery results: %d", len(result))
 		results = append(results, result)
 	}
 	return results, nil
 }
 
 func (exec *queryExecution) run() (*QueryResult, error) {
-	log.Debugf("Running %v", exec.Query.SQL)
 	err := exec.prepare()
 	if err != nil {
 		return nil, err
 	}
-	result, err := exec.finish()
-	log.Debugf("Ran %v: %v", exec.Query.SQL, err)
-	if err == nil {
-		log.Debugf("NumRows: %d", len(result.Rows))
-	}
-	return result, err
+	return exec.finish()
 }
 
 func (exec *queryExecution) runForRemote(onEntry func(*Entry) error) error {
@@ -294,7 +286,6 @@ func (exec *queryExecution) getTable() (queryable, error) {
 		if err != nil {
 			return nil, err
 		}
-		log.Debugf("Resolution for remote: %v", resolution)
 		t = &remoteQueryable{tbl, exec, resolution}
 	} else {
 		log.Debugf("Using local for query: %v", exec.SQL)
@@ -308,15 +299,15 @@ func (exec *queryExecution) resolutionFor(t queryable) (time.Duration, error) {
 
 	if resolution < 0 {
 		retentionPeriod := t.retentionPeriod()
-		log.Debugf("Defaulting resolution to retention period of %v", retentionPeriod)
+		log.Tracef("Defaulting resolution to retention period of %v", retentionPeriod)
 		resolution = retentionPeriod
 	}
 	if resolution == 0 {
-		log.Debugf("Defaulting to native resolution of %v", nativeResolution)
+		log.Tracef("Defaulting to native resolution of %v", nativeResolution)
 		resolution = nativeResolution
 	}
 	if resolution > t.retentionPeriod() {
-		log.Debugf("Not allowing resolution %v lower than retention period %v", resolution, t.retentionPeriod())
+		log.Tracef("Not allowing resolution %v lower than retention period %v", resolution, t.retentionPeriod())
 		resolution = t.retentionPeriod()
 	}
 	if resolution < nativeResolution {
@@ -388,9 +379,10 @@ func (exec *queryExecution) prepare() error {
 	var havingSubMergers []expr.SubMerge
 	if exec.Having != nil {
 		havingSubMergers = exec.Having.SubMergers(columns)
-		log.Debugf("Adding %d havingSubMergers", len(havingSubMergers))
+		log.Debugf("Got a Having %v: %v", exec.Having, columns)
 		for j, sm := range havingSubMergers {
 			if sm != nil {
+				log.Debugf("Including column %d: %v for HAVING", j, columns[j].String())
 				includedColumns[j] = true
 			}
 		}
@@ -423,10 +415,10 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	exec.scalingFactor = int(exec.Resolution / nativeResolution)
-	log.Debugf("Scaling factor: %d", exec.scalingFactor)
-	log.Debugf("Resolution: %v", exec.Resolution)
-	log.Debugf("Native resolution: %v", nativeResolution)
-	log.Debugf("AsOf: %v   Until: %v", exec.q.asOf, exec.q.until)
+	log.Tracef("Scaling factor: %d", exec.scalingFactor)
+	log.Tracef("Resolution: %v", exec.Resolution)
+	log.Tracef("Native resolution: %v", nativeResolution)
+	log.Tracef("AsOf: %v   Until: %v", exec.q.asOf, exec.q.until)
 
 	exec.inPeriods = int(exec.q.until.Sub(exec.q.asOf) / nativeResolution)
 	// Limit inPeriods based on what we can fit into outPeriods
@@ -436,7 +428,7 @@ func (exec *queryExecution) prepare() error {
 		exec.outPeriods = 1
 	}
 	exec.inPeriods = exec.outPeriods * exec.scalingFactor
-	log.Debugf("In: %d   Out: %d", exec.inPeriods, exec.outPeriods)
+	log.Tracef("In: %d   Out: %d", exec.inPeriods, exec.outPeriods)
 
 	var dimsMapMutex sync.Mutex
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
@@ -473,7 +465,6 @@ func (exec *queryExecution) prepare() error {
 	worker := func() {
 		entries := make(map[string]*entry, 0)
 		for resp := range exec.responsesCh {
-			log.Debugf("Processing resp %v %v: %v", resp.field, resp.key.AsMap(), resp.seq)
 			kb := sliceKey(resp.key)
 			en := entries[string(kb)]
 			if en == nil {
@@ -513,7 +504,6 @@ func (exec *queryExecution) prepare() error {
 				if column.Name != resp.field {
 					continue
 				}
-				log.Debugf("Column name matched field: %v", resp.field)
 				for t := 0; t < inPeriods && t < exec.inPeriods; t++ {
 					other, wasSet := resp.seq.DataAt(t+resp.startOffset, resp.e)
 					if !wasSet {
@@ -547,7 +537,6 @@ func (exec *queryExecution) prepare() error {
 						if subMerge == nil {
 							continue
 						}
-						log.Debugf("Found submerger for %v", field.Name)
 
 						idx := f
 						if exec.isCrosstab {
@@ -584,7 +573,6 @@ func (exec *queryExecution) prepare() error {
 			}
 		}
 
-		log.Debugf("Submitting %d entries", len(entries))
 		exec.entriesCh <- entries
 		exec.wg.Done()
 	}
@@ -705,7 +693,11 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 				testResult, ok := v.havingTest.ValueAt(t, exec.Having)
 				if !ok || int(testResult) != 1 {
 					// Didn't meet having criteria, ignore
-					log.Debugf("HAVING rejected %v: %v", v.dims, v.totals)
+					log.Debug("HAVING rejected")
+					for i, vals := range v.values {
+						field := exec.Fields[i]
+						log.Debugf("%v: %v", field.Name, vals.String(field.Expr))
+					}
 					continue
 				}
 			}
@@ -754,13 +746,11 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 			if !hasData {
 				firstPeriodOfRegularQuery := !exec.isSubQuery && t == 0
 				if !firstPeriodOfRegularQuery {
-					log.Debugf("Excluding row with no data")
 					// Exclude rows that have no data
 					// TODO: add ability to fill
 					continue
 				}
 			}
-			log.Debug("Appending row")
 			rows = append(rows, &Row{
 				Period:  t,
 				Dims:    dims,
@@ -783,11 +773,6 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 		entries = append(entries, e)
 	}
 
-	totalEntries := 0
-	for _, entry := range entries {
-		totalEntries += len(entry)
-	}
-	log.Debugf("Merging %d entries for %v", totalEntries, exec.Fields)
 	for i, e := range entries {
 		for k, v := range e {
 			for j := i; j < len(entries); j++ {
@@ -802,7 +787,6 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 									fieldIdx = x % len(exec.Fields)
 								}
 								ex := exec.Fields[fieldIdx].Expr
-								log.Debugf("QQQQQQQQ %d -> %v", fieldIdx, exec.Fields[fieldIdx])
 								if x >= len(v.values) {
 									// Grow
 									orig := v.values
@@ -811,9 +795,9 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 									v.values[x] = os
 								} else {
 									res := v.values[x].Merge(os, ex, exec.Resolution, exec.AsOf)
-									// if log.IsTraceEnabled() {
-									log.Debugf("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.values[x].String(ex), res.String(ex))
-									// }
+									if log.IsTraceEnabled() {
+										log.Tracef("Merging %v ->\n\t%v yielded\n\t%v", os.String(ex), v.values[x].String(ex), res.String(ex))
+									}
 									v.values[x] = res
 								}
 							}
@@ -835,7 +819,6 @@ func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 				}
 			}
 
-			log.Debug("Calling callback")
 			cbErr := cb(k, v)
 			if cbErr != nil {
 				return cbErr

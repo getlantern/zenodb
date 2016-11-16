@@ -363,10 +363,8 @@ func (seq Sequence) Truncate(periodWidth int, resolution time.Duration, truncate
 		return nil
 	}
 	truncateBefore = RoundTime(truncateBefore, resolution)
-	log.Debugf("Truncating before: %v", truncateBefore)
 	maxPeriods := int(seq.Start().Sub(truncateBefore) / resolution)
 	if maxPeriods <= 0 {
-		log.Debugf("Entire sequence is outside truncation range")
 		// Entire sequence falls outside of truncation range
 		return nil
 	}
