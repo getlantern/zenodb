@@ -46,84 +46,58 @@ func TestSingleDB(t *testing.T) {
 }
 
 func TestCluster(t *testing.T) {
+	numPartitions := 1 + rand.Intn(10)
+	numPartitions = 1
+
 	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		leader, err := NewDB(&DBOpts{
 			Dir:           filepath.Join(tmpDir, "leader"),
 			SchemaFile:    tmpFile,
 			VirtualTime:   true,
 			Leader:        true,
-			NumPartitions: 2,
+			NumPartitions: numPartitions,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
 		}
 
-		follower1, err := NewDB(&DBOpts{
-			Dir:         filepath.Join(tmpDir, "follower1"),
-			SchemaFile:  tmpFile,
-			VirtualTime: true,
-			Partition:   0,
-			Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
-				leader.Follow(f, cb)
-			},
-			RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
-				leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
-					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
-						onValue(entry.Dims, entry.Vals)
-						return nil
+		followers := make([]*DB, 0, numPartitions)
+		for i := 0; i < numPartitions; i++ {
+			follower, followerErr := NewDB(&DBOpts{
+				Dir:         filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
+				SchemaFile:  tmpFile,
+				VirtualTime: true,
+				Partition:   i,
+				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
+					leader.Follow(f, cb)
+				},
+				RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
+					leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
+						err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
+							onValue(entry.Dims, entry.Vals)
+							return nil
+						})
+						return err
 					})
-					return err
-				})
-			},
-			QueryCluster: func(sqlString string) (*QueryResult, error) {
-				query, err := leader.SQLQuery(sqlString)
-				if err != nil {
-					return nil, err
-				}
-				return query.Run(false)
-			},
-		})
-		if !assert.NoError(t, err, "Unable to create follower1 DB") {
-			t.Fatal()
-		}
+				},
+			})
+			if !assert.NoError(t, followerErr, "Unable to create follower DB") {
+				t.Fatal()
+			}
 
-		follower2, err := NewDB(&DBOpts{
-			Dir:         filepath.Join(tmpDir, "follower2"),
-			SchemaFile:  tmpFile,
-			VirtualTime: true,
-			Partition:   1,
-			Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
-				leader.Follow(f, cb)
-			},
-			RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
-				leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
-					err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
-						onValue(entry.Dims, entry.Vals)
-						return nil
-					})
-					return err
-				})
-			},
-			QueryCluster: func(sqlString string) (*QueryResult, error) {
-				query, err := leader.SQLQuery(sqlString)
-				if err != nil {
-					return nil, err
-				}
-				return query.Run(false)
-			},
-		})
-		if !assert.NoError(t, err, "Unable to create follower1 DB") {
-			t.Fatal()
+			followers = append(followers, follower)
 		}
 
 		return leader, func(t time.Time) {
 				leader.clock.Advance(t)
-				follower1.clock.Advance(t)
-				follower2.clock.Advance(t)
+				for _, follower := range followers {
+					follower.clock.Advance(t)
+				}
 			}, func(tableName string, cb func(tbl *table)) {
 				cb(leader.getTable(tableName))
-				cb(follower1.getTable(tableName))
-				cb(follower2.getTable(tableName))
+				for _, follower := range followers {
+					cb(follower.getTable(tableName))
+				}
 			}
 	})
 }
@@ -465,11 +439,7 @@ ORDER BY u DESC
 	if !assert.EqualValues(t, 1, result.Rows[1].Dims[1], "Wrong dim, result may be sorted incorrectly") {
 		return
 	}
-	fields := make([]string, 0, len(result.FieldNames))
-	for _, field := range result.FieldNames {
-		fields = append(fields, field)
-	}
-	assert.Equal(t, []string{"ciii", "ii", "newfield", "_points", "i", "iii", "z", "i_filtered"}, fields)
+	assert.Equal(t, []string{"ciii", "ii", "newfield", "_points", "i", "iii", "z", "i_filtered"}, result.FieldNames)
 
 	pointsIdx := 3
 	iIdx := 4

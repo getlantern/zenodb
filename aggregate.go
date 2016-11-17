@@ -284,7 +284,7 @@ func (exec *queryExecution) getTable() (queryable, error) {
 	}
 	var t queryable = tbl
 	if exec.db.opts.Leader {
-		log.Tracef("Using remote for query: %v", exec.SQL)
+		log.Debugf("Using remote for query: %v", exec.SQL)
 		exec.AddPointsIfNecessary()
 		resolution, err := exec.resolutionFor(tbl)
 		if err != nil {
@@ -338,7 +338,7 @@ func (exec *queryExecution) getTable() (queryable, error) {
 		}
 		t = &remoteQueryable{tbl, exec, query, resolution}
 	} else {
-		log.Tracef("Using local for query: %v", exec.SQL)
+		log.Debugf("Using local for query: %v", exec.SQL)
 	}
 	return t, nil
 }
@@ -555,6 +555,7 @@ func (exec *queryExecution) prepare() error {
 				for t := 0; t < inPeriods && t < exec.inPeriods; t++ {
 					other, wasSet := resp.seq.DataAt(t+resp.startOffset, resp.e)
 					if !wasSet {
+						log.Debugf("No data for %v", resp.field)
 						continue
 					}
 					atomic.AddInt64(&exec.scannedPoints, 1)
@@ -791,6 +792,7 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 				if !firstPeriodOfRegularQuery {
 					// Exclude rows that have no data
 					// TODO: add ability to fill
+					log.Debug("Excluding row with no data")
 					continue
 				}
 			}

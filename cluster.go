@@ -82,15 +82,11 @@ func (rq *remoteQueryable) resolution() time.Duration {
 }
 
 func (rq *remoteQueryable) retentionPeriod() time.Duration {
-	retentionPeriod := rq.exec.q.until.Sub(rq.exec.q.asOf)
-	if retentionPeriod < rq.res {
-		retentionPeriod = rq.res
-	}
-	return retentionPeriod
+	return rq.table.retentionPeriod()
 }
 
 func (rq *remoteQueryable) truncateBefore() time.Time {
-	return rq.exec.q.asOf
+	return rq.table.truncateBefore()
 }
 
 func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {

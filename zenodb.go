@@ -60,7 +60,6 @@ type DBOpts struct {
 	// from its leader.
 	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
 	RegisterRemoteQueryHandler func(r *RegisterQueryHandler, query QueryFN)
-	QueryCluster               func(sqlString string) (*QueryResult, error)
 }
 
 // DB is a zenodb database.

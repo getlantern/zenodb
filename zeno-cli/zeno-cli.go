@@ -109,9 +109,7 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 }
 
 func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, csv bool) error {
-	result, nextRow, err := client.Query(context.Background(), &rpc.Query{
-		SQL: sql,
-	})
+	result, nextRow, err := client.Query(context.Background(), sql)
 	if err != nil {
 		return err
 	}

@@ -45,7 +45,7 @@ func (q *query) init(db *DB) error {
 	now := db.clock.Now()
 	truncateBefore := q.t.truncateBefore()
 	if q.asOf.IsZero() && q.asOfOffset >= 0 {
-		log.Trace("No asOf and no positive asOfOffset, defaulting to retention period")
+		log.Trace("No asOf and no negative asOfOffset, defaulting to retention period")
 		q.asOf = truncateBefore
 	}
 	if q.asOf.IsZero() {

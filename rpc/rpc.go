@@ -47,10 +47,6 @@ var serviceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 		},
 		{
-			StreamName: "subquery",
-			Handler:    subQueryHandler,
-		},
-		{
 			StreamName:    "follow",
 			Handler:       followHandler,
 			ServerStreams: true,
@@ -70,14 +66,6 @@ func queryHandler(srv interface{}, stream grpc.ServerStream) error {
 		return err
 	}
 	return srv.(Server).Query(q.SQL, stream)
-}
-
-func subQueryHandler(srv interface{}, stream grpc.ServerStream) error {
-	q := new(Query)
-	if err := stream.RecvMsg(q); err != nil {
-		return err
-	}
-	return srv.(Server).SubQuery(q.SQL, stream)
 }
 
 func followHandler(srv interface{}, stream grpc.ServerStream) error {

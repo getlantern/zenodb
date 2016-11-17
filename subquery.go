@@ -16,19 +16,9 @@ type subqueryResult struct {
 }
 
 func (exec *queryExecution) runSubQuery() (queryable, error) {
-	var result *QueryResult
-	var err error
-	if exec.db.opts.QueryCluster != nil {
-		log.Debug("Going remote for from subquery")
-		// Query the cluster
-		result, err = exec.db.opts.QueryCluster(exec.FromSubQuery.SQL)
-	} else {
-		log.Debug("Going local for from subquery")
-		// Query locally
-		subQuery := &Query{db: exec.db, Query: *exec.FromSubQuery}
-		// TODO: there's probably a more efficient way to get a queryable
-		result, err = subQuery.Run(false)
-	}
+	subQuery := &Query{db: exec.db, Query: *exec.FromSubQuery}
+	// TODO: there's probably a more efficient way to get a queryable
+	result, err := subQuery.Run(false)
 	if err != nil {
 		return nil, err
 	}
