@@ -7,7 +7,6 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 	"hash/crc32"
-	"math/rand"
 	"time"
 )
 
@@ -17,11 +16,7 @@ type Follow struct {
 	Partition int
 }
 
-type RegisterQueryHandler struct {
-	Partition int
-}
-
-type QueryRemote func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
+type QueryRemote func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
 
 func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	db.tablesMutex.RLock()
@@ -60,10 +55,16 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	}
 }
 
-func (db *DB) RegisterQueryHandler(r *RegisterQueryHandler, query QueryRemote) {
+func (db *DB) RegisterQueryHandler(partition int, query QueryRemote) {
 	db.tablesMutex.Lock()
-	defer db.tablesMutex.Unlock()
-	db.remoteQueryHandlers[r.Partition] = append(db.remoteQueryHandlers[r.Partition], query)
+	handlersCh := db.remoteQueryHandlers[partition]
+	if handlersCh == nil {
+		// TODO: maybe make size based on configuration or something
+		handlersCh = make(chan QueryRemote, 100)
+	}
+	db.remoteQueryHandlers[partition] = handlersCh
+	db.tablesMutex.Unlock()
+	handlersCh <- query
 }
 
 type remoteQueryable struct {
@@ -90,52 +91,50 @@ func (rq *remoteQueryable) truncateBefore() time.Time {
 }
 
 func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
-	rq.db.tablesMutex.RLock()
-	handlers := make(map[int][]QueryRemote, len(rq.db.remoteQueryHandlers))
-	for k, v := range rq.db.remoteQueryHandlers {
-		handlers[k] = v
-	}
-	rq.db.tablesMutex.RUnlock()
+	numPartitions := rq.db.opts.NumPartitions
+	results := make(chan error, numPartitions)
 
-	results := make(chan *remoteResult, rq.db.opts.NumPartitions)
-	expectedResults := 0
-	for i := 0; i < rq.db.opts.NumPartitions; i++ {
-		part := i
-		qhs := handlers[part]
-		if len(qhs) == 0 {
-			log.Debugf("No live handlers for partition %d, skipping!", i)
-			continue
-		}
-		expectedResults++
-		idx := rand.Intn(len(qhs))
-		qh := qhs[idx]
+	for i := 0; i < numPartitions; i++ {
+		partition := i
 		go func() {
-			err := qh(rq.query.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
-				onValue(key, values)
-			})
-			results <- &remoteResult{part, idx, err}
+			for {
+				query := rq.db.remoteQueryHandlerForPartition(partition)
+				if query == nil {
+					log.Errorf("No query handler for partition %d, ignoring", partition)
+					results <- nil
+					break
+				}
+
+				hasReadResult, err := query(rq.query.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
+					onValue(key, values)
+				})
+				if err != nil && !hasReadResult {
+					continue
+				}
+				results <- err
+				break
+			}
 		}()
 	}
 
 	var finalErr error
-	for i := 0; i < expectedResults; i++ {
-		result := <-results
-		if result.err != nil {
-			log.Debugf("Removing failed handler due to: %v", result.err)
-			qhs := handlers[result.part]
-			qhs = append(qhs[:i], qhs[i:]...)
-			handlers[result.part] = qhs
-			if finalErr == nil {
-				finalErr = result.err
-			}
+	for i := 0; i < numPartitions; i++ {
+		err := <-results
+		if err != nil && finalErr == nil {
+			finalErr = err
 		}
 	}
 
 	return finalErr
 }
 
-type remoteResult struct {
-	part int
-	idx  int
-	err  error
+func (db *DB) remoteQueryHandlerForPartition(partition int) QueryRemote {
+	db.tablesMutex.RLock()
+	defer db.tablesMutex.RUnlock()
+	select {
+	case handler := <-db.remoteQueryHandlers[partition]:
+		return handler
+	default:
+		return nil
+	}
 }

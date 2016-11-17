@@ -59,7 +59,7 @@ type DBOpts struct {
 	// Follow is a function that allows a follower to request following a stream
 	// from its leader.
 	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
-	RegisterRemoteQueryHandler func(r *RegisterQueryHandler, query QueryFN)
+	RegisterRemoteQueryHandler func(partition int, query QueryFN)
 }
 
 // DB is a zenodb database.
@@ -72,7 +72,7 @@ type DB struct {
 	tablesMutex         sync.RWMutex
 	isSorting           bool
 	nextTableToSort     int
-	remoteQueryHandlers map[int][]QueryRemote
+	remoteQueryHandlers map[int]chan QueryRemote
 }
 
 // NewDB creates a database using the given options.
@@ -83,15 +83,15 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		clock:               vtime.RealClock,
 		tables:              make(map[string]*table),
 		streams:             make(map[string]*wal.WAL),
-		remoteQueryHandlers: make(map[int][]QueryRemote),
+		remoteQueryHandlers: make(map[int]chan QueryRemote),
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
 	}
-	if opts.MaxWALAge == 0 {
+	if opts.MaxWALAge <= 0 {
 		opts.MaxWALAge = 24 * time.Hour
 	}
-	if opts.WALCompressionAge == 0 {
+	if opts.WALCompressionAge <= 0 {
 		opts.WALCompressionAge = opts.MaxWALAge / 10
 	}
 
@@ -121,8 +121,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 	if db.opts.RegisterRemoteQueryHandler != nil {
-		go db.opts.RegisterRemoteQueryHandler(&RegisterQueryHandler{db.opts.Partition}, db.QueryForRemote)
+		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
 	}
+
 	return db, err
 }
 

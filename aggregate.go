@@ -555,7 +555,6 @@ func (exec *queryExecution) prepare() error {
 				for t := 0; t < inPeriods && t < exec.inPeriods; t++ {
 					other, wasSet := resp.seq.DataAt(t+resp.startOffset, resp.e)
 					if !wasSet {
-						log.Debugf("No data for %v", resp.field)
 						continue
 					}
 					atomic.AddInt64(&exec.scannedPoints, 1)
@@ -791,8 +790,7 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 				firstPeriodOfRegularQuery := !exec.isSubQuery && t == 0
 				if !firstPeriodOfRegularQuery {
 					// Exclude rows that have no data
-					// TODO: add ability to fill
-					log.Debug("Excluding row with no data")
+					// TODO: add ability to fill (zeros, interpolation, etc)
 					continue
 				}
 			}

@@ -1,11 +1,10 @@
 package rpc
 
 import (
-	"errors"
 	"net"
-	"sync"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/encoding"
@@ -18,7 +17,7 @@ type Server interface {
 
 	Follow(*zenodb.Follow, grpc.ServerStream) error
 
-	HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc.ServerStream) error
+	HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.ServerStream) error
 }
 
 type ServerOpts struct {
@@ -90,65 +89,62 @@ func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
 	})
 }
 
-func (s *server) HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc.ServerStream) error {
-	var mx sync.RWMutex
-	id := 0
-	results := make(map[int]chan *RemoteQueryRelated)
-	s.db.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
-		resultCh := make(chan *RemoteQueryRelated)
-		mx.Lock()
-		qid := id
-		results[qid] = resultCh
-		id++
-		mx.Unlock()
-		defer func() {
-			mx.Lock()
-			delete(results, qid)
-			mx.Unlock()
-		}()
+func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.ServerStream) error {
+	initialResultCh := make(chan *RemoteQueryResult)
+	initialErrCh := make(chan error)
+	finalErrCh := make(chan error)
 
-		stream.SendMsg(&RemoteQueryRelated{
-			ID:              qid,
+	s.db.RegisterQueryHandler(r.Partition, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (bool, error) {
+		sendErr := stream.SendMsg(&RemoteQuery{
 			SQLString:       sqlString,
 			IsSubQuery:      isSubQuery,
 			SubQueryResults: subQueryResults,
 		})
-		for result := range resultCh {
-			if result.Error != "" {
-				return errors.New(result.Error)
-			}
-			onValue(result.Entry.Dims, result.Entry.Vals)
+
+		m, recvErr := <-initialResultCh, <-initialErrCh
+
+		// Check send error after reading initial result to avoid blocking
+		// unnecessarily
+		if sendErr != nil {
+			return false, errors.New("Unable to send query: %v", sendErr)
 		}
-		return nil
+
+		var finalErr error
+		hasReadResult := false
+
+		for {
+			// Process current result
+			if recvErr != nil {
+				m.Error = recvErr.Error()
+				finalErr = errors.New("Unable to receive result: %v", recvErr)
+				break
+			}
+			if m.EndOfResults {
+				break
+			}
+			onValue(m.Entry.Dims, m.Entry.Vals)
+			hasReadResult = true
+
+			// Read next result
+			m = &RemoteQueryResult{}
+			recvErr = stream.RecvMsg(m)
+		}
+
+		finalErrCh <- finalErr
+		return hasReadResult, finalErr
 	})
 
-	for {
-		m := &RemoteQueryRelated{}
-		recvErr := stream.RecvMsg(m)
-		if recvErr != nil {
-			m.Error = recvErr.Error()
-			mx.RLock()
-			defer mx.RUnlock()
-			for _, resultCh := range results {
-				resultCh <- m
-				close(resultCh)
-			}
-			log.Debugf("Received error: %v", recvErr)
-			return recvErr
-		}
-		mx.RLock()
-		resultCh := results[m.ID]
-		mx.RUnlock()
-		if resultCh == nil {
-			log.Errorf("Received result for unknown id: %d", id)
-			continue
-		}
-		if m.EndOfResults {
-			close(resultCh)
-			continue
-		}
-		resultCh <- m
+	// Block on reading initial result to keep connection open
+	m := &RemoteQueryResult{}
+	err := stream.RecvMsg(m)
+	initialResultCh <- m
+	initialErrCh <- err
+
+	if err == nil {
+		// Wait for final error so we don't close the connection prematurely
+		return <-finalErrCh
 	}
+	return err
 }
 
 func (s *server) authorize(stream grpc.ServerStream) error {

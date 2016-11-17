@@ -1,8 +1,10 @@
 package rpc
 
 import (
+	"io"
 	"time"
 
+	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"golang.org/x/net/context"
@@ -21,7 +23,7 @@ type Client interface {
 
 	Follow(ctx context.Context, in *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
 
-	HandleRemoteQueries(ctx context.Context, r *zenodb.RegisterQueryHandler, query func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*zenodb.Entry) error) error, opts ...grpc.CallOption) error
+	ProcessRemoteQuery(ctx context.Context, partition int, query func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*zenodb.Entry) error) error, opts ...grpc.CallOption) error
 
 	Close() error
 }
@@ -110,36 +112,32 @@ func (c *client) Follow(ctx context.Context, f *zenodb.Follow, opts ...grpc.Call
 	return next, nil
 }
 
-func (c *client) HandleRemoteQueries(ctx context.Context, r *zenodb.RegisterQueryHandler, query func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*zenodb.Entry) error) error, opts ...grpc.CallOption) error {
+func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*zenodb.Entry) error) error, opts ...grpc.CallOption) error {
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)
 	if err != nil {
-		return err
+		return errors.New("Unable to obtain client stream: %v", err)
 	}
-	if err := stream.SendMsg(r); err != nil {
-		return err
+	defer stream.CloseSend()
+
+	if err := stream.SendMsg(&RegisterQueryHandler{partition}); err != nil {
+		return errors.New("Unable to send registration message: %v", err)
 	}
 
-	for {
-		m := &RemoteQueryRelated{}
-		recvErr := stream.RecvMsg(m)
-		if recvErr != nil {
-			return recvErr
-		}
-		go func() {
-			queryErr := query(m.SQLString, m.IsSubQuery, m.SubQueryResults, func(entry *zenodb.Entry) error {
-				log.Debug("Sending entry")
-				return stream.SendMsg(&RemoteQueryRelated{ID: m.ID, Entry: entry})
-			})
-			if queryErr != nil {
-				log.Debugf("Sending queryErr: %v", queryErr)
-				stream.SendMsg(&RemoteQueryRelated{ID: m.ID, Error: queryErr.Error()})
-			} else {
-				log.Debug("Signaling we're finished")
-				// Signal we're done
-				stream.SendMsg(&RemoteQueryRelated{ID: m.ID, EndOfResults: true})
-			}
-		}()
+	q := &RemoteQuery{}
+	recvErr := stream.RecvMsg(q)
+	if recvErr != nil {
+		return errors.New("Unable to read query: %v", recvErr)
 	}
+	queryErr := query(q.SQLString, q.IsSubQuery, q.SubQueryResults, func(entry *zenodb.Entry) error {
+		return stream.SendMsg(&RemoteQueryResult{Entry: entry})
+	})
+	result := &RemoteQueryResult{EndOfResults: true}
+	if queryErr != nil && queryErr != io.EOF {
+		result.Error = queryErr.Error()
+	}
+	stream.SendMsg(result)
+
+	return nil
 }
 
 func (c *client) Close() error {

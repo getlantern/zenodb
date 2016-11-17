@@ -26,14 +26,20 @@ type Point struct {
 	Offset wal.Offset
 }
 
-type RemoteQueryRelated struct {
-	ID              int
+type RemoteQuery struct {
 	SQLString       string
 	IsSubQuery      bool
 	SubQueryResults [][]interface{}
-	Entry           *zenodb.Entry
-	Error           string
-	EndOfResults    bool
+}
+
+type RemoteQueryResult struct {
+	Entry        *zenodb.Entry
+	Error        string
+	EndOfResults bool
+}
+
+type RegisterQueryHandler struct {
+	Partition int
 }
 
 var serviceDesc = grpc.ServiceDesc{
@@ -77,7 +83,7 @@ func followHandler(srv interface{}, stream grpc.ServerStream) error {
 }
 
 func remoteQueryHandler(srv interface{}, stream grpc.ServerStream) error {
-	r := new(zenodb.RegisterQueryHandler)
+	r := new(RegisterQueryHandler)
 	if err := stream.RecvMsg(r); err != nil {
 		return err
 	}

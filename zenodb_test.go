@@ -63,22 +63,33 @@ func TestCluster(t *testing.T) {
 
 		followers := make([]*DB, 0, numPartitions)
 		for i := 0; i < numPartitions; i++ {
+			part := i
 			follower, followerErr := NewDB(&DBOpts{
 				Dir:         filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
 				SchemaFile:  tmpFile,
 				VirtualTime: true,
-				Partition:   i,
+				Partition:   part,
 				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
 					leader.Follow(f, cb)
 				},
-				RegisterRemoteQueryHandler: func(r *RegisterQueryHandler, query QueryFN) {
-					leader.RegisterQueryHandler(r, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) error {
-						err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
-							onValue(entry.Dims, entry.Vals)
-							return nil
+				RegisterRemoteQueryHandler: func(partition int, query QueryFN) {
+					var register func()
+					register = func() {
+						leader.RegisterQueryHandler(partition, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) (bool, error) {
+							// Re-register when finished
+							defer register()
+
+							hasReadResult := false
+							err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
+								onValue(entry.Dims, entry.Vals)
+								hasReadResult = true
+								return nil
+							})
+							return hasReadResult, err
 						})
-						return err
-					})
+					}
+
+					register()
 				},
 			})
 			if !assert.NoError(t, followerErr, "Unable to create follower DB") {

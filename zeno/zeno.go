@@ -72,7 +72,7 @@ func main() {
 	}
 
 	var registerFollower func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
-	var registerQueryHandler func(r *zenodb.RegisterQueryHandler, query zenodb.QueryFN)
+	var registerQueryHandler func(partition int, query zenodb.QueryFN)
 	if *follow != "" {
 		client, dialErr := rpc.Dial(*follow, &rpc.ClientOpts{
 			Password: *password,
@@ -97,10 +97,30 @@ func main() {
 				}
 			}
 		}
-		registerQueryHandler = func(r *zenodb.RegisterQueryHandler, query zenodb.QueryFN) {
-			registerErr := client.HandleRemoteQueries(context.Background(), r, query)
-			if registerErr != nil {
-				log.Fatalf("Error registering as remote query handler: %v", registerErr)
+		registerQueryHandler = func(partition int, query zenodb.QueryFN) {
+			minWaitTime := 50 * time.Millisecond
+			maxWaitTime := 5 * time.Second
+
+			// TODO: make query concurrency configurable
+			for i := 0; i < 8; i++ {
+				go func() {
+					// Continually handle queries and then reconnect for next query
+					waitTime := minWaitTime
+					for {
+						handleErr := client.ProcessRemoteQuery(context.Background(), partition, query)
+						if handleErr == nil {
+							waitTime = minWaitTime
+						} else {
+							log.Errorf("Error handling queries: %v", handleErr)
+							// Exponential back-off
+							time.Sleep(waitTime)
+							waitTime *= 2
+							if waitTime > maxWaitTime {
+								waitTime = maxWaitTime
+							}
+						}
+					}
+				}()
 			}
 		}
 	}
