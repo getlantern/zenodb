@@ -133,6 +133,7 @@ func (s *server) HandleRemoteQueries(r *zenodb.RegisterQueryHandler, stream grpc
 				resultCh <- m
 				close(resultCh)
 			}
+			log.Debugf("Received error: %v", recvErr)
 			return recvErr
 		}
 		mx.RLock()
