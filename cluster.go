@@ -97,29 +97,45 @@ func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap
 	}
 	rq.db.tablesMutex.RUnlock()
 
-	results := make(chan error, rq.db.opts.NumPartitions)
+	results := make(chan *remoteResult, rq.db.opts.NumPartitions)
 	expectedResults := 0
 	for i := 0; i < rq.db.opts.NumPartitions; i++ {
-		qhs := handlers[i]
+		part := i
+		qhs := handlers[part]
 		if len(qhs) == 0 {
 			log.Debugf("No live handlers for partition %d, skipping!", i)
 			continue
 		}
 		expectedResults++
-		qh := qhs[rand.Intn(len(qhs))]
+		idx := rand.Intn(len(qhs))
+		qh := qhs[idx]
 		go func() {
-			results <- qh(rq.query.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
+			err := qh(rq.query.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
 				onValue(key, values)
 			})
+			results <- &remoteResult{part, idx, err}
 		}()
 	}
 
+	var finalErr error
 	for i := 0; i < expectedResults; i++ {
-		err := <-results
-		if err != nil {
-			return err
+		result := <-results
+		if result.err != nil {
+			log.Debugf("Removing failed handler due to: %v", result.err)
+			qhs := handlers[result.part]
+			qhs = append(qhs[:i], qhs[i:]...)
+			handlers[result.part] = qhs
+			if finalErr == nil {
+				finalErr = result.err
+			}
 		}
 	}
 
-	return nil
+	return finalErr
+}
+
+type remoteResult struct {
+	part int
+	idx  int
+	err  error
 }
