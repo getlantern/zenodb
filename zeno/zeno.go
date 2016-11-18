@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"github.com/getlantern/goexpr/isp/ip2location"
 	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
+	"github.com/getlantern/tlsdefaults"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/rpc"
@@ -29,10 +31,13 @@ var (
 	walSync           = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	maxWALAge         = flag.Duration("maxwalage", 336*time.Hour, "Maximum age for WAL files. Files older than this will be deleted. Defaults to 336 hours (2 weeks).")
 	walCompressionAge = flag.Duration("walcompressage", 1*time.Hour, "Age at which to start compressing WAL files with gzip. Defaults to 1 hour.")
-	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC connections, defaults to localhost:17712")
-	httpAddr          = flag.String("httpaddr", "localhost:17713", "The address at which to listen for JSON over HTTP connections, defaults to localhost:17713")
+	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
+	httpsAddr         = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
 	pprofAddr         = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
 	password          = flag.String("password", "", "if specified, will authenticate clients using this password")
+	pkfile            = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
+	certfile          = flag.String("certfile", "cert.pem", "path to the certificate PEM file")
+	insecure          = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to other zeno servers (don't use this in production!)")
 	passthrough       = flag.Bool("passthrough", false, "set to true to make this node a passthrough that doesn't capture data in table but is capable of feeding and querying other nodes. requires that -partitions to be specified.")
 	capture           = flag.String("capture", "", "if specified, connect to the node at the given address to receive updates, authenticating with value of -password.  requires that you specify which -partition this node handles.")
 	feed              = flag.String("feed", "", "if specified, connect to the nodes at the given comma,delimited addresses to handle queries for them, authenticating with value of -password. requires that you specify which -partition this node handles.")
@@ -43,14 +48,19 @@ var (
 func main() {
 	flag.Parse()
 
-	l, err := net.Listen("tcp", *addr)
-	if err != nil {
-		log.Fatalf("Unable to listen for gRPC connections at %v: %v", *addr, err)
+	tlsConfig := &tls.Config{}
+	if *insecure {
+		tlsConfig.InsecureSkipVerify = true
 	}
 
-	hl, err := net.Listen("tcp", *httpAddr)
+	l, err := tlsdefaults.Listen(*addr, *pkfile, *certfile)
 	if err != nil {
-		log.Fatalf("Unable to listen for HTTP connections at %v: %v", *httpAddr, err)
+		log.Fatalf("Unable to listen for gRPC over TLS connections at %v: %v", *addr, err)
+	}
+
+	hl, err := tlsdefaults.Listen(*httpsAddr, *pkfile, *certfile)
+	if err != nil {
+		log.Fatalf("Unable to listen for HTTPS connections at %v: %v", *httpsAddr, err)
 	}
 
 	var ispProvider isp.Provider
@@ -76,7 +86,8 @@ func main() {
 	var registerQueryHandler func(partition int, query zenodb.QueryFN)
 	if *capture != "" {
 		client, dialErr := rpc.Dial(*capture, &rpc.ClientOpts{
-			Password: *password,
+			TLSConfig: tlsConfig,
+			Password:  *password,
 		})
 		if dialErr != nil {
 			log.Fatalf("Unable to connect to passthrough at %v: %v", *capture, dialErr)
@@ -105,7 +116,8 @@ func main() {
 		clients := make([]rpc.Client, 0, len(leaders))
 		for _, leader := range leaders {
 			client, dialErr := rpc.Dial(leader, &rpc.ClientOpts{
-				Password: *password,
+				TLSConfig: tlsConfig,
+				Password:  *password,
 			})
 			if dialErr != nil {
 				log.Fatalf("Unable to connect to query leader at %v: %v", leader, dialErr)

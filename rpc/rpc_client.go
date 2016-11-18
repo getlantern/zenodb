@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"crypto/tls"
 	"io"
 	"time"
 
@@ -9,10 +10,14 @@ import (
 	"github.com/getlantern/zenodb"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 )
 
 type ClientOpts struct {
+	// TLSConfig provides the tls configuration for connecting to a server.
+	TLSConfig *tls.Config
+
 	// Password, if specified, is the password that client will present to server
 	// in order to gain access.
 	Password string
@@ -30,7 +35,7 @@ type Client interface {
 
 func Dial(addr string, opts *ClientOpts) (Client, error) {
 	conn, err := grpc.Dial(addr,
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(credentials.NewTLS(opts.TLSConfig)),
 		grpc.WithCodec(msgpackCodec),
 		grpc.WithBackoffMaxDelay(1*time.Minute),
 		grpc.WithCompressor(grpc.NewGZIPCompressor()),

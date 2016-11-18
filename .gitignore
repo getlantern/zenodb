@@ -2,3 +2,4 @@ zenodbdemo/zenodbdemo
 zeno/zeno
 zeno-cli/zeno-cli
 vendor
+*.pem

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/csv"
 	"flag"
 	"fmt"
@@ -29,7 +30,8 @@ const (
 var (
 	log = golog.LoggerFor("zeno-cli")
 
-	addr       = flag.String("addr", ":17712", "The address to which to connect, defaults to localhost:17712")
+	addr       = flag.String("addr", ":17712", "The address to which to connect with gRPC over TLS, defaults to localhost:17712")
+	insecure   = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to the server (don't use this in production!)")
 	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
 	password   = flag.String("password", "", "if specified, will authenticate against server using this password")
 )
@@ -45,8 +47,14 @@ func main() {
 	historyFile := filepath.Join(clidir, "history")
 	fmt.Fprintf(os.Stderr, "Will save history to %v\n", historyFile)
 
+	tlsConfig := &tls.Config{}
+	if *insecure {
+		tlsConfig.InsecureSkipVerify = true
+	}
+
 	client, err := rpc.Dial(*addr, &rpc.ClientOpts{
-		Password: *password,
+		TLSConfig: tlsConfig,
+		Password:  *password,
 	})
 	if err != nil {
 		log.Fatalf("Unable to dial server at %v: %v", *addr, err)
