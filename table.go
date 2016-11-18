@@ -212,8 +212,8 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		}
 	}
 
-	if db.opts.Leader {
-		log.Debugf("Leader will not insert data to table %v", t.Name)
+	if db.opts.Passthrough {
+		log.Debugf("Passthrough will not insert data to table %v", t.Name)
 		return nil
 	}
 

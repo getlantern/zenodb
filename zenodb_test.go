@@ -54,7 +54,7 @@ func TestCluster(t *testing.T) {
 			Dir:           filepath.Join(tmpDir, "leader"),
 			SchemaFile:    tmpFile,
 			VirtualTime:   true,
-			Leader:        true,
+			Passthrough:   true,
 			NumPartitions: numPartitions,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {

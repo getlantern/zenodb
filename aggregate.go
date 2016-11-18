@@ -283,7 +283,7 @@ func (exec *queryExecution) getTable() (queryable, error) {
 		return nil, fmt.Errorf("Table '%v' not found", exec.From)
 	}
 	var t queryable = tbl
-	if exec.db.opts.Leader {
+	if exec.db.opts.Passthrough {
 		log.Debugf("Using remote for query: %v", exec.SQL)
 		exec.AddPointsIfNecessary()
 		resolution, err := exec.resolutionFor(tbl)

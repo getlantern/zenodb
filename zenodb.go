@@ -50,14 +50,17 @@ type DBOpts struct {
 	// WALCompressionAge sets a cutoff for the age of WAL files that will be
 	// gzipped
 	WALCompressionAge time.Duration
-	// Leader flags this node as a leader (won't store data in tables, just WAL).
-	Leader bool
-	// NumPartitions identifies how many partitions to split
+	// Passthrough flags this node as a passthrough (won't store data in tables,
+	// just WAL). Passthrough nodes will also outsource queries to specific
+	// partition handlers. Requires that NumPartitions be specified.
+	Passthrough bool
+	// NumPartitions identifies how many partitions to split data from
+	// passthrough nodes.
 	NumPartitions int
 	// Partition identies the partition owned by this follower
 	Partition int
 	// Follow is a function that allows a follower to request following a stream
-	// from its leader.
+	// from a passthrough node.
 	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
 	RegisterRemoteQueryHandler func(partition int, query QueryFN)
 }
