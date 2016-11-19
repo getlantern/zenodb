@@ -75,12 +75,12 @@ func TestCluster(t *testing.T) {
 				RegisterRemoteQueryHandler: func(partition int, query QueryFN) {
 					var register func()
 					register = func() {
-						leader.RegisterQueryHandler(partition, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) (bool, error) {
+						leader.RegisterQueryHandler(partition, func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) (bool, error) {
 							// Re-register when finished
 							defer register()
 
 							hasReadResult := false
-							err := query(sqlString, isSubQuery, subQueryResults, func(entry *Entry) error {
+							err := query(sqlString, includeMemStore, isSubQuery, subQueryResults, func(entry *Entry) error {
 								onValue(entry.Dims, entry.Vals)
 								hasReadResult = true
 								return nil
@@ -354,7 +354,7 @@ func testQueries(t *testing.T, epoch time.Time, resolution time.Duration, now ti
 		if err != nil {
 			return nil, err
 		}
-		stats, err := q.run(db)
+		stats, err := q.run(db, randomlyIncludeMemStore())
 		log.Debugf("Query stats - scanned: %d    filterpass: %d    datavalid: %d    intimerange: %d", stats.Scanned, stats.FilterPass, stats.DataValid, stats.InTimeRange)
 		log.Debugf("Result: %v", result)
 		return result, err
@@ -425,7 +425,7 @@ WHERE b != true AND r IN (SELECT r FROM test_a)
 GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
-`, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)))
+`, epoch.Add(-1*resolution).Sub(now), epoch.Add(3*resolution).Sub(now), resolution*time.Duration(scalingFactor)), randomlyIncludeMemStore())
 	if !assert.NoError(t, err, "Unable to create SQL query") {
 		return
 	}
@@ -478,7 +478,7 @@ SELECT i
 FROM test_a
 GROUP BY period('%v')
 HAVING unknown = 5
-`, resolution*time.Duration(scalingFactor)))
+`, resolution*time.Duration(scalingFactor)), randomlyIncludeMemStore())
 	if !assert.NoError(t, err, "Unable to create query") {
 		return
 	}
@@ -495,7 +495,7 @@ HAVING unknown = 5
 		IncludedFields: []string{"_points", "ii"},
 		GroupByAll:     true,
 		AsOfOffset:     epoch.Add(-1 * resolution).Sub(now),
-	})
+	}, randomlyIncludeMemStore())
 
 	result, err = aq.Run(false)
 	if assert.NoError(t, err, "Unable to run query with defaults") {
@@ -523,7 +523,11 @@ func testMissingField(t *testing.T, db *DB, epoch time.Time, resolution time.Dur
 		Fields:     []sql.Field{sql.NewField("ii", SUM("ii"))},
 		GroupByAll: true,
 		AsOfOffset: epoch.Add(-1 * resolution).Sub(now),
-	})
+	}, randomlyIncludeMemStore())
 
 	_, err = aq.Run(false)
+}
+
+func randomlyIncludeMemStore() bool {
+	return rand.Float64() > 0.5
 }

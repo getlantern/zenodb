@@ -61,7 +61,7 @@ func (sr *subqueryResult) truncateBefore() time.Time {
 	return sr.qr.exec.q.asOf
 }
 
-func (sr *subqueryResult) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+func (sr *subqueryResult) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	sr.bt.Walk(0, func(key []byte, columns []encoding.Sequence) bool {
 		onValue(bytemap.ByteMap(key), columns)
 		return false

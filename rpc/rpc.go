@@ -18,18 +18,15 @@ var (
 )
 
 type Query struct {
-	SQL string
+	SQLString       string
+	IncludeMemStore bool
+	IsSubQuery      bool
+	SubQueryResults [][]interface{}
 }
 
 type Point struct {
 	Data   []byte
 	Offset wal.Offset
-}
-
-type RemoteQuery struct {
-	SQLString       string
-	IsSubQuery      bool
-	SubQueryResults [][]interface{}
 }
 
 type RemoteQueryResult struct {
@@ -71,7 +68,7 @@ func queryHandler(srv interface{}, stream grpc.ServerStream) error {
 	if err := stream.RecvMsg(q); err != nil {
 		return err
 	}
-	return srv.(Server).Query(q.SQL, stream)
+	return srv.(Server).Query(q.SQLString, q.IncludeMemStore, stream)
 }
 
 func followHandler(srv interface{}, stream grpc.ServerStream) error {

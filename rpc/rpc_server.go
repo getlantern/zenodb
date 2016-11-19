@@ -13,7 +13,7 @@ import (
 )
 
 type Server interface {
-	Query(string, grpc.ServerStream) error
+	Query(string, bool, grpc.ServerStream) error
 
 	Follow(*zenodb.Follow, grpc.ServerStream) error
 
@@ -40,13 +40,13 @@ type server struct {
 	password string
 }
 
-func (s *server) Query(sqlString string, stream grpc.ServerStream) error {
+func (s *server) Query(sqlString string, includeMemStore bool, stream grpc.ServerStream) error {
 	authorizeErr := s.authorize(stream)
 	if authorizeErr != nil {
 		return authorizeErr
 	}
 
-	query, err := s.db.SQLQuery(sqlString)
+	query, err := s.db.SQLQuery(sqlString, includeMemStore)
 	if err != nil {
 		return err
 	}
@@ -94,9 +94,10 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 	initialErrCh := make(chan error)
 	finalErrCh := make(chan error)
 
-	s.db.RegisterQueryHandler(r.Partition, func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (bool, error) {
-		sendErr := stream.SendMsg(&RemoteQuery{
+	s.db.RegisterQueryHandler(r.Partition, func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (bool, error) {
+		sendErr := stream.SendMsg(&Query{
 			SQLString:       sqlString,
+			IncludeMemStore: includeMemStore,
 			IsSubQuery:      isSubQuery,
 			SubQueryResults: subQueryResults,
 		})

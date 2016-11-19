@@ -21,7 +21,7 @@ var (
 	log = golog.LoggerFor("zenodb")
 )
 
-type QueryFN func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
+type QueryFN func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
@@ -35,10 +35,6 @@ type DBOpts struct {
 	// ISPProvider configures a provider of ISP lookups. Specify this to allow the
 	// use of ISP functions.
 	ISPProvider isp.Provider
-	// IncludeMemStoreInQuery, when true, tells zenodb to include the current
-	// memstore when performing queries. This requires the memstore to be copied
-	// which can dramatically impact performance.
-	IncludeMemStoreInQuery bool
 	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
 	// based on the timestamps of Points received via inserts.
 	VirtualTime bool

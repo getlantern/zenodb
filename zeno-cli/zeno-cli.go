@@ -32,6 +32,7 @@ var (
 
 	addr       = flag.String("addr", ":17712", "The address to which to connect with gRPC over TLS, defaults to localhost:17712")
 	insecure   = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to the server (don't use this in production!)")
+	fresh      = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
 	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
 	password   = flag.String("password", "", "if specified, will authenticate against server using this password")
 )
@@ -117,7 +118,7 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 }
 
 func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, csv bool) error {
-	result, nextRow, err := client.Query(context.Background(), sql)
+	result, nextRow, err := client.Query(context.Background(), sql, *fresh)
 	if err != nil {
 		return err
 	}

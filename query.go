@@ -16,7 +16,7 @@ type queryable interface {
 	resolution() time.Duration
 	retentionPeriod() time.Duration
 	truncateBefore() time.Time
-	iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
+	iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
 }
 
 type query struct {
@@ -68,7 +68,7 @@ func (q *query) init(db *DB) error {
 	return nil
 }
 
-func (q *query) run(db *DB) (*QueryStats, error) {
+func (q *query) run(db *DB, includeMemStore bool) (*QueryStats, error) {
 	start := time.Now()
 	stats := &QueryStats{}
 
@@ -82,7 +82,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
 	allFields := q.t.fields()
-	iterateErr := q.t.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
+	iterateErr := q.t.iterate(q.fields, includeMemStore, func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		stats.Scanned++
 
 		testedInclude := false

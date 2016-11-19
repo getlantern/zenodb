@@ -83,6 +83,7 @@ type QueryResult struct {
 type Query struct {
 	db *DB
 	sql.Query
+	includeMemStore bool
 }
 
 type queryResponse struct {
@@ -116,6 +117,7 @@ type Entry struct {
 type queryExecution struct {
 	db *DB
 	sql.Query
+	includeMemStore        bool
 	isSubQuery             bool
 	t                      queryable
 	subQueryResults        [][]interface{}
@@ -139,16 +141,16 @@ type queryExecution struct {
 	scannedPoints          int64
 }
 
-func (db *DB) SQLQuery(sqlString string) (*Query, error) {
+func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*Query, error) {
 	query, err := sql.Parse(sqlString, db.getFields)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to parse SQL: %v", err)
 	}
-	return db.Query(query), nil
+	return db.Query(query, includeMemStore), nil
 }
 
-func (db *DB) Query(query *sql.Query) *Query {
-	return &Query{db: db, Query: *query}
+func (db *DB) Query(query *sql.Query, includeMemStore bool) *Query {
+	return &Query{db: db, Query: *query, includeMemStore: includeMemStore}
 }
 
 func (aq *Query) Run(isSubQuery bool) (*QueryResult, error) {
@@ -166,8 +168,8 @@ func (aq *Query) Run(isSubQuery bool) (*QueryResult, error) {
 	return exec.run()
 }
 
-func (db *DB) SubQuery(sqlString string) ([]interface{}, error) {
-	query, err := db.SQLQuery(sqlString)
+func (db *DB) SubQuery(sqlString string, includeMemStore bool) ([]interface{}, error) {
+	query, err := db.SQLQuery(sqlString, includeMemStore)
 	if err != nil {
 		return nil, err
 	}
@@ -185,8 +187,8 @@ func (db *DB) SubQuery(sqlString string) ([]interface{}, error) {
 	return vals, nil
 }
 
-func (db *DB) QueryForRemote(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
-	query, err := db.SQLQuery(sqlString)
+func (db *DB) QueryForRemote(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
+	query, err := db.SQLQuery(sqlString, includeMemStore)
 	if err != nil {
 		return err
 	}
@@ -219,6 +221,7 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 
 	exec := &queryExecution{
 		Query:           aq.Query,
+		includeMemStore: aq.includeMemStore,
 		isSubQuery:      isSubQuery,
 		db:              aq.db,
 		q:               q,
@@ -252,7 +255,7 @@ func (aq *Query) runSubQueries() ([][]interface{}, error) {
 	for _, sq := range aq.SubQueries {
 		var result []interface{}
 		var err error
-		result, err = aq.db.SubQuery(sq.SQL)
+		result, err = aq.db.SubQuery(sq.SQL, aq.includeMemStore)
 		if err != nil {
 			return nil, fmt.Errorf("Error running subquery: %v", err)
 		}
@@ -716,7 +719,7 @@ func (exec *queryExecution) finishForRemote(onEntry func(*Entry) error) error {
 }
 
 func (exec *queryExecution) exec() (*QueryStats, error) {
-	stats, err := exec.q.run(exec.db)
+	stats, err := exec.q.run(exec.db, exec.includeMemStore)
 	if err != nil {
 		return nil, err
 	}

@@ -249,8 +249,8 @@ func (t *table) truncateBefore() time.Time {
 	return t.db.clock.Now().Add(-1 * t.RetentionPeriod)
 }
 
-func (t *table) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
-	return t.rowStore.iterate(fields, onValue)
+func (t *table) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+	return t.rowStore.iterate(fields, includeMemStore, onValue)
 }
 
 // shouldSort determines whether or not a flush should be sorted. The flush will

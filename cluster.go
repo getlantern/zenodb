@@ -16,7 +16,7 @@ type Follow struct {
 	Partition int
 }
 
-type QueryRemote func(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
+type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
 
 func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	db.tablesMutex.RLock()
@@ -45,7 +45,6 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		h.Reset()
 		h.Write(dims)
 		if int(h.Sum32())%db.opts.NumPartitions == f.Partition {
-			log.Trace("Sending to follower")
 			err = cb(data, r.Offset())
 			if err != nil {
 				log.Debug(err)
@@ -90,7 +89,7 @@ func (rq *remoteQueryable) truncateBefore() time.Time {
 	return rq.table.truncateBefore()
 }
 
-func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	numPartitions := rq.db.opts.NumPartitions
 	results := make(chan error, numPartitions)
 
@@ -105,7 +104,7 @@ func (rq *remoteQueryable) iterate(fields []string, onValue func(bytemap.ByteMap
 					break
 				}
 
-				hasReadResult, err := query(rq.query.SQL, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
+				hasReadResult, err := query(rq.query.SQL, rq.exec.includeMemStore, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
 					onValue(key, values)
 				})
 				if err != nil && !hasReadResult {

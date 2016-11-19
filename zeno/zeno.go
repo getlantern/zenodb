@@ -26,7 +26,6 @@ var (
 	schema            = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
 	ispformat         = flag.String("ispformat", "ip2location", "ip2location or maxmind")
 	ispdb             = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
-	fresh             = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
 	vtime             = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
 	walSync           = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	maxWALAge         = flag.Duration("maxwalage", 336*time.Hour, "Maximum age for WAL files. Files older than this will be deleted. Defaults to 336 hours (2 weeks).")
@@ -93,7 +92,7 @@ func main() {
 			log.Fatalf("Unable to connect to passthrough at %v: %v", *capture, dialErr)
 		}
 		log.Debugf("Capturing data from %v", *capture)
-		follow = func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error) {
+		follow = func(f *zenodb.Follow, insert func(data []byte, newOffset wal.Offset) error) {
 			followFunc, followErr := client.Follow(context.Background(), f)
 			if followErr != nil {
 				log.Fatalf("Error following stream %v: %v", f.Stream, followErr)
@@ -103,10 +102,10 @@ func main() {
 				if followErr != nil {
 					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
 				}
-				log.Tracef("Got data for %v", f.Stream)
-				followErr = cb(data, newOffset)
-				if err != nil {
-					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
+				log.Debugf("Got data for %v: %v", f.Stream, stripCtlAndExtFromBytes(data))
+				insertErr := insert(data, newOffset)
+				if insertErr != nil {
+					log.Fatalf("Error inserting data for stream %v: %v", f.Stream, insertErr)
 				}
 			}
 		}
@@ -157,18 +156,17 @@ func main() {
 	}
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
-		Dir:                    *dbdir,
-		SchemaFile:             *schema,
-		ISPProvider:            ispProvider,
-		IncludeMemStoreInQuery: *fresh,
-		VirtualTime:            *vtime,
-		WALSyncInterval:        *walSync,
-		MaxWALAge:              *maxWALAge,
-		WALCompressionAge:      *walCompressionAge,
-		Passthrough:            *passthrough,
-		NumPartitions:          *numPartitions,
-		Partition:              *partition,
-		Follow:                 follow,
+		Dir:               *dbdir,
+		SchemaFile:        *schema,
+		ISPProvider:       ispProvider,
+		VirtualTime:       *vtime,
+		WALSyncInterval:   *walSync,
+		MaxWALAge:         *maxWALAge,
+		WALCompressionAge: *walCompressionAge,
+		Passthrough:       *passthrough,
+		NumPartitions:     *numPartitions,
+		Partition:         *partition,
+		Follow:            follow,
 		RegisterRemoteQueryHandler: registerQueryHandler,
 	})
 
@@ -191,4 +189,17 @@ func serveRPC(db *zenodb.DB, l net.Listener) {
 	if err != nil {
 		log.Fatalf("Error serving gRPC: %v", err)
 	}
+}
+
+func stripCtlAndExtFromBytes(str []byte) string {
+	b := make([]byte, len(str))
+	var bl int
+	for i := 0; i < len(str); i++ {
+		c := str[i]
+		if c >= 32 && c < 127 {
+			b[bl] = c
+			bl++
+		}
+	}
+	return string(b[:bl])
 }

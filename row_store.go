@@ -200,7 +200,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+func (rs *rowStore) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	memStoresCopy := make([]*bytetree.Tree, 0, len(rs.memStores))
@@ -209,7 +209,7 @@ func (rs *rowStore) iterate(fields []string, onValue func(bytemap.ByteMap, []enc
 		onCurrentMemStore := i == rs.currentMemStoreIdx
 		if onCurrentMemStore {
 			// Current memstore is still getting writes.  Either omit, or copy.
-			if !rs.t.db.opts.IncludeMemStoreInQuery {
+			if !includeMemStore {
 				// omit
 				continue
 			}
