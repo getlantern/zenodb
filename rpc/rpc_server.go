@@ -82,7 +82,7 @@ func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
 		return authorizeErr
 	}
 
-	log.Debug("Follower joined")
+	log.Debugf("Follower %d joined", f.Partition)
 	return s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
 		return stream.SendMsg(&Point{data, newOffset})
 	})

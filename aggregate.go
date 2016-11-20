@@ -203,6 +203,8 @@ func (aq *Query) runForRemote(isSubQuery bool, subQueryResults [][]interface{}, 
 	// Clear out unnecessary bits
 	aq.Having = nil
 	aq.OrderBy = nil
+	aq.Limit = 0
+	aq.Offset = 0
 	exec, err := aq.prepareExecution(isSubQuery, subQueryResults)
 	if err != nil {
 		return err
