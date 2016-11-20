@@ -159,9 +159,14 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 
 	var rsErr error
 	var walOffset wal.Offset
+	maxMemStoreBytes := t.MaxMemStoreBytes
+	if t.db.opts.NumPartitions > 0 {
+		// Adjust maxMemStoreBytes based on number of partitions
+		maxMemStoreBytes /= t.db.opts.NumPartitions
+	}
 	t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
 		dir:              filepath.Join(db.opts.Dir, t.Name),
-		maxMemStoreBytes: t.MaxMemStoreBytes,
+		maxMemStoreBytes: maxMemStoreBytes,
 		minFlushLatency:  t.MinFlushLatency,
 		maxFlushLatency:  t.MaxFlushLatency,
 	})

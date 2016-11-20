@@ -3,6 +3,7 @@ package rpc
 import (
 	"crypto/tls"
 	"io"
+	"net"
 	"time"
 
 	"github.com/getlantern/errors"
@@ -21,6 +22,8 @@ type ClientOpts struct {
 	// Password, if specified, is the password that client will present to server
 	// in order to gain access.
 	Password string
+
+	Dialer func(string, time.Duration) (net.Conn, error)
 }
 
 type Client interface {
@@ -34,7 +37,15 @@ type Client interface {
 }
 
 func Dial(addr string, opts *ClientOpts) (Client, error) {
+	if opts.Dialer == nil {
+		// Use default dialer
+		opts.Dialer = func(addr string, timeout time.Duration) (net.Conn, error) {
+			return net.DialTimeout("tcp", addr, timeout)
+		}
+	}
+
 	conn, err := grpc.Dial(addr,
+		grpc.WithDialer(opts.Dialer),
 		grpc.WithTransportCredentials(credentials.NewTLS(opts.TLSConfig)),
 		grpc.WithCodec(msgpackCodec),
 		grpc.WithBackoffMaxDelay(1*time.Minute),

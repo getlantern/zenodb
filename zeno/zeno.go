@@ -39,7 +39,9 @@ var (
 	insecure          = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to other zeno servers (don't use this in production!)")
 	passthrough       = flag.Bool("passthrough", false, "set to true to make this node a passthrough that doesn't capture data in table but is capable of feeding and querying other nodes. requires that -partitions to be specified.")
 	capture           = flag.String("capture", "", "if specified, connect to the node at the given address to receive updates, authenticating with value of -password.  requires that you specify which -partition this node handles.")
+	captureOverride   = flag.String("captureoverride", "", "if specified, dial network connection for -capture using this address, but verify TLS connection using the address from -capture")
 	feed              = flag.String("feed", "", "if specified, connect to the nodes at the given comma,delimited addresses to handle queries for them, authenticating with value of -password. requires that you specify which -partition this node handles.")
+	feedOverride      = flag.String("feedoverride", "", "if specified, dial network connection for -feed using this address, but verify TLS connection using the address from -feed")
 	numPartitions     = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition         = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 )
@@ -84,10 +86,16 @@ func main() {
 	var follow func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
 	var registerQueryHandler func(partition int, query zenodb.QueryFN)
 	if *capture != "" {
-		client, dialErr := rpc.Dial(*capture, &rpc.ClientOpts{
+		clientOpts := &rpc.ClientOpts{
 			TLSConfig: tlsConfig,
 			Password:  *password,
-		})
+		}
+		if *captureOverride != "" {
+			clientOpts.Dialer = func(addr string, timeout time.Duration) (net.Conn, error) {
+				return net.DialTimeout("tcp", *captureOverride, timeout)
+			}
+		}
+		client, dialErr := rpc.Dial(*capture, clientOpts)
 		if dialErr != nil {
 			log.Fatalf("Unable to connect to passthrough at %v: %v", *capture, dialErr)
 		}
@@ -112,12 +120,22 @@ func main() {
 	}
 	if *feed != "" {
 		leaders := strings.Split(*feed, ",")
+		leaderOverrides := strings.Split(*feedOverride, ",")
+		if *feedOverride != "" && len(leaders) != len(leaderOverrides) {
+			log.Fatal("Number of servers specified to -feed must match -feedOverrides")
+		}
 		clients := make([]rpc.Client, 0, len(leaders))
-		for _, leader := range leaders {
-			client, dialErr := rpc.Dial(leader, &rpc.ClientOpts{
+		for i, leader := range leaders {
+			clientOpts := &rpc.ClientOpts{
 				TLSConfig: tlsConfig,
 				Password:  *password,
-			})
+			}
+			if *feedOverride != "" {
+				clientOpts.Dialer = func(addr string, timeout time.Duration) (net.Conn, error) {
+					return net.DialTimeout("tcp", leaderOverrides[i], timeout)
+				}
+			}
+			client, dialErr := rpc.Dial(*capture, clientOpts)
 			if dialErr != nil {
 				log.Fatalf("Unable to connect to query leader at %v: %v", leader, dialErr)
 			}
