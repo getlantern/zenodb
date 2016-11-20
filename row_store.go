@@ -89,28 +89,36 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 	var walOffset wal.Offset
 	if len(files) > 0 {
 		// files are sorted by name, in our case timestamp, so the last file in the
-		// list is the most recent.  That's the one that we want.
-		existingFileName = filepath.Join(opts.dir, files[len(files)-1].Name())
-		fileVersion := versionFor(existingFileName)
-		if fileVersion >= FileVersion_4 {
-			log.Debug("Recent version")
-			// Get WAL offset
-			file, err := os.Open(existingFileName)
-			if err != nil {
-				return nil, nil, fmt.Errorf("Unable to open existing file %v: %v", existingFileName, err)
+		// list is the most recent. That's the one that we want.
+		for i := len(files) - 1; i >= 0; i-- {
+			existingFileName = filepath.Join(opts.dir, files[i].Name())
+			fileVersion := versionFor(existingFileName)
+			if fileVersion >= FileVersion_4 {
+				log.Debug("Recent version")
+				// Get WAL offset
+				file, err := os.Open(existingFileName)
+				if err != nil {
+					return nil, nil, fmt.Errorf("Unable to open existing file %v: %v", existingFileName, err)
+				}
+				defer file.Close()
+				r := snappy.NewReader(file)
+				// Skip header length
+				walOffset = make(wal.Offset, wal.OffsetSize+4)
+				_, err = io.ReadFull(r, walOffset)
+				if err != nil {
+					log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
+					rmErr := os.Remove(existingFileName)
+					if rmErr != nil {
+						return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
+					}
+					continue
+				}
+				// Skip header length
+				walOffset = walOffset[4:]
 			}
-			defer file.Close()
-			r := snappy.NewReader(file)
-			// Skip header length
-			walOffset = make(wal.Offset, wal.OffsetSize+4)
-			_, err = io.ReadFull(r, walOffset)
-			if err != nil {
-				return nil, nil, fmt.Errorf("Unable to read offset from existing file %v: %v", existingFileName, err)
-			}
-			// Skip header length
-			walOffset = walOffset[4:]
+			t.log.Debugf("Initializing row store from %v", existingFileName)
+			break
 		}
-		t.log.Debugf("Initializing row store from %v", existingFileName)
 	}
 
 	rs := &rowStore{
