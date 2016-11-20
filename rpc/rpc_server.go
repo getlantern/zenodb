@@ -27,10 +27,9 @@ type ServerOpts struct {
 }
 
 func Serve(db *zenodb.DB, l net.Listener, opts *ServerOpts) error {
+	l = &snappyListener{l}
 	gs := grpc.NewServer(
-		grpc.CustomCodec(msgpackCodec),
-		grpc.RPCCompressor(grpc.NewGZIPCompressor()),
-		grpc.RPCDecompressor(grpc.NewGZIPDecompressor()))
+		grpc.CustomCodec(msgpackCodec))
 	gs.RegisterService(&serviceDesc, &server{db, opts.Password})
 	return gs.Serve(l)
 }

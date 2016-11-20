@@ -6,7 +6,7 @@ import (
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
-	"hash/crc32"
+	"github.com/spaolacci/murmur3"
 	"time"
 )
 
@@ -26,7 +26,8 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		return errors.New("Stream '%v' not found", f.Stream)
 	}
 
-	h := crc32.New(crc32.MakeTable(crc32.Castagnoli))
+	// Use murmur hash for good key distribution
+	h := murmur3.New32()
 
 	r, err := w.NewReader("follower."+f.Stream, f.Offset)
 	if err != nil {

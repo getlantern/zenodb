@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
@@ -160,14 +161,17 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	var rsErr error
 	var walOffset wal.Offset
 	maxMemStoreBytes := t.MaxMemStoreBytes
-	if t.db.opts.NumPartitions > 0 {
-		// Adjust maxMemStoreBytes based on number of partitions
-		maxMemStoreBytes = t.MaxMemStoreBytes / t.db.opts.NumPartitions
+	minFlushLatency := t.MinFlushLatency
+	if t.db.opts.NumPartitions > 1 {
+		maxMemStoreBytes = maxMemStoreBytes / t.db.opts.NumPartitions
+		log.Debugf("Dividing maxMemStoreBytes by %d partitions to obtain %v", t.db.opts.NumPartitions, humanize.Bytes(uint64(maxMemStoreBytes)))
+		// Also disable minFlushLatency since follower may be quite memory constrained
+		minFlushLatency = 0 // minFlushLatency / time.Duration(t.db.opts.NumPartitions)
 	}
 	t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
 		dir:              filepath.Join(db.opts.Dir, t.Name),
 		maxMemStoreBytes: maxMemStoreBytes,
-		minFlushLatency:  t.MinFlushLatency,
+		minFlushLatency:  minFlushLatency,
 		maxFlushLatency:  t.MaxFlushLatency,
 	})
 	if rsErr != nil {

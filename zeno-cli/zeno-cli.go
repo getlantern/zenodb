@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,14 +49,22 @@ func main() {
 	historyFile := filepath.Join(clidir, "history")
 	fmt.Fprintf(os.Stderr, "Will save history to %v\n", historyFile)
 
-	tlsConfig := &tls.Config{}
-	if *insecure {
-		tlsConfig.InsecureSkipVerify = true
+	host, _, _ := net.SplitHostPort(*addr)
+	tlsConfig := &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: *insecure,
 	}
 
 	client, err := rpc.Dial(*addr, &rpc.ClientOpts{
-		TLSConfig: tlsConfig,
-		Password:  *password,
+		Password: *password,
+		Dialer: func(addr string, timeout time.Duration) (net.Conn, error) {
+			conn, dialErr := net.DialTimeout("tcp", addr, timeout)
+			if dialErr != nil {
+				return nil, dialErr
+			}
+			tlsConn := tls.Client(conn, tlsConfig)
+			return tlsConn, tlsConn.Handshake()
+		},
 	})
 	if err != nil {
 		log.Fatalf("Unable to dial server at %v: %v", *addr, err)

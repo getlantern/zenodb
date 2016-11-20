@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"strings"
 	"time"
 
@@ -16,6 +18,7 @@ import (
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/rpc"
+	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
 )
 
@@ -24,6 +27,7 @@ var (
 
 	dbdir             = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
 	schema            = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
+	enablegeo         = flag.Bool("enablegeo", false, "enable geolocation functions")
 	ispformat         = flag.String("ispformat", "ip2location", "ip2location or maxmind")
 	ispdb             = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
 	vtime             = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
@@ -47,11 +51,15 @@ var (
 )
 
 func main() {
-	flag.Parse()
+	iniflags.Parse()
 
-	tlsConfig := &tls.Config{}
-	if *insecure {
-		tlsConfig.InsecureSkipVerify = true
+	if *pprofAddr != "" {
+		go func() {
+			log.Debugf("Starting pprof page at http://%s/debug/pprof", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				log.Error(err)
+			}
+		}()
 	}
 
 	l, err := tlsdefaults.Listen(*addr, *pkfile, *certfile)
@@ -86,19 +94,34 @@ func main() {
 	var follow func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
 	var registerQueryHandler func(partition int, query zenodb.QueryFN)
 	if *capture != "" {
-		clientOpts := &rpc.ClientOpts{
-			TLSConfig: tlsConfig,
-			Password:  *password,
+		host, _, _ := net.SplitHostPort(*capture)
+		clientTLSConfig := &tls.Config{
+			ServerName:         host,
+			InsecureSkipVerify: *insecure,
 		}
+
+		dest := *capture
 		if *captureOverride != "" {
-			clientOpts.Dialer = func(addr string, timeout time.Duration) (net.Conn, error) {
-				return net.DialTimeout("tcp", *captureOverride, timeout)
-			}
+			dest = *captureOverride
 		}
+
+		clientOpts := &rpc.ClientOpts{
+			Password: *password,
+			Dialer: func(addr string, timeout time.Duration) (net.Conn, error) {
+				conn, dialErr := net.DialTimeout("tcp", dest, timeout)
+				if dialErr != nil {
+					return nil, dialErr
+				}
+				tlsConn := tls.Client(conn, clientTLSConfig)
+				return tlsConn, tlsConn.Handshake()
+			},
+		}
+
 		client, dialErr := rpc.Dial(*capture, clientOpts)
 		if dialErr != nil {
 			log.Fatalf("Unable to connect to passthrough at %v: %v", *capture, dialErr)
 		}
+
 		log.Debugf("Capturing data from %v", *capture)
 		follow = func(f *zenodb.Follow, insert func(data []byte, newOffset wal.Offset) error) {
 			followFunc, followErr := client.Follow(context.Background(), f)
@@ -110,7 +133,6 @@ func main() {
 				if followErr != nil {
 					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
 				}
-				log.Debugf("Got data for %v: %v", f.Stream, stripCtlAndExtFromBytes(data))
 				insertErr := insert(data, newOffset)
 				if insertErr != nil {
 					log.Fatalf("Error inserting data for stream %v: %v", f.Stream, insertErr)
@@ -126,15 +148,29 @@ func main() {
 		}
 		clients := make([]rpc.Client, 0, len(leaders))
 		for i, leader := range leaders {
-			clientOpts := &rpc.ClientOpts{
-				TLSConfig: tlsConfig,
-				Password:  *password,
+			host, _, _ := net.SplitHostPort(leader)
+			clientTLSConfig := &tls.Config{
+				ServerName:         host,
+				InsecureSkipVerify: *insecure,
 			}
+
+			dest := leader
 			if *feedOverride != "" {
-				clientOpts.Dialer = func(addr string, timeout time.Duration) (net.Conn, error) {
-					return net.DialTimeout("tcp", leaderOverrides[i], timeout)
-				}
+				dest = leaderOverrides[i]
 			}
+
+			clientOpts := &rpc.ClientOpts{
+				Password: *password,
+				Dialer: func(addr string, timeout time.Duration) (net.Conn, error) {
+					conn, dialErr := net.DialTimeout("tcp", dest, timeout)
+					if dialErr != nil {
+						return nil, dialErr
+					}
+					tlsConn := tls.Client(conn, clientTLSConfig)
+					return tlsConn, tlsConn.Handshake()
+				},
+			}
+
 			client, dialErr := rpc.Dial(*capture, clientOpts)
 			if dialErr != nil {
 				log.Fatalf("Unable to connect to query leader at %v: %v", leader, dialErr)
@@ -176,6 +212,7 @@ func main() {
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		Dir:               *dbdir,
 		SchemaFile:        *schema,
+		EnableGeo:         *enablegeo,
 		ISPProvider:       ispProvider,
 		VirtualTime:       *vtime,
 		WALSyncInterval:   *walSync,
@@ -207,17 +244,4 @@ func serveRPC(db *zenodb.DB, l net.Listener) {
 	if err != nil {
 		log.Fatalf("Error serving gRPC: %v", err)
 	}
-}
-
-func stripCtlAndExtFromBytes(str []byte) string {
-	b := make([]byte, len(str))
-	var bl int
-	for i := 0; i < len(str); i++ {
-		c := str[i]
-		if c >= 32 && c < 127 {
-			b[bl] = c
-			bl++
-		}
-	}
-	return string(b[:bl])
 }
