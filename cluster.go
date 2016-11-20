@@ -1,6 +1,7 @@
 package zenodb
 
 import (
+	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
@@ -29,7 +30,7 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	// Use murmur hash for good key distribution
 	h := murmur3.New32()
 
-	r, err := w.NewReader("follower."+f.Stream, f.Offset)
+	r, err := w.NewReader(fmt.Sprintf("follower.%d.%v", f.Partition, f.Stream), f.Offset)
 	if err != nil {
 		return errors.New("Unable to open wal reader for %v", f.Stream)
 	}
