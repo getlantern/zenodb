@@ -251,6 +251,10 @@ func (t *table) iterate(fields []string, includeMemStore bool, onValue func(byte
 // must call stopSorting when finished so that other tables have a chance to
 // sort.
 func (t *table) shouldSort() bool {
+	if t.db.opts.MaxMemoryBytes <= 0 {
+		return false
+	}
+
 	t.db.tablesMutex.RLock()
 	if t.db.nextTableToSort >= len(t.db.orderedTables) {
 		t.db.nextTableToSort = 0

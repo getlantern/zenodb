@@ -53,7 +53,7 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		if int(h.Sum32())%db.opts.NumPartitions == f.Partition {
 			err = cb(data, r.Offset())
 			if err != nil {
-				log.Debug(err)
+				log.Debugf("Unable to write to follower: %v", err)
 				return err
 			}
 		}

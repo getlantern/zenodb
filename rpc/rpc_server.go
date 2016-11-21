@@ -83,6 +83,7 @@ func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
 	}
 
 	log.Debugf("Follower %d joined", f.Partition)
+	defer log.Debugf("Follower %d left", f.Partition)
 	return s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
 		return stream.SendMsg(&Point{data, newOffset})
 	})
@@ -93,7 +94,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 	initialErrCh := make(chan error)
 	finalErrCh := make(chan error)
 
-	fail := func(err error) {
+	finish := func(err error) {
 		select {
 		case finalErrCh <- err:
 			// ok
@@ -116,7 +117,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 		// unnecessarily
 		if sendErr != nil {
 			err := errors.New("Unable to send query: %v", sendErr)
-			fail(err)
+			finish(err)
 			return false, err
 		}
 
@@ -141,7 +142,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 			recvErr = stream.RecvMsg(m)
 		}
 
-		fail(finalErr)
+		finish(finalErr)
 		return hasReadResult, finalErr
 	})
 

@@ -53,13 +53,14 @@ type insert struct {
 }
 
 type rowStore struct {
-	t            *table
-	opts         *rowStoreOptions
-	memStore     *memstore
-	fileStore    *fileStore
-	inserts      chan *insert
-	forceFlushes chan bool
-	mx           sync.RWMutex
+	t                   *table
+	opts                *rowStoreOptions
+	memStore            *memstore
+	fileStore           *fileStore
+	inserts             chan *insert
+	forceFlushes        chan bool
+	forceFlushCompletes chan bool
+	mx                  sync.RWMutex
 }
 
 type memstore struct {
@@ -114,10 +115,11 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 	}
 
 	rs := &rowStore{
-		opts:         opts,
-		t:            t,
-		inserts:      make(chan *insert),
-		forceFlushes: make(chan bool),
+		opts:                opts,
+		t:                   t,
+		inserts:             make(chan *insert),
+		forceFlushes:        make(chan bool),
+		forceFlushCompletes: make(chan bool),
 		fileStore: &fileStore{
 			t:        t,
 			opts:     opts,
@@ -147,6 +149,7 @@ func (rs *rowStore) insert(insert *insert) {
 
 func (rs *rowStore) forceFlush() {
 	rs.forceFlushes <- true
+	<-rs.forceFlushCompletes
 }
 
 func (rs *rowStore) processInserts() {
@@ -195,6 +198,7 @@ func (rs *rowStore) processInserts() {
 		case <-rs.forceFlushes:
 			rs.t.log.Debug("Forcing flush")
 			flush()
+			rs.forceFlushCompletes <- true
 		}
 	}
 }
@@ -269,7 +273,7 @@ func (rs *rowStore) processFlush(ms *memstore) time.Duration {
 		}
 
 		var sortErr error
-		cout, sortErr = emsort.New(sout, chunk, less, ms.tree.Bytes()/2)
+		cout, sortErr = emsort.New(sout, chunk, less, rs.t.db.opts.MaxMemoryBytes/10)
 		if sortErr != nil {
 			panic(sortErr)
 		}
