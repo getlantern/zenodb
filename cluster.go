@@ -40,6 +40,10 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 			log.Debugf("Unable to read from stream '%v': %v", f.Stream, err)
 			continue
 		}
+		if data == nil {
+			// Ignore empty data
+			continue
+		}
 		// Skip timestamp
 		_, remain := encoding.Read(data, encoding.Width64bits)
 		dimsLen, remain := encoding.ReadInt32(remain)

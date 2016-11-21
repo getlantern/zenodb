@@ -1,5 +1,4 @@
 combined:
-  maxmemstorebytes: 1
   retentionperiod: 1h
   sql: >
     SELECT

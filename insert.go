@@ -50,6 +50,10 @@ func (t *table) processInserts() {
 		if err != nil {
 			panic(fmt.Errorf("Unable to read from WAL: %v", err))
 		}
+		if data == nil {
+			// Ignore empty data
+			continue
+		}
 		if isFollower {
 			// first 16 bytes of data are offset, strip it
 			data = data[wal.OffsetSize:]

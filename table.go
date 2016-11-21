@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
@@ -36,9 +35,6 @@ type TableOpts struct {
 	Name string
 	// View indicates if this table is a view on top of an existing table.
 	View bool
-	// MaxMemStoreBytes sets a cap on how large the memstore is allowed to become
-	// before being flushed to disk.
-	MaxMemStoreBytes int
 	// MinFlushLatency sets a lower bound on how frequently the memstore is
 	// flushed to disk.
 	MinFlushLatency time.Duration
@@ -125,10 +121,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	if opts.RetentionPeriod <= 0 {
 		return errors.New("Please specify a positive RetentionPeriod")
 	}
-	if opts.MaxMemStoreBytes <= 0 {
-		opts.MaxMemStoreBytes = 100000000
-		log.Debugf("Defaulted MaxMemStoreBytes to %v", opts.MaxMemStoreBytes)
-	}
 	if opts.MinFlushLatency <= 0 {
 		log.Debug("MinFlushLatency disabled")
 	}
@@ -160,19 +152,10 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 
 	var rsErr error
 	var walOffset wal.Offset
-	maxMemStoreBytes := t.MaxMemStoreBytes
-	minFlushLatency := t.MinFlushLatency
-	if t.db.opts.NumPartitions > 1 {
-		maxMemStoreBytes = maxMemStoreBytes / t.db.opts.NumPartitions
-		log.Debugf("Dividing maxMemStoreBytes by %d partitions to obtain %v", t.db.opts.NumPartitions, humanize.Bytes(uint64(maxMemStoreBytes)))
-		// Also disable minFlushLatency since follower may be quite memory constrained
-		minFlushLatency = 0 // minFlushLatency / time.Duration(t.db.opts.NumPartitions)
-	}
 	t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
-		dir:              filepath.Join(db.opts.Dir, t.Name),
-		maxMemStoreBytes: maxMemStoreBytes,
-		minFlushLatency:  minFlushLatency,
-		maxFlushLatency:  t.MaxFlushLatency,
+		dir:             filepath.Join(db.opts.Dir, t.Name),
+		minFlushLatency: t.MinFlushLatency,
+		maxFlushLatency: t.MaxFlushLatency,
 	})
 	if rsErr != nil {
 		return rsErr
@@ -268,6 +251,9 @@ func (t *table) iterate(fields []string, includeMemStore bool, onValue func(byte
 // must call stopSorting when finished so that other tables have a chance to
 // sort.
 func (t *table) shouldSort() bool {
+	if true {
+		return false
+	}
 	t.db.tablesMutex.RLock()
 	if t.db.nextTableToSort >= len(t.db.orderedTables) {
 		t.db.nextTableToSort = 0
@@ -283,4 +269,12 @@ func (t *table) stopSorting() {
 	t.db.isSorting = false
 	t.db.nextTableToSort++
 	t.db.tablesMutex.RUnlock()
+}
+
+func (t *table) memStoreSize() (current int, total int) {
+	return t.rowStore.size()
+}
+
+func (t *table) forceFlush() bool {
+	return t.rowStore.forceFlush()
 }

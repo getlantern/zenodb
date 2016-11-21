@@ -1,6 +1,5 @@
 test:
   retentionperiod:  2h
-  maxmemstorebytes: 500000000
   maxflushlatency:  5m
   sql: >
     SELECT

@@ -66,7 +66,6 @@ Make a working directory (e.g. '~/zeno-quickstart').  In here, create a
 
 ```sql
 combined:
-  maxmemstorebytes: 1
   retentionperiod: 1h
   sql: >
     SELECT

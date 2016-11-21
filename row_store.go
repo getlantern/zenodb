@@ -20,6 +20,7 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/golang/snappy"
+	"github.com/oxtoacart/bpool"
 	"github.com/oxtoacart/emsort"
 )
 
@@ -29,6 +30,8 @@ const (
 	FileVersion_3      = 3
 	FileVersion_4      = 4
 	CurrentFileVersion = FileVersion_4
+
+	maxBufferedSize = 100000
 )
 
 var (
@@ -37,13 +40,14 @@ var (
 		FileVersion_3: "|",
 		FileVersion_4: "|",
 	}
+
+	buffers = bpool.NewBytePool(100, maxBufferedSize)
 )
 
 type rowStoreOptions struct {
-	dir              string
-	maxMemStoreBytes int
-	minFlushLatency  time.Duration
-	maxFlushLatency  time.Duration
+	dir             string
+	minFlushLatency time.Duration
+	maxFlushLatency time.Duration
 }
 
 type flushRequest struct {
@@ -65,6 +69,7 @@ type rowStore struct {
 	currentMemStoreIdx int
 	fileStore          *fileStore
 	inserts            chan *insert
+	forceFlushes       chan bool
 	flushes            chan *flushRequest
 	flushFinished      chan time.Duration
 	mx                 sync.RWMutex
@@ -127,6 +132,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 		memStores:          make(map[int]*memstore, 2),
 		currentMemStoreIdx: 0,
 		inserts:            make(chan *insert),
+		forceFlushes:       make(chan bool),
 		flushes:            make(chan *flushRequest, 1),
 		flushFinished:      make(chan time.Duration, 1),
 		fileStore: &fileStore{
@@ -143,8 +149,27 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 	return rs, walOffset, nil
 }
 
+func (rs *rowStore) size() (current int, total int) {
+	rs.mx.RLock()
+	for _, ms := range rs.memStores {
+		current = ms.tree.Bytes()
+		total += current
+	}
+	rs.mx.RUnlock()
+	return
+}
+
 func (rs *rowStore) insert(insert *insert) {
 	rs.inserts <- insert
+}
+
+func (rs *rowStore) forceFlush() bool {
+	select {
+	case rs.forceFlushes <- true:
+		return true
+	default:
+		return false
+	}
 }
 
 func (rs *rowStore) processInserts() {
@@ -189,12 +214,11 @@ func (rs *rowStore) processInserts() {
 			currentMemStore.tree.Update(rs.t.Fields, rs.t.Resolution, truncateBefore, insert.key, insert.vals, insert.metadata)
 			currentMemStore.offset = insert.offset
 			rs.mx.Unlock()
-			if currentMemStore.tree.Bytes() >= rs.opts.maxMemStoreBytes {
-				rs.t.log.Debug("Requesting flush due to memstore size limit")
-				flush()
-			}
 		case <-flushTimer.C:
 			rs.t.log.Trace("Requesting flush due to flush interval")
+			flush()
+		case <-rs.forceFlushes:
+			rs.t.log.Debug("Forcing flush")
 			flush()
 		case flushDuration := <-rs.flushFinished:
 			flushInterval = flushDuration * 10
@@ -227,7 +251,7 @@ func (rs *rowStore) iterate(fields []string, includeMemStore bool, onValue func(
 		memStoresCopy = append(memStoresCopy, ms)
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(onValue, memStoresCopy, fields...)
+	return fs.iterate(onValue, memStoresCopy, false, fields...)
 }
 
 func (rs *rowStore) processFlushes() {
@@ -295,7 +319,7 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 		}
 
 		var sortErr error
-		cout, sortErr = emsort.New(sout, chunk, less, rs.opts.maxMemStoreBytes*5)
+		cout, sortErr = emsort.New(sout, chunk, less, req.memstore.tree.Bytes()/10)
 		if sortErr != nil {
 			panic(sortErr)
 		}
@@ -376,7 +400,7 @@ func (rs *rowStore) processFlush(req *flushRequest) {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	rs.mx.RUnlock()
-	fs.iterate(write, []*bytetree.Tree{req.memstore.tree})
+	fs.iterate(write, []*bytetree.Tree{req.memstore.tree}, !shouldSort)
 	err = cout.Close()
 	if err != nil {
 		panic(err)
@@ -449,7 +473,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), memStores []*bytetree.Tree, fields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), memStores []*bytetree.Tree, okayToReuseBuffers bool, fields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -546,7 +570,22 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 				return fmt.Errorf("Unexpected error reading row length: %v", err)
 			}
 
-			row := make([]byte, rowLength)
+			useBuffer := okayToReuseBuffers && rowLength <= maxBufferedSize
+			var bufferedRow []byte
+			var row []byte
+			if useBuffer {
+				row = buffers.Get()
+				// Reslice back to capacity
+				row = row[:cap(row)]
+				bufferedRow = row
+				if len(row) > int(rowLength) {
+					row = row[:rowLength]
+				}
+			}
+			if !useBuffer || len(row) < int(rowLength) {
+				log.Debugf("%v making row of length %d instead of %d", okayToReuseBuffers, rowLength, maxBufferedSize)
+				row = make([]byte, rowLength)
+			}
 			encoding.Binary.PutUint64(row, rowLength)
 			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
@@ -560,6 +599,9 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 			numColumns, row := encoding.ReadInt16(row)
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
+				if len(row) < 8 {
+					return fmt.Errorf("Not enough data left to decode column length!")
+				}
 				var colLength int
 				colLength, row = encoding.ReadInt64(row)
 				colLengths = append(colLengths, int(colLength))
@@ -611,6 +653,10 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), m
 
 			if includesAtLeastOneColumn {
 				onRow(key, columns)
+			}
+
+			if useBuffer {
+				buffers.Put(bufferedRow)
 			}
 		}
 	}
