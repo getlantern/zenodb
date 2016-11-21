@@ -30,10 +30,10 @@ func TestRoundTime(t *testing.T) {
 func TestSingleDB(t *testing.T) {
 	doTest(t, false, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		db, err := NewDB(&DBOpts{
-			Dir:              filepath.Join(tmpDir, "leader"),
-			SchemaFile:       tmpFile,
-			VirtualTime:      true,
-			MaxMemStoreBytes: 1,
+			Dir:            filepath.Join(tmpDir, "leader"),
+			SchemaFile:     tmpFile,
+			VirtualTime:    true,
+			MaxMemoryBytes: 1,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -52,12 +52,12 @@ func TestCluster(t *testing.T) {
 
 	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		leader, err := NewDB(&DBOpts{
-			Dir:              filepath.Join(tmpDir, "leader"),
-			SchemaFile:       tmpFile,
-			VirtualTime:      true,
-			Passthrough:      true,
-			NumPartitions:    numPartitions,
-			MaxMemStoreBytes: 1,
+			Dir:            filepath.Join(tmpDir, "leader"),
+			SchemaFile:     tmpFile,
+			VirtualTime:    true,
+			Passthrough:    true,
+			NumPartitions:  numPartitions,
+			MaxMemoryBytes: 1,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -67,11 +67,11 @@ func TestCluster(t *testing.T) {
 		for i := 0; i < numPartitions; i++ {
 			part := i
 			follower, followerErr := NewDB(&DBOpts{
-				Dir:              filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
-				SchemaFile:       tmpFile,
-				VirtualTime:      true,
-				Partition:        part,
-				MaxMemStoreBytes: 1,
+				Dir:            filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
+				SchemaFile:     tmpFile,
+				VirtualTime:    true,
+				Partition:      part,
+				MaxMemoryBytes: 1,
 				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
 					leader.Follow(f, cb)
 				},

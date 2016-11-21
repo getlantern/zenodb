@@ -114,6 +114,7 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 					onValue(key, values)
 				})
 				if err != nil && !hasReadResult {
+					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue
 				}
 				results <- err

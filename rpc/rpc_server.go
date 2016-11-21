@@ -93,6 +93,15 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 	initialErrCh := make(chan error)
 	finalErrCh := make(chan error)
 
+	fail := func(err error) {
+		select {
+		case finalErrCh <- err:
+			// ok
+		default:
+			// ignore
+		}
+	}
+
 	s.db.RegisterQueryHandler(r.Partition, func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (bool, error) {
 		sendErr := stream.SendMsg(&Query{
 			SQLString:       sqlString,
@@ -106,7 +115,9 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 		// Check send error after reading initial result to avoid blocking
 		// unnecessarily
 		if sendErr != nil {
-			return false, errors.New("Unable to send query: %v", sendErr)
+			err := errors.New("Unable to send query: %v", sendErr)
+			fail(err)
+			return false, err
 		}
 
 		var finalErr error
@@ -130,7 +141,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 			recvErr = stream.RecvMsg(m)
 		}
 
-		finalErrCh <- finalErr
+		fail(finalErr)
 		return hasReadResult, finalErr
 	})
 

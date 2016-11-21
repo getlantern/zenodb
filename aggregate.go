@@ -154,7 +154,9 @@ func (db *DB) Query(query *sql.Query, includeMemStore bool) *Query {
 }
 
 func (aq *Query) Run(isSubQuery bool) (*QueryResult, error) {
-	log.Tracef("Running query (subquery? %v): %v", isSubQuery, aq.SQL)
+	log.Debugf("Running query (subquery? %v): %v", isSubQuery, aq.SQL)
+	defer log.Debugf("Finished running query (subquery? %v): %v", isSubQuery, aq.SQL)
+
 	subQueryResults, err := aq.runSubQueries()
 	if err != nil {
 		return nil, err
@@ -198,7 +200,8 @@ func (db *DB) QueryForRemote(sqlString string, includeMemStore bool, isSubQuery 
 }
 
 func (aq *Query) runForRemote(isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
-	log.Tracef("Running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
+	log.Debugf("Running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
+	defer log.Debugf("Finished running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
 
 	// Clear out unnecessary bits
 	aq.Having = nil
@@ -220,6 +223,9 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 		untilOffset: aq.UntilOffset,
 	}
 	numWorkers := runtime.NumCPU() / 2
+	if numWorkers <= 0 {
+		numWorkers = 1
+	}
 
 	exec := &queryExecution{
 		Query:           aq.Query,

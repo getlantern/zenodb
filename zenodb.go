@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -47,11 +49,9 @@ type DBOpts struct {
 	// WALCompressionAge sets a cutoff for the age of WAL files that will be
 	// gzipped
 	WALCompressionAge time.Duration
-	// MaxMemStoreBytes caps the maximum memstore bytes across all tables. If not
-	// specified, memstore bytes are not capped. Note, the calculation of memstore
-	// bytes does not include overhead, so set this lower than you might
-	// otherwise.
-	MaxMemStoreBytes int
+	// MaxMemoryBytes caps the maximum memory of this process. When the system
+	// comes under memory pressure, it will start flushing table memstores.
+	MaxMemoryBytes int
 	// Passthrough flags this node as a passthrough (won't store data in tables,
 	// just WAL). Passthrough nodes will also outsource queries to specific
 	// partition handlers. Requires that NumPartitions be specified.
@@ -77,6 +77,7 @@ type DB struct {
 	tablesMutex         sync.RWMutex
 	isSorting           bool
 	nextTableToSort     int
+	memory              uint64
 	remoteQueryHandlers map[int]chan QueryRemote
 }
 
@@ -119,11 +120,6 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		isp.SetProvider(opts.ISPProvider)
 	}
 
-	if db.opts.MaxMemStoreBytes > 0 {
-		log.Debugf("Capping memstore bytes to %v", humanize.Bytes(uint64(db.opts.MaxMemStoreBytes)))
-		go db.capMemStoreSize()
-	}
-
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 		if err != nil {
@@ -135,6 +131,8 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if db.opts.RegisterRemoteQueryHandler != nil {
 		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
 	}
+
+	go db.trackMemStats()
 
 	return db, err
 }
@@ -219,40 +217,48 @@ func (db *DB) capWALAge(wal *wal.WAL) {
 	}
 }
 
-func (db *DB) capMemStoreSize() {
+func (db *DB) trackMemStats() {
 	for {
-		time.Sleep(5 * time.Second)
-		totalSize := 0
-		db.tablesMutex.RLock()
-		sizes := make(byCurrentSize, 0, len(db.tables))
-		for _, table := range db.tables {
-			current, total := table.memStoreSize()
-			sizes = append(sizes, &memStoreSize{table, current})
-			totalSize += total
-		}
-		db.tablesMutex.RUnlock()
-		log.Debugf("Size: %v / %v", humanize.Bytes(uint64(totalSize)), humanize.Bytes(uint64(db.opts.MaxMemStoreBytes)))
+		db.updateMemStats()
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func (db *DB) updateMemStats() {
+	memstats := &runtime.MemStats{}
+	runtime.ReadMemStats(memstats)
+	atomic.StoreUint64(&db.memory, memstats.HeapInuse)
+}
+
+func (db *DB) capMemStoreSize() {
+	if db.opts.MaxMemoryBytes <= 0 {
+		return
+	}
+
+	db.tablesMutex.RLock()
+	sizes := make(byCurrentSize, 0, len(db.tables))
+	for _, table := range db.tables {
+		sizes = append(sizes, &memStoreSize{table, table.memStoreSize()})
+	}
+	db.tablesMutex.RUnlock()
+
+	if atomic.LoadUint64(&db.memory) > uint64(db.opts.MaxMemoryBytes) {
+		// Force flushing on the table with the largest memstore
 		sort.Sort(sizes)
-		overage := totalSize - db.opts.MaxMemStoreBytes
-		for _, size := range sizes {
-			if overage <= 0 {
-				break
-			}
-			if size.t.forceFlush() {
-				log.Debugf("Requested force flush of %v", size.t.Name)
-				overage -= size.current
-			}
-		}
+		log.Debugf("Forcing flush on %v", sizes[0].t.Name)
+		sizes[0].t.forceFlush()
+		db.updateMemStats()
+		log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
 	}
 }
 
 type memStoreSize struct {
-	t       *table
-	current int
+	t    *table
+	size int
 }
 
 type byCurrentSize []*memStoreSize
 
 func (a byCurrentSize) Len() int           { return len(a) }
 func (a byCurrentSize) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a byCurrentSize) Less(i, j int) bool { return a[i].current > a[j].current }
+func (a byCurrentSize) Less(i, j int) bool { return a[i].size > a[j].size }

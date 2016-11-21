@@ -136,7 +136,6 @@ func (q *query) run(db *DB, includeMemStore bool) (*QueryStats, error) {
 			}
 		}
 	})
-
 	stats.Runtime = time.Now().Sub(start)
 	return stats, iterateErr
 }
