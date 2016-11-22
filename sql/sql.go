@@ -138,15 +138,6 @@ type SubQuery struct {
 	result []goexpr.Expr
 }
 
-// func newSubQuery(sql string) *SubQuery {
-// 	sq :=
-// // , dim: query.Fields[0].Name
-// 	// Remove first field the first field in a SubQuery is actually the name
-// 	// of a dimension, not a field.
-// 	// sq.Fields = sq.Fields[1:]
-// 	return sq
-// }
-
 func (sq *SubQuery) SetResult(result []interface{}) {
 	sq.result = make([]goexpr.Expr, 0, len(result))
 	for _, val := range result {
