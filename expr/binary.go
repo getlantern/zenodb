@@ -106,6 +106,10 @@ func (e *binaryExpr) Get(b []byte) (float64, bool, []byte) {
 	return e.calc(valueLeft, valueRight), true, remain
 }
 
+func (e *binaryExpr) IsConstant() bool {
+	return e.left.IsConstant() && e.right.IsConstant()
+}
+
 func (e *binaryExpr) String() string {
 	return fmt.Sprintf("(%v %v %v)", e.left, e.op, e.right)
 }

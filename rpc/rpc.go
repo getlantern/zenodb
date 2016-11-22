@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"github.com/getlantern/golog"
+	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb"
 	"google.golang.org/grpc"
 )
 
@@ -16,7 +18,25 @@ var (
 )
 
 type Query struct {
-	SQL string
+	SQLString       string
+	IncludeMemStore bool
+	IsSubQuery      bool
+	SubQueryResults [][]interface{}
+}
+
+type Point struct {
+	Data   []byte
+	Offset wal.Offset
+}
+
+type RemoteQueryResult struct {
+	Entry        *zenodb.Entry
+	Error        string
+	EndOfResults bool
+}
+
+type RegisterQueryHandler struct {
+	Partition int
 }
 
 var serviceDesc = grpc.ServiceDesc{
@@ -29,13 +49,40 @@ var serviceDesc = grpc.ServiceDesc{
 			Handler:       queryHandler,
 			ServerStreams: true,
 		},
+		{
+			StreamName:    "follow",
+			Handler:       followHandler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "remoteQuery",
+			Handler:       remoteQueryHandler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
 	},
 }
 
 func queryHandler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(Query)
-	if err := stream.RecvMsg(m); err != nil {
+	q := new(Query)
+	if err := stream.RecvMsg(q); err != nil {
 		return err
 	}
-	return srv.(Server).Query(m, stream)
+	return srv.(Server).Query(q.SQLString, q.IncludeMemStore, stream)
+}
+
+func followHandler(srv interface{}, stream grpc.ServerStream) error {
+	f := new(zenodb.Follow)
+	if err := stream.RecvMsg(f); err != nil {
+		return err
+	}
+	return srv.(Server).Follow(f, stream)
+}
+
+func remoteQueryHandler(srv interface{}, stream grpc.ServerStream) error {
+	r := new(RegisterQueryHandler)
+	if err := stream.RecvMsg(r); err != nil {
+		return err
+	}
+	return srv.(Server).HandleRemoteQueries(r, stream)
 }

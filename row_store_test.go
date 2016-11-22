@@ -20,8 +20,7 @@ func TestStorage(t *testing.T) {
 		log: golog.LoggerFor("storagetest"),
 	}
 	cs, _, err := tb.openRowStore(&rowStoreOptions{
-		dir:              tmpDir,
-		maxMemStoreBytes: 1,
+		dir: tmpDir,
 	})
 	if !assert.NoError(t, err) {
 		return

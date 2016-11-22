@@ -392,5 +392,5 @@ func (seq Sequence) String(e expr.Expr) string {
 		val, _ := seq.ValueAt(i, e)
 		values += fmt.Sprint(val)
 	}
-	return fmt.Sprintf("%v at %v: %v", e, seq.Start(), values)
+	return fmt.Sprintf("%v at %v: %v", e, seq.Start().In(time.UTC), values)
 }

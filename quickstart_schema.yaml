@@ -1,0 +1,8 @@
+combined:
+  retentionperiod: 1h
+  sql: >
+    SELECT
+      requests,
+      AVG(load_avg) AS load_avg
+    FROM inbound
+    GROUP BY *, period(5m)

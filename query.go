@@ -16,7 +16,7 @@ type queryable interface {
 	resolution() time.Duration
 	retentionPeriod() time.Duration
 	truncateBefore() time.Time
-	iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
+	iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
 }
 
 type query struct {
@@ -45,11 +45,12 @@ func (q *query) init(db *DB) error {
 	now := db.clock.Now()
 	truncateBefore := q.t.truncateBefore()
 	if q.asOf.IsZero() && q.asOfOffset >= 0 {
-		log.Trace("No asOf and no positive asOfOffset, defaulting to retention period")
+		log.Trace("No asOf and no negative asOfOffset, defaulting to retention period")
 		q.asOf = truncateBefore
 	}
 	if q.asOf.IsZero() {
 		q.asOf = now.Add(q.asOfOffset)
+		log.Tracef("Defaulting asOf to %v based on now %v and asOfOffset %v", q.asOf, now, q.asOfOffset)
 	}
 	if q.asOf.Before(truncateBefore) {
 		log.Tracef("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
@@ -67,7 +68,7 @@ func (q *query) init(db *DB) error {
 	return nil
 }
 
-func (q *query) run(db *DB) (*QueryStats, error) {
+func (q *query) run(db *DB, includeMemStore bool) (*QueryStats, error) {
 	start := time.Now()
 	stats := &QueryStats{}
 
@@ -81,7 +82,7 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
 
 	allFields := q.t.fields()
-	q.t.iterate(q.fields, func(key bytemap.ByteMap, columns []encoding.Sequence) {
+	iterateErr := q.t.iterate(q.fields, includeMemStore, func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		stats.Scanned++
 
 		testedInclude := false
@@ -135,7 +136,6 @@ func (q *query) run(db *DB) (*QueryStats, error) {
 			}
 		}
 	})
-
 	stats.Runtime = time.Now().Sub(start)
-	return stats, nil
+	return stats, iterateErr
 }

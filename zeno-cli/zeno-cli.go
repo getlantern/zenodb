@@ -1,10 +1,12 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/csv"
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,9 @@ const (
 var (
 	log = golog.LoggerFor("zeno-cli")
 
-	addr       = flag.String("addr", ":17712", "The address to which to connect, defaults to localhost:17712")
+	addr       = flag.String("addr", ":17712", "The address to which to connect with gRPC over TLS, defaults to localhost:17712")
+	insecure   = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to the server (don't use this in production!)")
+	fresh      = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
 	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
 	password   = flag.String("password", "", "if specified, will authenticate against server using this password")
 )
@@ -45,8 +49,22 @@ func main() {
 	historyFile := filepath.Join(clidir, "history")
 	fmt.Fprintf(os.Stderr, "Will save history to %v\n", historyFile)
 
+	host, _, _ := net.SplitHostPort(*addr)
+	tlsConfig := &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: *insecure,
+	}
+
 	client, err := rpc.Dial(*addr, &rpc.ClientOpts{
 		Password: *password,
+		Dialer: func(addr string, timeout time.Duration) (net.Conn, error) {
+			conn, dialErr := net.DialTimeout("tcp", addr, timeout)
+			if dialErr != nil {
+				return nil, dialErr
+			}
+			tlsConn := tls.Client(conn, tlsConfig)
+			return tlsConn, tlsConn.Handshake()
+		},
 	})
 	if err != nil {
 		log.Fatalf("Unable to dial server at %v: %v", *addr, err)
@@ -109,9 +127,7 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 }
 
 func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, csv bool) error {
-	result, nextRow, err := client.Query(context.Background(), &rpc.Query{
-		SQL: sql,
-	})
+	result, nextRow, err := client.Query(context.Background(), sql, *fresh)
 	if err != nil {
 		return err
 	}

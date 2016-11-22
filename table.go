@@ -35,9 +35,6 @@ type TableOpts struct {
 	Name string
 	// View indicates if this table is a view on top of an existing table.
 	View bool
-	// MaxMemStoreBytes sets a cap on how large the memstore is allowed to become
-	// before being flushed to disk.
-	MaxMemStoreBytes int
 	// MinFlushLatency sets a lower bound on how frequently the memstore is
 	// flushed to disk.
 	MinFlushLatency time.Duration
@@ -124,10 +121,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	if opts.RetentionPeriod <= 0 {
 		return errors.New("Please specify a positive RetentionPeriod")
 	}
-	if opts.MaxMemStoreBytes <= 0 {
-		opts.MaxMemStoreBytes = 100000000
-		log.Debugf("Defaulted MaxMemStoreBytes to %v", opts.MaxMemStoreBytes)
-	}
 	if opts.MinFlushLatency <= 0 {
 		log.Debug("MinFlushLatency disabled")
 	}
@@ -160,10 +153,9 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	var rsErr error
 	var walOffset wal.Offset
 	t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
-		dir:              filepath.Join(db.opts.Dir, t.Name),
-		maxMemStoreBytes: t.MaxMemStoreBytes,
-		minFlushLatency:  t.MinFlushLatency,
-		maxFlushLatency:  t.MaxFlushLatency,
+		dir:             filepath.Join(db.opts.Dir, t.Name),
+		minFlushLatency: t.MinFlushLatency,
+		maxFlushLatency: t.MaxFlushLatency,
 	})
 	if rsErr != nil {
 		return rsErr
@@ -191,7 +183,32 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		}
 		go db.capWALAge(w)
 		db.streams[q.From] = w
+
+		if db.opts.Follow != nil {
+			var offset wal.Offset
+			latest, _, err := w.Latest()
+			if err != nil || len(latest) < wal.OffsetSize {
+				log.Debugf("Unable to obtain latest data from wal, assuming we're at beginning: %v", err)
+			} else {
+				// Followers store offset as first 16 bytes of data in WAL
+				offset = wal.Offset(latest[:wal.OffsetSize])
+			}
+			log.Debugf("Following stream %v starting at %v", q.From, offset)
+			go db.opts.Follow(&Follow{q.From, offset, db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
+				_, err := w.Write(newOffset, data)
+				if err != nil {
+					log.Debug(err)
+				}
+				return err
+			})
+		}
 	}
+
+	if db.opts.Passthrough {
+		log.Debugf("Passthrough will not insert data to table %v", t.Name)
+		return nil
+	}
+
 	log.Debugf("%v will read inserts from %v at offset %v", t.Name, q.From, walOffset)
 	t.wal, walErr = w.NewReader(t.Name, walOffset)
 	if walErr != nil {
@@ -224,8 +241,8 @@ func (t *table) truncateBefore() time.Time {
 	return t.db.clock.Now().Add(-1 * t.RetentionPeriod)
 }
 
-func (t *table) iterate(fields []string, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
-	return t.rowStore.iterate(fields, onValue)
+func (t *table) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+	return t.rowStore.iterate(fields, includeMemStore, onValue)
 }
 
 // shouldSort determines whether or not a flush should be sorted. The flush will
@@ -234,6 +251,10 @@ func (t *table) iterate(fields []string, onValue func(bytemap.ByteMap, []encodin
 // must call stopSorting when finished so that other tables have a chance to
 // sort.
 func (t *table) shouldSort() bool {
+	if t.db.opts.MaxMemoryBytes <= 0 {
+		return false
+	}
+
 	t.db.tablesMutex.RLock()
 	if t.db.nextTableToSort >= len(t.db.orderedTables) {
 		t.db.nextTableToSort = 0
@@ -249,4 +270,12 @@ func (t *table) stopSorting() {
 	t.db.isSorting = false
 	t.db.nextTableToSort++
 	t.db.tablesMutex.RUnlock()
+}
+
+func (t *table) memStoreSize() int {
+	return t.rowStore.memStoreSize()
+}
+
+func (t *table) forceFlush() {
+	t.rowStore.forceFlush()
 }

@@ -2,9 +2,13 @@ package zenodb
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/dustin/go-humanize"
@@ -20,6 +24,8 @@ var (
 	log = golog.LoggerFor("zenodb")
 )
 
+type QueryFN func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
+
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
 	// Dir points at the directory that contains the data files.
@@ -27,13 +33,11 @@ type DBOpts struct {
 	// SchemaFile points at a YAML schema file that configures the tables and
 	// views in the database.
 	SchemaFile string
+	// EnableGeo enables geolocation functions
+	EnableGeo bool
 	// ISPProvider configures a provider of ISP lookups. Specify this to allow the
 	// use of ISP functions.
 	ISPProvider isp.Provider
-	// IncludeMemStoreInQuery, when true, tells zenodb to include the current
-	// memstore when performing queries. This requires the memstore to be copied
-	// which can dramatically impact performance.
-	IncludeMemStoreInQuery bool
 	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
 	// based on the timestamps of Points received via inserts.
 	VirtualTime bool
@@ -45,41 +49,78 @@ type DBOpts struct {
 	// WALCompressionAge sets a cutoff for the age of WAL files that will be
 	// gzipped
 	WALCompressionAge time.Duration
+	// MaxMemoryBytes caps the maximum memory of this process. When the system
+	// comes under memory pressure, it will start flushing table memstores.
+	MaxMemoryBytes int
+	// Passthrough flags this node as a passthrough (won't store data in tables,
+	// just WAL). Passthrough nodes will also outsource queries to specific
+	// partition handlers. Requires that NumPartitions be specified.
+	Passthrough bool
+	// NumPartitions identifies how many partitions to split data from
+	// passthrough nodes.
+	NumPartitions int
+	// Partition identies the partition owned by this follower
+	Partition int
+	// Follow is a function that allows a follower to request following a stream
+	// from a passthrough node.
+	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
+	RegisterRemoteQueryHandler func(partition int, query QueryFN)
 }
 
 // DB is a zenodb database.
 type DB struct {
-	opts            *DBOpts
-	clock           vtime.Clock
-	streams         map[string]*wal.WAL
-	tables          map[string]*table
-	orderedTables   []*table
-	tablesMutex     sync.RWMutex
-	isSorting       bool
-	nextTableToSort int
+	opts                *DBOpts
+	clock               vtime.Clock
+	streams             map[string]*wal.WAL
+	tables              map[string]*table
+	orderedTables       []*table
+	tablesMutex         sync.RWMutex
+	isSorting           bool
+	nextTableToSort     int
+	memory              uint64
+	flushMutex          sync.Mutex
+	remoteQueryHandlers map[int]chan QueryRemote
 }
 
 // NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
-	db := &DB{opts: opts, clock: vtime.RealClock, tables: make(map[string]*table), streams: make(map[string]*wal.WAL)}
+	db := &DB{
+		opts:                opts,
+		clock:               vtime.RealClock,
+		tables:              make(map[string]*table),
+		streams:             make(map[string]*wal.WAL),
+		remoteQueryHandlers: make(map[int]chan QueryRemote),
+	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
 	}
-	if opts.MaxWALAge == 0 {
+	if opts.MaxWALAge <= 0 {
 		opts.MaxWALAge = 24 * time.Hour
 	}
-	if opts.WALCompressionAge == 0 {
+	if opts.WALCompressionAge <= 0 {
 		opts.WALCompressionAge = opts.MaxWALAge / 10
 	}
-	log.Debug("Enabling geolocation functions")
-	err = geo.Init(filepath.Join(opts.Dir, "geoip.dat.gz"))
-	if err != nil {
-		return nil, fmt.Errorf("Unable to initialize geo: %v", err)
+
+	// Create db dir
+	err = os.MkdirAll(opts.Dir, 0755)
+	if err != nil && !os.IsExist(err) {
+		return nil, fmt.Errorf("Unable to create db dir at %v: %v", opts.Dir, err)
 	}
+
+	if opts.EnableGeo {
+		log.Debug("Enabling geolocation functions")
+		err = geo.Init(filepath.Join(opts.Dir, "geoip.dat"))
+		if err != nil {
+			return nil, fmt.Errorf("Unable to initialize geo: %v", err)
+		}
+	}
+
 	if opts.ISPProvider != nil {
+		log.Debugf("Setting ISP provider to %v", opts.ISPProvider)
 		isp.SetProvider(opts.ISPProvider)
 	}
+
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 		if err != nil {
@@ -87,6 +128,13 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		}
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
+
+	if db.opts.RegisterRemoteQueryHandler != nil {
+		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
+	}
+
+	go db.trackMemStats()
+
 	return db, err
 }
 
@@ -169,3 +217,51 @@ func (db *DB) capWALAge(wal *wal.WAL) {
 		}
 	}
 }
+
+func (db *DB) trackMemStats() {
+	for {
+		db.updateMemStats()
+		time.Sleep(2 * time.Second)
+	}
+}
+
+func (db *DB) updateMemStats() {
+	memstats := &runtime.MemStats{}
+	runtime.ReadMemStats(memstats)
+	atomic.StoreUint64(&db.memory, memstats.HeapInuse)
+}
+
+func (db *DB) capMemStoreSize() {
+	if db.opts.MaxMemoryBytes <= 0 {
+		return
+	}
+
+	db.tablesMutex.RLock()
+	sizes := make(byCurrentSize, 0, len(db.tables))
+	for _, table := range db.tables {
+		sizes = append(sizes, &memStoreSize{table, table.memStoreSize()})
+	}
+	db.tablesMutex.RUnlock()
+
+	db.flushMutex.Lock()
+	if atomic.LoadUint64(&db.memory) > uint64(db.opts.MaxMemoryBytes) {
+		// Force flushing on the table with the largest memstore
+		sort.Sort(sizes)
+		log.Debugf("Forcing flush on %v", sizes[0].t.Name)
+		sizes[0].t.forceFlush()
+		db.updateMemStats()
+		log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
+	}
+	db.flushMutex.Unlock()
+}
+
+type memStoreSize struct {
+	t    *table
+	size int
+}
+
+type byCurrentSize []*memStoreSize
+
+func (a byCurrentSize) Len() int           { return len(a) }
+func (a byCurrentSize) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a byCurrentSize) Less(i, j int) bool { return a[i].size > a[j].size }

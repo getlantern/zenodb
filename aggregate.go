@@ -17,6 +17,14 @@ import (
 	"github.com/getlantern/zenodb/sql"
 )
 
+const (
+	backtick = "`"
+)
+
+var (
+	largeDuration = 1000000 * time.Hour
+)
+
 type Row struct {
 	// The period in time relative to QueryResult.Until end-date
 	// (i.e. T-0, T-1, etc)
@@ -75,6 +83,7 @@ type QueryResult struct {
 type Query struct {
 	db *DB
 	sql.Query
+	includeMemStore bool
 }
 
 type queryResponse struct {
@@ -100,10 +109,18 @@ type entry struct {
 	havingTest encoding.Sequence
 }
 
+type Entry struct {
+	Dims bytemap.ByteMap
+	Vals []encoding.Sequence
+}
+
 type queryExecution struct {
 	db *DB
 	sql.Query
+	includeMemStore        bool
+	isSubQuery             bool
 	t                      queryable
+	subQueryResults        [][]interface{}
 	q                      *query
 	knownFields            []sql.Field
 	subMergers             [][]expr.SubMerge
@@ -124,19 +141,81 @@ type queryExecution struct {
 	scannedPoints          int64
 }
 
-func (db *DB) SQLQuery(sqlString string) (*Query, error) {
+func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*Query, error) {
 	query, err := sql.Parse(sqlString, db.getFields)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to parse SQL: %v", err)
 	}
-	return db.Query(query), nil
+	return db.Query(query, includeMemStore), nil
 }
 
-func (db *DB) Query(query *sql.Query) *Query {
-	return &Query{db: db, Query: *query}
+func (db *DB) Query(query *sql.Query, includeMemStore bool) *Query {
+	return &Query{db: db, Query: *query, includeMemStore: includeMemStore}
 }
 
-func (aq *Query) Run() (*QueryResult, error) {
+func (aq *Query) Run(isSubQuery bool) (*QueryResult, error) {
+	log.Debugf("Running query (subquery? %v): %v", isSubQuery, aq.SQL)
+	defer log.Debugf("Finished running query (subquery? %v): %v", isSubQuery, aq.SQL)
+
+	subQueryResults, err := aq.runSubQueries()
+	if err != nil {
+		return nil, err
+	}
+
+	exec, err := aq.prepareExecution(isSubQuery, subQueryResults)
+	if err != nil {
+		log.Debugf("Query error: %v", err)
+		return nil, err
+	}
+	return exec.run()
+}
+
+func (db *DB) SubQuery(sqlString string, includeMemStore bool) ([]interface{}, error) {
+	query, err := db.SQLQuery(sqlString, includeMemStore)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := query.Run(true)
+	if err != nil {
+		return nil, err
+	}
+
+	vals := make([]interface{}, 0, len(result.Rows))
+	for _, row := range result.Rows {
+		vals = append(vals, row.Dims[0])
+	}
+
+	return vals, nil
+}
+
+func (db *DB) QueryForRemote(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
+	query, err := db.SQLQuery(sqlString, includeMemStore)
+	if err != nil {
+		return err
+	}
+
+	query.AddPointsIfNecessary()
+	return query.runForRemote(isSubQuery, subQueryResults, onEntry)
+}
+
+func (aq *Query) runForRemote(isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error {
+	log.Debugf("Running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
+	defer log.Debugf("Finished running query for remote (subquery? %v): %v", isSubQuery, aq.SQL)
+
+	// Clear out unnecessary bits
+	aq.Having = nil
+	aq.OrderBy = nil
+	aq.Limit = 0
+	aq.Offset = 0
+	exec, err := aq.prepareExecution(isSubQuery, subQueryResults)
+	if err != nil {
+		return err
+	}
+	return exec.runForRemote(onEntry)
+}
+
+func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface{}) (*queryExecution, error) {
 	q := &query{
 		asOf:        aq.AsOf,
 		asOfOffset:  aq.AsOfOffset,
@@ -144,65 +223,190 @@ func (aq *Query) Run() (*QueryResult, error) {
 		untilOffset: aq.UntilOffset,
 	}
 	numWorkers := runtime.NumCPU() / 2
-	if aq.From != "" {
-		table := aq.db.getTable(aq.From)
-		if table == nil {
-			return nil, fmt.Errorf("Table '%v' not found", aq.From)
-		}
-		q.t = table
-	} else {
-		sq, err := aq.runSubQuery()
-		if err != nil {
-			return nil, fmt.Errorf("Unable to run subquery: %v", err)
-		}
-		q.t = sq
+	if numWorkers <= 0 {
+		numWorkers = 1
 	}
+
 	exec := &queryExecution{
-		Query:       aq.Query,
-		db:          aq.db,
-		t:           q.t,
-		q:           q,
-		knownFields: q.t.fields(),
-		numWorkers:  numWorkers,
-		responsesCh: make(chan *queryResponse, numWorkers),
-		entriesCh:   make(chan map[string]*entry, numWorkers),
+		Query:           aq.Query,
+		includeMemStore: aq.includeMemStore,
+		isSubQuery:      isSubQuery,
+		db:              aq.db,
+		q:               q,
+		subQueryResults: subQueryResults,
+		numWorkers:      numWorkers,
+		responsesCh:     make(chan *queryResponse, numWorkers),
+		entriesCh:       make(chan map[string]*entry, numWorkers),
 	}
+	if isSubQuery {
+		// The first field in a SubQuery is actually the name of a dimension, not a
+		// field. Remove it and use it as the sole member of the Group By
+		dim := exec.Fields[0].Name
+		exec.GroupBy = []sql.GroupBy{sql.GroupBy{Expr: goexpr.Param(dim), Name: dim}}
+		exec.Fields = exec.Fields[1:]
+
+		// Make sure that we have a _points field
+		exec.AddPointsIfNecessary()
+
+		// Time periods are pointless for subqueries, so set resolution to an
+		// arbitrarily large duration.
+		exec.Resolution = largeDuration
+		exec.q.asOfOffset = -1 * exec.Resolution
+	}
+
 	exec.wg.Add(numWorkers)
-	return exec.run()
+	return exec, nil
+}
+
+func (aq *Query) runSubQueries() ([][]interface{}, error) {
+	results := make([][]interface{}, 0, len(aq.SubQueries))
+	for _, sq := range aq.SubQueries {
+		var result []interface{}
+		var err error
+		result, err = aq.db.SubQuery(sq.SQL, aq.includeMemStore)
+		if err != nil {
+			return nil, fmt.Errorf("Error running subquery: %v", err)
+		}
+		results = append(results, result)
+	}
+	return results, nil
 }
 
 func (exec *queryExecution) run() (*QueryResult, error) {
-	err := exec.runSubQueries()
-	if err != nil {
-		return nil, err
-	}
-	err = exec.prepare()
+	err := exec.prepare()
 	if err != nil {
 		return nil, err
 	}
 	return exec.finish()
 }
 
-func (exec *queryExecution) runSubQueries() error {
-	for _, sq := range exec.SubQueries {
-		t := exec.db.getTable(sq.Query.From)
-		if t == nil {
-			return fmt.Errorf("Table '%v' not found", sq.Query.From)
-		}
-		_result, err := exec.db.Query(&sq.Query).Run()
-		if err != nil {
-			return fmt.Errorf("Error running subquery: %v", err)
-		}
-		result := make([]goexpr.Params, 0, len(_result.Rows))
-		for _, row := range _result.Rows {
-			result = append(result, row)
-		}
-		sq.SetResult(result)
+func (exec *queryExecution) runForRemote(onEntry func(*Entry) error) error {
+	err := exec.prepare()
+	if err != nil {
+		return err
 	}
-	return nil
+	return exec.finishForRemote(onEntry)
+}
+
+func (exec *queryExecution) getTable() (queryable, error) {
+	tbl := exec.db.getTable(exec.From)
+	if tbl == nil {
+		return nil, fmt.Errorf("Table '%v' not found", exec.From)
+	}
+	var t queryable = tbl
+	if exec.db.opts.Passthrough {
+		log.Debugf("Using remote for query: %v", exec.SQL)
+		exec.AddPointsIfNecessary()
+		resolution, err := exec.resolutionFor(tbl)
+		if err != nil {
+			return nil, err
+		}
+		// Create a SQL query with the necessary fields and points and the right
+		// resolution.
+		fields := ""
+		first := true
+		for _, field := range exec.IncludedFields {
+			includeField := "_points" == field
+			if !includeField {
+				for _, known := range tbl.Fields {
+					if known.Name == field {
+						includeField = true
+						break
+					}
+				}
+			}
+			if !includeField {
+				continue
+			}
+
+			if !first {
+				fields += ", "
+			}
+			first = false
+			fields += backtick
+			fields += field
+			fields += backtick
+		}
+		groupBy := fmt.Sprintf("PERIOD(%v)", resolution)
+		if exec.GroupByAll {
+			groupBy += ", *"
+		} else {
+			for _, dim := range exec.IncludedDims {
+				groupBy += ", "
+				groupBy += backtick
+				groupBy += dim
+				groupBy += backtick
+			}
+		}
+		// TODO: handle FromSubQuery
+		sqlString := fmt.Sprintf("SELECT %v FROM `%v`%v GROUP BY %v", fields, exec.From, exec.WhereSQL, groupBy)
+		query := &exec.Query
+		if !exec.isSubQuery {
+			query, err = sql.Parse(sqlString, exec.db.getFields)
+			if err != nil {
+				return nil, err
+			}
+		}
+		t = &remoteQueryable{tbl, exec, query, resolution}
+	} else {
+		log.Debugf("Using local for query: %v", exec.SQL)
+	}
+	return t, nil
+}
+
+func (exec *queryExecution) resolutionFor(t queryable) (time.Duration, error) {
+	nativeResolution := t.resolution()
+	resolution := exec.Resolution
+
+	if resolution < 0 {
+		retentionPeriod := t.retentionPeriod()
+		log.Tracef("Defaulting resolution to retention period of %v", retentionPeriod)
+		resolution = retentionPeriod
+	}
+	if resolution == 0 {
+		log.Tracef("Defaulting to native resolution of %v", nativeResolution)
+		resolution = nativeResolution
+	}
+	if resolution > t.retentionPeriod() {
+		log.Tracef("Not allowing resolution %v lower than retention period %v", resolution, t.retentionPeriod())
+		resolution = t.retentionPeriod()
+	}
+	if resolution < nativeResolution {
+		return 0, fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", resolution, nativeResolution)
+	}
+	if resolution%nativeResolution != 0 {
+		return 0, fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", resolution, nativeResolution)
+	}
+
+	return resolution, nil
 }
 
 func (exec *queryExecution) prepare() error {
+	if len(exec.subQueryResults) != len(exec.SubQueries) {
+		return fmt.Errorf("Got %d sub query results but have %d sub queries in SQL", len(exec.subQueryResults), len(exec.SubQueries))
+	}
+
+	// Add subQueryResults to sub queries
+	for i, sq := range exec.SubQueries {
+		sq.SetResult(exec.subQueryResults[i])
+	}
+
+	if exec.From != "" {
+		table, err := exec.getTable()
+		if err != nil {
+			return err
+		}
+		exec.t = table
+	} else {
+		sq, err := exec.runSubQuery()
+		if err != nil {
+			return fmt.Errorf("Unable to run subquery: %v", err)
+		}
+		exec.t = sq
+	}
+	exec.q.t = exec.t
+	exec.knownFields = exec.q.t.fields()
+
 	exec.isCrosstab = exec.Crosstab != nil
 	if exec.isCrosstab {
 		exec.crosstabDimIdxs = make(map[interface{}]int, 0)
@@ -219,15 +423,17 @@ func (exec *queryExecution) prepare() error {
 	for _, field := range exec.Fields {
 		sms := field.Expr.SubMergers(columns)
 		subMergers = append(subMergers, sms)
-		columnFound := false
-		for j, sm := range sms {
-			if sm != nil {
-				columnFound = true
-				includedColumns[j] = true
+		if !field.Expr.IsConstant() {
+			columnFound := false
+			for j, sm := range sms {
+				if sm != nil {
+					columnFound = true
+					includedColumns[j] = true
+				}
 			}
-		}
-		if !columnFound {
-			return fmt.Errorf("No column found for %v", field.String())
+			if !columnFound {
+				return fmt.Errorf("No column found for %v", field.String())
+			}
 		}
 	}
 
@@ -262,23 +468,16 @@ func (exec *queryExecution) prepare() error {
 	}
 
 	nativeResolution := exec.t.resolution()
-	if exec.Resolution == 0 {
-		log.Tracef("Defaulting to native resolution of %v", nativeResolution)
-		exec.Resolution = nativeResolution
-	}
-	if exec.Resolution > exec.t.retentionPeriod() {
-		log.Tracef("Not allowing resolution %v lower than retention period %v", exec.Resolution, exec.t.retentionPeriod())
-		exec.Resolution = exec.t.retentionPeriod()
-	}
-	if exec.Resolution < nativeResolution {
-		return fmt.Errorf("Query's resolution of %v is higher than table's native resolution of %v", exec.Resolution, nativeResolution)
-	}
-	if exec.Resolution%nativeResolution != 0 {
-		return fmt.Errorf("Query's resolution of %v is not evenly divisible by the table's native resolution of %v", exec.Resolution, nativeResolution)
+	exec.Resolution, err = exec.resolutionFor(exec.t)
+	if err != nil {
+		return err
 	}
 
 	exec.scalingFactor = int(exec.Resolution / nativeResolution)
 	log.Tracef("Scaling factor: %d", exec.scalingFactor)
+	log.Tracef("Resolution: %v", exec.Resolution)
+	log.Tracef("Native resolution: %v", nativeResolution)
+	log.Tracef("AsOf: %v   Until: %v", exec.q.asOf, exec.q.until)
 
 	exec.inPeriods = int(exec.q.until.Sub(exec.q.asOf) / nativeResolution)
 	// Limit inPeriods based on what we can fit into outPeriods
@@ -412,7 +611,7 @@ func (exec *queryExecution) prepare() error {
 						if seq == nil {
 							// Lazily initialize sequence
 							seq = encoding.NewSequence(field.Expr.EncodedWidth(), exec.outPeriods)
-							seq.SetStart(exec.q.until)
+							seq.SetStart(encoding.RoundTime(exec.q.until, exec.Resolution))
 							en.values[idx] = seq
 						}
 						seq.SubMergeValueAt(out, field.Expr, subMerge, other, resp.key)
@@ -449,15 +648,9 @@ func (exec *queryExecution) prepare() error {
 }
 
 func (exec *queryExecution) finish() (*QueryResult, error) {
-	stats, err := exec.q.run(exec.db)
+	stats, err := exec.exec()
 	if err != nil {
 		return nil, err
-	}
-	close(exec.responsesCh)
-	exec.wg.Wait()
-	close(exec.entriesCh)
-	if log.IsTraceEnabled() {
-		log.Tracef("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
 	}
 
 	if len(exec.GroupBy) == 0 {
@@ -488,7 +681,11 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 		numColumns = numColumns * len(exec.crosstabDims)
 	}
 	exec.populatedColumns = make([]bool, numColumns)
-	rows := exec.sortRows(exec.mergedRows(groupBy))
+	mergedRows, mergeErr := exec.mergedRows(groupBy)
+	if mergeErr != nil {
+		return nil, mergeErr
+	}
+	rows := exec.sortRows(mergedRows)
 
 	fieldNames := make([]string, 0, len(exec.Fields))
 	for _, field := range exec.Fields {
@@ -515,13 +712,121 @@ func (exec *queryExecution) finish() (*QueryResult, error) {
 	return result, nil
 }
 
-func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
+func (exec *queryExecution) finishForRemote(onEntry func(*Entry) error) error {
+	_, err := exec.exec()
+	if err != nil {
+		return err
+	}
+
+	return exec.merged(func(k string, v *entry) error {
+		return onEntry(&Entry{
+			bytemap.New(v.dims),
+			v.values,
+		})
+	})
+}
+
+func (exec *queryExecution) exec() (*QueryStats, error) {
+	stats, err := exec.q.run(exec.db, exec.includeMemStore)
+	if err != nil {
+		return nil, err
+	}
+	close(exec.responsesCh)
+	exec.wg.Wait()
+	close(exec.entriesCh)
+	if log.IsTraceEnabled() {
+		log.Tracef("%v\nScanned Points: %v", spew.Sdump(stats), humanize.Comma(exec.scannedPoints))
+	}
+	return stats, nil
+}
+
+func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
+	var rows []*Row
+	mergeErr := exec.merged(func(k string, v *entry) error {
+		dims := make([]interface{}, 0, len(exec.dimsMap))
+		for _, groupBy := range exec.GroupBy {
+			dims = append(dims, v.dims[groupBy.Name])
+		}
+		for t := 0; t < exec.outPeriods; t++ {
+			if exec.Having != nil {
+				testResult, ok := v.havingTest.ValueAt(t, exec.Having)
+				if !ok || int(testResult) != 1 {
+					// Didn't meet having criteria, ignore
+					continue
+				}
+			}
+			numFields := len(exec.Fields)
+			if exec.isCrosstab {
+				numFields = numFields * len(exec.crosstabDims)
+			}
+			values := make([]float64, numFields)
+			var totals []float64
+			if exec.isCrosstab {
+				totals = make([]float64, len(exec.Fields))
+			}
+			hasData := false
+			for i, vals := range v.values {
+				if vals == nil {
+					continue
+				}
+				fieldIdx := i
+				outIdx := i
+				if exec.isCrosstab {
+					fieldIdx = i % len(exec.Fields)
+					dimIdx := i / len(exec.Fields)
+					sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
+					outIdx = sortedDimIdx*len(exec.Fields) + fieldIdx
+				}
+				ex := exec.Fields[fieldIdx].Expr
+				val, wasSet := vals.ValueAt(t, ex)
+				if wasSet {
+					values[outIdx] = val
+					hasData = true
+					exec.populatedColumns[outIdx] = true
+				}
+			}
+			if exec.isCrosstab {
+				for i, vals := range v.totals {
+					if vals == nil {
+						continue
+					}
+					ex := exec.Fields[i].Expr
+					val, wasSet := vals.ValueAt(t, ex)
+					if wasSet {
+						totals[i] = val
+					}
+				}
+			}
+			if !hasData {
+				firstPeriodOfRegularQuery := !exec.isSubQuery && t == 0
+				if !firstPeriodOfRegularQuery {
+					// Exclude rows that have no data
+					// TODO: add ability to fill (zeros, interpolation, etc)
+					continue
+				}
+			}
+			rows = append(rows, &Row{
+				Period:  t,
+				Dims:    dims,
+				Values:  values,
+				Totals:  totals,
+				groupBy: groupBy,
+				fields:  exec.Fields,
+			})
+		}
+
+		return nil
+	})
+
+	return rows, mergeErr
+}
+
+func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
 	var entries []map[string]*entry
 	for e := range exec.entriesCh {
 		entries = append(entries, e)
 	}
 
-	var rows []*Row
 	for i, e := range entries {
 		for k, v := range e {
 			for j := i; j < len(entries); j++ {
@@ -568,81 +873,14 @@ func (exec *queryExecution) mergedRows(groupBy []string) []*Row {
 				}
 			}
 
-			dims := make([]interface{}, 0, len(exec.dimsMap))
-			for _, groupBy := range exec.GroupBy {
-				dims = append(dims, v.dims[groupBy.Name])
-			}
-			for t := 0; t < exec.outPeriods; t++ {
-				if exec.Having != nil {
-					testResult, ok := v.havingTest.ValueAt(t, exec.Having)
-					if !ok || int(testResult) != 1 {
-						// Didn't meet having criteria, ignore
-						continue
-					}
-				}
-				numFields := len(exec.Fields)
-				if exec.isCrosstab {
-					numFields = numFields * len(exec.crosstabDims)
-				}
-				values := make([]float64, numFields)
-				var totals []float64
-				if exec.isCrosstab {
-					totals = make([]float64, len(exec.Fields))
-				}
-				hasData := false
-				for i, vals := range v.values {
-					if vals == nil {
-						continue
-					}
-					fieldIdx := i
-					outIdx := i
-					if exec.isCrosstab {
-						fieldIdx = i % len(exec.Fields)
-						dimIdx := i / len(exec.Fields)
-						sortedDimIdx := exec.crosstabDimReverseIdxs[dimIdx]
-						outIdx = sortedDimIdx*len(exec.Fields) + fieldIdx
-					}
-					ex := exec.Fields[fieldIdx].Expr
-					val, wasSet := vals.ValueAt(t, ex)
-					if wasSet {
-						values[outIdx] = val
-						hasData = true
-						exec.populatedColumns[outIdx] = true
-					}
-				}
-				if exec.isCrosstab {
-					for i, vals := range v.totals {
-						if vals == nil {
-							continue
-						}
-						ex := exec.Fields[i].Expr
-						val, wasSet := vals.ValueAt(t, ex)
-						if wasSet {
-							totals[i] = val
-						}
-					}
-				}
-				if !hasData {
-					firstPeriodOfFieldlessQuery := len(exec.Fields) == 0 && t == 0
-					if !firstPeriodOfFieldlessQuery {
-						// Exclude rows that have no data
-						// TODO: add ability to fill
-						continue
-					}
-				}
-				rows = append(rows, &Row{
-					Period:  t,
-					Dims:    dims,
-					Values:  values,
-					Totals:  totals,
-					groupBy: groupBy,
-					fields:  exec.Fields,
-				})
+			cbErr := cb(k, v)
+			if cbErr != nil {
+				return cbErr
 			}
 		}
 	}
 
-	return rows
+	return nil
 }
 
 func (exec *queryExecution) sortRows(rows []*Row) []*Row {

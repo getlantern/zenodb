@@ -39,6 +39,10 @@ func (e *constant) Get(b []byte) (float64, bool, []byte) {
 	return e.value, true, b
 }
 
+func (e *constant) IsConstant() bool {
+	return true
+}
+
 func (e *constant) String() string {
 	return fmt.Sprintf("%f", e.value)
 }

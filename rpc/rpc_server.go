@@ -3,13 +3,21 @@ package rpc
 import (
 	"net"
 
+	"github.com/getlantern/bytemap"
+	"github.com/getlantern/errors"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/encoding"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
 
 type Server interface {
-	Query(*Query, grpc.ServerStream) error
+	Query(string, bool, grpc.ServerStream) error
+
+	Follow(*zenodb.Follow, grpc.ServerStream) error
+
+	HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.ServerStream) error
 }
 
 type ServerOpts struct {
@@ -19,10 +27,9 @@ type ServerOpts struct {
 }
 
 func Serve(db *zenodb.DB, l net.Listener, opts *ServerOpts) error {
+	l = &snappyListener{l}
 	gs := grpc.NewServer(
-		grpc.CustomCodec(msgpackCodec),
-		grpc.RPCCompressor(grpc.NewGZIPCompressor()),
-		grpc.RPCDecompressor(grpc.NewGZIPDecompressor()))
+		grpc.CustomCodec(msgpackCodec))
 	gs.RegisterService(&serviceDesc, &server{db, opts.Password})
 	return gs.Serve(l)
 }
@@ -32,17 +39,18 @@ type server struct {
 	password string
 }
 
-func (s *server) Query(query *Query, stream grpc.ServerStream) error {
+func (s *server) Query(sqlString string, includeMemStore bool, stream grpc.ServerStream) error {
 	authorizeErr := s.authorize(stream)
 	if authorizeErr != nil {
 		return authorizeErr
 	}
 
-	q, err := s.db.SQLQuery(query.SQL)
+	query, err := s.db.SQLQuery(sqlString, includeMemStore)
 	if err != nil {
 		return err
 	}
-	result, err := q.Run()
+
+	result, err := query.Run(false)
 	if err != nil {
 		return err
 	}
@@ -66,6 +74,89 @@ func (s *server) Query(query *Query, stream grpc.ServerStream) error {
 	}
 
 	return nil
+}
+
+func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
+	authorizeErr := s.authorize(stream)
+	if authorizeErr != nil {
+		return authorizeErr
+	}
+
+	log.Debugf("Follower %d joined", f.Partition)
+	defer log.Debugf("Follower %d left", f.Partition)
+	return s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
+		return stream.SendMsg(&Point{data, newOffset})
+	})
+}
+
+func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.ServerStream) error {
+	initialResultCh := make(chan *RemoteQueryResult)
+	initialErrCh := make(chan error)
+	finalErrCh := make(chan error)
+
+	finish := func(err error) {
+		select {
+		case finalErrCh <- err:
+			// ok
+		default:
+			// ignore
+		}
+	}
+
+	s.db.RegisterQueryHandler(r.Partition, func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (bool, error) {
+		sendErr := stream.SendMsg(&Query{
+			SQLString:       sqlString,
+			IncludeMemStore: includeMemStore,
+			IsSubQuery:      isSubQuery,
+			SubQueryResults: subQueryResults,
+		})
+
+		m, recvErr := <-initialResultCh, <-initialErrCh
+
+		// Check send error after reading initial result to avoid blocking
+		// unnecessarily
+		if sendErr != nil {
+			err := errors.New("Unable to send query: %v", sendErr)
+			finish(err)
+			return false, err
+		}
+
+		var finalErr error
+		hasReadResult := false
+
+		for {
+			// Process current result
+			if recvErr != nil {
+				m.Error = recvErr.Error()
+				finalErr = errors.New("Unable to receive result: %v", recvErr)
+				break
+			}
+			if m.EndOfResults {
+				break
+			}
+			onValue(m.Entry.Dims, m.Entry.Vals)
+			hasReadResult = true
+
+			// Read next result
+			m = &RemoteQueryResult{}
+			recvErr = stream.RecvMsg(m)
+		}
+
+		finish(finalErr)
+		return hasReadResult, finalErr
+	})
+
+	// Block on reading initial result to keep connection open
+	m := &RemoteQueryResult{}
+	err := stream.RecvMsg(m)
+	initialResultCh <- m
+	initialErrCh <- err
+
+	if err == nil {
+		// Wait for final error so we don't close the connection prematurely
+		return <-finalErrCh
+	}
+	return err
 }
 
 func (s *server) authorize(stream grpc.ServerStream) error {
