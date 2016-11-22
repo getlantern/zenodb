@@ -162,7 +162,7 @@ func (rs *rowStore) processInserts() {
 	flushTimer := time.NewTimer(flushInterval)
 	rs.t.log.Debugf("Will flush after %v", flushInterval)
 
-	flush := func() {
+	flush := func(allowSort bool) {
 		if ms.tree.Length() == 0 {
 			rs.t.log.Trace("Nothing to flush")
 			// Immediately reset flushTimer
@@ -170,7 +170,7 @@ func (rs *rowStore) processInserts() {
 			return
 		}
 		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(ms.tree.Bytes())))
-		flushDuration := rs.processFlush(ms)
+		flushDuration := rs.processFlush(ms, allowSort)
 		ms = &memstore{tree: bytetree.New()}
 		rs.mx.Lock()
 		rs.memStore = ms
@@ -194,10 +194,10 @@ func (rs *rowStore) processInserts() {
 			rs.mx.Unlock()
 		case <-flushTimer.C:
 			rs.t.log.Trace("Requesting flush due to flush interval")
-			flush()
+			flush(false)
 		case <-rs.forceFlushes:
 			rs.t.log.Debug("Forcing flush")
-			flush()
+			flush(true)
 			rs.forceFlushCompletes <- true
 		}
 	}
@@ -214,8 +214,8 @@ func (rs *rowStore) iterate(fields []string, includeMemStore bool, onValue func(
 	return fs.iterate(onValue, tree, fields...)
 }
 
-func (rs *rowStore) processFlush(ms *memstore) time.Duration {
-	shouldSort := rs.t.shouldSort()
+func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
+	shouldSort := allowSort && rs.t.shouldSort()
 	willSort := "not sorted"
 	if shouldSort {
 		defer rs.t.stopSorting()
