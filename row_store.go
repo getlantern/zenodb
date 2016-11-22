@@ -20,6 +20,7 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/golang/snappy"
+	"github.com/oxtoacart/bpool"
 	"github.com/oxtoacart/emsort"
 )
 
@@ -29,6 +30,8 @@ const (
 	FileVersion_3      = 3
 	FileVersion_4      = 4
 	CurrentFileVersion = FileVersion_4
+
+	maxBufferedSize = 100000
 )
 
 var (
@@ -37,6 +40,8 @@ var (
 		FileVersion_3: "|",
 		FileVersion_4: "|",
 	}
+
+	buffers = bpool.NewBytePool(100, maxBufferedSize)
 )
 
 type rowStoreOptions struct {
@@ -211,7 +216,7 @@ func (rs *rowStore) iterate(fields []string, includeMemStore bool, onValue func(
 		tree = rs.memStore.tree.Copy()
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(onValue, tree, fields...)
+	return fs.iterate(onValue, false, tree, fields...)
 }
 
 func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
@@ -354,7 +359,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	rs.mx.RUnlock()
-	fs.iterate(write, ms.tree)
+	fs.iterate(write, !shouldSort, ms.tree)
 	err = cout.Close()
 	if err != nil {
 		panic(err)
@@ -426,7 +431,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), tree *bytetree.Tree, fields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), okayToReuseBuffers bool, tree *bytetree.Tree, fields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -523,7 +528,21 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), t
 				return fmt.Errorf("Unexpected error reading row length: %v", err)
 			}
 
-			row := make([]byte, rowLength)
+			useBuffer := okayToReuseBuffers && rowLength <= maxBufferedSize
+			var bufferedRow []byte
+			var row []byte
+			if useBuffer {
+				row = buffers.Get()
+				// Reslice back to capacity
+				row = row[:cap(row)]
+				bufferedRow = row
+				if len(row) > int(rowLength) {
+					row = row[:rowLength]
+				}
+			}
+			if !useBuffer || len(row) < int(rowLength) {
+				row = make([]byte, rowLength)
+			}
 			encoding.Binary.PutUint64(row, rowLength)
 			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
@@ -594,6 +613,10 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), t
 
 			if includesAtLeastOneColumn {
 				onRow(key, columns)
+			}
+
+			if useBuffer {
+				buffers.Put(bufferedRow)
 			}
 		}
 	}

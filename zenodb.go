@@ -78,6 +78,7 @@ type DB struct {
 	isSorting           bool
 	nextTableToSort     int
 	memory              uint64
+	flushMutex          sync.Mutex
 	remoteQueryHandlers map[int]chan QueryRemote
 }
 
@@ -242,6 +243,7 @@ func (db *DB) capMemStoreSize() {
 	}
 	db.tablesMutex.RUnlock()
 
+	db.flushMutex.Lock()
 	if atomic.LoadUint64(&db.memory) > uint64(db.opts.MaxMemoryBytes) {
 		// Force flushing on the table with the largest memstore
 		sort.Sort(sizes)
@@ -250,6 +252,7 @@ func (db *DB) capMemStoreSize() {
 		db.updateMemStats()
 		log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
 	}
+	db.flushMutex.Unlock()
 }
 
 type memStoreSize struct {
