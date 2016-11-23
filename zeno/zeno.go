@@ -125,22 +125,42 @@ func main() {
 
 		log.Debugf("Capturing data from %v", *capture)
 		follow = func(f *zenodb.Follow, insert func(data []byte, newOffset wal.Offset) error) {
-			followFunc, followErr := client.Follow(context.Background(), f)
-			if followErr != nil {
-				log.Fatalf("Error following stream %v: %v", f.Stream, followErr)
-			}
+			minWait := 1 * time.Second
+			maxWait := 1 * time.Minute
+			wait := minWait
 			for {
-				data, newOffset, followErr := followFunc()
-				if followErr != nil {
-					log.Fatalf("Error reading from stream %v: %v", f.Stream, followErr)
-				}
-				insertErr := insert(data, newOffset)
-				if insertErr != nil {
-					log.Fatalf("Error inserting data for stream %v: %v", f.Stream, insertErr)
+				for {
+					followFunc, followErr := client.Follow(context.Background(), f)
+					if followErr != nil {
+						log.Errorf("Error following stream %v: %v", f.Stream, followErr)
+						break
+					}
+					for {
+						data, newOffset, followErr := followFunc()
+						if followErr != nil {
+							log.Errorf("Error reading from stream %v: %v", f.Stream, followErr)
+							break
+						}
+						insertErr := insert(data, newOffset)
+						if insertErr != nil {
+							log.Errorf("Error inserting data for stream %v: %v", f.Stream, insertErr)
+							break
+						}
+						f.Offset = newOffset
+						// reset wait time
+						wait = minWait
+					}
+					// exponentialBackoff
+					time.Sleep(wait)
+					wait *= 2
+					if wait > maxWait {
+						wait = maxWait
+					}
 				}
 			}
 		}
 	}
+
 	if *feed != "" {
 		leaders := strings.Split(*feed, ",")
 		leaderOverrides := strings.Split(*feedOverride, ",")
