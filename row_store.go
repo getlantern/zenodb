@@ -501,7 +501,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 					}
 				}
 				if !foundField {
-					panic(fmt.Errorf("Unable to find field %v on table %v", fieldString, fs.t.Name))
+					fs.t.log.Debugf("Unable to find field %v on table %v", fieldString, fs.t.Name)
+					fileFields = append(fileFields, sql.Field{})
 				}
 			}
 		}
@@ -509,9 +510,11 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 		reverseFileFieldIndexes := make([]int, 0, len(fields))
 		for _, candidate := range fileFields {
 			idx := -1
-			for i, field := range fs.t.Fields {
-				if includeField(i) && field.String() == candidate.String() {
-					idx = i
+			if candidate.Expr != nil {
+				for i, field := range fs.t.Fields {
+					if includeField(i) && field.String() == candidate.String() {
+						idx = i
+					}
 				}
 			}
 			reverseFileFieldIndexes = append(reverseFileFieldIndexes, idx)

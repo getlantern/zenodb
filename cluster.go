@@ -8,6 +8,7 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/spaolacci/murmur3"
+	"sync"
 	"time"
 )
 
@@ -98,6 +99,8 @@ func (rq *remoteQueryable) truncateBefore() time.Time {
 func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	numPartitions := rq.db.opts.NumPartitions
 	results := make(chan error, numPartitions)
+	timedOut := false
+	var mx sync.RWMutex
 
 	for i := 0; i < numPartitions; i++ {
 		partition := i
@@ -111,7 +114,11 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 				}
 
 				hasReadResult, err := query(rq.query.SQL, rq.exec.includeMemStore, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
-					onValue(key, values)
+					mx.RLock()
+					if !timedOut {
+						onValue(key, values)
+					}
+					mx.RUnlock()
 				})
 				if err != nil && !hasReadResult {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
@@ -125,25 +132,31 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 
 	// TODO: get this from context
 	timeout := time.NewTimer(24 * time.Hour)
-	start := time.Now()
+	maxDelta := 0 * time.Second
 	resultCount := 0
 	var finalErr error
 	for i := 0; i < numPartitions; i++ {
+		start := time.Now()
 		select {
 		case err := <-results:
 			resultCount++
 			if err != nil && finalErr == nil {
 				finalErr = err
 			}
-			elapsed := time.Now().Sub(start)
-			remaining := numPartitions - resultCount
+			delta := time.Now().Sub(start)
+			if delta > maxDelta {
+				maxDelta = delta
+			}
 			// Reduce timer based on how quickly existing results returned
-			newTimeout := elapsed * time.Duration(remaining)
-			timeout.Reset(newTimeout)
-			log.Debugf("Got result %d, new timeout: %v", resultCount, newTimeout)
+			nextTimeout := maxDelta * 2
+			timeout.Reset(nextTimeout)
+			log.Debugf("Got result %d, next timeout: %v", resultCount, nextTimeout)
 		case <-timeout.C:
 			log.Errorf("Failed to get results within timeout, %d of %d partitions reporting", resultCount, numPartitions)
-			break
+			mx.Lock()
+			timedOut = true
+			mx.Unlock()
+			return finalErr
 		}
 	}
 
