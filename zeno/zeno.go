@@ -92,6 +92,7 @@ func main() {
 		}
 	}
 
+	clientSessionCache := tls.NewLRUClientSessionCache(10000)
 	var follow func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
 	var registerQueryHandler func(partition int, query zenodb.QueryFN)
 	if *capture != "" {
@@ -99,6 +100,7 @@ func main() {
 		clientTLSConfig := &tls.Config{
 			ServerName:         host,
 			InsecureSkipVerify: *insecure,
+			ClientSessionCache: clientSessionCache,
 		}
 
 		dest := *capture
@@ -173,6 +175,7 @@ func main() {
 			clientTLSConfig := &tls.Config{
 				ServerName:         host,
 				InsecureSkipVerify: *insecure,
+				ClientSessionCache: clientSessionCache,
 			}
 
 			dest := leader

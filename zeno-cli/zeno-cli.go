@@ -53,6 +53,7 @@ func main() {
 	tlsConfig := &tls.Config{
 		ServerName:         host,
 		InsecureSkipVerify: *insecure,
+		ClientSessionCache: tls.NewLRUClientSessionCache(100),
 	}
 
 	client, err := rpc.Dial(*addr, &rpc.ClientOpts{
