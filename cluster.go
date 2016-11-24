@@ -123,11 +123,27 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 		}()
 	}
 
+	// TODO: get this from context
+	timeout := time.NewTimer(24 * time.Hour)
+	start := time.Now()
+	resultCount := 0
 	var finalErr error
 	for i := 0; i < numPartitions; i++ {
-		err := <-results
-		if err != nil && finalErr == nil {
-			finalErr = err
+		select {
+		case err := <-results:
+			resultCount++
+			if err != nil && finalErr == nil {
+				finalErr = err
+			}
+			elapsed := time.Now().Sub(start)
+			remaining := numPartitions - resultCount
+			// Reduce timer based on how quickly existing results returned
+			newTimeout := elapsed * time.Duration(remaining)
+			timeout.Reset(newTimeout)
+			log.Debugf("Got result %d, new timeout: %v", resultCount, newTimeout)
+		case <-timeout.C:
+			log.Errorf("Failed to get results within timeout, %d of %d partitions reporting", resultCount, numPartitions)
+			break
 		}
 	}
 
