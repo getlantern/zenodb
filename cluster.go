@@ -1,6 +1,7 @@
 package zenodb
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
@@ -9,6 +10,7 @@ import (
 	"github.com/getlantern/zenodb/sql"
 	"github.com/spaolacci/murmur3"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -96,26 +98,38 @@ func (rq *remoteQueryable) truncateBefore() time.Time {
 	return rq.table.truncateBefore()
 }
 
+type remoteResult struct {
+	partition    int
+	handlerFound bool
+	results      int
+	err          error
+}
+
 func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	numPartitions := rq.db.opts.NumPartitions
-	results := make(chan error, numPartitions)
+	results := make(chan *remoteResult, numPartitions)
+	resultsByPartition := make(map[int]*int64)
 	timedOut := false
 	var mx sync.RWMutex
 
 	for i := 0; i < numPartitions; i++ {
 		partition := i
+		_resultsForPartition := int64(0)
+		resultsForPartition := &_resultsForPartition
+		resultsByPartition[partition] = resultsForPartition
 		go func() {
 			for {
 				query := rq.db.remoteQueryHandlerForPartition(partition)
 				if query == nil {
 					log.Errorf("No query handler for partition %d, ignoring", partition)
-					results <- nil
+					results <- &remoteResult{partition, false, 0, nil}
 					break
 				}
 
 				hasReadResult, err := query(rq.query.SQL, rq.exec.includeMemStore, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
 					mx.RLock()
 					if !timedOut {
+						atomic.AddInt64(resultsForPartition, 1)
 						onValue(key, values)
 					}
 					mx.RUnlock()
@@ -124,38 +138,56 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue
 				}
-				results <- err
+				results <- &remoteResult{partition, true, int(atomic.LoadInt64(resultsForPartition)), err}
 				break
 			}
 		}()
 	}
 
 	// TODO: get this from context
-	timeout := time.NewTimer(24 * time.Hour)
+	minTimeout := 5 * time.Second
+	nextTimeout := 24 * time.Hour
+	timeout := time.NewTimer(nextTimeout)
 	maxDelta := 0 * time.Second
 	resultCount := 0
 	var finalErr error
 	for i := 0; i < numPartitions; i++ {
 		start := time.Now()
 		select {
-		case err := <-results:
+		case result := <-results:
 			resultCount++
-			if err != nil && finalErr == nil {
-				finalErr = err
+			if result.err != nil && finalErr == nil {
+				finalErr = result.err
 			}
-			delta := time.Now().Sub(start)
-			if delta > maxDelta {
-				maxDelta = delta
+			if result.handlerFound {
+				delta := time.Now().Sub(start)
+				if delta > maxDelta {
+					maxDelta = delta
+				}
+				// Reduce timer based on how quickly existing results returned
+				nextTimeout = maxDelta * 2
+				if nextTimeout < minTimeout {
+					nextTimeout = minTimeout
+				}
+				timeout.Reset(nextTimeout)
 			}
-			// Reduce timer based on how quickly existing results returned
-			nextTimeout := maxDelta * 2
-			timeout.Reset(nextTimeout)
-			log.Debugf("Got result %d, next timeout: %v", resultCount, nextTimeout)
+			log.Debugf("%d/%d got %d results from partition %d, next timeout: %v", resultCount, rq.db.opts.NumPartitions, result.results, result.partition, nextTimeout)
+			delete(resultsByPartition, result.partition)
 		case <-timeout.C:
-			log.Errorf("Failed to get results within timeout, %d of %d partitions reporting", resultCount, numPartitions)
 			mx.Lock()
 			timedOut = true
 			mx.Unlock()
+			log.Errorf("Failed to get results within timeout, %d of %d partitions reporting", resultCount, numPartitions)
+			msg := bytes.NewBuffer([]byte("Missing partitions: "))
+			first := true
+			for partition, results := range resultsByPartition {
+				if !first {
+					msg.WriteString(" | ")
+				}
+				first = false
+				msg.WriteString(fmt.Sprintf("%d (%d)", partition, results))
+			}
+			log.Debug(msg.String())
 			return finalErr
 		}
 	}

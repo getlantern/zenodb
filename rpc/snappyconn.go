@@ -8,7 +8,7 @@ import (
 )
 
 var (
-	flushInterval = 50 * time.Millisecond
+	flushInterval = 1 * time.Second
 )
 
 func snappyDialer(d func(string, time.Duration) (net.Conn, error)) func(addr string, timeout time.Duration) (net.Conn, error) {
@@ -45,10 +45,11 @@ type snappyConn struct {
 
 func (sc *snappyConn) flushPeriodically() {
 	for {
-		time.Sleep(50 * time.Millisecond)
+		time.Sleep(flushInterval)
 		sc.flushMx.Lock()
 		err := sc.w.Flush()
 		if err != nil {
+			sc.flushMx.Unlock()
 			return
 		}
 		sc.flushMx.Unlock()
@@ -64,4 +65,15 @@ func (sc *snappyConn) Write(p []byte) (int, error) {
 	n, err := sc.w.Write(p)
 	sc.flushMx.RUnlock()
 	return n, err
+}
+
+func (sc *snappyConn) Close() error {
+	sc.flushMx.Lock()
+	flushErr := sc.w.Close()
+	sc.flushMx.Unlock()
+	closeErr := sc.Conn.Close()
+	if flushErr != nil {
+		return flushErr
+	}
+	return closeErr
 }
