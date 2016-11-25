@@ -123,6 +123,10 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query fu
 	if recvErr != nil {
 		return errors.New("Unable to read query: %v", recvErr)
 	}
+	if q.SQLString == "" {
+		// It's a noop query, ignore
+		return nil
+	}
 	queryErr := query(q.SQLString, q.IncludeMemStore, q.IsSubQuery, q.SubQueryResults, func(entry *zenodb.Entry) error {
 		return stream.SendMsg(&RemoteQueryResult{Entry: entry})
 	})

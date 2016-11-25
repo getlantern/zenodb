@@ -133,6 +133,10 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
 	}
 
+	if db.opts.Passthrough {
+		go db.freshenRemoteQueryHandlers()
+	}
+
 	go db.trackMemStats()
 
 	return db, err

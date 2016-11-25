@@ -75,6 +75,34 @@ func (db *DB) RegisterQueryHandler(partition int, query QueryRemote) {
 	handlersCh <- query
 }
 
+// freshenRemoteQueryHandlers periodically drains query handlers and sends noop
+// queries in order to get fresh connections
+func (db *DB) freshenRemoteQueryHandlers() {
+	for {
+		time.Sleep(5 * time.Minute)
+		for i := 0; i < db.opts.NumPartitions; i++ {
+			for {
+				handler := db.remoteQueryHandlerForPartition(i)
+				if handler == nil {
+					break
+				}
+				go handler("", false, false, nil, nil)
+			}
+		}
+	}
+}
+
+func (db *DB) remoteQueryHandlerForPartition(partition int) QueryRemote {
+	db.tablesMutex.RLock()
+	defer db.tablesMutex.RUnlock()
+	select {
+	case handler := <-db.remoteQueryHandlers[partition]:
+		return handler
+	default:
+		return nil
+	}
+}
+
 type remoteQueryable struct {
 	*table
 	exec  *queryExecution
@@ -193,15 +221,4 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 	}
 
 	return finalErr
-}
-
-func (db *DB) remoteQueryHandlerForPartition(partition int) QueryRemote {
-	db.tablesMutex.RLock()
-	defer db.tablesMutex.RUnlock()
-	select {
-	case handler := <-db.remoteQueryHandlers[partition]:
-		return handler
-	default:
-		return nil
-	}
 }
