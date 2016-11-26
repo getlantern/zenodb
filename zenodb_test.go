@@ -27,6 +27,15 @@ func TestRoundTime(t *testing.T) {
 	assert.Equal(t, expected, rounded)
 }
 
+func TestSQLResolution(t *testing.T) {
+	assert.Equal(t, "5ns", sqlResolution(5*time.Nanosecond))
+	assert.Equal(t, "5µs", sqlResolution(5*time.Microsecond))
+	assert.Equal(t, "5ms", sqlResolution(5*time.Millisecond))
+	assert.Equal(t, "5s", sqlResolution(5*time.Second))
+	assert.Equal(t, "5m", sqlResolution(5*time.Minute))
+	assert.Equal(t, "5h", sqlResolution(5*time.Hour))
+}
+
 func TestSingleDB(t *testing.T) {
 	doTest(t, false, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		db, err := NewDB(&DBOpts{
@@ -56,6 +65,7 @@ func TestCluster(t *testing.T) {
 			SchemaFile:     tmpFile,
 			VirtualTime:    true,
 			Passthrough:    true,
+			PartitionBy:    []string{"r", "u"},
 			NumPartitions:  numPartitions,
 			MaxMemoryBytes: 1,
 		})

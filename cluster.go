@@ -50,9 +50,20 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		// Skip timestamp
 		_, remain := encoding.Read(data, encoding.Width64bits)
 		dimsLen, remain := encoding.ReadInt32(remain)
-		dims, remain := encoding.Read(remain, dimsLen)
+		_dims, remain := encoding.Read(remain, dimsLen)
+		dims := bytemap.ByteMap(_dims)
+		// Default to using all dims as the partition data
+		partitionData := dims
+		for _, dim := range db.opts.PartitionBy {
+			candidate := dims.Slice(dim)
+			if len(candidate) > 0 {
+				// We found a specific dim, use it for partitioning
+				partitionData = candidate
+				break
+			}
+		}
 		h.Reset()
-		h.Write(dims)
+		h.Write(partitionData)
 		if int(h.Sum32())%db.opts.NumPartitions == f.Partition {
 			err = cb(data, r.Offset())
 			if err != nil {

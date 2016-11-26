@@ -835,7 +835,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		if "is not null" == e.Operator {
 			op = "<>"
 		}
-		return goexpr.Binary(op, wrapped, nil)
+		return goexpr.Binary(op, wrapped, goexpr.Constant(nil))
 	default:
 		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}

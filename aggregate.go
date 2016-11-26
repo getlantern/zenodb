@@ -103,7 +103,7 @@ type subMergeSpec struct {
 // entry is an intermediary data holder for aggregating data during the
 // execution of a query.
 type entry struct {
-	dims       map[string]interface{}
+	dims       bytemap.ByteMap
 	values     []encoding.Sequence
 	totals     []encoding.Sequence
 	havingTest encoding.Sequence
@@ -226,6 +226,8 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 	if numWorkers <= 0 {
 		numWorkers = 1
 	}
+	// For now, force numWorkers to 1 to limit memory usage
+	numWorkers = 1
 
 	exec := &queryExecution{
 		Query:           aq.Query,
@@ -327,7 +329,7 @@ func (exec *queryExecution) getTable() (queryable, error) {
 			fields += field
 			fields += backtick
 		}
-		groupBy := fmt.Sprintf("PERIOD(%v)", resolution)
+		groupBy := fmt.Sprintf("PERIOD(%v)", sqlResolution(resolution))
 		if exec.GroupByAll {
 			groupBy += ", *"
 		} else {
@@ -528,7 +530,7 @@ func (exec *queryExecution) prepare() error {
 			en := entries[string(kb)]
 			if en == nil {
 				en = &entry{
-					dims:   kb.AsMap(),
+					dims:   kb,
 					values: make([]encoding.Sequence, len(exec.Fields)),
 				}
 				if exec.isCrosstab {
@@ -541,7 +543,7 @@ func (exec *queryExecution) prepare() error {
 
 				if exec.GroupByAll {
 					// Track dims
-					for dim := range en.dims {
+					for dim := range en.dims.AsMap() {
 						// TODO: instead of locking on this shared state, have the workers
 						// return their own dimsMaps and merge them
 						dimsMapMutex.Lock()
@@ -720,7 +722,7 @@ func (exec *queryExecution) finishForRemote(onEntry func(*Entry) error) error {
 
 	return exec.merged(func(k string, v *entry) error {
 		return onEntry(&Entry{
-			bytemap.New(v.dims),
+			v.dims,
 			v.values,
 		})
 	})
@@ -745,7 +747,7 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 	mergeErr := exec.merged(func(k string, v *entry) error {
 		dims := make([]interface{}, 0, len(exec.dimsMap))
 		for _, groupBy := range exec.GroupBy {
-			dims = append(dims, v.dims[groupBy.Name])
+			dims = append(dims, v.dims.Get(groupBy.Name))
 		}
 		for t := 0; t < exec.outPeriods; t++ {
 			if exec.Having != nil {
@@ -948,4 +950,17 @@ func (r orderedRows) Less(i, j int) bool {
 		}
 	}
 	return false
+}
+
+func sqlResolution(resolution time.Duration) string {
+	if resolution < time.Second {
+		return resolution.String()
+	}
+	if resolution < time.Minute {
+		return fmt.Sprintf("%ds", int(resolution.Seconds()))
+	}
+	if resolution < time.Hour {
+		return fmt.Sprintf("%dm", int(resolution.Minutes()))
+	}
+	return fmt.Sprintf("%dh", int(resolution.Hours()))
 }

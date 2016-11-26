@@ -56,6 +56,10 @@ type DBOpts struct {
 	// just WAL). Passthrough nodes will also outsource queries to specific
 	// partition handlers. Requires that NumPartitions be specified.
 	Passthrough bool
+	// PartitionBy identifies the dimensions by which to partition, in order of
+	// priority. If a datum includes none of these dimensions, we partition on the
+	// entire key.
+	PartitionBy []string
 	// NumPartitions identifies how many partitions to split data from
 	// passthrough nodes.
 	NumPartitions int
@@ -135,6 +139,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 
 	if db.opts.Passthrough {
 		go db.freshenRemoteQueryHandlers()
+		log.Debugf("Partitioning by: %v", strings.Join(db.opts.PartitionBy, ","))
 	}
 
 	go db.trackMemStats()
