@@ -55,7 +55,7 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		// Default to using all dims as the partition data
 		partitionData := dims
 		for _, dim := range db.opts.PartitionBy {
-			candidate := dims.Slice(dim)
+			candidate := dims.GetBytes(dim)
 			if len(candidate) > 0 {
 				// We found a specific dim, use it for partitioning
 				partitionData = candidate
@@ -184,7 +184,7 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 	}
 
 	// TODO: get this from context
-	minTimeout := 5 * time.Second
+	minTimeout := 10 * time.Minute
 	nextTimeout := 24 * time.Hour
 	timeout := time.NewTimer(nextTimeout)
 	maxDelta := 0 * time.Second
