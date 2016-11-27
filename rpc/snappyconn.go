@@ -25,6 +25,10 @@ func snappyWrap(conn net.Conn, err error) (net.Conn, error) {
 		return nil, err
 	}
 	r := snappy.NewReader(conn)
+	// Note we don't use a buffered writer here as it doesn't seem to work well
+	// with gRPC for some reason. In particular, without explicitly flushing, it
+	// sometimes doesn't transmit messages completely, and with explicit flushing
+	// the throughput seems low. TODO: figure out if we can buffer here.
 	w := snappy.NewWriter(conn)
 	sc := &snappyConn{Conn: conn, r: r, w: w}
 	return sc, nil
