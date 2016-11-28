@@ -227,6 +227,7 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 		numWorkers = 1
 	}
 	// For now, force numWorkers to 1 to limit memory usage
+	// TODO: make this configurable
 	numWorkers = 1
 
 	exec := &queryExecution{
@@ -237,7 +238,7 @@ func (aq *Query) prepareExecution(isSubQuery bool, subQueryResults [][]interface
 		q:               q,
 		subQueryResults: subQueryResults,
 		numWorkers:      numWorkers,
-		responsesCh:     make(chan *queryResponse, numWorkers),
+		responsesCh:     make(chan *queryResponse, numWorkers*1000), // buffer a little bit
 		entriesCh:       make(chan map[string]*entry, numWorkers),
 	}
 	if isSubQuery {
@@ -824,6 +825,14 @@ func (exec *queryExecution) mergedRows(groupBy []string) ([]*Row, error) {
 }
 
 func (exec *queryExecution) merged(cb func(k string, v *entry) error) error {
+	if exec.numWorkers == 1 {
+		// No need to merge
+		for k, v := range <-exec.entriesCh {
+			cb(k, v)
+		}
+		return nil
+	}
+
 	var entries []map[string]*entry
 	for e := range exec.entriesCh {
 		entries = append(entries, e)
