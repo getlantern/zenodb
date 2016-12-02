@@ -4,72 +4,62 @@ import (
 	"testing"
 	"time"
 
-	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/getlantern/zenodb/expr"
-	"github.com/getlantern/zenodb/sql"
+	. "github.com/getlantern/zenodb/expr"
 	"github.com/stretchr/testify/assert"
 )
 
 const ctx = 56
 
+var (
+	epoch = time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC)
+)
+
 func TestByteTree(t *testing.T) {
-	e := expr.SUM("a")
+	resolutionOut := 10 * time.Second
+	resolutionIn := 1 * time.Second
 
-	fields := []sql.Field{sql.NewField("myfield", e)}
-	resolution := 5 * time.Second
-	now := time.Now()
-	truncateBefore := now.Add(-5000 * resolution)
+	eOut := ADD(SUM(FIELD("a")), SUM(FIELD("b")))
+	eA := SUM(FIELD("a"))
+	eB := SUM(FIELD("b"))
 
-	bt := New()
-	bytesAdded := bt.Update(fields, resolution, truncateBefore, []byte("test"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 1})), nil)
-	assert.Equal(t, 21, bytesAdded)
+	bt := New(resolutionOut, resolutionIn, []Expr{eOut}, []Expr{eA, eB})
+	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewValue(eA, epoch, 1), encoding.NewValue(eB, epoch, 1)}, nil)
 	assert.Equal(t, 1, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("slow"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 2})), nil)
-	assert.Equal(t, 21, bytesAdded)
+	bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewValue(eA, epoch, 2), encoding.NewValue(eB, epoch, 2)}, nil)
 	assert.Equal(t, 2, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("water"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 3})), nil)
-	assert.Equal(t, 22, bytesAdded)
+	bt.Update([]byte("water"), []encoding.Sequence{encoding.NewValue(eA, epoch, 3), encoding.NewValue(eB, epoch, 3)}, nil)
 	assert.Equal(t, 3, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("slower"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 4})), nil)
-	assert.Equal(t, 19, bytesAdded)
+	bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewValue(eA, epoch, 4), encoding.NewValue(eB, epoch, 4)}, nil)
 	assert.Equal(t, 4, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("team"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 5})), nil)
-	assert.Equal(t, 19, bytesAdded)
+	bt.Update([]byte("team"), []encoding.Sequence{encoding.NewValue(eA, epoch, 5), encoding.NewValue(eB, epoch, 5)}, nil)
 	assert.Equal(t, 5, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("toast"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 6})), nil)
-	assert.Equal(t, 21, bytesAdded)
+	bt.Update([]byte("toast"), []encoding.Sequence{encoding.NewValue(eA, epoch, 6), encoding.NewValue(eB, epoch, 6)}, nil)
 	assert.Equal(t, 6, bt.Length())
 
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("test"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})), nil)
-	assert.Equal(t, 0, bytesAdded)
+	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("slow"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})), nil)
-	assert.Equal(t, 0, bytesAdded)
+	bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("water"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})), nil)
-	assert.Equal(t, 0, bytesAdded)
+	bt.Update([]byte("water"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("slower"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})), nil)
-	assert.Equal(t, 0, bytesAdded)
+	bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("team"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})), nil)
-	assert.Equal(t, 0, bytesAdded)
+	bt.Update([]byte("team"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bytesAdded = bt.Update(fields, resolution, truncateBefore, []byte("toast"), encoding.NewTSParams(now, bytemap.NewFloat(map[string]float64{"a": 10})), nil)
-	assert.Equal(t, 0, bytesAdded)
+	bt.Update([]byte("toast"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
 
 	// Check tree twice with different contexts to make sure removals don't affect
 	// other contexts.
-	checkTree(ctx, t, bt, e)
-	checkTree(98, t, bt, e)
+	checkTree(ctx, t, bt, eOut)
+	checkTree(98, t, bt, eOut)
 
 	// Copy tree and check again
-	checkTree(99, t, bt.Copy(), e)
+	checkTree(99, t, bt.Copy(), eOut)
 }
 
-func checkTree(ctx int64, t *testing.T, bt *Tree, e expr.Expr) {
+func checkTree(ctx int64, t *testing.T, bt *Tree, e Expr) {
 	walkedValues := 0
 	bt.Walk(ctx, func(key []byte, data []encoding.Sequence) bool {
 		if assert.Len(t, data, 1) {
@@ -77,17 +67,17 @@ func checkTree(ctx int64, t *testing.T, bt *Tree, e expr.Expr) {
 			val, _ := data[0].ValueAt(0, e)
 			switch string(key) {
 			case "test":
-				assert.EqualValues(t, 11, val)
+				assert.EqualValues(t, 22, val, "test")
 			case "slow":
-				assert.EqualValues(t, 12, val)
+				assert.EqualValues(t, 24, val, "slow")
 			case "water":
-				assert.EqualValues(t, 13, val)
+				assert.EqualValues(t, 26, val, "water")
 			case "slower":
-				assert.EqualValues(t, 14, val)
+				assert.EqualValues(t, 28, val, "slower")
 			case "team":
-				assert.EqualValues(t, 15, val)
+				assert.EqualValues(t, 30, val, "team")
 			case "toast":
-				assert.EqualValues(t, 16, val)
+				assert.EqualValues(t, 32, val, "toast")
 			default:
 				assert.Fail(t, "Unknown key", string(key))
 			}
@@ -97,16 +87,16 @@ func checkTree(ctx int64, t *testing.T, bt *Tree, e expr.Expr) {
 	assert.Equal(t, 6, walkedValues)
 
 	val, _ := bt.Remove(ctx, []byte("test"))[0].ValueAt(0, e)
-	assert.EqualValues(t, 11, val)
+	assert.EqualValues(t, 22, val)
 	val, _ = bt.Remove(ctx, []byte("slow"))[0].ValueAt(0, e)
-	assert.EqualValues(t, 12, val)
+	assert.EqualValues(t, 24, val)
 	val, _ = bt.Remove(ctx, []byte("water"))[0].ValueAt(0, e)
-	assert.EqualValues(t, 13, val)
+	assert.EqualValues(t, 26, val)
 	val, _ = bt.Remove(ctx, []byte("slower"))[0].ValueAt(0, e)
-	assert.EqualValues(t, 14, val)
+	assert.EqualValues(t, 28, val)
 	val, _ = bt.Remove(ctx, []byte("team"))[0].ValueAt(0, e)
-	assert.EqualValues(t, 15, val)
+	assert.EqualValues(t, 30, val)
 	val, _ = bt.Remove(ctx, []byte("toast"))[0].ValueAt(0, e)
-	assert.EqualValues(t, 16, val)
+	assert.EqualValues(t, 32, val)
 	assert.Nil(t, bt.Remove(ctx, []byte("unknown")))
 }

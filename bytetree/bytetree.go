@@ -8,14 +8,19 @@ import (
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/getlantern/zenodb/sql"
+	"github.com/getlantern/zenodb/expr"
 )
 
 type Tree struct {
-	root   *node
-	bytes  int
-	length int
-	mx     sync.RWMutex
+	outResolution time.Duration
+	inResolution  time.Duration
+	outExprs      []expr.Expr
+	inExprs       []expr.Expr
+	subMergers    [][]expr.SubMerge
+	root          *node
+	bytes         int
+	length        int
+	mx            sync.RWMutex
 }
 
 type node struct {
@@ -31,8 +36,19 @@ type edge struct {
 }
 
 // New constructs a new Tree.
-func New() *Tree {
-	return &Tree{root: &node{}}
+func New(outResolution time.Duration, inResolution time.Duration, outExprs []expr.Expr, inExprs []expr.Expr) *Tree {
+	var subMergers [][]expr.SubMerge
+	for _, e := range outExprs {
+		subMergers = append(subMergers, e.SubMergers(inExprs))
+	}
+	return &Tree{
+		outResolution: outResolution,
+		inResolution:  inResolution,
+		outExprs:      outExprs,
+		inExprs:       inExprs,
+		subMergers:    subMergers,
+		root:          &node{},
+	}
 }
 
 // Bytes returns an estimate of the number of bytes stored in this Tree.
@@ -142,8 +158,8 @@ func (bt *Tree) Copy() *Tree {
 
 // Update updates all of the fields at the given timestamp with the given
 // parameters.
-func (bt *Tree) Update(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, key []byte, vals encoding.TSParams, metadata bytemap.ByteMap) int {
-	bytesAdded, newNode := bt.doUpdate(fields, resolution, truncateBefore, key, vals, metadata)
+func (bt *Tree) Update(key []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) int {
+	bytesAdded, newNode := bt.doUpdate(key, vals, metadata)
 	bt.bytes += bytesAdded
 	if newNode {
 		bt.length++
@@ -151,7 +167,7 @@ func (bt *Tree) Update(fields []sql.Field, resolution time.Duration, truncateBef
 	return bytesAdded
 }
 
-func (bt *Tree) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams, metadata bytemap.ByteMap) (int, bool) {
+func (bt *Tree) doUpdate(fullKey []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) (int, bool) {
 	n := bt.root
 	key := fullKey
 	// Try to update on existing edge
@@ -168,7 +184,7 @@ nodeLoop:
 			}
 			if i == keyLength && keyLength == labelLength {
 				// update existing node
-				return edge.target.doUpdate(fields, resolution, truncateBefore, fullKey, vals, metadata), false
+				return edge.target.doUpdate(bt, fullKey, vals, metadata), false
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
 				n = edge.target
@@ -176,31 +192,33 @@ nodeLoop:
 				continue nodeLoop
 			} else if i > 0 {
 				// common substring, split on that
-				return edge.split(bt, fields, resolution, truncateBefore, i, fullKey, key, vals, metadata), true
+				return edge.split(bt, i, fullKey, key, vals, metadata), true
 			}
 		}
 
 		// Create new edge
 		target := &node{key: fullKey}
 		n.edges = append(n.edges, &edge{key, target})
-		return target.doUpdate(fields, resolution, truncateBefore, fullKey, vals, metadata) + len(key), true
+		return target.doUpdate(bt, fullKey, vals, metadata) + len(key), true
 	}
 }
 
-func (n *node) doUpdate(fields []sql.Field, resolution time.Duration, truncateBefore time.Time, fullKey []byte, vals encoding.TSParams, metadata bytemap.ByteMap) int {
-	bytesAdded := 0
-	// Grow encoding.Sequences to match number of fields in table
-	if len(n.data) < len(fields) {
-		newData := make([]encoding.Sequence, len(fields))
-		copy(newData, n.data)
-		n.data = newData
+func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) int {
+	if n.data == nil {
+		n.data = make([]encoding.Sequence, len(bt.outExprs))
 	}
-	for i, field := range fields {
-		current := n.data[i]
-		previousSize := cap(current)
-		updated := current.Update(vals, metadata, field.Expr, resolution, truncateBefore)
-		n.data[i] = updated
-		bytesAdded += cap(updated) - previousSize
+	bytesAdded := 0
+	for o, subMergers := range bt.subMergers {
+		out := n.data[o]
+		outEx := bt.outExprs[o]
+		for i, submerge := range subMergers {
+			in := vals[i]
+			inEx := bt.inExprs[i]
+			previousSize := cap(out)
+			out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, time.Time{}, time.Time{})
+			n.data[o] = out
+			bytesAdded += cap(out) - previousSize
+		}
 	}
 	return bytesAdded
 }
@@ -229,7 +247,7 @@ func (n *node) doRemoveFor(bt *Tree, ctx int64) {
 	bt.mx.Unlock()
 }
 
-func (e *edge) split(bt *Tree, fields []sql.Field, resolution time.Duration, truncateBefore time.Time, splitOn int, fullKey []byte, key []byte, vals encoding.TSParams, metadata bytemap.ByteMap) int {
+func (e *edge) split(bt *Tree, splitOn int, fullKey []byte, key []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) int {
 	newNode := &node{edges: edges{&edge{e.label[splitOn:], e.target}}}
 	newLeaf := newNode
 	if splitOn != len(key) {
@@ -238,7 +256,7 @@ func (e *edge) split(bt *Tree, fields []sql.Field, resolution time.Duration, tru
 	}
 	e.label = e.label[:splitOn]
 	e.target = newNode
-	return len(key) - splitOn + newLeaf.doUpdate(fields, resolution, truncateBefore, fullKey, vals, metadata)
+	return len(key) - splitOn + newLeaf.doUpdate(bt, fullKey, vals, metadata)
 }
 
 type edges []*edge
