@@ -105,6 +105,7 @@ func TestFlattenSortAndLimit(t *testing.T) {
 	}
 	l.Connect(s)
 
+	// This contains the data, sorted, but missing the first and last entries
 	expectedTSs := []time.Time{
 		epoch, epoch.Add(-2 * resolution), epoch.Add(-2 * resolution), epoch.Add(-4 * resolution), epoch.Add(-4 * resolution), epoch.Add(-8 * resolution), epoch.Add(-8 * resolution),
 		epoch.Add(-9 * resolution), epoch.Add(-9 * resolution), epoch.Add(-5 * resolution), epoch.Add(-5 * resolution), epoch.Add(-3 * resolution), epoch.Add(-3 * resolution), epoch.Add(-1 * resolution),

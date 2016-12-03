@@ -76,6 +76,8 @@ func (j *Join) Connect(source Source) {
 }
 
 func (j *Join) iterateSerial(onRow OnRow) error {
+	onRow = lockingOnRow(onRow)
+
 	for _, source := range j.sources {
 		err := source.(RowSource).Iterate(onRow)
 		if err != nil {
@@ -87,6 +89,8 @@ func (j *Join) iterateSerial(onRow OnRow) error {
 }
 
 func (j *Join) iterateSerialFlat(onRow OnFlatRow) error {
+	onRow = lockingOnFlatRow(onRow)
+
 	for _, source := range j.sources {
 		err := source.(FlatRowSource).Iterate(onRow)
 		if err != nil {
@@ -98,18 +102,12 @@ func (j *Join) iterateSerialFlat(onRow OnFlatRow) error {
 }
 
 func (j *Join) iterateParallel(lock bool, onRow OnRow) error {
-	if lock {
-		var mx sync.Mutex
-		unlockedOnRow := onRow
-		onRow = func(key bytemap.ByteMap, vals Vals) {
-			mx.Lock()
-			unlockedOnRow(key, vals)
-			mx.Unlock()
-		}
-	}
-
 	if len(j.sources) == 1 {
 		return j.iterateSerial(onRow)
+	}
+
+	if lock {
+		onRow = lockingOnRow(onRow)
 	}
 
 	errors := make(chan error, len(j.sources))
@@ -136,18 +134,12 @@ func (j *Join) iterateParallel(lock bool, onRow OnRow) error {
 }
 
 func (j *Join) iterateParallelFlat(lock bool, onRow OnFlatRow) error {
-	if lock {
-		var mx sync.Mutex
-		unlockedOnRow := onRow
-		onRow = func(row *FlatRow) {
-			mx.Lock()
-			unlockedOnRow(row)
-			mx.Unlock()
-		}
-	}
-
 	if len(j.sources) == 1 {
 		return j.iterateSerialFlat(onRow)
+	}
+
+	if lock {
+		onRow = lockingOnFlatRow(onRow)
 	}
 
 	errors := make(chan error, len(j.sources))
@@ -171,4 +163,22 @@ func (j *Join) iterateParallelFlat(lock bool, onRow OnFlatRow) error {
 	}
 
 	return finalErr
+}
+
+func lockingOnRow(onRow OnRow) OnRow {
+	var mx sync.Mutex
+	return func(key bytemap.ByteMap, vals Vals) {
+		mx.Lock()
+		onRow(key, vals)
+		mx.Unlock()
+	}
+}
+
+func lockingOnFlatRow(onRow OnFlatRow) OnFlatRow {
+	var mx sync.Mutex
+	return func(row *FlatRow) {
+		mx.Lock()
+		onRow(row)
+		mx.Unlock()
+	}
 }
