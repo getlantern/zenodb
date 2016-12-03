@@ -1,0 +1,91 @@
+package pipeline
+
+import (
+	"github.com/getlantern/bytemap"
+)
+
+// Order represents an element in the ORDER BY clause such as "field DESC".
+type Order struct {
+	Field      string
+	Descending bool
+}
+
+type Sort struct {
+	Join
+	OrderBy []Order
+}
+
+func (f *Filter) Iterate(onRow OnRow) error {
+	return f.iterateParallel(func(key bytemap.ByteMap, vals Vals) {
+		if f.Include(key, vals) {
+			onRow(key, vals)
+		}
+	})
+}
+
+type row struct {
+	key  bytemap.ByteMap
+	vals Vals
+}
+
+func (row *Row) Get(param string) interface{} {
+	// First look at fields
+	for i, field := range row.fields {
+		if field.Name == param {
+			if row.Totals != nil {
+				return row.Totals[i]
+			}
+			return row.Values[i]
+		}
+	}
+
+	// Then look at dims
+	for i, dim := range row.groupBy {
+		if dim == param {
+			return row.Dims[i]
+		}
+	}
+
+	return nil
+}
+
+type orderedRows struct {
+	orderBy []sql.Order
+	rows    []*Row
+}
+
+func (r orderedRows) Len() int      { return len(r.rows) }
+func (r orderedRows) Swap(i, j int) { r.rows[i], r.rows[j] = r.rows[j], r.rows[i] }
+func (r orderedRows) Less(i, j int) bool {
+	a := r.rows[i]
+	b := r.rows[j]
+	for _, order := range r.orderBy {
+		// _time is a special case
+		if order.Field == "_time" {
+			ta := a.Period
+			tb := b.Period
+			if order.Descending {
+				ta, tb = tb, ta
+			}
+			if ta > tb {
+				return true
+			}
+			continue
+		}
+
+		// sort by field or dim
+		va := a.Get(order.Field)
+		vb := b.Get(order.Field)
+		if order.Descending {
+			va, vb = vb, va
+		}
+		result := compare(va, vb)
+		if result < 0 {
+			return true
+		}
+		if result > 0 {
+			return false
+		}
+	}
+	return false
+}
