@@ -127,19 +127,21 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	width := ex.EncodedWidth()
 	result = seq.Truncate(width, resolution, asOf, until)
 	otherUntil := other.Until()
+	newUntil := RoundTime(otherUntil, resolution)
 	if len(result) <= Width64bits {
 		result = NewSequence(width, 1)
-		result.SetUntil(otherUntil)
+		result.SetUntil(newUntil)
 	}
 
-	newUntil := RoundTime(otherUntil, resolution)
-	periodsToPrepend := int(newUntil.Sub(result.Until()) / resolution)
+	resultUntil := result.Until()
+	periodsToPrepend := int(newUntil.Sub(resultUntil) / resolution)
 	if periodsToPrepend > 0 {
 		prepended := NewSequence(width, periodsToPrepend)
 		prepended.SetUntil(newUntil)
 		// Append existing data
 		prepended = append(prepended, result[Width64bits:]...)
 		result = prepended
+		resultUntil = newUntil
 	}
 
 	newAsOf := RoundTime(other.AsOf(otherWidth, otherResolution), resolution)
@@ -153,8 +155,9 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	// We assume that resolution is a positive integer multiple of otherResolution
 	// (i.e. caller already checked this)
 	scale := int(resolution / otherResolution)
+	untilOffset := int(resultUntil.Sub(otherUntil) / otherResolution)
 	for po := 0; po < otherPeriods; po++ {
-		p := int(math.Floor(float64(po) / float64(scale)))
+		p := int(math.Floor(float64(po+untilOffset) / float64(scale)))
 		submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], metadata)
 	}
 	return
@@ -175,7 +178,7 @@ func (seq Sequence) Truncate(width int, resolution time.Duration, asOf time.Time
 		periodsToRemove := int(oldUntil.Sub(until) / resolution)
 		if periodsToRemove > 0 {
 			bytesToRemove := periodsToRemove * width
-			if bytesToRemove >= len(seq) {
+			if bytesToRemove+Width64bits >= len(seq) {
 				return nil
 			}
 			result = result[bytesToRemove:]
@@ -213,7 +216,7 @@ func (seq Sequence) String(e expr.Expr, resolution time.Duration) string {
 		if i > 0 {
 			values += " "
 		}
-		val, _ := seq.ValueAt(i, e)
+		val, _ := seq.ValueAt(numPeriods-1-i, e)
 		values += fmt.Sprint(val)
 	}
 	return fmt.Sprintf("%v from %v -> %v: %v", e, seq.AsOf(e.EncodedWidth(), resolution).In(time.UTC), seq.Until().In(time.UTC), values)
