@@ -12,11 +12,13 @@ import (
 )
 
 type Tree struct {
-	outResolution time.Duration
-	inResolution  time.Duration
 	outExprs      []expr.Expr
 	inExprs       []expr.Expr
 	subMergers    [][]expr.SubMerge
+	outResolution time.Duration
+	inResolution  time.Duration
+	asOf          time.Time
+	until         time.Time
 	root          *node
 	bytes         int
 	length        int
@@ -36,17 +38,26 @@ type edge struct {
 }
 
 // New constructs a new Tree.
-func New(outResolution time.Duration, inResolution time.Duration, outExprs []expr.Expr, inExprs []expr.Expr) *Tree {
+func New(
+	outExprs []expr.Expr,
+	inExprs []expr.Expr,
+	outResolution time.Duration,
+	inResolution time.Duration,
+	asOf time.Time,
+	until time.Time,
+) *Tree {
 	var subMergers [][]expr.SubMerge
 	for _, e := range outExprs {
 		subMergers = append(subMergers, e.SubMergers(inExprs))
 	}
 	return &Tree{
-		outResolution: outResolution,
-		inResolution:  inResolution,
 		outExprs:      outExprs,
 		inExprs:       inExprs,
 		subMergers:    subMergers,
+		outResolution: outResolution,
+		inResolution:  inResolution,
+		asOf:          asOf,
+		until:         until,
 		root:          &node{},
 	}
 }
@@ -215,7 +226,7 @@ func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, meta
 			in := vals[i]
 			inEx := bt.inExprs[i]
 			previousSize := cap(out)
-			out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, time.Time{}, time.Time{})
+			out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, bt.asOf, bt.until)
 			n.data[o] = out
 			bytesAdded += cap(out) - previousSize
 		}

@@ -30,6 +30,9 @@ func TestSequenceFull(t *testing.T) {
 		seqIn.UpdateValueAt(i, eIn, params, nil)
 	}
 
+	asOf := epoch.Add(-100 * resolutionIn)
+	until := epoch
+
 	for _, seqOut := range []Sequence{NewSequence(widthOut, 5), nil} {
 		if seqOut != nil {
 			seqOut.SetUntil(epoch.Add(-2 * resolutionOut))
@@ -41,7 +44,7 @@ func TestSequenceFull(t *testing.T) {
 		assert.Equal(t, epoch, seqIn.Until().In(time.UTC))
 		assert.Equal(t, epoch.Add(-100*resolutionIn).In(time.UTC), seqIn.AsOf(widthIn, resolutionIn).In(time.UTC))
 
-		merged := seqOut.SubMerge(seqIn, nil, resolutionOut, resolutionIn, eOut, eIn, submergers[0], time.Time{}, time.Time{})
+		merged := seqOut.SubMerge(seqIn, nil, resolutionOut, resolutionIn, eOut, eIn, submergers[0], asOf, until)
 		assert.Equal(t, RoundTime(seqIn.Until().In(time.UTC), resolutionOut), merged.Until().In(time.UTC))
 		assert.Equal(t, RoundTime(seqIn.AsOf(widthIn, resolutionIn).In(time.UTC), resolutionOut), merged.AsOf(widthOut, resolutionOut).In(time.UTC))
 

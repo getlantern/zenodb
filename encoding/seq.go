@@ -167,7 +167,7 @@ func (seq Sequence) Truncate(width int, resolution time.Duration, asOf time.Time
 		return nil
 	}
 	result = seq
-	asOf = RoundTime(until, resolution)
+	asOf = RoundTime(asOf, resolution)
 	until = RoundTime(until, resolution)
 	oldUntil := result.Until()
 
