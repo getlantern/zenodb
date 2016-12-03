@@ -17,14 +17,42 @@ type Group struct {
 	Until      time.Time
 }
 
+func (g *Group) GetFields() Fields {
+	if len(g.Fields) == 0 {
+		return g.Join.GetFields()
+	}
+	return g.Fields
+}
+
+func (g *Group) GetResolution() time.Duration {
+	if g.Resolution == 0 {
+		return g.Join.GetResolution()
+	}
+	return g.Resolution
+}
+
+func (g *Group) GetAsOf() time.Time {
+	if g.AsOf.IsZero() {
+		return g.Join.GetAsOf()
+	}
+	return g.AsOf
+}
+
+func (g *Group) GetUntil() time.Time {
+	if g.Until.IsZero() {
+		return g.Join.GetAsOf()
+	}
+	return g.Until
+}
+
 func (g *Group) Iterate(onRow OnRow) error {
 	bt := bytetree.New(
-		fieldsToExprs(g.Fields),
-		fieldsToExprs(g.sources[0].Fields()), // todo: consider all sources
-		g.Resolution,
-		g.sources[0].Resolution(),
-		g.AsOf,
-		g.Until,
+		fieldsToExprs(g.GetFields()),
+		fieldsToExprs(g.Join.GetFields()), // todo: consider all sources
+		g.GetResolution(),
+		g.Join.GetResolution(),
+		g.GetAsOf(),
+		g.GetUntil(),
 	)
 
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
@@ -39,7 +67,7 @@ func (g *Group) Iterate(onRow OnRow) error {
 		}
 	}
 
-	err := g.iterateParallel(func(key bytemap.ByteMap, vals Vals) {
+	err := g.iterateParallel(true, func(key bytemap.ByteMap, vals Vals) {
 		metadata := key
 		key = sliceKey(key)
 		bt.Update(key, vals, metadata)

@@ -5,45 +5,28 @@ import (
 	"time"
 )
 
-type FlatRow struct {
-	TS  int64
-	Key bytemap.ByteMap
-	// Values for each field
-	Values []float64
-	// For crosstab queries, this contains the total value for each field
-	Totals []float64
-	fields []Field
-}
-
-// Get implements the interface method from goexpr.Params
-func (row *FlatRow) Get(param string) interface{} {
-	// First look at values
-	for i, field := range row.fields {
-		if field.Name == param {
-			return row.Values[i]
-		}
-	}
-
-	// Then look at key
-	return row.Key.Get(param)
-}
-
 type Flatten struct {
 	Join
 }
 
-func (f *Flatten) Iterate(onRow func(row *FlatRow)) error {
-	// TODO: this assumes that all sources have same metadata, should check here
-	// to make sure.
-	fields := f.sources[0].Fields()
+func (f *Flatten) Iterate(onRow OnFlatRow) error {
+	fields := f.GetFields()
 	numFields := len(fields)
-	resolution := f.sources[0].Resolution()
-	return f.iterateParallel(func(key bytemap.ByteMap, vals Vals) {
-		var until time.Time{}
-		var asOf time.Time{}
+	resolution := f.GetResolution()
+
+	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) {
+		var until time.Time
+		var asOf time.Time
+		// Figure out total time range
 		for i, field := range fields {
-			newUntil := vals[0].Until()
-			newAsOf := vals[0].AsOf(field.Expr.EncodedWidth(), resolution)
+			val := vals[i]
+			e := field.Expr
+			width := e.EncodedWidth()
+			if val.NumPeriods(width) == 0 {
+				continue
+			}
+			newUntil := val.Until()
+			newAsOf := val.AsOf(width, resolution)
 			if newUntil.After(until) {
 				until = newUntil
 			}
@@ -51,20 +34,28 @@ func (f *Flatten) Iterate(onRow func(row *FlatRow)) error {
 				asOf = newAsOf
 			}
 		}
+
+		// Iterate
 		ts := asOf
-		for ;!ts.After(until); ts = ts.Add(resolution) {
+		for ; !ts.After(until); ts = ts.Add(resolution) {
+			tsNanos := ts.UnixNano()
 			row := &FlatRow{
-				TS: ts,
-				Key: key,
+				TS:     tsNanos,
+				Key:    key,
 				Values: make([]float64, numFields),
 				fields: fields,
 			}
+			anyValueFound := false
 			for i, field := range fields {
-				val, _ := vals[i].ValueAtTime(ts, e, resolution)
-				row.Values
-		}
-		if f.Include(key, vals) {
-			onRow(key, vals)
+				val, found := vals[i].ValueAtTime(ts, field.Expr, resolution)
+				if found {
+					anyValueFound = true
+				}
+				row.Values[i] = val
+			}
+			if anyValueFound {
+				onRow(row)
+			}
 		}
 	})
 }

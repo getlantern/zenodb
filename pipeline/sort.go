@@ -2,12 +2,27 @@ package pipeline
 
 import (
 	"github.com/getlantern/bytemap"
+	"sort"
 )
 
-// Order represents an element in the ORDER BY clause such as "field DESC".
+// Order specifies an element by whith to order (element being ither a field
+// name or the name of a dimension in the row key).
 type Order struct {
 	Field      string
 	Descending bool
+}
+
+// Get implements the interface method from goexpr.Params
+func (row *FlatRow) Get(param string) interface{} {
+	// First look at values
+	for i, field := range row.fields {
+		if field.Name == param {
+			return row.Values[i]
+		}
+	}
+
+	// Then look at key
+	return row.Key.Get(param)
 }
 
 type Sort struct {
@@ -15,12 +30,18 @@ type Sort struct {
 	OrderBy []Order
 }
 
-func (f *Filter) Iterate(onRow OnRow) error {
-	return f.iterateParallel(func(key bytemap.ByteMap, vals Vals) {
-		if f.Include(key, vals) {
-			onRow(key, vals)
-		}
+func (s *Sort) Iterate(onRow OnFlatRow) error {
+	rows := orderedRows{
+		orderBy: s.OrderBy,
+	}
+	err := s.iterateParallelFlat(true, func(row *FlatRow) {
+		rows.rows = append(rows.rows, row)
 	})
+	sort.Sort(rows)
+	for _, row := range rows.rows {
+		onRow(row)
+	}
+	return err
 }
 
 type row struct {
@@ -28,30 +49,9 @@ type row struct {
 	vals Vals
 }
 
-func (row *Row) Get(param string) interface{} {
-	// First look at fields
-	for i, field := range row.fields {
-		if field.Name == param {
-			if row.Totals != nil {
-				return row.Totals[i]
-			}
-			return row.Values[i]
-		}
-	}
-
-	// Then look at dims
-	for i, dim := range row.groupBy {
-		if dim == param {
-			return row.Dims[i]
-		}
-	}
-
-	return nil
-}
-
 type orderedRows struct {
-	orderBy []sql.Order
-	rows    []*Row
+	orderBy []Order
+	rows    []*FlatRow
 }
 
 func (r orderedRows) Len() int      { return len(r.rows) }
@@ -62,8 +62,8 @@ func (r orderedRows) Less(i, j int) bool {
 	for _, order := range r.orderBy {
 		// _time is a special case
 		if order.Field == "_time" {
-			ta := a.Period
-			tb := b.Period
+			ta := a.TS
+			tb := b.TS
 			if order.Descending {
 				ta, tb = tb, ta
 			}

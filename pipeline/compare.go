@@ -1,17 +1,8 @@
-package zenodb
+package pipeline
 
 import (
 	"time"
 )
-
-type orderedValues []interface{}
-
-func (v orderedValues) Len() int      { return len(v) }
-func (v orderedValues) Swap(i, j int) { v[i], v[j] = v[j], v[i] }
-func (v orderedValues) Less(i, j int) bool {
-	result := compare(v[i], v[j])
-	return result < 0
-}
 
 func compare(a interface{}, b interface{}) int {
 	if a == nil {

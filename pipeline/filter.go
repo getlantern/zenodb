@@ -10,7 +10,7 @@ type Filter struct {
 }
 
 func (f *Filter) Iterate(onRow OnRow) error {
-	return f.iterateParallel(func(key bytemap.ByteMap, vals Vals) {
+	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) {
 		if f.Include(key, vals) {
 			onRow(key, vals)
 		}

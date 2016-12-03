@@ -71,6 +71,22 @@ func (seq Sequence) DataLength() int {
 	return len(seq) - Width64bits
 }
 
+// ValueAtTime returns the value at the given time within this sequence,
+// extracted using the given Expr and assuming each period represents 1 *
+// resolution. If no value is set for the given time, found will be false.
+func (seq Sequence) ValueAtTime(t time.Time, e expr.Expr, resolution time.Duration) (val float64, found bool) {
+	if len(seq) == 0 {
+		return 0, false
+	}
+	t = RoundTime(t, resolution)
+	until := seq.Until()
+	if t.After(until) {
+		return 0, false
+	}
+	period := int(until.Sub(t) / resolution)
+	return seq.ValueAt(period, e)
+}
+
 // ValueAt returns the value at the given period extracted using the given Expr.
 // If no value is set for the given period, found will be false.
 func (seq Sequence) ValueAt(period int, e expr.Expr) (val float64, found bool) {
