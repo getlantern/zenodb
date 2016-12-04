@@ -6,7 +6,7 @@ import (
 
 type Filter struct {
 	Join
-	Include func(dims bytemap.ByteMap, vals Vals) bool
+	Include func(key bytemap.ByteMap, vals Vals) bool
 }
 
 func (f *Filter) Iterate(onRow OnRow) error {

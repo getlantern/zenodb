@@ -56,10 +56,12 @@ type Source interface {
 }
 
 type RowSource interface {
+	Source
 	Iterate(onRow OnRow) error
 }
 
 type FlatRowSource interface {
+	Source
 	Iterate(onRow OnFlatRow) error
 }
 

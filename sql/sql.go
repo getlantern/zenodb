@@ -112,7 +112,9 @@ func (sq *SubQuery) Values() []goexpr.Expr {
 type Query struct {
 	SQL string
 	// Fields are the fields from the SELECT clause in the order they appear.
-	Fields []core.Field
+	Fields            []core.Field
+	HasSelectAll      bool
+	HasSpecificFields bool
 	// From is the Table from the FROM clause
 	From         string
 	FromSubQuery *Query
@@ -245,11 +247,13 @@ func (q *Query) applySelect(stmt *sqlparser.Select) error {
 		}
 		switch e := _e.(type) {
 		case *sqlparser.StarExpr:
+			q.HasSelectAll = true
 			for _, field := range q.knownFields {
 				q.addField(field)
 				q.includedFields[field.Name] = true
 			}
 		case *sqlparser.NonStarExpr:
+			q.HasSpecificFields = true
 			if len(e.As) == 0 {
 				col, isColName := e.Expr.(*sqlparser.ColName)
 				if !isColName {
