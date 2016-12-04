@@ -31,12 +31,12 @@ func (row *FlatRow) Get(param string) interface{} {
 	return row.Key.Get(param)
 }
 
-func Sort(by ...OrderBy) ConnectableFlatRowSource {
+func Sort(by ...OrderBy) FlatToFlat {
 	return &sorter{by: by}
 }
 
 type sorter struct {
-	Join
+	flatRowConnectable
 	by []OrderBy
 }
 
@@ -44,7 +44,7 @@ func (s *sorter) Iterate(onRow OnFlatRow) error {
 	rows := orderedRows{
 		orderBy: s.by,
 	}
-	err := s.iterateParallelFlat(true, func(row *FlatRow) {
+	err := s.iterateParallel(true, func(row *FlatRow) {
 		rows.rows = append(rows.rows, row)
 	})
 	sort.Sort(rows)

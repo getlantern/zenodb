@@ -60,51 +60,60 @@ type RowSource interface {
 	Iterate(onRow OnRow) error
 }
 
-type ConnectableRowSource interface {
-	RowSource
-	Connect(source Source)
-}
-
 type FlatRowSource interface {
 	Source
 	Iterate(onRow OnFlatRow) error
 }
 
-type ConnectableFlatRowSource interface {
-	FlatRowSource
-	Connect(source Source)
+type RowToRow interface {
+	RowSource
+	Connect(source RowSource)
 }
 
-type Join struct {
+type RowToFlat interface {
+	FlatRowSource
+	Connect(source RowSource)
+}
+
+type FlatToFlat interface {
+	FlatRowSource
+	Connect(source FlatRowSource)
+}
+
+type connectable struct {
 	sources []Source
 }
 
-// TODO: Join assumes that the metadata for all sources is the same, we should
-// add validation about this.
-func (j *Join) GetFields() Fields {
-	return j.sources[0].GetFields()
+// TODO: Connectable assumes that the metadata for all sources is the same, we
+// should add validation about this.
+func (c *connectable) GetFields() Fields {
+	return c.sources[0].GetFields()
 }
 
-func (j *Join) GetResolution() time.Duration {
-	return j.sources[0].GetResolution()
+func (c *connectable) GetResolution() time.Duration {
+	return c.sources[0].GetResolution()
 }
 
-func (j *Join) GetAsOf() time.Time {
-	return j.sources[0].GetAsOf()
+func (c *connectable) GetAsOf() time.Time {
+	return c.sources[0].GetAsOf()
 }
 
-func (j *Join) GetUntil() time.Time {
-	return j.sources[0].GetUntil()
+func (c *connectable) GetUntil() time.Time {
+	return c.sources[0].GetUntil()
 }
 
-func (j *Join) Connect(source Source) {
-	j.sources = append(j.sources, source)
+type rowConnectable struct {
+	connectable
 }
 
-func (j *Join) iterateSerial(onRow OnRow) error {
+func (c *rowConnectable) Connect(source RowSource) {
+	c.sources = append(c.sources, source)
+}
+
+func (c *rowConnectable) iterateSerial(onRow OnRow) error {
 	onRow = lockingOnRow(onRow)
 
-	for _, source := range j.sources {
+	for _, source := range c.sources {
 		err := source.(RowSource).Iterate(onRow)
 		if err != nil {
 			return err
@@ -114,31 +123,18 @@ func (j *Join) iterateSerial(onRow OnRow) error {
 	return nil
 }
 
-func (j *Join) iterateSerialFlat(onRow OnFlatRow) error {
-	onRow = lockingOnFlatRow(onRow)
-
-	for _, source := range j.sources {
-		err := source.(FlatRowSource).Iterate(onRow)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (j *Join) iterateParallel(lock bool, onRow OnRow) error {
-	if len(j.sources) == 1 {
-		return j.iterateSerial(onRow)
+func (c *rowConnectable) iterateParallel(lock bool, onRow OnRow) error {
+	if len(c.sources) == 1 {
+		return c.iterateSerial(onRow)
 	}
 
 	if lock {
 		onRow = lockingOnRow(onRow)
 	}
 
-	errors := make(chan error, len(j.sources))
+	errors := make(chan error, len(c.sources))
 
-	for _, s := range j.sources {
+	for _, s := range c.sources {
 		source := s
 		go func() {
 			errors <- source.(RowSource).Iterate(func(key bytemap.ByteMap, vals Vals) {
@@ -149,7 +145,7 @@ func (j *Join) iterateParallel(lock bool, onRow OnRow) error {
 
 	// TODO: add timeout handling
 	var finalErr error
-	for range j.sources {
+	for range c.sources {
 		err := <-errors
 		if err != nil {
 			finalErr = err
@@ -159,18 +155,43 @@ func (j *Join) iterateParallel(lock bool, onRow OnRow) error {
 	return finalErr
 }
 
-func (j *Join) iterateParallelFlat(lock bool, onRow OnFlatRow) error {
-	if len(j.sources) == 1 {
-		return j.iterateSerialFlat(onRow)
+type flatRowConnectable struct {
+	connectable
+}
+
+func (c *flatRowConnectable) Connect(source FlatRowSource) {
+	c.sources = append(c.sources, source)
+}
+
+func (c *flatRowConnectable) getSource(i int) Source {
+	return c.sources[i]
+}
+
+func (c *flatRowConnectable) iterateSerial(onRow OnFlatRow) error {
+	onRow = lockingOnFlatRow(onRow)
+
+	for _, source := range c.sources {
+		err := source.(FlatRowSource).Iterate(onRow)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (c *flatRowConnectable) iterateParallel(lock bool, onRow OnFlatRow) error {
+	if len(c.sources) == 1 {
+		return c.iterateSerial(onRow)
 	}
 
 	if lock {
 		onRow = lockingOnFlatRow(onRow)
 	}
 
-	errors := make(chan error, len(j.sources))
+	errors := make(chan error, len(c.sources))
 
-	for _, s := range j.sources {
+	for _, s := range c.sources {
 		source := s
 		go func() {
 			errors <- source.(FlatRowSource).Iterate(func(flatRow *FlatRow) {
@@ -181,7 +202,7 @@ func (j *Join) iterateParallelFlat(lock bool, onRow OnFlatRow) error {
 
 	// TODO: add timeout handling
 	var finalErr error
-	for range j.sources {
+	for range c.sources {
 		err := <-errors
 		if err != nil {
 			finalErr = err

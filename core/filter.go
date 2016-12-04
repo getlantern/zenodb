@@ -6,12 +6,12 @@ import (
 
 type IncludeTest func(key bytemap.ByteMap, vals Vals) bool
 
-func Filter(include IncludeTest) ConnectableRowSource {
+func Filter(include IncludeTest) RowToRow {
 	return &filter{Include: include}
 }
 
 type filter struct {
-	Join
+	rowConnectable
 	Include IncludeTest
 }
 

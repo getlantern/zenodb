@@ -29,7 +29,7 @@ func (g GroupBy) String() string {
 }
 
 type Group struct {
-	Join
+	rowConnectable
 	By         []GroupBy
 	Fields     Fields
 	Resolution time.Duration
@@ -39,14 +39,14 @@ type Group struct {
 
 func (g *Group) GetFields() Fields {
 	if len(g.Fields) == 0 {
-		return g.Join.GetFields()
+		return g.rowConnectable.GetFields()
 	}
 	return g.Fields
 }
 
 func (g *Group) GetResolution() time.Duration {
 	if g.Resolution == 0 {
-		return g.Join.GetResolution()
+		return g.rowConnectable.GetResolution()
 	}
 	return g.Resolution
 }
@@ -54,7 +54,7 @@ func (g *Group) GetResolution() time.Duration {
 func (g *Group) GetAsOf() time.Time {
 	asOf := g.AsOf
 	if asOf.IsZero() {
-		asOf = g.Join.GetAsOf()
+		asOf = g.rowConnectable.GetAsOf()
 	}
 	until := g.GetUntil()
 	resolution := g.GetResolution()
@@ -67,7 +67,7 @@ func (g *Group) GetAsOf() time.Time {
 
 func (g *Group) GetUntil() time.Time {
 	if g.Until.IsZero() {
-		return g.Join.GetUntil()
+		return g.rowConnectable.GetUntil()
 	}
 	return g.Until
 }
@@ -75,9 +75,9 @@ func (g *Group) GetUntil() time.Time {
 func (g *Group) Iterate(onRow OnRow) error {
 	bt := bytetree.New(
 		fieldsToExprs(g.GetFields()),
-		fieldsToExprs(g.Join.GetFields()), // todo: consider all sources
+		fieldsToExprs(g.rowConnectable.GetFields()), // todo: consider all sources
 		g.GetResolution(),
-		g.Join.GetResolution(),
+		g.rowConnectable.GetResolution(),
 		g.GetAsOf(),
 		g.GetUntil(),
 	)

@@ -5,12 +5,12 @@ import (
 	"time"
 )
 
-func Flatten() ConnectableFlatRowSource {
+func Flatten() RowToFlat {
 	return &flatten{}
 }
 
 type flatten struct {
-	Join
+	rowConnectable
 }
 
 func (f *flatten) Iterate(onRow OnFlatRow) error {
