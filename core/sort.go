@@ -1,7 +1,6 @@
 package core
 
 import (
-	"github.com/getlantern/bytemap"
 	"sort"
 )
 
@@ -32,14 +31,18 @@ func (row *FlatRow) Get(param string) interface{} {
 	return row.Key.Get(param)
 }
 
-type Sort struct {
-	Join
-	By []OrderBy
+func Sort(by ...OrderBy) ConnectableFlatRowSource {
+	return &sorter{by: by}
 }
 
-func (s *Sort) Iterate(onRow OnFlatRow) error {
+type sorter struct {
+	Join
+	by []OrderBy
+}
+
+func (s *sorter) Iterate(onRow OnFlatRow) error {
 	rows := orderedRows{
-		orderBy: s.By,
+		orderBy: s.by,
 	}
 	err := s.iterateParallelFlat(true, func(row *FlatRow) {
 		rows.rows = append(rows.rows, row)
@@ -49,11 +52,6 @@ func (s *Sort) Iterate(onRow OnFlatRow) error {
 		onRow(row)
 	}
 	return err
-}
-
-type row struct {
-	key  bytemap.ByteMap
-	vals Vals
 }
 
 type orderedRows struct {

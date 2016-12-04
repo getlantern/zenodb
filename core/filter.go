@@ -4,12 +4,18 @@ import (
 	"github.com/getlantern/bytemap"
 )
 
-type Filter struct {
-	Join
-	Include func(key bytemap.ByteMap, vals Vals) bool
+type IncludeTest func(key bytemap.ByteMap, vals Vals) bool
+
+func Filter(include IncludeTest) ConnectableRowSource {
+	return &filter{Include: include}
 }
 
-func (f *Filter) Iterate(onRow OnRow) error {
+type filter struct {
+	Join
+	Include IncludeTest
+}
+
+func (f *filter) Iterate(onRow OnRow) error {
 	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) {
 		if f.Include(key, vals) {
 			onRow(key, vals)

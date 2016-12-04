@@ -60,9 +60,19 @@ type RowSource interface {
 	Iterate(onRow OnRow) error
 }
 
+type ConnectableRowSource interface {
+	RowSource
+	Connect(source Source)
+}
+
 type FlatRowSource interface {
 	Source
 	Iterate(onRow OnFlatRow) error
+}
+
+type ConnectableFlatRowSource interface {
+	FlatRowSource
+	Connect(source Source)
 }
 
 type Join struct {

@@ -5,11 +5,15 @@ import (
 	"time"
 )
 
-type Flatten struct {
+func Flatten() ConnectableFlatRowSource {
+	return &flatten{}
+}
+
+type flatten struct {
 	Join
 }
 
-func (f *Flatten) Iterate(onRow OnFlatRow) error {
+func (f *flatten) Iterate(onRow OnFlatRow) error {
 	fields := f.GetFields()
 	numFields := len(fields)
 	resolution := f.GetResolution()

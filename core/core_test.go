@@ -26,12 +26,10 @@ var (
 )
 
 func TestFilter(t *testing.T) {
-	f := &Filter{
-		Include: func(dims bytemap.ByteMap, vals Vals) bool {
-			x := dims.Get("x")
-			return x != nil && x.(int)%2 == 0
-		},
-	}
+	f := Filter(func(dims bytemap.ByteMap, vals Vals) bool {
+		x := dims.Get("x")
+		return x != nil && x.(int)%2 == 0
+	})
 
 	f.Connect(&goodSource{})
 	f.Connect(&goodSource{})
@@ -125,20 +123,15 @@ func TestGroupNone(t *testing.T) {
 }
 
 func TestFlattenSortAndLimit(t *testing.T) {
-	f := &Flatten{}
+	f := Flatten()
 	f.Connect(&goodSource{})
 	f.Connect(&goodSource{})
 	f.Connect(&errorSource{})
 
-	s := &Sort{
-		By: []OrderBy{NewOrderBy("b", true), NewOrderBy("a", false)},
-	}
+	s := Sort(NewOrderBy("b", true), NewOrderBy("a", false))
 	s.Connect(f)
 
-	l := &Limit{
-		Offset: 1,
-		Limit:  14,
-	}
+	l := Limit(1, 14)
 	l.Connect(s)
 
 	// This contains the data, sorted, but missing the first and last entries
