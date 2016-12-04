@@ -88,42 +88,6 @@ var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CONCAT": goexpr.Concat,
 }
 
-// Field is a named Expr.
-type Field struct {
-	Expr expr.Expr
-	Name string
-}
-
-// NewField is a convenience method for creating new Fields.
-func NewField(name string, ex expr.Expr) Field {
-	return Field{
-		Expr: ex,
-		Name: name,
-	}
-}
-
-func (f Field) String() string {
-	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
-}
-
-// GroupBy is a named goexpr.Expr.
-type GroupBy struct {
-	Expr goexpr.Expr
-	Name string
-}
-
-// NewGroupBy is a convenience method for creating new Fields.
-func NewGroupBy(name string, ex goexpr.Expr) GroupBy {
-	return GroupBy{
-		Expr: ex,
-		Name: name,
-	}
-}
-
-func (g GroupBy) String() string {
-	return fmt.Sprintf("%v (%v)", g.Name, g.Expr)
-}
-
 // Order represents an element in the ORDER BY clause such as "field DESC".
 type Order struct {
 	Field      string

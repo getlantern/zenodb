@@ -1,4 +1,4 @@
-package pipeline
+package core
 
 import (
 	"sync/atomic"

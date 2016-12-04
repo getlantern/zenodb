@@ -1,8 +1,10 @@
-package pipeline
+package core
 
 import (
 	"errors"
+	"fmt"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/stretchr/testify/assert"
@@ -50,10 +52,10 @@ func TestFilter(t *testing.T) {
 	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
 }
 
-func TestGroup(t *testing.T) {
+func TestGroupSingle(t *testing.T) {
 	eTotal := ADD(eA, eB)
 	gx := &Group{
-		Dims: []string{"x"},
+		By: []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
 		Fields: Fields{
 			Field{
 				Name: "total",
@@ -70,19 +72,56 @@ func TestGroup(t *testing.T) {
 	gx.Connect(&errorSource{})
 
 	totalByX := make(map[int]float64, 0)
-	err := gx.Iterate(func(dims bytemap.ByteMap, vals Vals) {
+	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) {
 		total := float64(0)
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
 			val, _ := v.ValueAt(p, eTotal)
 			total += val
 		}
-		totalByX[dims.Get("x").(int)] = total
+		totalByX[key.Get("x").(int)] = total
 	})
 
 	assert.Equal(t, errTest, err, "Error should have propagated")
 	assert.EqualValues(t, 240, totalByX[1])
 	assert.EqualValues(t, 280, totalByX[2])
+}
+
+func TestGroupNone(t *testing.T) {
+	eTotal := ADD(eA, eB)
+	gx := &Group{
+		Fields: Fields{
+			Field{
+				Name: "total",
+				Expr: eTotal,
+			},
+		},
+		Resolution: resolution * 10,
+	}
+
+	gx.Connect(&goodSource{})
+	gx.Connect(&goodSource{})
+	gx.Connect(&errorSource{})
+
+	expectedValues := map[string]float64{
+		"1.1": (10 + 70) * 2,
+		"1.3": (50) * 2,
+		"1.5": (90) * 2,
+		"2.2": (100) * 2,
+		"2.3": (20 + 80) * 2,
+		"2.5": (60) * 2,
+	}
+
+	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) {
+		dims := fmt.Sprintf("%d.%d", key.Get("x"), key.Get("y"))
+		val, _ := vals[0].ValueAt(0, eTotal)
+		expectedVal := expectedValues[dims]
+		delete(expectedValues, dims)
+		assert.Equal(t, expectedVal, val, dims)
+	})
+
+	assert.Equal(t, errTest, err, "Error should have propagated")
+	assert.Empty(t, expectedValues, "All combinations should have been seen")
 }
 
 func TestFlattenSortAndLimit(t *testing.T) {
@@ -92,10 +131,7 @@ func TestFlattenSortAndLimit(t *testing.T) {
 	f.Connect(&errorSource{})
 
 	s := &Sort{
-		OrderBy: []Order{
-			Order{Field: "b", Descending: true},
-			Order{Field: "a"},
-		},
+		By: []OrderBy{NewOrderBy("b", true), NewOrderBy("a", false)},
 	}
 	s.Connect(f)
 
@@ -130,16 +166,7 @@ func TestFlattenSortAndLimit(t *testing.T) {
 type testSource struct{}
 
 func (s *testSource) GetFields() Fields {
-	return Fields{
-		Field{
-			Name: "a",
-			Expr: eA,
-		},
-		Field{
-			Name: "b",
-			Expr: eB,
-		},
-	}
+	return Fields{NewField("a", eA), NewField("b", eB)}
 }
 
 func (s *testSource) GetResolution() time.Duration {

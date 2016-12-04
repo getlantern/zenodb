@@ -1,15 +1,22 @@
-package pipeline
+package core
 
 import (
 	"github.com/getlantern/bytemap"
 	"sort"
 )
 
-// Order specifies an element by whith to order (element being ither a field
+// OrderBy specifies an element by whith to order (element being ither a field
 // name or the name of a dimension in the row key).
-type Order struct {
+type OrderBy struct {
 	Field      string
 	Descending bool
+}
+
+func NewOrderBy(field string, descending bool) OrderBy {
+	return OrderBy{
+		Field:      field,
+		Descending: descending,
+	}
 }
 
 // Get implements the interface method from goexpr.Params
@@ -27,12 +34,12 @@ func (row *FlatRow) Get(param string) interface{} {
 
 type Sort struct {
 	Join
-	OrderBy []Order
+	By []OrderBy
 }
 
 func (s *Sort) Iterate(onRow OnFlatRow) error {
 	rows := orderedRows{
-		orderBy: s.OrderBy,
+		orderBy: s.By,
 	}
 	err := s.iterateParallelFlat(true, func(row *FlatRow) {
 		rows.rows = append(rows.rows, row)
@@ -50,7 +57,7 @@ type row struct {
 }
 
 type orderedRows struct {
-	orderBy []Order
+	orderBy []OrderBy
 	rows    []*FlatRow
 }
 

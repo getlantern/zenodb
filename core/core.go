@@ -1,6 +1,7 @@
-package pipeline
+package core
 
 import (
+	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
@@ -8,9 +9,22 @@ import (
 	"time"
 )
 
+// Field is a named expr.Expr
 type Field struct {
 	Expr expr.Expr
 	Name string
+}
+
+// NewField is a convenience method for creating new Fields.
+func NewField(name string, ex expr.Expr) Field {
+	return Field{
+		Expr: ex,
+		Name: name,
+	}
+}
+
+func (f Field) String() string {
+	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
 }
 
 type Fields []Field
