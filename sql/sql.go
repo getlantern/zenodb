@@ -15,13 +15,14 @@ import (
 	"github.com/getlantern/goexpr/isp"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/sqlparser"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/expr"
 )
 
 var (
 	log = golog.LoggerFor("zenodb.sql")
 
-	pointsField = NewField("_points", expr.SUM("_point"))
+	pointsField = core.NewField("_points", expr.SUM("_point"))
 )
 
 var (
@@ -88,12 +89,6 @@ var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CONCAT": goexpr.Concat,
 }
 
-// Order represents an element in the ORDER BY clause such as "field DESC".
-type Order struct {
-	Field      string
-	Descending bool
-}
-
 // SubQuery is a placeholder for a sub query within a query. Executors of a
 // query should first execute all SubQueries and then call SetResult to set the
 // results of the subquery. The subquery
@@ -117,7 +112,7 @@ func (sq *SubQuery) Values() []goexpr.Expr {
 type Query struct {
 	SQL string
 	// Fields are the fields from the SELECT clause in the order they appear.
-	Fields []Field
+	Fields []core.Field
 	// From is the Table from the FROM clause
 	From         string
 	FromSubQuery *Query
@@ -129,12 +124,12 @@ type Query struct {
 	Until        time.Time
 	UntilOffset  time.Duration
 	// GroupBy are the GroupBy expressions ordered alphabetically by name.
-	GroupBy    []GroupBy
+	GroupBy    []core.GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
 	Crosstab   goexpr.Expr
 	Having     expr.Expr
-	OrderBy    []Order
+	OrderBy    []core.OrderBy
 	Offset     int
 	Limit      int
 	SubQueries []*SubQuery
@@ -145,15 +140,15 @@ type Query struct {
 	IncludedDims []string
 	includedDims map[string]bool
 	fieldSource  FieldSource
-	knownFields  []Field
-	fieldsMap    map[string]Field
+	knownFields  []core.Field
+	fieldsMap    map[string]core.Field
 }
 
 // FieldSource is a function that returns the known fields for a given table.
-type FieldSource func(table string) ([]Field, error)
+type FieldSource func(table string) ([]core.Field, error)
 
-func noopFieldSource(table string) ([]Field, error) {
-	return []Field{}, nil
+func noopFieldSource(table string) ([]core.Field, error) {
+	return []core.Field{}, nil
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -182,7 +177,7 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 	}
 	q := &Query{
 		SQL:            nodeToString(stmt),
-		fieldsMap:      make(map[string]Field),
+		fieldsMap:      make(map[string]core.Field),
 		fieldSource:    fieldSource,
 		includedFields: make(map[string]bool),
 		includedDims:   make(map[string]bool),
@@ -274,14 +269,14 @@ func (q *Query) applySelect(stmt *sqlparser.Select) error {
 			if err != nil {
 				return fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
 			}
-			q.addField(Field{fe.(expr.Expr), strings.ToLower(string(e.As))})
+			q.addField(core.NewField(strings.ToLower(string(e.As)), fe.(expr.Expr)))
 		}
 	}
 
 	return nil
 }
 
-func (q *Query) addField(field Field) {
+func (q *Query) addField(field core.Field) {
 	fieldAlreadySelected := false
 	for _, existingField := range q.Fields {
 		if existingField.Name == field.Name {
@@ -362,7 +357,7 @@ func (q *Query) applyTimeRange(stmt *sqlparser.Select) error {
 
 func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	groupedByAnything := false
-	groupBy := make(map[string]GroupBy)
+	groupBy := make(map[string]core.GroupBy)
 	var groupByNames []string
 	for _, e := range stmt.GroupBy {
 		groupedByAnything = true
@@ -421,7 +416,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 				if len(name) == 0 {
 					return fmt.Errorf("Expression %v needs to be named via an AS", nodeToString(nse))
 				}
-				groupBy[name] = NewGroupBy(name, ex)
+				groupBy[name] = core.NewGroupBy(name, ex)
 				groupByNames = append(groupByNames, name)
 			}
 		}
@@ -464,7 +459,7 @@ func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 			}
 		}
 		desc := strings.EqualFold("desc", _e.Direction)
-		q.OrderBy = append(q.OrderBy, Order{field, desc})
+		q.OrderBy = append(q.OrderBy, core.NewOrderBy(field, desc))
 	}
 	return nil
 }

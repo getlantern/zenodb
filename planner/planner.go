@@ -1,10 +1,9 @@
-// Package queryplanner provides functionality for planning the execution of
-// queries.
-package queryplanner
+// Package planner provides functionality for planning the execution of queries.
+package planner
 
 import (
 	"errors"
-	"github.com/getlantern/zenodb/pipeline"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
 )
 
@@ -13,6 +12,7 @@ var (
 )
 
 type Opts struct {
+	GetTable      func(name string) core.Source
 	FieldSource   sql.FieldSource
 	Distributed   bool
 	PartitionKeys []string

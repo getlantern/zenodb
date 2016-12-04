@@ -8,6 +8,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
+	"github.com/getlantern/zenodb/core"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/kylelemons/godebug/pretty"
 	"github.com/stretchr/testify/assert"
@@ -18,9 +19,9 @@ func TestSQL(t *testing.T) {
 		return &testexpr{val}
 	})
 	known := AVG("k")
-	knownField := Field{known, "knownfield"}
-	oKnownField := Field{SUM("o"), "oknownfield"}
-	xKnownField := Field{SUM("x"), "x"}
+	knownField := core.NewField("knownfield", known)
+	oKnownField := core.NewField("oknownfield", SUM("o"))
+	xKnownField := core.NewField("x", SUM("x"))
 	q, err := Parse(`
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
@@ -56,12 +57,12 @@ GROUP BY
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
 LIMIT 100, 10
-`, func(table string) ([]Field, error) {
+`, func(table string) ([]core.Field, error) {
 		if table == "table_a" {
-			return []Field{knownField, oKnownField, xKnownField}, nil
+			return []core.Field{knownField, oKnownField, xKnownField}, nil
 		}
 		if table == "subtable" {
-			return []Field{}, nil
+			return []core.Field{}, nil
 		}
 		return nil, fmt.Errorf("Unknown table %v", table)
 	})
@@ -72,12 +73,12 @@ LIMIT 100, 10
 	myfield := SUM("myfield")
 	if assert.Len(t, q.Fields, 7) {
 		field := q.Fields[0]
-		expected := Field{rate, "rate"}.String()
+		expected := core.NewField("rate", rate).String()
 		actual := field.String()
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[1]
-		expected = Field{myfield, "myfield"}.String()
+		expected = core.NewField("myfield", myfield).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
@@ -95,7 +96,7 @@ LIMIT 100, 10
 		if !assert.NoError(t, err) {
 			return
 		}
-		expected = Field{ifEx, "the_avg"}.String()
+		expected = core.NewField("the_avg", ifEx).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
@@ -110,22 +111,22 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[6]
-		expected = Field{SUM(BOUNDED("bfield", 0, 100)), "bounded"}.String()
+		expected = core.NewField("bounded", SUM(BOUNDED("bfield", 0, 100))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, "table_a", q.From)
 	if assert.Len(t, q.GroupBy, 10) {
-		assert.Equal(t, NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[0].String())
-		assert.Equal(t, NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[1])
-		assert.Equal(t, NewGroupBy("city_state", geo.REGION_CITY(goexpr.Param("ip"))), q.GroupBy[2])
-		assert.Equal(t, NewGroupBy("country", geo.COUNTRY_CODE(goexpr.Param("ip"))), q.GroupBy[3])
-		assert.Equal(t, NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[4])
-		assert.Equal(t, NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))).String(), q.GroupBy[5].String())
-		assert.Equal(t, NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))), q.GroupBy[6])
-		assert.Equal(t, NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[7].String())
-		assert.Equal(t, NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[8])
-		assert.Equal(t, NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[9])
+		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[0].String())
+		assert.Equal(t, core.NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[1])
+		assert.Equal(t, core.NewGroupBy("city_state", geo.REGION_CITY(goexpr.Param("ip"))), q.GroupBy[2])
+		assert.Equal(t, core.NewGroupBy("country", geo.COUNTRY_CODE(goexpr.Param("ip"))), q.GroupBy[3])
+		assert.Equal(t, core.NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[4])
+		assert.Equal(t, core.NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))).String(), q.GroupBy[5].String())
+		assert.Equal(t, core.NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))), q.GroupBy[6])
+		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[7].String())
+		assert.Equal(t, core.NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[8])
+		assert.Equal(t, core.NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[9])
 	}
 	assert.False(t, q.GroupByAll)
 	assert.Equal(t, goexpr.Param("dim_b"), q.Crosstab)
@@ -153,12 +154,12 @@ LIMIT 100, 10
 }
 
 func TestFromSubQuery(t *testing.T) {
-	field := Field{MAX("field"), "field"}
-	fieldSource := func(table string) ([]Field, error) {
+	field := core.NewField("field", MAX("field"))
+	fieldSource := func(table string) ([]core.Field, error) {
 		if table != "the_table" {
 			return nil, fmt.Errorf("Table %v not found", table)
 		}
-		return []Field{field}, nil
+		return []core.Field{field}, nil
 	}
 	subSQL := "SELECT name, * FROM the_table ASOF '-2h' UNTIL '-1h' GROUP BY *, period('5s') HAVING stuff > 5"
 	subQuery, err := Parse(subSQL, fieldSource)
@@ -184,17 +185,17 @@ GROUP BY *, period('10s')
 	assert.Empty(t, pretty.Compare(q.FromSubQuery, subQuery))
 	if assert.Len(t, q.Fields, 3) {
 		field := q.Fields[0]
-		expected := Field{AVG("field"), "the_avg"}.String()
+		expected := core.NewField("the_avg", AVG("field")).String()
 		actual := field.String()
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[1]
-		expected = Field{SUM("name"), "name"}.String()
+		expected = core.NewField("name", SUM("name")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
 		field = q.Fields[2]
-		expected = Field{MAX("field"), "field"}.String()
+		expected = core.NewField("field", MAX("field")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}
@@ -204,8 +205,8 @@ func TestSQLDefaults(t *testing.T) {
 	q, err := Parse(`
 SELECT _
 FROM Table_A
-`, func(table string) ([]Field, error) {
-		return []Field{}, nil
+`, func(table string) ([]core.Field, error) {
+		return []core.Field{}, nil
 	})
 	if !assert.NoError(t, err) {
 		return
