@@ -327,7 +327,7 @@ func (q *Query) applyWhere(stmt *sqlparser.Select) error {
 	}
 	log.Tracef("Applying where: %v", where)
 	q.Where = where
-	q.WhereSQL = nodeToString(stmt.Where)
+	q.WhereSQL = strings.TrimSpace(nodeToString(stmt.Where))
 	return err
 }
 

@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"github.com/getlantern/bytemap"
 )
 
@@ -22,5 +21,5 @@ func (f *Filter) Iterate(ctx context.Context, onRow OnRow) error {
 }
 
 func (f *Filter) String() string {
-	return fmt.Sprintf("filter %v", f.Label)
+	return f.Label
 }

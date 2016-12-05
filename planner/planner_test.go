@@ -29,10 +29,54 @@ func TestPlanner(t *testing.T) {
 			f.Connect(t)
 			return f
 		},
+		"SELECT * FROM TableA WHERE x > 5": func() core.Source {
+			t := &testTable{"tablea"}
+			fi := &core.Filter{
+				Label: "where x > 5",
+			}
+			f := core.Flatten()
+			fi.Connect(t)
+			f.Connect(fi)
+			return f
+		},
 		"SELECT *, a + b AS total FROM TableA": func() core.Source {
 			t := &testTable{"tablea"}
 			g := &core.Group{
 				Fields: []core.Field{core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+			}
+			f := core.Flatten()
+			g.Connect(t)
+			f.Connect(g)
+			return f
+		},
+		"SELECT * FROM TableA ASOF '-5s'": func() core.Source {
+			t := &testTable{"tablea"}
+			g := &core.Group{
+				Fields: []core.Field{core.NewField("a", eA), core.NewField("b", eB)},
+				AsOf:   epoch.Add(-5 * time.Second),
+			}
+			f := core.Flatten()
+			g.Connect(t)
+			f.Connect(g)
+			return f
+		},
+		"SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'": func() core.Source {
+			t := &testTable{"tablea"}
+			g := &core.Group{
+				Fields: []core.Field{core.NewField("a", eA), core.NewField("b", eB)},
+				AsOf:   epoch.Add(-5 * time.Second),
+				Until:  epoch.Add(-1 * time.Second),
+			}
+			f := core.Flatten()
+			g.Connect(t)
+			f.Connect(g)
+			return f
+		},
+		"SELECT * FROM TableA GROUP BY period(2s)": func() core.Source {
+			t := &testTable{"tablea"}
+			g := &core.Group{
+				Fields:     []core.Field{core.NewField("a", eA), core.NewField("b", eB)},
+				Resolution: 2 * time.Second,
 			}
 			f := core.Flatten()
 			g.Connect(t)

@@ -37,10 +37,10 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	source := opts.GetTable(query.From)
 	now := opts.Now(query.From)
 	if query.AsOfOffset != 0 {
-		query.AsOf = now.Add(-1 * query.AsOfOffset)
+		query.AsOf = now.Add(query.AsOfOffset)
 	}
 	if query.UntilOffset != 0 {
-		query.Until = now.Add(-1 * query.UntilOffset)
+		query.Until = now.Add(query.UntilOffset)
 	}
 
 	asOfChanged := !query.AsOf.IsZero() && query.AsOf.UnixNano() != source.GetAsOf().UnixNano()
@@ -53,6 +53,7 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 				result := query.Where.Eval(key)
 				return result != nil && result.(bool)
 			},
+			Label: query.WhereSQL,
 		}
 		filter.Connect(source)
 		source = filter
