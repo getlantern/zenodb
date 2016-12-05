@@ -35,9 +35,9 @@ func TestFilter(t *testing.T) {
 		Label: "test",
 	}
 
-	f.Connect(&GoodSource{})
-	f.Connect(&GoodSource{})
-	f.Connect(&ErrorSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&errorSource{})
 
 	totalA := int64(0)
 	totalB := int64(0)
@@ -65,9 +65,9 @@ func TestDeadline(t *testing.T) {
 		Label: "deadline",
 	}
 
-	f.Connect(&GoodSource{})
-	f.Connect(&GoodSource{})
-	f.Connect(&ErrorSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&errorSource{})
 
 	rowsSeen := int64(0)
 
@@ -97,9 +97,9 @@ func TestGroupSingle(t *testing.T) {
 		Until:      until.Add(-2 * resolution),
 	}
 
-	gx.Connect(&GoodSource{})
-	gx.Connect(&GoodSource{})
-	gx.Connect(&ErrorSource{})
+	gx.Connect(&goodSource{})
+	gx.Connect(&goodSource{})
+	gx.Connect(&errorSource{})
 
 	t.Log(FormatSource(gx))
 
@@ -132,9 +132,9 @@ func TestGroupNone(t *testing.T) {
 		Resolution: resolution * 10,
 	}
 
-	gx.Connect(&GoodSource{})
-	gx.Connect(&GoodSource{})
-	gx.Connect(&ErrorSource{})
+	gx.Connect(&goodSource{})
+	gx.Connect(&goodSource{})
+	gx.Connect(&errorSource{})
 
 	expectedValues := map[string]float64{
 		"1.1": (10 + 70) * 2,
@@ -162,9 +162,9 @@ func TestGroupNone(t *testing.T) {
 
 func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	f := Flatten()
-	f.Connect(&GoodSource{})
-	f.Connect(&GoodSource{})
-	f.Connect(&ErrorSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&errorSource{})
 
 	s := Sort(NewOrderBy("b", true), NewOrderBy("a", false))
 	s.Connect(f)
@@ -200,29 +200,29 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	t.Log(FormatSource(l))
 }
 
-type TestSource struct{}
+type testSource struct{}
 
-func (s *TestSource) GetFields() Fields {
+func (s *testSource) GetFields() Fields {
 	return Fields{NewField("a", eA), NewField("b", eB)}
 }
 
-func (s *TestSource) GetResolution() time.Duration {
+func (s *testSource) GetResolution() time.Duration {
 	return resolution
 }
 
-func (s *TestSource) GetAsOf() time.Time {
+func (s *testSource) GetAsOf() time.Time {
 	return asOf
 }
 
-func (s *TestSource) GetUntil() time.Time {
+func (s *testSource) GetUntil() time.Time {
 	return until
 }
 
-type GoodSource struct {
-	TestSource
+type goodSource struct {
+	testSource
 }
 
-func (s *GoodSource) Iterate(ctx context.Context, onRow OnRow) error {
+func (s *goodSource) Iterate(ctx context.Context, onRow OnRow) error {
 	deadline, hasDeadline := ctx.Deadline()
 	hitDeadline := func() bool {
 		return hasDeadline && time.Now().After(deadline)
@@ -277,18 +277,18 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap,
 	return key, vals
 }
 
-func (s *GoodSource) String() string {
+func (s *goodSource) String() string {
 	return "test.good"
 }
 
-type ErrorSource struct {
-	TestSource
+type errorSource struct {
+	testSource
 }
 
-func (s *ErrorSource) Iterate(ctx context.Context, onRow OnRow) error {
+func (s *errorSource) Iterate(ctx context.Context, onRow OnRow) error {
 	return errTest
 }
 
-func (s *ErrorSource) String() string {
+func (s *errorSource) String() string {
 	return "test.error"
 }
