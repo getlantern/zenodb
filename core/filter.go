@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"github.com/getlantern/bytemap"
 )
@@ -11,8 +12,8 @@ type Filter struct {
 	Label   string
 }
 
-func (f *Filter) Iterate(onRow OnRow) error {
-	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+func (f *Filter) Iterate(ctx context.Context, onRow OnRow) error {
+	return f.iterateParallel(false, ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		if f.Include(key, vals) {
 			return onRow(key, vals)
 		}

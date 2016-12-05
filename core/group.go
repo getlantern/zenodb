@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/goexpr"
@@ -73,7 +74,7 @@ func (g *Group) GetUntil() time.Time {
 	return g.Until
 }
 
-func (g *Group) Iterate(onRow OnRow) error {
+func (g *Group) Iterate(ctx context.Context, onRow OnRow) error {
 	bt := bytetree.New(
 		fieldsToExprs(g.GetFields()),
 		fieldsToExprs(g.rowConnectable.GetFields()), // todo: consider all sources
@@ -104,17 +105,24 @@ func (g *Group) Iterate(onRow OnRow) error {
 		}
 	}
 
-	err := g.iterateParallel(true, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := g.iterateParallel(true, ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		metadata := key
 		key = sliceKey(key)
 		bt.Update(key, vals, metadata)
 		return proceed()
 	})
 
-	walkErr := bt.Walk(0, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
-		more, walkErr := onRow(key, data)
-		return more, true, walkErr
-	})
+	var walkErr error
+	if err != ErrDeadlineExceeded {
+		deadline, hasDeadline := ctx.Deadline()
+		walkErr = bt.Walk(0, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
+			more, iterErr := onRow(key, data)
+			if iterErr == nil && hasDeadline && time.Now().After(deadline) {
+				iterErr = ErrDeadlineExceeded
+			}
+			return more, true, iterErr
+		})
+	}
 
 	if walkErr != nil {
 		return walkErr

@@ -1,12 +1,22 @@
 package core
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"sync"
 	"time"
+)
+
+var (
+	// ErrDeadlineExceeded indicates that the deadline for iterating has been
+	// exceeded. Results may be incomplete.
+	ErrDeadlineExceeded = errors.New("deadline exceeded")
+
+	reallyLongTime = 100 * 365 * 24 * time.Hour
 )
 
 // Field is a named expr.Expr
@@ -57,14 +67,14 @@ type OnRow func(key bytemap.ByteMap, vals Vals) (bool, error)
 
 type RowSource interface {
 	Source
-	Iterate(onRow OnRow) error
+	Iterate(ctx context.Context, onRow OnRow) error
 }
 
 type OnFlatRow func(flatRow *FlatRow) (bool, error)
 
 type FlatRowSource interface {
 	Source
-	Iterate(onRow OnFlatRow) error
+	Iterate(ctx context.Context, onRow OnFlatRow) error
 }
 
 type Transform interface {
@@ -123,11 +133,11 @@ func (c *rowConnectable) Connect(source RowSource) {
 	c.sources = append(c.sources, source)
 }
 
-func (c *rowConnectable) iterateSerial(onRow OnRow) error {
+func (c *rowConnectable) iterateSerial(ctx context.Context, onRow OnRow) error {
 	onRow = lockingOnRow(onRow)
 
 	for _, source := range c.sources {
-		err := source.(RowSource).Iterate(onRow)
+		err := source.(RowSource).Iterate(ctx, onRow)
 		if err != nil {
 			return err
 		}
@@ -136,9 +146,9 @@ func (c *rowConnectable) iterateSerial(onRow OnRow) error {
 	return nil
 }
 
-func (c *rowConnectable) iterateParallel(lock bool, onRow OnRow) error {
+func (c *rowConnectable) iterateParallel(lock bool, ctx context.Context, onRow OnRow) error {
 	if len(c.sources) == 1 {
-		return c.iterateSerial(onRow)
+		return c.iterateSerial(ctx, onRow)
 	}
 
 	if lock {
@@ -150,7 +160,7 @@ func (c *rowConnectable) iterateParallel(lock bool, onRow OnRow) error {
 	for _, s := range c.sources {
 		source := s
 		go func() {
-			errors <- source.(RowSource).Iterate(func(key bytemap.ByteMap, vals Vals) (bool, error) {
+			errors <- source.(RowSource).Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 				return onRow(key, vals)
 			})
 		}()
@@ -180,11 +190,11 @@ func (c *flatRowConnectable) getSource(i int) Source {
 	return c.sources[i]
 }
 
-func (c *flatRowConnectable) iterateSerial(onRow OnFlatRow) error {
+func (c *flatRowConnectable) iterateSerial(ctx context.Context, onRow OnFlatRow) error {
 	onRow = lockingOnFlatRow(onRow)
 
 	for _, source := range c.sources {
-		err := source.(FlatRowSource).Iterate(onRow)
+		err := source.(FlatRowSource).Iterate(ctx, onRow)
 		if err != nil {
 			return err
 		}
@@ -193,9 +203,9 @@ func (c *flatRowConnectable) iterateSerial(onRow OnFlatRow) error {
 	return nil
 }
 
-func (c *flatRowConnectable) iterateParallel(lock bool, onRow OnFlatRow) error {
+func (c *flatRowConnectable) iterateParallel(lock bool, ctx context.Context, onRow OnFlatRow) error {
 	if len(c.sources) == 1 {
-		return c.iterateSerial(onRow)
+		return c.iterateSerial(ctx, onRow)
 	}
 
 	if lock {
@@ -207,7 +217,7 @@ func (c *flatRowConnectable) iterateParallel(lock bool, onRow OnFlatRow) error {
 	for _, s := range c.sources {
 		source := s
 		go func() {
-			errors <- source.(FlatRowSource).Iterate(func(flatRow *FlatRow) (bool, error) {
+			errors <- source.(FlatRowSource).Iterate(ctx, func(flatRow *FlatRow) (bool, error) {
 				return onRow(flatRow)
 			})
 		}()

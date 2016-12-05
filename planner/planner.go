@@ -4,6 +4,7 @@ package planner
 import (
 	"errors"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
 	"time"
@@ -11,6 +12,8 @@ import (
 
 var (
 	ErrNestedFromSubquery = errors.New("nested FROM subqueries not supported")
+
+	log = golog.LoggerFor("planner")
 )
 
 type Opts struct {
@@ -45,10 +48,12 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	resolutionChanged := query.Resolution != 0 && query.Resolution != source.GetResolution()
 
 	if query.Where != nil {
-		filter := core.Filter(func(key bytemap.ByteMap, vals core.Vals) bool {
-			result := query.Where.Eval(key)
-			return result != nil && result.(bool)
-		})
+		filter := &core.Filter{
+			Include: func(key bytemap.ByteMap, vals core.Vals) bool {
+				result := query.Where.Eval(key)
+				return result != nil && result.(bool)
+			},
+		}
 		filter.Connect(source)
 		source = filter
 	}
@@ -76,11 +81,17 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		flat = sort
 	}
 
-	if query.Limit > 0 || query.Offset > 0 {
-		limit := core.Limit(query.Offset, query.Limit)
+	if query.Offset > 0 {
+		offset := core.Offset(query.Offset)
+		flat = offset
+	}
+
+	if query.Limit > 0 {
+		limit := core.Limit(query.Limit)
 		limit.Connect(flat)
 		flat = limit
 	}
 
+	log.Debug(core.FormatSource(flat))
 	return flat, nil
 }

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"sync/atomic"
 )
@@ -14,10 +15,10 @@ type limit struct {
 	limit int
 }
 
-func (l *limit) Iterate(onRow OnFlatRow) error {
+func (l *limit) Iterate(ctx context.Context, onRow OnFlatRow) error {
 	idx := int64(0)
 
-	return l.iterateParallel(true, func(row *FlatRow) (bool, error) {
+	return l.iterateParallel(true, ctx, func(row *FlatRow) (bool, error) {
 		newIdx := atomic.AddInt64(&idx, 1)
 		oldIdx := int(newIdx - 1)
 		// TODO: allow stopping iteration here

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"github.com/getlantern/bytemap"
@@ -41,7 +42,7 @@ func TestFilter(t *testing.T) {
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := f.Iterate(func(dims bytemap.ByteMap, vals Vals) (bool, error) {
+	err := f.Iterate(context.Background(), func(dims bytemap.ByteMap, vals Vals) (bool, error) {
 		a, _ := vals[0].ValueAt(0, eA)
 		b, _ := vals[1].ValueAt(0, eB)
 		atomic.AddInt64(&totalA, int64(a))
@@ -52,6 +53,33 @@ func TestFilter(t *testing.T) {
 	assert.Equal(t, errTest, err, "Error should have propagated")
 	assert.EqualValues(t, 520, atomic.LoadInt64(&totalB), "Total for b should include data from both good sources")
 	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
+}
+
+func TestDeadline(t *testing.T) {
+	f := &Filter{
+		Include: func(dims bytemap.ByteMap, vals Vals) bool {
+			// Slow things down by sleeping for a bit
+			time.Sleep(100 * time.Millisecond)
+			return true
+		},
+		Label: "deadline",
+	}
+
+	f.Connect(&goodSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&errorSource{})
+
+	rowsSeen := int64(0)
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
+	defer cancel()
+	err := f.Iterate(ctx, func(dims bytemap.ByteMap, vals Vals) (bool, error) {
+		atomic.AddInt64(&rowsSeen, 1)
+		return true, nil
+	})
+
+	assert.Equal(t, ErrDeadlineExceeded, err, "Should have gotten deadline exceeded error")
+	assert.EqualValues(t, 2, atomic.LoadInt64(&rowsSeen), "Should have gotten only two rows (1 from each good source before deadline was exceeded)")
 }
 
 func TestGroupSingle(t *testing.T) {
@@ -76,7 +104,7 @@ func TestGroupSingle(t *testing.T) {
 	t.Log(FormatSource(gx))
 
 	totalByX := make(map[int]float64, 0)
-	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := gx.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		total := float64(0)
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
@@ -117,7 +145,7 @@ func TestGroupNone(t *testing.T) {
 		"2.5": (60) * 2,
 	}
 
-	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := gx.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		dims := fmt.Sprintf("%d.%d", key.Get("x"), key.Get("y"))
 		val, _ := vals[0].ValueAt(0, eTotal)
 		expectedVal := expectedValues[dims]
@@ -155,7 +183,7 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	var expectedTS time.Time
 	var expectedA float64
 	var expectedB float64
-	err := l.Iterate(func(row *FlatRow) (bool, error) {
+	err := l.Iterate(context.Background(), func(row *FlatRow) (bool, error) {
 		expectedTS, expectedTSs = expectedTSs[0], expectedTSs[1:]
 		expectedA, expectedAs = expectedAs[0], expectedAs[1:]
 		expectedB, expectedBs = expectedBs[0], expectedBs[1:]
@@ -192,15 +220,45 @@ type goodSource struct {
 	testSource
 }
 
-func (s *goodSource) Iterate(onRow OnRow) error {
+func (s *goodSource) Iterate(ctx context.Context, onRow OnRow) error {
+	deadline, hasDeadline := ctx.Deadline()
+	hitDeadline := func() bool {
+		return hasDeadline && time.Now().After(deadline)
+	}
+
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
 	onRow(makeRow(epoch.Add(-9*resolution), 1, 1, 10, 0))
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
 	onRow(makeRow(epoch.Add(-8*resolution), 2, 3, 0, 20))
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
+
 	// Intentional gap
 	onRow(makeRow(epoch.Add(-5*resolution), 1, 3, 50, 0))
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
 	onRow(makeRow(epoch.Add(-4*resolution), 2, 5, 0, 60))
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
 	onRow(makeRow(epoch.Add(-3*resolution), 1, 1, 70, 0))
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
 	onRow(makeRow(epoch.Add(-2*resolution), 2, 3, 0, 80))
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
 	onRow(makeRow(epoch.Add(-1*resolution), 1, 5, 90, 0))
+	if hitDeadline() {
+		return ErrDeadlineExceeded
+	}
 	onRow(makeRow(epoch, 2, 2, 0, 100))
 	return nil
 }
@@ -225,7 +283,7 @@ type errorSource struct {
 	testSource
 }
 
-func (s *errorSource) Iterate(onRow OnRow) error {
+func (s *errorSource) Iterate(ctx context.Context, onRow OnRow) error {
 	return errTest
 }
 

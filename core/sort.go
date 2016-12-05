@@ -1,8 +1,10 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"sort"
+	"time"
 )
 
 // OrderBy specifies an element by whith to order (element being ither a field
@@ -49,22 +51,29 @@ type sorter struct {
 	by []OrderBy
 }
 
-func (s *sorter) Iterate(onRow OnFlatRow) error {
+func (s *sorter) Iterate(ctx context.Context, onRow OnFlatRow) error {
 	rows := orderedRows{
 		orderBy: s.by,
 	}
-	err := s.iterateParallel(true, func(row *FlatRow) (bool, error) {
+	err := s.iterateParallel(true, ctx, func(row *FlatRow) (bool, error) {
 		rows.rows = append(rows.rows, row)
 		return proceed()
 	})
-	sort.Sort(rows)
-	for _, row := range rows.rows {
-		more, err := onRow(row)
-		if err != nil {
-			return err
-		}
-		if !more {
-			break
+	if err != ErrDeadlineExceeded {
+		deadline, hasDeadline := ctx.Deadline()
+		sort.Sort(rows)
+		for _, row := range rows.rows {
+			if hasDeadline && time.Now().After(deadline) {
+				return ErrDeadlineExceeded
+			}
+			more, err := onRow(row)
+			if err != nil {
+				return err
+			}
+			if !more {
+				break
+			}
+
 		}
 	}
 	return err

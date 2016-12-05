@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"github.com/getlantern/bytemap"
 	"time"
 )
@@ -13,12 +14,12 @@ type flatten struct {
 	rowConnectable
 }
 
-func (f *flatten) Iterate(onRow OnFlatRow) error {
+func (f *flatten) Iterate(ctx context.Context, onRow OnFlatRow) error {
 	fields := f.GetFields()
 	numFields := len(fields)
 	resolution := f.GetResolution()
 
-	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	return f.iterateParallel(false, ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var until time.Time
 		var asOf time.Time
 		// Figure out total time range
