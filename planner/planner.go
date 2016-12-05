@@ -84,6 +84,7 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 
 	if query.Offset > 0 {
 		offset := core.Offset(query.Offset)
+		offset.Connect(flat)
 		flat = offset
 	}
 

@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
@@ -39,10 +40,30 @@ func TestPlanner(t *testing.T) {
 			f.Connect(fi)
 			return f
 		},
+		"SELECT * FROM TableA LIMIT 2, 5": func() core.Source {
+			t := &testTable{"tablea"}
+			f := core.Flatten()
+			o := core.Offset(2)
+			l := core.Limit(5)
+			f.Connect(t)
+			o.Connect(f)
+			l.Connect(o)
+			return l
+		},
 		"SELECT *, a + b AS total FROM TableA": func() core.Source {
 			t := &testTable{"tablea"}
 			g := &core.Group{
 				Fields: []core.Field{core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+			}
+			f := core.Flatten()
+			g.Connect(t)
+			f.Connect(g)
+			return f
+		},
+		"SELECT a + b AS total FROM TableA": func() core.Source {
+			t := &testTable{"tablea"}
+			g := &core.Group{
+				Fields: []core.Field{core.NewField("total", ADD(eA, eB))},
 			}
 			f := core.Flatten()
 			g.Connect(t)
@@ -82,6 +103,30 @@ func TestPlanner(t *testing.T) {
 			g.Connect(t)
 			f.Connect(g)
 			return f
+		},
+		"SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5": func() core.Source {
+			t := &testTable{"tablea"}
+			fi := &core.Filter{
+				Label: "where x > 5",
+			}
+			g := &core.Group{
+				By:         []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
+				Fields:     []core.Field{core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+				AsOf:       epoch.Add(-5 * time.Second),
+				Until:      epoch.Add(-1 * time.Second),
+				Resolution: 2 * time.Second,
+			}
+			f := core.Flatten()
+			s := core.Sort(core.NewOrderBy("total", true))
+			o := core.Offset(2)
+			l := core.Limit(5)
+			fi.Connect(t)
+			g.Connect(fi)
+			f.Connect(g)
+			s.Connect(f)
+			o.Connect(s)
+			l.Connect(o)
+			return l
 		},
 	}
 
