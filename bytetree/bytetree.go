@@ -76,7 +76,7 @@ func (bt *Tree) Length() int {
 // the fn returns false, the node will be removed from the Tree as viewed with
 // the given ctx. Subsequent walks of the Tree using that same ctx will not see
 // removed nodes, but walks using a different context will still see them.
-func (bt *Tree) Walk(ctx int64, fn func(key []byte, data []encoding.Sequence) bool) {
+func (bt *Tree) Walk(ctx int64, fn func(key []byte, data []encoding.Sequence) (more bool, keep bool, err error)) error {
 	nodes := make([]*node, 0, bt.length)
 	nodes = append(nodes, bt.root)
 	for {
@@ -88,9 +88,12 @@ func (bt *Tree) Walk(ctx int64, fn func(key []byte, data []encoding.Sequence) bo
 		if n.data != nil {
 			alreadyRemoved := n.wasRemovedFor(bt, ctx)
 			if !alreadyRemoved {
-				keep := fn(n.key, n.data)
+				more, keep, err := fn(n.key, n.data)
 				if !keep {
 					n.doRemoveFor(bt, ctx)
+				}
+				if !more || err != nil {
+					return err
 				}
 			}
 		}
@@ -98,6 +101,8 @@ func (bt *Tree) Walk(ctx int64, fn func(key []byte, data []encoding.Sequence) bo
 			nodes = append(nodes, e.target)
 		}
 	}
+
+	return nil
 }
 
 // Remove removes the given key from this Tree under the given ctx. When viewed

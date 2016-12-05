@@ -59,7 +59,13 @@ func (s *sorter) Iterate(onRow OnFlatRow) error {
 	})
 	sort.Sort(rows)
 	for _, row := range rows.rows {
-		onRow(row)
+		more, err := onRow(row)
+		if err != nil {
+			return err
+		}
+		if !more {
+			break
+		}
 	}
 	return err
 }

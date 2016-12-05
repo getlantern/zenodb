@@ -111,10 +111,14 @@ func (g *Group) Iterate(onRow OnRow) error {
 		return proceed()
 	})
 
-	bt.Walk(0, func(key []byte, data []encoding.Sequence) bool {
-		onRow(key, data)
-		return true
+	walkErr := bt.Walk(0, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
+		more, walkErr := onRow(key, data)
+		return more, true, walkErr
 	})
+
+	if walkErr != nil {
+		return walkErr
+	}
 
 	return err
 }
