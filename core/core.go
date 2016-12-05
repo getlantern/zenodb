@@ -129,6 +129,12 @@ type FlatToFlat interface {
 	Connect(source FlatRowSource)
 }
 
+type FlatToRow interface {
+	RowSource
+	Transform
+	Connect(source FlatRowSource)
+}
+
 type connectable struct {
 	sources []Source
 }

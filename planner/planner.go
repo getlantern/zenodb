@@ -30,11 +30,19 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		return nil, err
 	}
 
-	if query.FromSubQuery != nil && query.FromSubQuery.FromSubQuery != nil {
-		return nil, ErrNestedFromSubquery
+	var source core.RowSource
+	if query.FromSubQuery != nil {
+		subSource, err := Plan(query.FromSubQuery.SQL, opts)
+		if err != nil {
+			return nil, err
+		}
+		unflatten := core.Unflatten()
+		unflatten.Connect(subSource)
+		source = unflatten
+	} else {
+		source = opts.GetTable(query.From)
 	}
 
-	source := opts.GetTable(query.From)
 	now := opts.Now(query.From)
 	if query.AsOfOffset != 0 {
 		query.AsOf = now.Add(query.AsOfOffset)

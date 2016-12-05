@@ -13,7 +13,10 @@ func EncodeTime(b []byte, ts time.Time) {
 }
 
 func TimeFromBytes(b []byte) time.Time {
-	ts := int64(Binary.Uint64(b))
+	return TimeFromInt(int64(Binary.Uint64(b)))
+}
+
+func TimeFromInt(ts int64) time.Time {
 	s := ts / int64(time.Second)
 	ns := ts % int64(time.Second)
 	return time.Unix(s, ns)

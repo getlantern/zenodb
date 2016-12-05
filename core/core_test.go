@@ -200,6 +200,33 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	t.Log(FormatSource(l))
 }
 
+func TestUnflatten(t *testing.T) {
+	f := Flatten()
+	u := Unflatten()
+	f.Connect(&goodSource{})
+	f.Connect(&goodSource{})
+	f.Connect(&errorSource{})
+	u.Connect(f)
+
+	expectedRows := make([]*testRow, 0, len(testRows)*2)
+	expectedRows = append(expectedRows, testRows...)
+	expectedRows = append(expectedRows, testRows...)
+
+	err := u.Iterate(Context(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		row := &testRow{key, vals}
+		for i, expected := range expectedRows {
+			if row.equals(expected) {
+				expectedRows = append(expectedRows[:i], expectedRows[i+1:]...)
+				break
+			}
+		}
+		return true, nil
+	})
+
+	assert.Equal(t, errTest, err, "Error should have propagated")
+	assert.Empty(t, expectedRows, "All rows should have been seen")
+}
+
 type testSource struct{}
 
 func (s *testSource) GetFields() Fields {
@@ -218,6 +245,42 @@ func (s *testSource) GetUntil() time.Time {
 	return until
 }
 
+type testRow struct {
+	key  bytemap.ByteMap
+	vals Vals
+}
+
+func (r *testRow) equals(other *testRow) bool {
+	if r == nil || other == nil {
+		return false
+	}
+	if string(r.key) != string(other.key) {
+		return false
+	}
+	if len(r.vals) != len(other.vals) {
+		return false
+	}
+	for i, val := range r.vals {
+		otherVal := other.vals[i]
+		if otherVal != nil && string(val) != string(otherVal) {
+			return false
+		}
+	}
+	return true
+}
+
+var testRows = []*testRow{
+	makeRow(epoch.Add(-9*resolution), 1, 1, 10, 0),
+	makeRow(epoch.Add(-8*resolution), 2, 3, 0, 20),
+	// Intentional gap
+	makeRow(epoch.Add(-5*resolution), 1, 3, 50, 0),
+	makeRow(epoch.Add(-4*resolution), 2, 5, 0, 60),
+	makeRow(epoch.Add(-3*resolution), 1, 1, 70, 0),
+	makeRow(epoch.Add(-2*resolution), 2, 3, 0, 80),
+	makeRow(epoch.Add(-1*resolution), 1, 5, 90, 0),
+	makeRow(epoch, 2, 2, 0, 100),
+}
+
 type goodSource struct {
 	testSource
 }
@@ -228,44 +291,17 @@ func (s *goodSource) Iterate(ctx context.Context, onRow OnRow) error {
 		return hasDeadline && time.Now().After(deadline)
 	}
 
-	if hitDeadline() {
-		return ErrDeadlineExceeded
-	}
-	onRow(makeRow(epoch.Add(-9*resolution), 1, 1, 10, 0))
-	if hitDeadline() {
-		return ErrDeadlineExceeded
-	}
-	onRow(makeRow(epoch.Add(-8*resolution), 2, 3, 0, 20))
-	if hitDeadline() {
-		return ErrDeadlineExceeded
+	for _, row := range testRows {
+		if hitDeadline() {
+			return ErrDeadlineExceeded
+		}
+		onRow(row.key, row.vals)
 	}
 
-	// Intentional gap
-	onRow(makeRow(epoch.Add(-5*resolution), 1, 3, 50, 0))
-	if hitDeadline() {
-		return ErrDeadlineExceeded
-	}
-	onRow(makeRow(epoch.Add(-4*resolution), 2, 5, 0, 60))
-	if hitDeadline() {
-		return ErrDeadlineExceeded
-	}
-	onRow(makeRow(epoch.Add(-3*resolution), 1, 1, 70, 0))
-	if hitDeadline() {
-		return ErrDeadlineExceeded
-	}
-	onRow(makeRow(epoch.Add(-2*resolution), 2, 3, 0, 80))
-	if hitDeadline() {
-		return ErrDeadlineExceeded
-	}
-	onRow(makeRow(epoch.Add(-1*resolution), 1, 5, 90, 0))
-	if hitDeadline() {
-		return ErrDeadlineExceeded
-	}
-	onRow(makeRow(epoch, 2, 2, 0, 100))
 	return nil
 }
 
-func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap, []encoding.Sequence) {
+func makeRow(ts time.Time, x int, y int, a float64, b float64) *testRow {
 	key := bytemap.New(map[string]interface{}{"x": x, "y": y})
 	vals := make([]encoding.Sequence, 2)
 	if a != 0 {
@@ -274,7 +310,7 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap,
 	if b != 0 {
 		vals[1] = encoding.NewValue(eB, ts, b)
 	}
-	return key, vals
+	return &testRow{key, vals}
 }
 
 func (s *goodSource) String() string {

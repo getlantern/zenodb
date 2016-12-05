@@ -128,6 +128,16 @@ func TestPlanner(t *testing.T) {
 			l.Connect(o)
 			return l
 		},
+		"SELECT * FROM (SELECT * FROM TableA)": func() core.Source {
+			t := &testTable{"tablea"}
+			f := core.Flatten()
+			u := core.Unflatten()
+			f2 := core.Flatten()
+			f.Connect(t)
+			u.Connect(f)
+			f2.Connect(u)
+			return f2
+		},
 	}
 
 	for sqlString, expected := range pairs {
