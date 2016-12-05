@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"sort"
 )
 
@@ -9,6 +10,14 @@ import (
 type OrderBy struct {
 	Field      string
 	Descending bool
+}
+
+func (o OrderBy) String() string {
+	ascending := "asc"
+	if o.Descending {
+		ascending = "desc"
+	}
+	return fmt.Sprintf("%v(%v)", o.Field, ascending)
 }
 
 func NewOrderBy(field string, descending bool) OrderBy {
@@ -44,14 +53,19 @@ func (s *sorter) Iterate(onRow OnFlatRow) error {
 	rows := orderedRows{
 		orderBy: s.by,
 	}
-	err := s.iterateParallel(true, func(row *FlatRow) {
+	err := s.iterateParallel(true, func(row *FlatRow) (bool, error) {
 		rows.rows = append(rows.rows, row)
+		return proceed()
 	})
 	sort.Sort(rows)
 	for _, row := range rows.rows {
 		onRow(row)
 	}
 	return err
+}
+
+func (s *sorter) String() string {
+	return fmt.Sprintf("order by %v", s.by)
 }
 
 type orderedRows struct {

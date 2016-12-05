@@ -18,7 +18,7 @@ func (f *flatten) Iterate(onRow OnFlatRow) error {
 	numFields := len(fields)
 	resolution := f.GetResolution()
 
-	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) {
+	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var until time.Time
 		var asOf time.Time
 		// Figure out total time range
@@ -58,8 +58,14 @@ func (f *flatten) Iterate(onRow OnFlatRow) error {
 				row.Values[i] = val
 			}
 			if anyValueFound {
-				onRow(row)
+				return onRow(row)
 			}
 		}
+
+		return proceed()
 	})
+}
+
+func (f *flatten) String() string {
+	return "flatten"
 }

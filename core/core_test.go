@@ -26,10 +26,13 @@ var (
 )
 
 func TestFilter(t *testing.T) {
-	f := Filter(func(dims bytemap.ByteMap, vals Vals) bool {
-		x := dims.Get("x")
-		return x != nil && x.(int)%2 == 0
-	})
+	f := &Filter{
+		Include: func(dims bytemap.ByteMap, vals Vals) bool {
+			x := dims.Get("x")
+			return x != nil && x.(int)%2 == 0
+		},
+		Label: "test",
+	}
 
 	f.Connect(&goodSource{})
 	f.Connect(&goodSource{})
@@ -38,11 +41,12 @@ func TestFilter(t *testing.T) {
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := f.Iterate(func(dims bytemap.ByteMap, vals Vals) {
+	err := f.Iterate(func(dims bytemap.ByteMap, vals Vals) (bool, error) {
 		a, _ := vals[0].ValueAt(0, eA)
 		b, _ := vals[1].ValueAt(0, eB)
 		atomic.AddInt64(&totalA, int64(a))
 		atomic.AddInt64(&totalB, int64(b))
+		return true, nil
 	})
 
 	assert.Equal(t, errTest, err, "Error should have propagated")
@@ -69,8 +73,10 @@ func TestGroupSingle(t *testing.T) {
 	gx.Connect(&goodSource{})
 	gx.Connect(&errorSource{})
 
+	t.Log(FormatSource(gx))
+
 	totalByX := make(map[int]float64, 0)
-	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) {
+	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		total := float64(0)
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
@@ -78,6 +84,7 @@ func TestGroupSingle(t *testing.T) {
 			total += val
 		}
 		totalByX[key.Get("x").(int)] = total
+		return true, nil
 	})
 
 	assert.Equal(t, errTest, err, "Error should have propagated")
@@ -110,19 +117,20 @@ func TestGroupNone(t *testing.T) {
 		"2.5": (60) * 2,
 	}
 
-	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) {
+	err := gx.Iterate(func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		dims := fmt.Sprintf("%d.%d", key.Get("x"), key.Get("y"))
 		val, _ := vals[0].ValueAt(0, eTotal)
 		expectedVal := expectedValues[dims]
 		delete(expectedValues, dims)
 		assert.Equal(t, expectedVal, val, dims)
+		return true, nil
 	})
 
 	assert.Equal(t, errTest, err, "Error should have propagated")
 	assert.Empty(t, expectedValues, "All combinations should have been seen")
 }
 
-func TestFlattenSortAndLimit(t *testing.T) {
+func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	f := Flatten()
 	f.Connect(&goodSource{})
 	f.Connect(&goodSource{})
@@ -131,8 +139,11 @@ func TestFlattenSortAndLimit(t *testing.T) {
 	s := Sort(NewOrderBy("b", true), NewOrderBy("a", false))
 	s.Connect(f)
 
-	l := Limit(1, 14)
-	l.Connect(s)
+	o := Offset(1)
+	o.Connect(s)
+
+	l := Limit(14)
+	l.Connect(o)
 
 	// This contains the data, sorted, but missing the first and last entries
 	expectedTSs := []time.Time{
@@ -144,16 +155,19 @@ func TestFlattenSortAndLimit(t *testing.T) {
 	var expectedTS time.Time
 	var expectedA float64
 	var expectedB float64
-	err := l.Iterate(func(row *FlatRow) {
+	err := l.Iterate(func(row *FlatRow) (bool, error) {
 		expectedTS, expectedTSs = expectedTSs[0], expectedTSs[1:]
 		expectedA, expectedAs = expectedAs[0], expectedAs[1:]
 		expectedB, expectedBs = expectedBs[0], expectedBs[1:]
 		assert.Equal(t, expectedTS.UnixNano(), row.TS)
 		assert.EqualValues(t, expectedA, row.Values[0])
 		assert.EqualValues(t, expectedB, row.Values[1])
+		return true, nil
 	})
 
 	assert.Equal(t, errTest, err, "Error should have propagated")
+
+	t.Log(FormatSource(l))
 }
 
 type testSource struct{}
@@ -203,10 +217,18 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap,
 	return key, vals
 }
 
+func (s *goodSource) String() string {
+	return "test.good"
+}
+
 type errorSource struct {
 	testSource
 }
 
 func (s *errorSource) Iterate(onRow OnRow) error {
 	return errTest
+}
+
+func (s *errorSource) String() string {
+	return "test.error"
 }

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/goexpr"
@@ -103,10 +104,11 @@ func (g *Group) Iterate(onRow OnRow) error {
 		}
 	}
 
-	err := g.iterateParallel(true, func(key bytemap.ByteMap, vals Vals) {
+	err := g.iterateParallel(true, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		metadata := key
 		key = sliceKey(key)
 		bt.Update(key, vals, metadata)
+		return proceed()
 	})
 
 	bt.Walk(0, func(key []byte, data []encoding.Sequence) bool {
@@ -123,4 +125,25 @@ func fieldsToExprs(fields Fields) []expr.Expr {
 		exprs = append(exprs, field.Expr)
 	}
 	return exprs
+}
+
+func (g *Group) String() string {
+	result := &bytes.Buffer{}
+	result.WriteString("group")
+	if len(g.By) > 0 {
+		result.WriteString(fmt.Sprintf("\n    by: %v", g.By))
+	}
+	if len(g.Fields) > 0 {
+		result.WriteString(fmt.Sprintf("\n    fields: %v", g.Fields))
+	}
+	if g.Resolution > 0 {
+		result.WriteString(fmt.Sprintf("\n    resolution: %v", g.Resolution))
+	}
+	if !g.AsOf.IsZero() {
+		result.WriteString(fmt.Sprintf("\n    as of: %v", g.AsOf.In(time.UTC)))
+	}
+	if !g.Until.IsZero() {
+		result.WriteString(fmt.Sprintf("\n    until: %v", g.Until.In(time.UTC)))
+	}
+	return result.String()
 }

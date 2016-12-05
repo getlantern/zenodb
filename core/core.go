@@ -41,10 +41,6 @@ type FlatRow struct {
 	fields []Field
 }
 
-type OnRow func(key bytemap.ByteMap, vals Vals)
-
-type OnFlatRow func(flatRow *FlatRow)
-
 type Source interface {
 	GetFields() Fields
 
@@ -53,30 +49,43 @@ type Source interface {
 	GetAsOf() time.Time
 
 	GetUntil() time.Time
+
+	String() string
 }
+
+type OnRow func(key bytemap.ByteMap, vals Vals) (bool, error)
 
 type RowSource interface {
 	Source
 	Iterate(onRow OnRow) error
 }
 
+type OnFlatRow func(flatRow *FlatRow) (bool, error)
+
 type FlatRowSource interface {
 	Source
 	Iterate(onRow OnFlatRow) error
 }
 
+type Transform interface {
+	GetSources() []Source
+}
+
 type RowToRow interface {
 	RowSource
+	Transform
 	Connect(source RowSource)
 }
 
 type RowToFlat interface {
 	FlatRowSource
+	Transform
 	Connect(source RowSource)
 }
 
 type FlatToFlat interface {
 	FlatRowSource
+	Transform
 	Connect(source FlatRowSource)
 }
 
@@ -100,6 +109,10 @@ func (c *connectable) GetAsOf() time.Time {
 
 func (c *connectable) GetUntil() time.Time {
 	return c.sources[0].GetUntil()
+}
+
+func (c *connectable) GetSources() []Source {
+	return c.sources
 }
 
 type rowConnectable struct {
@@ -137,8 +150,8 @@ func (c *rowConnectable) iterateParallel(lock bool, onRow OnRow) error {
 	for _, s := range c.sources {
 		source := s
 		go func() {
-			errors <- source.(RowSource).Iterate(func(key bytemap.ByteMap, vals Vals) {
-				onRow(key, vals)
+			errors <- source.(RowSource).Iterate(func(key bytemap.ByteMap, vals Vals) (bool, error) {
+				return onRow(key, vals)
 			})
 		}()
 	}
@@ -194,8 +207,8 @@ func (c *flatRowConnectable) iterateParallel(lock bool, onRow OnFlatRow) error {
 	for _, s := range c.sources {
 		source := s
 		go func() {
-			errors <- source.(FlatRowSource).Iterate(func(flatRow *FlatRow) {
-				onRow(flatRow)
+			errors <- source.(FlatRowSource).Iterate(func(flatRow *FlatRow) (bool, error) {
+				return onRow(flatRow)
 			})
 		}()
 	}
@@ -214,18 +227,28 @@ func (c *flatRowConnectable) iterateParallel(lock bool, onRow OnFlatRow) error {
 
 func lockingOnRow(onRow OnRow) OnRow {
 	var mx sync.Mutex
-	return func(key bytemap.ByteMap, vals Vals) {
+	return func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		mx.Lock()
-		onRow(key, vals)
+		more, err := onRow(key, vals)
 		mx.Unlock()
+		return more, err
 	}
 }
 
 func lockingOnFlatRow(onRow OnFlatRow) OnFlatRow {
 	var mx sync.Mutex
-	return func(row *FlatRow) {
+	return func(row *FlatRow) (bool, error) {
 		mx.Lock()
-		onRow(row)
+		more, err := onRow(row)
 		mx.Unlock()
+		return more, err
 	}
+}
+
+func proceed() (bool, error) {
+	return true, nil
+}
+
+func stop() (bool, error) {
+	return false, nil
 }

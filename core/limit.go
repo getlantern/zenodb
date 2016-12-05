@@ -1,28 +1,33 @@
 package core
 
 import (
+	"fmt"
 	"sync/atomic"
 )
 
-func Limit(offset int, lim int) FlatToFlat {
-	return &limit{offset: offset, limit: lim}
+func Limit(lim int) FlatToFlat {
+	return &limit{limit: lim}
 }
 
 type limit struct {
 	flatRowConnectable
-	offset int
-	limit  int
+	limit int
 }
 
 func (l *limit) Iterate(onRow OnFlatRow) error {
 	idx := int64(0)
 
-	return l.iterateParallel(true, func(row *FlatRow) {
+	return l.iterateParallel(true, func(row *FlatRow) (bool, error) {
 		newIdx := atomic.AddInt64(&idx, 1)
 		oldIdx := int(newIdx - 1)
 		// TODO: allow stopping iteration here
-		if oldIdx >= l.offset && (l.limit == 0 || oldIdx < l.limit+l.offset) {
-			onRow(row)
+		if oldIdx < l.limit {
+			return onRow(row)
 		}
+		return stop()
 	})
+}
+
+func (l *limit) String() string {
+	return fmt.Sprintf("limit %d", l.limit)
 }

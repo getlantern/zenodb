@@ -1,24 +1,25 @@
 package core
 
 import (
+	"fmt"
 	"github.com/getlantern/bytemap"
 )
 
-type IncludeTest func(key bytemap.ByteMap, vals Vals) bool
-
-func Filter(include IncludeTest) RowToRow {
-	return &filter{Include: include}
-}
-
-type filter struct {
+type Filter struct {
 	rowConnectable
-	Include IncludeTest
+	Include func(key bytemap.ByteMap, vals Vals) bool
+	Label   string
 }
 
-func (f *filter) Iterate(onRow OnRow) error {
-	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) {
+func (f *Filter) Iterate(onRow OnRow) error {
+	return f.iterateParallel(false, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		if f.Include(key, vals) {
-			onRow(key, vals)
+			return onRow(key, vals)
 		}
+		return proceed()
 	})
+}
+
+func (f *Filter) String() string {
+	return fmt.Sprintf("filter %v", f.Label)
 }

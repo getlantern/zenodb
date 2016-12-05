@@ -14,7 +14,7 @@ var (
 )
 
 type Opts struct {
-	GetTable      func(table string) core.Source
+	GetTable      func(table string) core.RowSource
 	Now           func(table string) time.Time
 	FieldSource   sql.FieldSource
 	Distributed   bool
@@ -45,12 +45,10 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	resolutionChanged := query.Resolution != 0 && query.Resolution != source.GetResolution()
 
 	if query.Where != nil {
-		filter := &core.Filter{
-			Include: func(key bytemap.ByteMap, vals core.Vals) bool {
-				result := query.Where.Eval(key)
-				return result != nil && result.(bool)
-			},
-		}
+		filter := core.Filter(func(key bytemap.ByteMap, vals core.Vals) bool {
+			result := query.Where.Eval(key)
+			return result != nil && result.(bool)
+		})
 		filter.Connect(source)
 		source = filter
 	}
@@ -68,23 +66,18 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		source = group
 	}
 
-	flatten := &core.Flatten{}
+	flatten := core.Flatten()
 	flatten.Connect(source)
 	var flat core.FlatRowSource = flatten
 
 	if len(query.OrderBy) > 0 {
-		sort := &core.Sort{
-			By: query.OrderBy,
-		}
+		sort := core.Sort(query.OrderBy...)
 		sort.Connect(flat)
 		flat = sort
 	}
 
 	if query.Limit > 0 || query.Offset > 0 {
-		limit := &core.Limit{
-			Limit:  query.Limit,
-			Offset: query.Offset,
-		}
+		limit := core.Limit(query.Offset, query.Limit)
 		limit.Connect(flat)
 		flat = limit
 	}
