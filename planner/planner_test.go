@@ -128,7 +128,7 @@ func TestPlanner(t *testing.T) {
 			l.Connect(o)
 			return l
 		},
-		"SELECT * FROM (SELECT * FROM TableA)": func() core.Source {
+		"SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA)": func() core.Source {
 			t := &testTable{"tablea"}
 			f := core.Flatten()
 			u := core.Unflatten()
