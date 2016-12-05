@@ -17,7 +17,37 @@ var (
 	ErrDeadlineExceeded = errors.New("deadline exceeded")
 
 	reallyLongTime = 100 * 365 * 24 * time.Hour
+
+	mdmx sync.RWMutex
 )
+
+const (
+	metadataKey = "_zenomd"
+)
+
+// Context creates a zenodb-specific context that can store metadata with SetMD
+// and GetMD.
+func Context() context.Context {
+	return context.WithValue(context.Background(), metadataKey, make(map[string]interface{}))
+}
+
+// SetMD sets metadata in the given Context (thread-safe)
+func SetMD(ctx context.Context, key string, value interface{}) {
+	mdmx.Lock()
+	getMDMap(ctx)[key] = value
+	mdmx.Unlock()
+}
+
+// GetMD gets metadata from the givne Context (thread-safe)
+func GetMD(ctx context.Context, key string) interface{} {
+	mdmx.RLock()
+	defer mdmx.RUnlock()
+	return getMDMap(ctx)[key]
+}
+
+func getMDMap(ctx context.Context) map[string]interface{} {
+	return ctx.Value(metadataKey).(map[string]interface{})
+}
 
 // Field is a named expr.Expr
 type Field struct {

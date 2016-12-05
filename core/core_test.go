@@ -42,7 +42,7 @@ func TestFilter(t *testing.T) {
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := f.Iterate(context.Background(), func(dims bytemap.ByteMap, vals Vals) (bool, error) {
+	err := f.Iterate(Context(), func(dims bytemap.ByteMap, vals Vals) (bool, error) {
 		a, _ := vals[0].ValueAt(0, eA)
 		b, _ := vals[1].ValueAt(0, eB)
 		atomic.AddInt64(&totalA, int64(a))
@@ -71,7 +71,7 @@ func TestDeadline(t *testing.T) {
 
 	rowsSeen := int64(0)
 
-	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
+	ctx, cancel := context.WithDeadline(Context(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
 	err := f.Iterate(ctx, func(dims bytemap.ByteMap, vals Vals) (bool, error) {
 		atomic.AddInt64(&rowsSeen, 1)
@@ -104,7 +104,7 @@ func TestGroupSingle(t *testing.T) {
 	t.Log(FormatSource(gx))
 
 	totalByX := make(map[int]float64, 0)
-	err := gx.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := gx.Iterate(Context(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		total := float64(0)
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
@@ -145,7 +145,8 @@ func TestGroupNone(t *testing.T) {
 		"2.5": (60) * 2,
 	}
 
-	err := gx.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	ctx := Context()
+	err := gx.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		dims := fmt.Sprintf("%d.%d", key.Get("x"), key.Get("y"))
 		val, _ := vals[0].ValueAt(0, eTotal)
 		expectedVal := expectedValues[dims]
@@ -156,6 +157,7 @@ func TestGroupNone(t *testing.T) {
 
 	assert.Equal(t, errTest, err, "Error should have propagated")
 	assert.Empty(t, expectedValues, "All combinations should have been seen")
+	assert.EqualValues(t, []string{"x", "y"}, GetMD(ctx, MDKeyDims))
 }
 
 func TestFlattenSortOffsetAndLimit(t *testing.T) {
@@ -183,7 +185,7 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	var expectedTS time.Time
 	var expectedA float64
 	var expectedB float64
-	err := l.Iterate(context.Background(), func(row *FlatRow) (bool, error) {
+	err := l.Iterate(Context(), func(row *FlatRow) (bool, error) {
 		expectedTS, expectedTSs = expectedTSs[0], expectedTSs[1:]
 		expectedA, expectedAs = expectedAs[0], expectedAs[1:]
 		expectedB, expectedBs = expectedBs[0], expectedBs[1:]
