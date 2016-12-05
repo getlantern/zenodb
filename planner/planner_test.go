@@ -20,6 +20,10 @@ var (
 
 	eA = SUM("a")
 	eB = SUM("b")
+
+	fieldA     = core.NewField("a", eA)
+	fieldB     = core.NewField("b", eB)
+	fieldTotal = core.NewField("total", ADD(eA, eB))
 )
 
 func TestPlanner(t *testing.T) {
@@ -53,7 +57,7 @@ func TestPlanner(t *testing.T) {
 		"SELECT *, a + b AS total FROM TableA": func() core.Source {
 			t := &testTable{"tablea"}
 			g := &core.Group{
-				Fields: []core.Field{core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+				Fields: []core.Field{fieldA, fieldB, fieldTotal},
 			}
 			f := core.Flatten()
 			g.Connect(t)
@@ -111,7 +115,7 @@ func TestPlanner(t *testing.T) {
 			}
 			g := &core.Group{
 				By:         []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
-				Fields:     []core.Field{core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+				Fields:     core.Fields{core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
 				AsOf:       epoch.Add(-5 * time.Second),
 				Until:      epoch.Add(-1 * time.Second),
 				Resolution: 2 * time.Second,
@@ -128,7 +132,7 @@ func TestPlanner(t *testing.T) {
 			l.Connect(o)
 			return l
 		},
-		"SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA)": func() core.Source {
+		"SELECT * FROM (SELECT * FROM TableA)": func() core.Source {
 			t := &testTable{"tablea"}
 			f := core.Flatten()
 			u := core.Unflatten()
@@ -136,6 +140,21 @@ func TestPlanner(t *testing.T) {
 			f.Connect(t)
 			u.Connect(f)
 			f2.Connect(u)
+			return f2
+		},
+		"SELECT AVG(a) + AVG(b) AS total, * FROM (SELECT * FROM TableA)": func() core.Source {
+			avgTotal := core.NewField("total", ADD(AVG("a"), AVG("b")))
+			t := &testTable{"tablea"}
+			f := core.Flatten()
+			u := core.Unflatten(avgTotal, fieldA, fieldB)
+			g := &core.Group{
+				Fields: core.Fields{avgTotal, fieldA, fieldB},
+			}
+			f2 := core.Flatten()
+			f.Connect(t)
+			u.Connect(f)
+			g.Connect(u)
+			f2.Connect(g)
 			return f2
 		},
 	}
@@ -158,7 +177,7 @@ func TestPlanner(t *testing.T) {
 			return
 		}
 
-		assert.Equal(t, core.FormatSource(expected()), core.FormatSource(plan))
+		assert.Equal(t, core.FormatSource(expected()), core.FormatSource(plan), sqlString)
 	}
 }
 
@@ -200,10 +219,10 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap,
 	key := bytemap.New(map[string]interface{}{"x": x, "y": y})
 	vals := make([]encoding.Sequence, 2)
 	if a != 0 {
-		vals[0] = encoding.NewValue(eA, ts, a)
+		vals[0] = encoding.NewFloatValue(eA, ts, a)
 	}
 	if b != 0 {
-		vals[1] = encoding.NewValue(eB, ts, b)
+		vals[1] = encoding.NewFloatValue(eB, ts, b)
 	}
 	return key, vals
 }

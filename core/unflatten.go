@@ -12,11 +12,11 @@ func Unflatten(fields ...Field) FlatToRow {
 
 type unflatten struct {
 	flatRowConnectable
-	fields []Field
+	fields Fields
 }
 
 func (f *unflatten) Iterate(ctx context.Context, onRow OnRow) error {
-	inFields := f.GetFields()
+	inFields := f.flatRowConnectable.GetFields()
 	numIn := len(inFields)
 	numFields := len(f.fields)
 
@@ -32,6 +32,10 @@ func (f *unflatten) Iterate(ctx context.Context, onRow OnRow) error {
 		}
 		return onRow(row.Key, outRow)
 	})
+}
+
+func (f *unflatten) GetFields() Fields {
+	return f.fields
 }
 
 func (f *unflatten) String() string {

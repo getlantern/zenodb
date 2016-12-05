@@ -36,7 +36,7 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		if err != nil {
 			return nil, err
 		}
-		unflatten := core.Unflatten()
+		unflatten := core.Unflatten(query.FromSubQuery.Fields...)
 		unflatten.Connect(subSource)
 		source = unflatten
 	} else {
