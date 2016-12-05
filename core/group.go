@@ -165,19 +165,19 @@ func (g *Group) String() string {
 	result := &bytes.Buffer{}
 	result.WriteString("group")
 	if len(g.By) > 0 {
-		result.WriteString(fmt.Sprintf("\n    by: %v", g.By))
+		result.WriteString(fmt.Sprintf("\n       by: %v", g.By))
 	}
 	if len(g.Fields) > 0 {
-		result.WriteString(fmt.Sprintf("\n    fields: %v", g.Fields))
+		result.WriteString(fmt.Sprintf("\n       fields: %v", g.Fields))
 	}
 	if g.Resolution > 0 {
-		result.WriteString(fmt.Sprintf("\n    resolution: %v", g.Resolution))
+		result.WriteString(fmt.Sprintf("\n       resolution: %v", g.Resolution))
 	}
 	if !g.AsOf.IsZero() {
-		result.WriteString(fmt.Sprintf("\n    as of: %v", g.AsOf.In(time.UTC)))
+		result.WriteString(fmt.Sprintf("\n       as of: %v", g.AsOf.In(time.UTC)))
 	}
 	if !g.Until.IsZero() {
-		result.WriteString(fmt.Sprintf("\n    until: %v", g.Until.In(time.UTC)))
+		result.WriteString(fmt.Sprintf("\n       until: %v", g.Until.In(time.UTC)))
 	}
 	return result.String()
 }

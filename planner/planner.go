@@ -92,6 +92,5 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		flat = limit
 	}
 
-	log.Debug(core.FormatSource(flat))
 	return flat, nil
 }
