@@ -201,16 +201,35 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 }
 
 func TestUnflatten(t *testing.T) {
+	ex := ADD(AVG("a"), AVG("b"))
+
 	f := Flatten()
-	u := Unflatten()
+	u := Unflatten(NewField("total", ex))
 	f.Connect(&goodSource{})
 	f.Connect(&goodSource{})
 	f.Connect(&errorSource{})
 	u.Connect(f)
 
 	expectedRows := make([]*testRow, 0, len(testRows)*2)
-	expectedRows = append(expectedRows, testRows...)
-	expectedRows = append(expectedRows, testRows...)
+	for _, row := range testRows {
+		var ts time.Time
+		if row.vals[0] != nil {
+			ts = row.vals[0].Until()
+		} else {
+			ts = row.vals[1].Until()
+		}
+		a, _ := row.vals[0].ValueAt(0, eA)
+		b, _ := row.vals[1].ValueAt(0, eB)
+		params := Map(map[string]float64{
+			"a": a,
+			"b": b,
+		})
+		expectedRow := &testRow{
+			key:  row.key,
+			vals: []encoding.Sequence{encoding.NewValue(ex, ts, params, row.key)},
+		}
+		expectedRows = append(expectedRows, expectedRow, expectedRow)
+	}
 
 	err := u.Iterate(Context(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		row := &testRow{key, vals}
@@ -262,7 +281,7 @@ func (r *testRow) equals(other *testRow) bool {
 	}
 	for i, val := range r.vals {
 		otherVal := other.vals[i]
-		if otherVal != nil && string(val) != string(otherVal) {
+		if string(val) != string(otherVal) {
 			return false
 		}
 	}
@@ -305,10 +324,10 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) *testRow {
 	key := bytemap.New(map[string]interface{}{"x": x, "y": y})
 	vals := make([]encoding.Sequence, 2)
 	if a != 0 {
-		vals[0] = encoding.NewValue(eA, ts, a)
+		vals[0] = encoding.NewFloatValue(eA, ts, a)
 	}
 	if b != 0 {
-		vals[1] = encoding.NewValue(eB, ts, b)
+		vals[1] = encoding.NewFloatValue(eB, ts, b)
 	}
 	return &testRow{key, vals}
 }

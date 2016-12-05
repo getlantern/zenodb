@@ -26,12 +26,18 @@ func NewSequence(width int, numPeriods int) Sequence {
 	return make(Sequence, Width64bits+numPeriods*width)
 }
 
-// NewValue makes a single-value sequence from a simple expression, timestamp
-// and value.
-func NewValue(e expr.Expr, ts time.Time, val float64) Sequence {
+// NewFloatValue makes a single-value sequence from a simple expression,
+// timestamp float value.
+func NewFloatValue(e expr.Expr, ts time.Time, val float64) Sequence {
+	return NewValue(e, ts, expr.FloatParams(val), nil)
+}
+
+// NewValue makes a single-value sequence from a simple expression, timestamp,
+// params and metadata.
+func NewValue(e expr.Expr, ts time.Time, params expr.Params, metadata goexpr.Params) Sequence {
 	seq := NewSequence(e.EncodedWidth(), 1)
 	seq.SetUntil(ts)
-	seq.UpdateValueAt(0, e, expr.FloatParams(val), nil)
+	seq.UpdateValueAt(0, e, params, metadata)
 	return seq
 }
 
