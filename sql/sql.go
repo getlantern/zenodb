@@ -22,7 +22,7 @@ import (
 var (
 	log = golog.LoggerFor("zenodb.sql")
 
-	pointsField = core.NewField("_points", expr.SUM("_point"))
+	PointsField = core.NewField("_points", expr.SUM("_point"))
 )
 
 var (
@@ -186,7 +186,7 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 		includedDims:   make(map[string]bool),
 	}
 	// Always include "_points"
-	q.includedFields[pointsField.Name] = true
+	q.includedFields[PointsField.Name] = true
 	err := q.applyFrom(stmt, fieldSource)
 	if err != nil {
 		return nil, err
@@ -717,8 +717,8 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				if parseErr != nil {
 					return nil, fmt.Errorf("In subquery %v: %v", nodeToString(stmt), parseErr)
 				}
-				if len(_sq.Fields) < 1 {
-					return nil, fmt.Errorf("Subqueries must select at least 1 field")
+				if len(_sq.Fields) != 1 {
+					return nil, fmt.Errorf("Subqueries must select at exactly 1 dimension")
 				}
 				right = &SubQuery{Dim: _sq.Fields[0].Name, SQL: nodeToString(stmt)}
 			default:
@@ -837,12 +837,12 @@ func (query *Query) AddPointsIfNecessary() {
 	// Add _points hidden field if necessary
 	foundPoints := false
 	for _, field := range query.Fields {
-		if field.String() == pointsField.String() {
+		if field.String() == PointsField.String() {
 			foundPoints = true
 			break
 		}
 	}
 	if !foundPoints {
-		query.Fields = append(query.Fields, pointsField)
+		query.Fields = append(query.Fields, PointsField)
 	}
 }

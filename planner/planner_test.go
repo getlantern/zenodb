@@ -7,6 +7,7 @@ import (
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
+	"github.com/getlantern/zenodb/sql"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -25,7 +26,7 @@ var (
 	fieldB = core.NewField("b", eB)
 )
 
-func TestPlanner(t *testing.T) {
+func TestPlans(t *testing.T) {
 	pairs := map[string]func() core.Source{
 		"SELECT * FROM TableA": func() core.Source {
 			t := &testTable{"tablea"}
@@ -67,7 +68,7 @@ func TestPlanner(t *testing.T) {
 			fieldTotal := core.NewField("total", ADD(eA, eB))
 			t := &testTable{"tablea"}
 			g := &core.Group{
-				Fields: []core.Field{fieldA, fieldB, fieldTotal},
+				Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldTotal},
 			}
 			f := core.Flatten()
 			g.Connect(t)
@@ -78,7 +79,7 @@ func TestPlanner(t *testing.T) {
 			fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
 			t := &testTable{"tablea"}
 			g := &core.Group{
-				Fields: []core.Field{fieldA, fieldB, fieldHaving},
+				Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
 			}
 			f := core.Flatten()
 			h := &core.FlatRowFilter{
@@ -92,7 +93,7 @@ func TestPlanner(t *testing.T) {
 		"SELECT * FROM TableA ASOF '-5s'": func() core.Source {
 			t := &testTable{"tablea"}
 			g := &core.Group{
-				Fields: []core.Field{core.NewField("a", eA), core.NewField("b", eB)},
+				Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
 				AsOf:   epoch.Add(-5 * time.Second),
 			}
 			f := core.Flatten()
@@ -103,7 +104,7 @@ func TestPlanner(t *testing.T) {
 		"SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'": func() core.Source {
 			t := &testTable{"tablea"}
 			g := &core.Group{
-				Fields: []core.Field{core.NewField("a", eA), core.NewField("b", eB)},
+				Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
 				AsOf:   epoch.Add(-5 * time.Second),
 				Until:  epoch.Add(-1 * time.Second),
 			}
@@ -115,7 +116,7 @@ func TestPlanner(t *testing.T) {
 		"SELECT * FROM TableA GROUP BY period(2s)": func() core.Source {
 			t := &testTable{"tablea"}
 			g := &core.Group{
-				Fields:     []core.Field{core.NewField("a", eA), core.NewField("b", eB)},
+				Fields:     []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
 				Resolution: 2 * time.Second,
 			}
 			f := core.Flatten()
@@ -130,7 +131,7 @@ func TestPlanner(t *testing.T) {
 			}
 			g := &core.Group{
 				By:         []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
-				Fields:     core.Fields{core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+				Fields:     core.Fields{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
 				AsOf:       epoch.Add(-5 * time.Second),
 				Until:      epoch.Add(-1 * time.Second),
 				Resolution: 2 * time.Second,
@@ -161,9 +162,9 @@ func TestPlanner(t *testing.T) {
 			avgTotal := core.NewField("total", ADD(AVG("a"), AVG("b")))
 			t := &testTable{"tablea"}
 			f := core.Flatten()
-			u := core.Unflatten(avgTotal, fieldA, fieldB)
+			u := core.Unflatten(avgTotal, sql.PointsField, fieldA, fieldB)
 			g := &core.Group{
-				Fields: core.Fields{avgTotal, fieldA, fieldB},
+				Fields: core.Fields{avgTotal, sql.PointsField, fieldA, fieldB},
 			}
 			f2 := core.Flatten()
 			f.Connect(t)
@@ -193,8 +194,44 @@ func TestPlanner(t *testing.T) {
 		}
 
 		assert.Equal(t, core.FormatSource(expected()), core.FormatSource(plan), sqlString)
-		log.Debug(sqlString)
-		log.Debug(core.FormatSource(plan))
+	}
+}
+
+func TestPlanExecution(t *testing.T) {
+	sqlString := `
+SELECT *, AVG(a)+AVG(b) AS avg_total
+FROM (SELECT * FROM tablea WHERE x IN (SELECT x FROM tablea WHERE x = 1) OR y IN (SELECT y FROM tablea WHERE y = 3))
+HAVING avg_total > 20
+ORDER BY _time
+LIMIT 1
+`
+	plan, err := Plan(sqlString, &Opts{
+		GetTable: func(table string) core.RowSource {
+			return &testTable{table}
+		},
+		Now: func(table string) time.Time {
+			return epoch
+		},
+		FieldSource: func(table string) ([]core.Field, error) {
+			t := &testTable{table}
+			return t.GetFields(), nil
+		},
+	})
+	if !assert.NoError(t, err) {
+		return
+	}
+
+	var rows []*core.FlatRow
+	plan.Iterate(core.Context(), func(row *core.FlatRow) (bool, error) {
+		rows = append(rows, row)
+		return true, nil
+	})
+
+	if assert.Len(t, rows, 1) {
+		row := rows[0]
+		assert.Equal(t, 1, row.Key.Get("x"))
+		assert.Equal(t, 3, row.Key.Get("y"))
+		assert.EqualValues(t, []float64{0, 50, 0, 50}, row.Values)
 	}
 }
 
@@ -203,7 +240,7 @@ type testTable struct {
 }
 
 func (t *testTable) GetFields() core.Fields {
-	return core.Fields{core.NewField("a", eA), core.NewField("b", eB)}
+	return core.Fields{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)}
 }
 
 func (t *testTable) GetResolution() time.Duration {
@@ -234,12 +271,13 @@ func (t *testTable) Iterate(ctx context.Context, onRow core.OnRow) error {
 
 func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap, []encoding.Sequence) {
 	key := bytemap.New(map[string]interface{}{"x": x, "y": y})
-	vals := make([]encoding.Sequence, 2)
+	vals := make([]encoding.Sequence, 3)
+	vals[0] = encoding.NewFloatValue(sql.PointsField.Expr, ts, 1)
 	if a != 0 {
-		vals[0] = encoding.NewFloatValue(eA, ts, a)
+		vals[1] = encoding.NewFloatValue(eA, ts, a)
 	}
 	if b != 0 {
-		vals[1] = encoding.NewFloatValue(eB, ts, b)
+		vals[2] = encoding.NewFloatValue(eB, ts, b)
 	}
 	return key, vals
 }

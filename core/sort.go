@@ -101,7 +101,7 @@ func (r orderedRows) Less(i, j int) bool {
 			if order.Descending {
 				ta, tb = tb, ta
 			}
-			if ta > tb {
+			if ta < tb {
 				return true
 			}
 			continue

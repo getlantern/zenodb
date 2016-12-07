@@ -24,6 +24,7 @@ type Opts struct {
 	FieldSource   sql.FieldSource
 	Distributed   bool
 	PartitionKeys []string
+	IsSubquery    bool
 }
 
 func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
@@ -32,13 +33,18 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		return nil, err
 	}
 
+	if opts.IsSubquery {
+		// Change field to _points field
+		query.Fields[0] = sql.PointsField
+	}
+
 	var source core.RowSource
 	if query.FromSubQuery != nil {
 		subSource, err := Plan(query.FromSubQuery.SQL, opts)
 		if err != nil {
 			return nil, err
 		}
-		unflatten := core.Unflatten(query.FromSubQuery.Fields...)
+		unflatten := core.Unflatten(query.Fields...)
 		unflatten.Connect(subSource)
 		source = unflatten
 	} else {
@@ -113,7 +119,7 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 
 	if query.Having != nil {
 		// Apply having filter
-		havingIdx := len(query.Fields) - 1
+		havingIdx := len(query.Fields)
 		filter := &core.FlatRowFilter{
 			Include: func(ctx context.Context, row *core.FlatRow) (*core.FlatRow, error) {
 				include := row.Values[havingIdx]

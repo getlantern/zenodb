@@ -228,6 +228,9 @@ func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, meta
 		out := n.data[o]
 		outEx := bt.outExprs[o]
 		for i, submerge := range subMergers {
+			if submerge == nil {
+				continue
+			}
 			in := vals[i]
 			inEx := bt.inExprs[i]
 			previousSize := cap(out)

@@ -17,8 +17,11 @@ func planSubQueries(query *sql.Query, opts *Opts) (func(ctx context.Context) err
 			subQueries = append(subQueries, sq)
 		}
 	})
+	sqOpts := &Opts{}
+	*sqOpts = *opts
+	sqOpts.IsSubquery = true
 	for _, sq := range subQueries {
-		sqPlan, sqPlanErr := Plan(sq.SQL, opts)
+		sqPlan, sqPlanErr := Plan(sq.SQL, sqOpts)
 		if sqPlanErr != nil {
 			return nil, sqPlanErr
 		}
@@ -52,7 +55,7 @@ func planSubQueries(query *sql.Query, opts *Opts) (func(ctx context.Context) err
 
 				if err == nil || err == core.ErrDeadlineExceeded {
 					dims := make([]interface{}, 0, len(uniques))
-					for _, dim := range uniques {
+					for dim := range uniques {
 						dims = append(dims, dim)
 					}
 					sq.SetResult(dims)
