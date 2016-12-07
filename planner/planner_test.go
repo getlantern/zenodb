@@ -193,6 +193,8 @@ func TestPlanner(t *testing.T) {
 		}
 
 		assert.Equal(t, core.FormatSource(expected()), core.FormatSource(plan), sqlString)
+		log.Debug(sqlString)
+		log.Debug(core.FormatSource(plan))
 	}
 }
 
