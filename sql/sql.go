@@ -93,6 +93,7 @@ var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 // query should first execute all SubQueries and then call SetResult to set the
 // results of the subquery. The subquery
 type SubQuery struct {
+	Dim    string
 	SQL    string
 	result []goexpr.Expr
 }
@@ -129,12 +130,11 @@ type Query struct {
 	GroupBy    []core.GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab   goexpr.Expr
-	Having     expr.Expr
-	OrderBy    []core.OrderBy
-	Offset     int
-	Limit      int
-	SubQueries []*SubQuery
+	Crosstab goexpr.Expr
+	Having   expr.Expr
+	OrderBy  []core.OrderBy
+	Offset   int
+	Limit    int
 	// IncludedFields are the names of all knownFields included in this query.
 	IncludedFields []string
 	includedFields map[string]bool
@@ -718,9 +718,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				if len(_sq.Fields) < 1 {
 					return nil, fmt.Errorf("Subqueries must select at least 1 field")
 				}
-				sq := &SubQuery{SQL: nodeToString(stmt)}
-				q.SubQueries = append(q.SubQueries, sq)
-				right = sq
+				right = &SubQuery{Dim: _sq.Fields[0].Name, SQL: nodeToString(stmt)}
 			default:
 				return nil, fmt.Errorf("IN requires a list of values on the right hand side, not %v %v", reflect.TypeOf(e.Right), nodeToString(e.Right))
 			}

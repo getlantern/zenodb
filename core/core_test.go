@@ -28,9 +28,9 @@ var (
 
 func TestFilter(t *testing.T) {
 	f := &Filter{
-		Include: func(dims bytemap.ByteMap, vals Vals) bool {
+		Include: func(ctx context.Context, dims bytemap.ByteMap, vals Vals) (bool, error) {
 			x := dims.Get("x")
-			return x != nil && x.(int)%2 == 0
+			return x != nil && x.(int)%2 == 0, nil
 		},
 		Label: "test",
 	}
@@ -57,10 +57,10 @@ func TestFilter(t *testing.T) {
 
 func TestDeadline(t *testing.T) {
 	f := &Filter{
-		Include: func(dims bytemap.ByteMap, vals Vals) bool {
+		Include: func(ctx context.Context, dims bytemap.ByteMap, vals Vals) (bool, error) {
 			// Slow things down by sleeping for a bit
 			time.Sleep(100 * time.Millisecond)
-			return true
+			return true, nil
 		},
 		Label: "deadline",
 	}

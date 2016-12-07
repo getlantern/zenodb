@@ -144,6 +144,16 @@ LIMIT 100, 10
 	// TODO: reenable this
 	// assert.Equal(t, "(((dim_a LIKE 172.56.) AND (dim_b > 10)) OR (((((((dim_c == 20) OR (dim_d != thing)) AND (dim_e LIKE no such host)) AND (dim_f != true)) AND (dim_g == <nil>)) AND (dim_h != <nil>)) AND dim_i IN(5, 6, 7, 8)))", q.Where.String())
 	assert.Equal(t, "where dim_a like '172.56.' and dim_b > 10 or (dim_c = 20 or dim_d != 'thing') and dim_e not like 'no such host' and dim_f != true and dim_g is null and dim_h is not null and dim_i in (5, 6, 7, 8) and dim_j in (select subdim as subdim from subtable where subdim > 20) and rand() < 0.5", q.WhereSQL)
+	var subQueries []*SubQuery
+	q.Where.WalkLists(func(list goexpr.List) {
+		sq, ok := list.(*SubQuery)
+		if ok {
+			subQueries = append(subQueries, sq)
+		}
+	})
+	if assert.Len(t, subQueries, 1) {
+		assert.Equal(t, "select subdim as subdim from subtable where subdim > 20", subQueries[0].SQL)
+	}
 	expectedHaving := AND(GT(rate, 15), LT(SUM("h"), 2)).String()
 	actualHaving := q.Having.String()
 	assert.Equal(t, expectedHaving, actualHaving)
@@ -222,6 +232,10 @@ type testexpr struct {
 func (e *testexpr) Eval(params goexpr.Params) interface{} {
 	v := e.val.Eval(params)
 	return fmt.Sprintf("test: %v", v)
+}
+
+func (e *testexpr) WalkLists(cb func(goexpr.List)) {
+	e.val.WalkLists(cb)
 }
 
 func (e *testexpr) String() string {

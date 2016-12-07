@@ -44,6 +44,16 @@ func TestPlanner(t *testing.T) {
 			f.Connect(fi)
 			return f
 		},
+		"SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)": func() core.Source {
+			t := &testTable{"tablea"}
+			fi := &core.Filter{
+				Label: "where dim in (select dim as dim from tableb)",
+			}
+			f := core.Flatten()
+			fi.Connect(t)
+			f.Connect(fi)
+			return f
+		},
 		"SELECT * FROM TableA LIMIT 2, 5": func() core.Source {
 			t := &testTable{"tablea"}
 			f := core.Flatten()
@@ -58,16 +68,6 @@ func TestPlanner(t *testing.T) {
 			t := &testTable{"tablea"}
 			g := &core.Group{
 				Fields: []core.Field{fieldA, fieldB, fieldTotal},
-			}
-			f := core.Flatten()
-			g.Connect(t)
-			f.Connect(g)
-			return f
-		},
-		"SELECT a + b AS total FROM TableA": func() core.Source {
-			t := &testTable{"tablea"}
-			g := &core.Group{
-				Fields: []core.Field{core.NewField("total", ADD(eA, eB))},
 			}
 			f := core.Flatten()
 			g.Connect(t)

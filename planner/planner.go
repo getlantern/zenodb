@@ -2,11 +2,15 @@
 package planner
 
 import (
+	"context"
 	"errors"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,10 +60,24 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	resolutionChanged := query.Resolution != 0 && query.Resolution != source.GetResolution()
 
 	if query.Where != nil {
+		runSubQueries, subQueryPlanErr := planSubQueries(query, opts)
+		if subQueryPlanErr != nil {
+			return nil, subQueryPlanErr
+		}
+
+		hasRunSubqueries := int32(0)
 		filter := &core.Filter{
-			Include: func(key bytemap.ByteMap, vals core.Vals) bool {
+			Include: func(ctx context.Context, key bytemap.ByteMap, vals core.Vals) (bool, error) {
+				if atomic.CompareAndSwapInt32(&hasRunSubqueries, 0, 1) {
+					// TODO: timeout error should be okay, just means that our results are incomplete
+					// Or, should we just handle timeouts as fatal across the board?
+					err := runSubQueries(ctx)
+					if err != nil && err != core.ErrDeadlineExceeded {
+						return false, err
+					}
+				}
 				result := query.Where.Eval(key)
-				return result != nil && result.(bool)
+				return result != nil && result.(bool), nil
 			},
 			Label: query.WhereSQL,
 		}
@@ -103,4 +121,69 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	}
 
 	return flat, nil
+}
+
+func planSubQueries(query *sql.Query, opts *Opts) (func(ctx context.Context) error, error) {
+	var subQueries []*sql.SubQuery
+	var subQueryPlans []core.FlatRowSource
+	query.Where.WalkLists(func(list goexpr.List) {
+		sq, ok := list.(*sql.SubQuery)
+		if ok {
+			subQueries = append(subQueries, sq)
+		}
+	})
+	for _, sq := range subQueries {
+		sqPlan, sqPlanErr := Plan(sq.SQL, opts)
+		if sqPlanErr != nil {
+			return nil, sqPlanErr
+		}
+		subQueryPlans = append(subQueryPlans, sqPlan)
+	}
+
+	if len(subQueries) == 0 {
+		return func(ctx context.Context) error {
+			return nil
+		}, nil
+	}
+
+	return func(ctx context.Context) error {
+		// Run subqueries in parallel
+		// TODO: respect ctx deadline
+		errors := make(chan error, len(subQueries))
+		for _i, _sq := range subQueries {
+			i := _i
+			sq := _sq
+			go func() {
+				var mx sync.Mutex
+				uniques := make(map[interface{}]bool, 0)
+				sqPlan := subQueryPlans[i]
+				err := sqPlan.Iterate(ctx, func(row *core.FlatRow) (bool, error) {
+					dim := row.Key.Get(sq.Dim)
+					mx.Lock()
+					uniques[dim] = true
+					mx.Unlock()
+					return true, nil
+				})
+
+				if err == nil || err == core.ErrDeadlineExceeded {
+					dims := make([]interface{}, 0, len(uniques))
+					for _, dim := range uniques {
+						dims = append(dims, dim)
+					}
+					sq.SetResult(dims)
+				}
+
+				errors <- err
+			}()
+		}
+
+		var finalErr error
+		for i := 0; i < len(subQueries); i++ {
+			err := <-errors
+			if err != nil && (finalErr == nil || finalErr == core.ErrDeadlineExceeded) {
+				finalErr = err
+			}
+		}
+		return finalErr
+	}, nil
 }
