@@ -130,11 +130,12 @@ type Query struct {
 	GroupBy    []core.GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab goexpr.Expr
-	Having   expr.Expr
-	OrderBy  []core.OrderBy
-	Offset   int
-	Limit    int
+	Crosstab  goexpr.Expr
+	Having    expr.Expr
+	HavingSQL string
+	OrderBy   []core.OrderBy
+	Offset    int
+	Limit     int
 	// IncludedFields are the names of all knownFields included in this query.
 	IncludedFields []string
 	includedFields map[string]bool
@@ -447,6 +448,7 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 		if err != nil {
 			return fmt.Errorf("Invalid expression for HAVING clause: %v", err)
 		}
+		q.HavingSQL = nodeToString(stmt.Having.Expr)
 	}
 	return nil
 }

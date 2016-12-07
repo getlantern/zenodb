@@ -64,18 +64,21 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		}
 
 		hasRunSubqueries := int32(0)
-		filter := &core.Filter{
-			Include: func(ctx context.Context, key bytemap.ByteMap, vals core.Vals) (bool, error) {
+		filter := &core.RowFilter{
+			Include: func(ctx context.Context, key bytemap.ByteMap, vals core.Vals) (bytemap.ByteMap, core.Vals, error) {
 				if atomic.CompareAndSwapInt32(&hasRunSubqueries, 0, 1) {
 					// TODO: timeout error should be okay, just means that our results are incomplete
 					// Or, should we just handle timeouts as fatal across the board?
 					err := runSubQueries(ctx)
 					if err != nil && err != core.ErrDeadlineExceeded {
-						return false, err
+						return nil, nil, err
 					}
 				}
 				result := query.Where.Eval(key)
-				return result != nil && result.(bool), nil
+				if result != nil && result.(bool) {
+					return key, vals, nil
+				}
+				return nil, nil, nil
 			},
 			Label: query.WhereSQL,
 		}
@@ -83,11 +86,19 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		source = filter
 	}
 
-	if asOfChanged || untilChanged || resolutionChanged || !query.GroupByAll || query.HasSpecificFields {
+	if asOfChanged || untilChanged || resolutionChanged || !query.GroupByAll || query.HasSpecificFields || query.Having != nil {
 		// Need to do a group by
+		fields := query.Fields
+		if query.Having != nil {
+			// Add having to fields
+			fields = make([]core.Field, 0, len(query.Fields))
+			fields = append(fields, query.Fields...)
+			fields = append(fields, core.NewField("_having", query.Having))
+		}
+
 		group := &core.Group{
 			By:         query.GroupBy,
-			Fields:     query.Fields,
+			Fields:     fields,
 			Resolution: query.Resolution,
 			AsOf:       query.AsOf,
 			Until:      query.Until,
@@ -99,6 +110,25 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	flatten := core.Flatten()
 	flatten.Connect(source)
 	var flat core.FlatRowSource = flatten
+
+	if query.Having != nil {
+		// Apply having filter
+		havingIdx := len(query.Fields) - 1
+		filter := &core.FlatRowFilter{
+			Include: func(ctx context.Context, row *core.FlatRow) (*core.FlatRow, error) {
+				include := row.Values[havingIdx]
+				if include == 1 {
+					// Removing having field
+					row.Values = row.Values[:havingIdx]
+					return row, nil
+				}
+				return nil, nil
+			},
+			Label: query.HavingSQL,
+		}
+		filter.Connect(flat)
+		flat = filter
+	}
 
 	if len(query.OrderBy) > 0 {
 		sort := core.Sort(query.OrderBy...)

@@ -26,11 +26,14 @@ var (
 	errTest = errors.New("test error")
 )
 
-func TestFilter(t *testing.T) {
-	f := &Filter{
-		Include: func(ctx context.Context, dims bytemap.ByteMap, vals Vals) (bool, error) {
-			x := dims.Get("x")
-			return x != nil && x.(int)%2 == 0, nil
+func TestRowFilter(t *testing.T) {
+	f := &RowFilter{
+		Include: func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
+			x := key.Get("x")
+			if x != nil && x.(int)%2 == 0 {
+				return key, vals, nil
+			}
+			return nil, nil, nil
 		},
 		Label: "test",
 	}
@@ -42,7 +45,7 @@ func TestFilter(t *testing.T) {
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := f.Iterate(Context(), func(dims bytemap.ByteMap, vals Vals) (bool, error) {
+	err := f.Iterate(Context(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		a, _ := vals[0].ValueAt(0, eA)
 		b, _ := vals[1].ValueAt(0, eB)
 		atomic.AddInt64(&totalA, int64(a))
@@ -55,12 +58,46 @@ func TestFilter(t *testing.T) {
 	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
 }
 
+func TestFlatRowFilter(t *testing.T) {
+	fl := Flatten()
+	f := &FlatRowFilter{
+		Include: func(ctx context.Context, row *FlatRow) (*FlatRow, error) {
+			x := row.Key.Get("x")
+			if x != nil && x.(int)%2 == 0 {
+				return row, nil
+			}
+			return nil, nil
+		},
+		Label: "test",
+	}
+
+	fl.Connect(&goodSource{})
+	fl.Connect(&goodSource{})
+	fl.Connect(&errorSource{})
+	f.Connect(fl)
+
+	totalA := int64(0)
+	totalB := int64(0)
+
+	err := f.Iterate(Context(), func(row *FlatRow) (bool, error) {
+		a := row.Values[0]
+		b := row.Values[1]
+		atomic.AddInt64(&totalA, int64(a))
+		atomic.AddInt64(&totalB, int64(b))
+		return true, nil
+	})
+
+	assert.Equal(t, errTest, err, "Error should have propagated")
+	assert.EqualValues(t, 520, atomic.LoadInt64(&totalB), "Total for b should include data from both good sources")
+	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
+}
+
 func TestDeadline(t *testing.T) {
-	f := &Filter{
-		Include: func(ctx context.Context, dims bytemap.ByteMap, vals Vals) (bool, error) {
+	f := &RowFilter{
+		Include: func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
 			// Slow things down by sleeping for a bit
 			time.Sleep(100 * time.Millisecond)
-			return true, nil
+			return key, vals, nil
 		},
 		Label: "deadline",
 	}
@@ -73,7 +110,7 @@ func TestDeadline(t *testing.T) {
 
 	ctx, cancel := context.WithDeadline(Context(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
-	err := f.Iterate(ctx, func(dims bytemap.ByteMap, vals Vals) (bool, error) {
+	err := f.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		atomic.AddInt64(&rowsSeen, 1)
 		return true, nil
 	})

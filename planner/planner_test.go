@@ -21,9 +21,8 @@ var (
 	eA = SUM("a")
 	eB = SUM("b")
 
-	fieldA     = core.NewField("a", eA)
-	fieldB     = core.NewField("b", eB)
-	fieldTotal = core.NewField("total", ADD(eA, eB))
+	fieldA = core.NewField("a", eA)
+	fieldB = core.NewField("b", eB)
 )
 
 func TestPlanner(t *testing.T) {
@@ -36,7 +35,7 @@ func TestPlanner(t *testing.T) {
 		},
 		"SELECT * FROM TableA WHERE x > 5": func() core.Source {
 			t := &testTable{"tablea"}
-			fi := &core.Filter{
+			fi := &core.RowFilter{
 				Label: "where x > 5",
 			}
 			f := core.Flatten()
@@ -46,7 +45,7 @@ func TestPlanner(t *testing.T) {
 		},
 		"SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)": func() core.Source {
 			t := &testTable{"tablea"}
-			fi := &core.Filter{
+			fi := &core.RowFilter{
 				Label: "where dim in (select dim as dim from tableb)",
 			}
 			f := core.Flatten()
@@ -65,6 +64,7 @@ func TestPlanner(t *testing.T) {
 			return l
 		},
 		"SELECT *, a + b AS total FROM TableA": func() core.Source {
+			fieldTotal := core.NewField("total", ADD(eA, eB))
 			t := &testTable{"tablea"}
 			g := &core.Group{
 				Fields: []core.Field{fieldA, fieldB, fieldTotal},
@@ -73,6 +73,21 @@ func TestPlanner(t *testing.T) {
 			g.Connect(t)
 			f.Connect(g)
 			return f
+		},
+		"SELECT * FROM TableA HAVING a+b > 0": func() core.Source {
+			fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+			t := &testTable{"tablea"}
+			g := &core.Group{
+				Fields: []core.Field{fieldA, fieldB, fieldHaving},
+			}
+			f := core.Flatten()
+			h := &core.FlatRowFilter{
+				Label: "a+b > 0",
+			}
+			g.Connect(t)
+			f.Connect(g)
+			h.Connect(f)
+			return h
 		},
 		"SELECT * FROM TableA ASOF '-5s'": func() core.Source {
 			t := &testTable{"tablea"}
@@ -110,7 +125,7 @@ func TestPlanner(t *testing.T) {
 		},
 		"SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5": func() core.Source {
 			t := &testTable{"tablea"}
-			fi := &core.Filter{
+			fi := &core.RowFilter{
 				Label: "where x > 5",
 			}
 			g := &core.Group{
