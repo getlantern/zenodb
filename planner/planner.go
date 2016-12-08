@@ -73,8 +73,6 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		filter := &core.RowFilter{
 			Include: func(ctx context.Context, key bytemap.ByteMap, vals core.Vals) (bytemap.ByteMap, core.Vals, error) {
 				if atomic.CompareAndSwapInt32(&hasRunSubqueries, 0, 1) {
-					// TODO: timeout error should be okay, just means that our results are incomplete
-					// Or, should we just handle timeouts as fatal across the board?
 					err := runSubQueries(ctx)
 					if err != nil && err != core.ErrDeadlineExceeded {
 						return nil, nil, err

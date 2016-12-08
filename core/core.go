@@ -111,28 +111,36 @@ type Transform interface {
 	GetSources() []Source
 }
 
+type RowConnectable interface {
+	Connect(source RowSource)
+}
+
+type FlatRowConnectable interface {
+	Connect(source FlatRowSource)
+}
+
 type RowToRow interface {
 	RowSource
 	Transform
-	Connect(source RowSource)
+	RowConnectable
 }
 
 type RowToFlat interface {
 	FlatRowSource
 	Transform
-	Connect(source RowSource)
+	RowConnectable
 }
 
 type FlatToFlat interface {
 	FlatRowSource
 	Transform
-	Connect(source FlatRowSource)
+	FlatRowConnectable
 }
 
 type FlatToRow interface {
 	RowSource
 	Transform
-	Connect(source FlatRowSource)
+	FlatRowConnectable
 }
 
 type connectable struct {

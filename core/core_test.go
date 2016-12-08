@@ -26,7 +26,7 @@ var (
 	errTest = errors.New("test error")
 )
 
-func TestRowFilter(t *testing.T) {
+func TestRowFilterAndSplitter(t *testing.T) {
 	f := &RowFilter{
 		Include: func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
 			x := key.Get("x")
@@ -38,8 +38,14 @@ func TestRowFilter(t *testing.T) {
 		Label: "test",
 	}
 
-	f.Connect(&goodSource{})
-	f.Connect(&goodSource{})
+	// This splitter doubles up goodSource
+	s := NewSplitter()
+	s1 := s.Split()
+	s2 := s.Split()
+	s.Connect(&goodSource{})
+
+	f.Connect(s1)
+	f.Connect(s2)
 	f.Connect(&errorSource{})
 
 	totalA := int64(0)
