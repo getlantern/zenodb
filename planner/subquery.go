@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) error, error) {
+func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) ([][]interface{}, error), error) {
 	var subQueries []*sql.SubQuery
 	var subQueryPlans []core.FlatRowSource
 	query.Where.WalkLists(func(list goexpr.List) {
@@ -29,14 +29,15 @@ func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) err
 	}
 
 	if len(subQueries) == 0 {
-		return func(ctx context.Context) error {
-			return nil
+		return func(ctx context.Context) ([][]interface{}, error) {
+			return nil, nil
 		}, nil
 	}
 
-	return func(ctx context.Context) error {
+	return func(ctx context.Context) ([][]interface{}, error) {
 		// Run subqueries in parallel
 		// TODO: respect ctx deadline
+		subQueryResultsChs := make(chan []interface{}, len(subQueries))
 		errors := make(chan error, len(subQueries))
 		for _i, _sq := range subQueries {
 			i := _i
@@ -53,25 +54,28 @@ func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) err
 					return true, nil
 				})
 
+				dims := make([]interface{}, 0, len(uniques))
 				if err == nil || err == core.ErrDeadlineExceeded {
-					dims := make([]interface{}, 0, len(uniques))
 					for dim := range uniques {
 						dims = append(dims, dim)
 					}
 					sq.SetResult(dims)
 				}
 
+				subQueryResultsChs <- dims
 				errors <- err
 			}()
 		}
 
+		subQueryResults := make([][]interface{}, 0, len(subQueries))
 		var finalErr error
 		for i := 0; i < len(subQueries); i++ {
+			subQueryResults = append(subQueryResults, <-subQueryResultsChs)
 			err := <-errors
 			if err != nil && (finalErr == nil || finalErr == core.ErrDeadlineExceeded) {
 				finalErr = err
 			}
 		}
-		return finalErr
+		return subQueryResults, finalErr
 	}, nil
 }

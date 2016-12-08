@@ -13,26 +13,33 @@ import (
 )
 
 var (
-	ErrNoSQL              = errors.New("Need at least one SQL string")
-	ErrIncompatibleTables = errors.New("Planning multiple SQL strings only allowed with queries from the same table (and not subqueries)")
-	ErrNestedFromSubquery = errors.New("nested FROM subqueries not supported")
+	ErrNoSQL               = errors.New("Need at least one SQL string")
+	ErrNoMultipleOnCluster = errors.New("Multiple SQL strings not allowed when querying cluster")
+	ErrIncompatibleTables  = errors.New("Planning multiple SQL strings only allowed with queries from the same table (and not subqueries)")
+	ErrNestedFromSubquery  = errors.New("nested FROM subqueries not supported")
 
 	log = golog.LoggerFor("planner")
 )
 
+type QueryClusterFN func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, onRow core.OnFlatRow) error
+
 type Opts struct {
+	IsSubquery    bool
 	GetTable      func(table string) core.RowSource
 	Now           func(table string) time.Time
 	FieldSource   sql.FieldSource
-	Distributed   bool
+	QueryCluster  QueryClusterFN
 	PartitionKeys []string
-	IsSubquery    bool
 }
 
 func Plan(opts *Opts, sqlStrings ...string) (core.FlatRowSource, error) {
 	if len(sqlStrings) == 0 {
 		return nil, ErrNoSQL
 	}
+	if opts.QueryCluster != nil && len(sqlStrings) > 1 {
+		return nil, ErrNoMultipleOnCluster
+	}
+
 	queries := make([]*sql.Query, 0, len(sqlStrings))
 	for _, sqlString := range sqlStrings {
 		query, err := sql.Parse(sqlString, opts.FieldSource)
@@ -57,16 +64,28 @@ func Plan(opts *Opts, sqlStrings ...string) (core.FlatRowSource, error) {
 
 func planSingle(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
 	var source core.RowSource
-	if query.FromSubQuery != nil {
-		subSource, err := Plan(opts, query.FromSubQuery.SQL)
-		if err != nil {
-			return nil, err
+	if opts.QueryCluster != nil {
+		allowPushdown := pushdownAllowed(opts, query)
+		if allowPushdown {
+			return planClusterPushdown(opts, query)
 		}
-		unflatten := core.Unflatten(query.Fields...)
-		unflatten.Connect(subSource)
-		source = unflatten
-	} else {
-		source = opts.GetTable(query.From)
+		if query.FromSubQuery == nil {
+			return planClusterNonPushdown(opts, query)
+		}
+	}
+
+	if source == nil {
+		if query.FromSubQuery != nil {
+			subSource, err := Plan(opts, query.FromSubQuery.SQL)
+			if err != nil {
+				return nil, err
+			}
+			unflatten := core.Unflatten(query.Fields...)
+			unflatten.Connect(subSource)
+			source = unflatten
+		} else {
+			source = opts.GetTable(query.From)
+		}
 	}
 	return doPlan(opts, query, source)
 }
@@ -122,7 +141,7 @@ func doPlan(opts *Opts, query *sql.Query, source core.RowSource) (core.FlatRowSo
 		filter := &core.RowFilter{
 			Include: func(ctx context.Context, key bytemap.ByteMap, vals core.Vals) (bytemap.ByteMap, core.Vals, error) {
 				if atomic.CompareAndSwapInt32(&hasRunSubqueries, 0, 1) {
-					err := runSubQueries(ctx)
+					_, err := runSubQueries(ctx)
 					if err != nil && err != core.ErrDeadlineExceeded {
 						return nil, nil, err
 					}
@@ -139,50 +158,69 @@ func doPlan(opts *Opts, query *sql.Query, source core.RowSource) (core.FlatRowSo
 		source = filter
 	}
 
-	if asOfChanged || untilChanged || resolutionChanged || !query.GroupByAll || query.HasSpecificFields || query.Having != nil {
-		// Need to do a group by
-		fields := query.Fields
-		if query.Having != nil {
-			// Add having to fields
-			fields = make([]core.Field, 0, len(query.Fields))
-			fields = append(fields, query.Fields...)
-			fields = append(fields, core.NewField("_having", query.Having))
-		}
-
-		group := &core.Group{
-			By:         query.GroupBy,
-			Fields:     fields,
-			Resolution: query.Resolution,
-			AsOf:       query.AsOf,
-			Until:      query.Until,
-		}
-		group.Connect(source)
-		source = group
+	if asOfChanged || untilChanged || resolutionChanged || needsGroupBy(query) {
+		source = addGroupBy(source, query)
 	}
 
-	flatten := core.Flatten()
-	flatten.Connect(source)
-	var flat core.FlatRowSource = flatten
+	flat := flatten(source)
 
 	if query.Having != nil {
-		// Apply having filter
-		havingIdx := len(query.Fields)
-		filter := &core.FlatRowFilter{
-			Include: func(ctx context.Context, row *core.FlatRow) (*core.FlatRow, error) {
-				include := row.Values[havingIdx]
-				if include == 1 {
-					// Removing having field
-					row.Values = row.Values[:havingIdx]
-					return row, nil
-				}
-				return nil, nil
-			},
-			Label: query.HavingSQL,
-		}
-		filter.Connect(flat)
-		flat = filter
+		flat = addHaving(flat, query)
 	}
 
+	return addOrderLimitOffset(flat, query), nil
+}
+
+func needsGroupBy(query *sql.Query) bool {
+	return !query.GroupByAll || query.HasSpecificFields || query.Having != nil
+}
+
+func addGroupBy(source core.RowSource, query *sql.Query) core.RowSource {
+	// Need to do a group by
+	fields := query.Fields
+	if query.Having != nil {
+		// Add having to fields
+		fields = make([]core.Field, 0, len(query.Fields))
+		fields = append(fields, query.Fields...)
+		fields = append(fields, core.NewField("_having", query.Having))
+	}
+
+	group := &core.Group{
+		By:         query.GroupBy,
+		Fields:     fields,
+		Resolution: query.Resolution,
+		AsOf:       query.AsOf,
+		Until:      query.Until,
+	}
+	group.Connect(source)
+	return group
+}
+
+func flatten(source core.RowSource) core.FlatRowSource {
+	flatten := core.Flatten()
+	flatten.Connect(source)
+	return flatten
+}
+
+func addHaving(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {
+	havingIdx := len(query.Fields)
+	filter := &core.FlatRowFilter{
+		Include: func(ctx context.Context, row *core.FlatRow) (*core.FlatRow, error) {
+			include := row.Values[havingIdx]
+			if include == 1 {
+				// Removing having field
+				row.Values = row.Values[:havingIdx]
+				return row, nil
+			}
+			return nil, nil
+		},
+		Label: query.HavingSQL,
+	}
+	filter.Connect(flat)
+	return filter
+}
+
+func addOrderLimitOffset(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {
 	if len(query.OrderBy) > 0 {
 		sort := core.Sort(query.OrderBy...)
 		sort.Connect(flat)
@@ -201,5 +239,5 @@ func doPlan(opts *Opts, query *sql.Query, source core.RowSource) (core.FlatRowSo
 		flat = limit
 	}
 
-	return flat, nil
+	return flat
 }
