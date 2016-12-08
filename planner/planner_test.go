@@ -237,6 +237,154 @@ func TestPlans(t *testing.T) {
 		return t
 	})
 
+	scenario("HAVING clause with single group by, pushdown allowed", "SELECT * FROM TableA GROUP BY x HAVING a+b > 0", func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x"))},
+		}
+		f := core.Flatten()
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		g.Connect(t)
+		f.Connect(g)
+		h.Connect(f)
+		return h
+	}, func() core.Source {
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select * from TableA group by x having a+b > 0"},
+		}
+		return t
+	})
+
+	scenario("HAVING clause with contiguous group by, pushdown allowed", "SELECT * FROM TableA GROUP BY y, x HAVING a+b > 0", func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x")), core.NewGroupBy("y", goexpr.Param("y"))},
+		}
+		f := core.Flatten()
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		g.Connect(t)
+		f.Connect(g)
+		h.Connect(f)
+		return h
+	}, func() core.Source {
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select * from TableA group by y, x having a+b > 0"},
+		}
+		return t
+	})
+
+	scenario("HAVING clause with contiguous group by and subselect, pushdown allowed", "SELECT * FROM (SELECT * FROM TableA GROUP BY y, x) HAVING a+b > 0", func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
+			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x")), core.NewGroupBy("y", goexpr.Param("y"))},
+		}
+		g2 := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+		}
+
+		f := core.Flatten()
+		uf := core.Unflatten(g.Fields...)
+		f2 := core.Flatten()
+
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		g.Connect(t)
+		f.Connect(g)
+		uf.Connect(f)
+		g2.Connect(uf)
+		f2.Connect(g2)
+		h.Connect(f2)
+		return h
+	}, func() core.Source {
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select * from (select * from TableA group by y, x) having a+b > 0"},
+		}
+		return t
+	})
+
+	scenario("HAVING clause with discontiguous group by, pushdown not allowed", "SELECT * FROM TableA GROUP BY y HAVING a+b > 0", func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
+		}
+		f := core.Flatten()
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		g.Connect(t)
+		f.Connect(g)
+		h.Connect(f)
+		return h
+	}, func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select * from tablea group by y"},
+		}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
+		}
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		uf := core.Unflatten(g.Fields...)
+		f := core.Flatten()
+		uf.Connect(t)
+		g.Connect(uf)
+		f.Connect(g)
+		h.Connect(f)
+		return h
+	})
+
+	scenario("HAVING clause with group by on non partition key, pushdown not allowed", "SELECT * FROM TableA GROUP BY z HAVING a+b > 0", func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []core.GroupBy{core.NewGroupBy("z", goexpr.Param("z"))},
+		}
+		f := core.Flatten()
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		g.Connect(t)
+		f.Connect(g)
+		h.Connect(f)
+		return h
+	}, func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select * from tablea group by z"},
+		}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []core.GroupBy{core.NewGroupBy("z", goexpr.Param("z"))},
+		}
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		uf := core.Unflatten(g.Fields...)
+		f := core.Flatten()
+		uf.Connect(t)
+		g.Connect(uf)
+		f.Connect(g)
+		h.Connect(f)
+		return h
+	})
+
 	scenario("ASOF", "SELECT * FROM TableA ASOF '-5s'", func() core.Source {
 		t := &testTable{"tablea"}
 		g := &core.Group{
@@ -305,17 +453,31 @@ func TestPlans(t *testing.T) {
 		return t
 	})
 	//
-	// scenario("SELECT * FROM TableA GROUP BY period(2s)", func() core.Source {
-	// 	t := &testTable{"tablea"}
-	// 	g := &core.Group{
-	// 		Fields:     []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
-	// 		Resolution: 2 * time.Second,
-	// 	}
-	// 	f := core.Flatten()
-	// 	g.Connect(t)
-	// 	f.Connect(g)
-	// 	return f
-	// })
+	scenario("Change Resolution", "SELECT * FROM TableA GROUP BY period(2s)", func() core.Source {
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields:     []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
+			Resolution: 2 * time.Second,
+		}
+		f := core.Flatten()
+		g.Connect(t)
+		f.Connect(g)
+		return f
+	}, func() core.Source {
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select * from tablea group by period(2 as s)"},
+		}
+		g := &core.Group{
+			Fields:     []core.Field{sql.PointsField, fieldA, fieldB},
+			Resolution: 2 * time.Second,
+		}
+		uf := core.Unflatten(g.Fields...)
+		f := core.Flatten()
+		uf.Connect(t)
+		g.Connect(uf)
+		f.Connect(g)
+		return f
+	})
 	//
 	// scenario("SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() core.Source {
 	// 	t := &testTable{"tablea"}

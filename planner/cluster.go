@@ -67,6 +67,18 @@ func (cs *clusterSource) String() string {
 // further processing, which is much slower than pushdown processing for queries
 // that aggregate heavily.
 func pushdownAllowed(opts *Opts, query *sql.Query) bool {
+	if len(opts.PartitionKeys) == 0 {
+		// With no partition keys, we can't push down
+		return false
+	}
+
+	if query.FromSubQuery != nil {
+		if len(query.FromSubQuery.OrderBy) > 0 || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
+			// If subquery contains order by, limit or offset, we can't push down
+			return false
+		}
+	}
+
 	// Find deepest query
 	rootQuery := query
 	for {
@@ -80,27 +92,40 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 		return false
 	}
 
+	if len(rootQuery.GroupBy) == 0 {
+		return false
+	}
+
 	fc := make(fieldCollector)
 	for _, groupBy := range rootQuery.GroupBy {
 		groupBy.Expr.Eval(fc)
 	}
 
-	allGroupByFieldsArePartitionKeys := true
+	partitionKeyRepresented := make([]bool, len(opts.PartitionKeys))
 	for field := range fc {
-		appearsInPartitionKeys := false
-		for _, partitionKey := range opts.PartitionKeys {
+		for i, partitionKey := range opts.PartitionKeys {
 			if partitionKey == field {
-				appearsInPartitionKeys = true
+				partitionKeyRepresented[i] = true
 				break
 			}
 		}
-		if !appearsInPartitionKeys {
-			allGroupByFieldsArePartitionKeys = false
-			break
+	}
+
+	foundNonRepresented := false
+	foundRepresented := false
+	for _, represented := range partitionKeyRepresented {
+		if represented {
+			if foundNonRepresented {
+				// Represnted partition keys are discontiguous, can't push down.
+				return false
+			}
+			foundRepresented = true
+		} else {
+			foundNonRepresented = true
 		}
 	}
 
-	return allGroupByFieldsArePartitionKeys
+	return foundRepresented
 }
 
 // fieldCollector is an implementation of goexpr.Params that remembers what
