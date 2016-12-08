@@ -92,6 +92,8 @@ func TestSplitFlatRowFilterAndMerge(t *testing.T) {
 		m.Connect(f)
 	}
 
+	fmt.Println(FormatSource(m))
+
 	totalA := int64(0)
 	totalB := int64(0)
 

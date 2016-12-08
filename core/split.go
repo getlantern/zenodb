@@ -80,6 +80,10 @@ func (s *split) Iterate(ctx context.Context, onRow OnRow) error {
 	return <-s.splitter.errors
 }
 
+func (s *split) GetSources() []Source {
+	return s.splitter.GetSources()
+}
+
 func (s *split) GetFields() Fields {
 	return s.splitter.GetFields()
 }
