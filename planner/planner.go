@@ -13,6 +13,8 @@ import (
 )
 
 var (
+	ErrNoSQL              = errors.New("Need at least one SQL string")
+	ErrIncompatibleTables = errors.New("Planning multiple SQL strings only allowed with queries from the same table (and not subqueries)")
 	ErrNestedFromSubquery = errors.New("nested FROM subqueries not supported")
 
 	log = golog.LoggerFor("planner")
@@ -27,15 +29,23 @@ type Opts struct {
 	IsSubquery    bool
 }
 
-func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
-	query, err := sql.Parse(sqlString, opts.FieldSource)
-	if err != nil {
-		return nil, err
+func Plan(opts *Opts, sqlStrings ...sqlString) (core.FlatRowSource, error) {
+	if len(sqlStrings) == 0 {
+		return nil, ErrNoSQL
 	}
+	queries := make([]*sql.Query, 0, len(sqlStrings))
+	for _, sqlString := range sqlStrings {
+		query, err := sql.Parse(sqlString, opts.FieldSource)
+		if err != nil {
+			return nil, err
+		}
 
-	if opts.IsSubquery {
-		// Change field to _points field
-		query.Fields[0] = sql.PointsField
+		if opts.IsSubquery {
+			// Change field to _points field
+			query.Fields[0] = sql.PointsField
+		}
+
+		queries = append(queries, query)
 	}
 
 	var source core.RowSource

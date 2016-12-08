@@ -26,7 +26,7 @@ var (
 	errTest = errors.New("test error")
 )
 
-func TestRowFilterAndSplitter(t *testing.T) {
+func TestRowFilter(t *testing.T) {
 	f := &RowFilter{
 		Include: func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
 			x := key.Get("x")
@@ -38,14 +38,8 @@ func TestRowFilterAndSplitter(t *testing.T) {
 		Label: "test",
 	}
 
-	// This splitter doubles up goodSource
-	s := NewSplitter()
-	s1 := s.Split()
-	s2 := s.Split()
-	s.Connect(&goodSource{})
-
-	f.Connect(s1)
-	f.Connect(s2)
+	f.Connect(&goodSource{})
+	f.Connect(&goodSource{})
 	f.Connect(&errorSource{})
 
 	totalA := int64(0)
@@ -64,28 +58,44 @@ func TestRowFilterAndSplitter(t *testing.T) {
 	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
 }
 
-func TestFlatRowFilter(t *testing.T) {
-	fl := Flatten()
-	f := &FlatRowFilter{
-		Include: func(ctx context.Context, row *FlatRow) (*FlatRow, error) {
-			x := row.Key.Get("x")
-			if x != nil && x.(int)%2 == 0 {
-				return row, nil
-			}
-			return nil, nil
-		},
-		Label: "test",
+func TestSplitFlatRowFilterAndMerge(t *testing.T) {
+	var fs []FlatRowSource
+	// This splitter doubles up goodSource
+	s := NewSplitter()
+	s.Connect(&goodSource{})
+
+	for i := 0; i < 3; i++ {
+		f := &FlatRowFilter{
+			Include: func(ctx context.Context, row *FlatRow) (*FlatRow, error) {
+				x := row.Key.Get("x")
+				if x != nil && x.(int)%2 == 0 {
+					return row, nil
+				}
+				return nil, nil
+			},
+			Label: "test",
+		}
+
+		fl := Flatten()
+		if i == 0 {
+			fl.Connect(&errorSource{})
+		} else {
+			fl.Connect(s.Split())
+		}
+		f.Connect(fl)
+
+		fs = append(fs, f)
 	}
 
-	fl.Connect(&goodSource{})
-	fl.Connect(&goodSource{})
-	fl.Connect(&errorSource{})
-	f.Connect(fl)
+	m := MergeFlat()
+	for _, f := range fs {
+		m.Connect(f)
+	}
 
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := f.Iterate(Context(), func(row *FlatRow) (bool, error) {
+	err := m.Iterate(Context(), func(row *FlatRow) (bool, error) {
 		a := row.Values[0]
 		b := row.Values[1]
 		atomic.AddInt64(&totalA, int64(a))
