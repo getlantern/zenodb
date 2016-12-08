@@ -29,7 +29,7 @@ type Opts struct {
 	IsSubquery    bool
 }
 
-func Plan(opts *Opts, sqlStrings ...sqlString) (core.FlatRowSource, error) {
+func Plan(opts *Opts, sqlStrings ...string) (core.FlatRowSource, error) {
 	if len(sqlStrings) == 0 {
 		return nil, ErrNoSQL
 	}
@@ -48,9 +48,17 @@ func Plan(opts *Opts, sqlStrings ...sqlString) (core.FlatRowSource, error) {
 		queries = append(queries, query)
 	}
 
+	if len(queries) > 1 {
+		return planMultiple(opts, queries)
+	}
+
+	return planSingle(opts, queries[0])
+}
+
+func planSingle(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
 	var source core.RowSource
 	if query.FromSubQuery != nil {
-		subSource, err := Plan(query.FromSubQuery.SQL, opts)
+		subSource, err := Plan(opts, query.FromSubQuery.SQL)
 		if err != nil {
 			return nil, err
 		}
@@ -60,7 +68,38 @@ func Plan(opts *Opts, sqlStrings ...sqlString) (core.FlatRowSource, error) {
 	} else {
 		source = opts.GetTable(query.From)
 	}
+	return doPlan(opts, query, source)
+}
 
+func planMultiple(opts *Opts, queries []*sql.Query) (core.FlatRowSource, error) {
+	// Mutiple queries, check that they're all from the same table
+	lastFrom := ""
+	for i, query := range queries {
+		if query.FromSubQuery != nil {
+			return nil, ErrIncompatibleTables
+		}
+		if i > 0 && query.From != lastFrom {
+			return nil, ErrIncompatibleTables
+		}
+		lastFrom = query.From
+	}
+
+	table := opts.GetTable(lastFrom)
+	s := core.NewSplitter()
+	s.Connect(table)
+	m := core.MergeFlat()
+	for _, query := range queries {
+		plan, err := doPlan(opts, query, s.Split())
+		if err != nil {
+			return nil, err
+		}
+		m.Connect(plan)
+	}
+
+	return m, nil
+}
+
+func doPlan(opts *Opts, query *sql.Query, source core.RowSource) (core.FlatRowSource, error) {
 	now := opts.Now(query.From)
 	if query.AsOfOffset != 0 {
 		query.AsOf = now.Add(query.AsOfOffset)
@@ -74,7 +113,7 @@ func Plan(opts *Opts, sqlStrings ...sqlString) (core.FlatRowSource, error) {
 	resolutionChanged := query.Resolution != 0 && query.Resolution != source.GetResolution()
 
 	if query.Where != nil {
-		runSubQueries, subQueryPlanErr := planSubQueries(query, opts)
+		runSubQueries, subQueryPlanErr := planSubQueries(opts, query)
 		if subQueryPlanErr != nil {
 			return nil, subQueryPlanErr
 		}

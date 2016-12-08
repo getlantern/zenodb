@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-func planSubQueries(query *sql.Query, opts *Opts) (func(ctx context.Context) error, error) {
+func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) error, error) {
 	var subQueries []*sql.SubQuery
 	var subQueryPlans []core.FlatRowSource
 	query.Where.WalkLists(func(list goexpr.List) {
@@ -21,7 +21,7 @@ func planSubQueries(query *sql.Query, opts *Opts) (func(ctx context.Context) err
 	*sqOpts = *opts
 	sqOpts.IsSubquery = true
 	for _, sq := range subQueries {
-		sqPlan, sqPlanErr := Plan(sq.SQL, sqOpts)
+		sqPlan, sqPlanErr := Plan(sqOpts, sq.SQL)
 		if sqPlanErr != nil {
 			return nil, sqPlanErr
 		}

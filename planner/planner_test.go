@@ -27,156 +27,190 @@ var (
 )
 
 func TestPlans(t *testing.T) {
-	pairs := map[string]func() core.Source{
-		"SELECT * FROM TableA": func() core.Source {
-			t := &testTable{"tablea"}
-			f := core.Flatten()
-			f.Connect(t)
-			return f
-		},
-		"SELECT * FROM TableA WHERE x > 5": func() core.Source {
-			t := &testTable{"tablea"}
-			fi := &core.RowFilter{
-				Label: "where x > 5",
-			}
-			f := core.Flatten()
-			fi.Connect(t)
-			f.Connect(fi)
-			return f
-		},
-		"SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)": func() core.Source {
-			t := &testTable{"tablea"}
-			fi := &core.RowFilter{
-				Label: "where dim in (select dim as dim from tableb)",
-			}
-			f := core.Flatten()
-			fi.Connect(t)
-			f.Connect(fi)
-			return f
-		},
-		"SELECT * FROM TableA LIMIT 2, 5": func() core.Source {
-			t := &testTable{"tablea"}
-			f := core.Flatten()
-			o := core.Offset(2)
-			l := core.Limit(5)
-			f.Connect(t)
-			o.Connect(f)
-			l.Connect(o)
-			return l
-		},
-		"SELECT *, a + b AS total FROM TableA": func() core.Source {
-			fieldTotal := core.NewField("total", ADD(eA, eB))
-			t := &testTable{"tablea"}
-			g := &core.Group{
-				Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldTotal},
-			}
-			f := core.Flatten()
-			g.Connect(t)
-			f.Connect(g)
-			return f
-		},
-		"SELECT * FROM TableA HAVING a+b > 0": func() core.Source {
-			fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-			t := &testTable{"tablea"}
-			g := &core.Group{
-				Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			}
-			f := core.Flatten()
-			h := &core.FlatRowFilter{
-				Label: "a+b > 0",
-			}
-			g.Connect(t)
-			f.Connect(g)
-			h.Connect(f)
-			return h
-		},
-		"SELECT * FROM TableA ASOF '-5s'": func() core.Source {
-			t := &testTable{"tablea"}
-			g := &core.Group{
-				Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
-				AsOf:   epoch.Add(-5 * time.Second),
-			}
-			f := core.Flatten()
-			g.Connect(t)
-			f.Connect(g)
-			return f
-		},
-		"SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'": func() core.Source {
-			t := &testTable{"tablea"}
-			g := &core.Group{
-				Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
-				AsOf:   epoch.Add(-5 * time.Second),
-				Until:  epoch.Add(-1 * time.Second),
-			}
-			f := core.Flatten()
-			g.Connect(t)
-			f.Connect(g)
-			return f
-		},
-		"SELECT * FROM TableA GROUP BY period(2s)": func() core.Source {
-			t := &testTable{"tablea"}
-			g := &core.Group{
-				Fields:     []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
-				Resolution: 2 * time.Second,
-			}
-			f := core.Flatten()
-			g.Connect(t)
-			f.Connect(g)
-			return f
-		},
-		"SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5": func() core.Source {
-			t := &testTable{"tablea"}
-			fi := &core.RowFilter{
-				Label: "where x > 5",
-			}
-			g := &core.Group{
-				By:         []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
-				Fields:     core.Fields{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
-				AsOf:       epoch.Add(-5 * time.Second),
-				Until:      epoch.Add(-1 * time.Second),
-				Resolution: 2 * time.Second,
-			}
-			f := core.Flatten()
-			s := core.Sort(core.NewOrderBy("total", true))
-			o := core.Offset(2)
-			l := core.Limit(5)
-			fi.Connect(t)
-			g.Connect(fi)
-			f.Connect(g)
-			s.Connect(f)
-			o.Connect(s)
-			l.Connect(o)
-			return l
-		},
-		"SELECT * FROM (SELECT * FROM TableA)": func() core.Source {
-			t := &testTable{"tablea"}
-			f := core.Flatten()
-			u := core.Unflatten()
-			f2 := core.Flatten()
-			f.Connect(t)
-			u.Connect(f)
-			f2.Connect(u)
-			return f2
-		},
-		"SELECT AVG(a) + AVG(b) AS total, * FROM (SELECT * FROM TableA)": func() core.Source {
-			avgTotal := core.NewField("total", ADD(AVG("a"), AVG("b")))
-			t := &testTable{"tablea"}
-			f := core.Flatten()
-			u := core.Unflatten(avgTotal, sql.PointsField, fieldA, fieldB)
-			g := &core.Group{
-				Fields: core.Fields{avgTotal, sql.PointsField, fieldA, fieldB},
-			}
-			f2 := core.Flatten()
-			f.Connect(t)
-			u.Connect(f)
-			g.Connect(u)
-			f2.Connect(g)
-			return f2
-		},
+	var queries [][]string
+	var expected []func() core.Source
+
+	multiScenario := func(sqlStrings []string, sourceFn func() core.Source) {
+		queries = append(queries, sqlStrings)
+		expected = append(expected, sourceFn)
 	}
 
-	for sqlString, expected := range pairs {
-		plan, err := Plan(sqlString, &Opts{
+	scenario := func(sqlString string, sourceFn func() core.Source) {
+		multiScenario([]string{sqlString}, sourceFn)
+	}
+
+	scenario("SELECT * FROM TableA", func() core.Source {
+		t := &testTable{"tablea"}
+		f := core.Flatten()
+		f.Connect(t)
+		return f
+	})
+
+	multiScenario([]string{"SELECT * FROM TableA", "SELECT * FROM TableA"}, func() core.Source {
+		t := &testTable{"tablea"}
+		s := core.NewSplitter()
+		s.Connect(t)
+		m := core.MergeFlat()
+		for i := 0; i < 2; i++ {
+			f := core.Flatten()
+			f.Connect(s.Split())
+			m.Connect(f)
+		}
+		return m
+	})
+
+	scenario("SELECT * FROM TableA WHERE x > 5", func() core.Source {
+		t := &testTable{"tablea"}
+		fi := &core.RowFilter{
+			Label: "where x > 5",
+		}
+		f := core.Flatten()
+		fi.Connect(t)
+		f.Connect(fi)
+		return f
+	})
+
+	scenario("SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)", func() core.Source {
+		t := &testTable{"tablea"}
+		fi := &core.RowFilter{
+			Label: "where dim in (select dim as dim from tableb)",
+		}
+		f := core.Flatten()
+		fi.Connect(t)
+		f.Connect(fi)
+		return f
+	})
+
+	scenario("SELECT * FROM TableA LIMIT 2, 5", func() core.Source {
+		t := &testTable{"tablea"}
+		f := core.Flatten()
+		o := core.Offset(2)
+		l := core.Limit(5)
+		f.Connect(t)
+		o.Connect(f)
+		l.Connect(o)
+		return l
+	})
+
+	scenario("SELECT *, a + b AS total FROM TableA", func() core.Source {
+		fieldTotal := core.NewField("total", ADD(eA, eB))
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldTotal},
+		}
+		f := core.Flatten()
+		g.Connect(t)
+		f.Connect(g)
+		return f
+	})
+
+	scenario("SELECT * FROM TableA HAVING a+b > 0", func() core.Source {
+		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+		}
+		f := core.Flatten()
+		h := &core.FlatRowFilter{
+			Label: "a+b > 0",
+		}
+		g.Connect(t)
+		f.Connect(g)
+		h.Connect(f)
+		return h
+	})
+
+	scenario("SELECT * FROM TableA ASOF '-5s'", func() core.Source {
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
+			AsOf:   epoch.Add(-5 * time.Second),
+		}
+		f := core.Flatten()
+		g.Connect(t)
+		f.Connect(g)
+		return f
+	})
+
+	scenario("SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'", func() core.Source {
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
+			AsOf:   epoch.Add(-5 * time.Second),
+			Until:  epoch.Add(-1 * time.Second),
+		}
+		f := core.Flatten()
+		g.Connect(t)
+		f.Connect(g)
+		return f
+	})
+
+	scenario("SELECT * FROM TableA GROUP BY period(2s)", func() core.Source {
+		t := &testTable{"tablea"}
+		g := &core.Group{
+			Fields:     []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
+			Resolution: 2 * time.Second,
+		}
+		f := core.Flatten()
+		g.Connect(t)
+		f.Connect(g)
+		return f
+	})
+
+	scenario("SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() core.Source {
+		t := &testTable{"tablea"}
+		fi := &core.RowFilter{
+			Label: "where x > 5",
+		}
+		g := &core.Group{
+			By:         []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
+			Fields:     core.Fields{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+			AsOf:       epoch.Add(-5 * time.Second),
+			Until:      epoch.Add(-1 * time.Second),
+			Resolution: 2 * time.Second,
+		}
+		f := core.Flatten()
+		s := core.Sort(core.NewOrderBy("total", true))
+		o := core.Offset(2)
+		l := core.Limit(5)
+		fi.Connect(t)
+		g.Connect(fi)
+		f.Connect(g)
+		s.Connect(f)
+		o.Connect(s)
+		l.Connect(o)
+		return l
+	})
+
+	scenario("SELECT * FROM (SELECT * FROM TableA)", func() core.Source {
+		t := &testTable{"tablea"}
+		f := core.Flatten()
+		u := core.Unflatten()
+		f2 := core.Flatten()
+		f.Connect(t)
+		u.Connect(f)
+		f2.Connect(u)
+		return f2
+	})
+
+	scenario("SELECT AVG(a) + AVG(b) AS total, * FROM (SELECT * FROM TableA)", func() core.Source {
+		avgTotal := core.NewField("total", ADD(AVG("a"), AVG("b")))
+		t := &testTable{"tablea"}
+		f := core.Flatten()
+		u := core.Unflatten(avgTotal, sql.PointsField, fieldA, fieldB)
+		g := &core.Group{
+			Fields: core.Fields{avgTotal, sql.PointsField, fieldA, fieldB},
+		}
+		f2 := core.Flatten()
+		f.Connect(t)
+		u.Connect(f)
+		g.Connect(u)
+		f2.Connect(g)
+		return f2
+	})
+
+	for i, sqlStrings := range queries {
+		plan, err := Plan(&Opts{
 			GetTable: func(table string) core.RowSource {
 				return &testTable{table}
 			},
@@ -187,13 +221,13 @@ func TestPlans(t *testing.T) {
 				t := &testTable{table}
 				return t.GetFields(), nil
 			},
-		})
+		}, sqlStrings...)
 
 		if !assert.NoError(t, err) {
 			return
 		}
 
-		assert.Equal(t, core.FormatSource(expected()), core.FormatSource(plan), sqlString)
+		assert.Equal(t, core.FormatSource(expected[i]()), core.FormatSource(plan), sqlStrings)
 	}
 }
 
@@ -205,7 +239,7 @@ HAVING avg_total > 20
 ORDER BY _time
 LIMIT 1
 `
-	plan, err := Plan(sqlString, &Opts{
+	plan, err := Plan(&Opts{
 		GetTable: func(table string) core.RowSource {
 			return &testTable{table}
 		},
@@ -216,7 +250,7 @@ LIMIT 1
 			t := &testTable{table}
 			return t.GetFields(), nil
 		},
-	})
+	}, sqlString)
 	if !assert.NoError(t, err) {
 		return
 	}
