@@ -137,6 +137,86 @@ func (seq Sequence) UpdateValueAtOffset(offset int, e expr.Expr, params expr.Par
 	e.Update(seq[offset:], params, metadata)
 }
 
+// Update unpacks the given TSParams and calls UpdateValue.
+func (seq Sequence) Update(tsp TSParams, metadata goexpr.Params, e expr.Expr, resolution time.Duration, asOf time.Time) Sequence {
+	ts, params := tsp.TimeAndParams()
+	return seq.UpdateValue(ts, params, metadata, e, resolution, asOf)
+}
+
+// UpdateValue updates the value at the given time by applying the given params
+// using the given Expr. The resolution indicates how wide we assume each period
+// of data to be.  Any values in the sequence older than truncateBefore
+// including the new value) will be omitted from the sequence. If the sequence
+// needs to be grown to accommodate the updated value, it will be. metadata
+// represents metadata about the operation that's used by the Expr as well (e.g.
+// information about the dimensions associated to the value).
+//
+// The returned Sequence may reference the same underlying byte array as the
+// updated sequence, or it may be a newly allocated byte array (i.e. if the
+// sequence grew).
+func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexpr.Params, e expr.Expr, resolution time.Duration, asOf time.Time) Sequence {
+	width := e.EncodedWidth()
+	ts = RoundTime(ts, resolution)
+	asOf = RoundTime(asOf, resolution)
+
+	if log.IsTraceEnabled() {
+		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.Until().In(time.UTC), params, ts.In(time.UTC), asOf.In(time.UTC))
+	}
+
+	if !ts.After(asOf) {
+		log.Trace("New value falls outside of truncation range, just truncate existing sequence")
+		if len(seq) == 0 {
+			return nil
+		}
+		return seq.Truncate(width, resolution, asOf, zeroTime)
+	}
+
+	sequenceEmpty := len(seq) == 0
+	var start time.Time
+	var gapPeriods int
+	var maxPeriods int
+	if !sequenceEmpty {
+		start = seq.Until()
+		gapPeriods = int(ts.Sub(start) / resolution)
+		maxPeriods = int(ts.Sub(asOf) / resolution)
+	}
+	if sequenceEmpty || start.Before(asOf) || gapPeriods > maxPeriods {
+		log.Trace("Creating new sequence")
+		out := make(Sequence, Width64bits+width)
+		out.SetUntil(ts)
+		out.UpdateValueAt(0, e, params, metadata)
+		return out
+	}
+
+	if ts.After(start) {
+		log.Trace("Prepending to sequence")
+		numPeriods := seq.NumPeriods(width) + gapPeriods
+		origEnd := len(seq)
+		if numPeriods > maxPeriods {
+			log.Trace("Truncating existing sequence")
+			numPeriods = maxPeriods
+			origEnd = Width64bits + width*(numPeriods-gapPeriods)
+		}
+		out := NewSequence(width, numPeriods)
+		copy(out[Width64bits+gapPeriods*width:], seq[Width64bits:origEnd])
+		out.SetUntil(ts)
+		out.UpdateValueAt(0, e, params, metadata)
+		return out
+	}
+
+	log.Trace("Updating existing entry on sequence")
+	out := seq
+	period := int(start.Sub(ts) / resolution)
+	offset := period * width
+	if offset+width >= len(seq) {
+		// Grow seq
+		out = make(Sequence, offset+Width64bits+width)
+		copy(out, seq)
+	}
+	out.UpdateValueAtOffset(offset, e, params, metadata)
+	return out
+}
+
 func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution time.Duration, otherResolution time.Duration, ex expr.Expr, otherEx expr.Expr, submerge expr.SubMerge, asOf time.Time, until time.Time) (result Sequence) {
 	result = seq
 	otherWidth := otherEx.EncodedWidth()
