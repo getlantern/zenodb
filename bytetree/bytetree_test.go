@@ -27,34 +27,34 @@ func TestByteTree(t *testing.T) {
 	eB := SUM(FIELD("b"))
 
 	bt := New([]Expr{eOut}, []Expr{eA, eB}, resolutionOut, resolutionIn, asOf, until)
-	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewValue(eA, epoch, 1), encoding.NewValue(eB, epoch, 1)}, nil)
+	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 1), encoding.NewFloatValue(eB, epoch, 1)}, nil)
 	assert.Equal(t, 1, bt.Length())
-	bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewValue(eA, epoch, 2), encoding.NewValue(eB, epoch, 2)}, nil)
+	bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 2), encoding.NewFloatValue(eB, epoch, 2)}, nil)
 	assert.Equal(t, 2, bt.Length())
-	bt.Update([]byte("water"), []encoding.Sequence{encoding.NewValue(eA, epoch, 3), encoding.NewValue(eB, epoch, 3)}, nil)
+	bt.Update([]byte("water"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 3), encoding.NewFloatValue(eB, epoch, 3)}, nil)
 	assert.Equal(t, 3, bt.Length())
-	bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewValue(eA, epoch, 4), encoding.NewValue(eB, epoch, 4)}, nil)
+	bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 4), encoding.NewFloatValue(eB, epoch, 4)}, nil)
 	assert.Equal(t, 4, bt.Length())
-	bt.Update([]byte("team"), []encoding.Sequence{encoding.NewValue(eA, epoch, 5), encoding.NewValue(eB, epoch, 5)}, nil)
+	bt.Update([]byte("team"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 5), encoding.NewFloatValue(eB, epoch, 5)}, nil)
 	assert.Equal(t, 5, bt.Length())
-	bt.Update([]byte("toast"), []encoding.Sequence{encoding.NewValue(eA, epoch, 6), encoding.NewValue(eB, epoch, 6)}, nil)
+	bt.Update([]byte("toast"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 6), encoding.NewFloatValue(eB, epoch, 6)}, nil)
 	assert.Equal(t, 6, bt.Length())
 
-	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
+	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
+	bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bt.Update([]byte("water"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
+	bt.Update([]byte("water"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
+	bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bt.Update([]byte("team"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
+	bt.Update([]byte("team"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
-	bt.Update([]byte("toast"), []encoding.Sequence{encoding.NewValue(eA, epoch, 10), encoding.NewValue(eB, epoch, 10)}, nil)
+	bt.Update([]byte("toast"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil)
 	assert.Equal(t, 6, bt.Length())
 
 	// This should be ignored because it's outside of the time range
-	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewValue(eA, epoch.Add(-1*resolutionOut), 50), encoding.NewValue(eB, epoch.Add(1*resolutionOut), 10)}, nil)
+	bt.Update([]byte("test"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch.Add(-1*resolutionOut), 50), encoding.NewFloatValue(eB, epoch.Add(1*resolutionOut), 10)}, nil)
 
 	// Check tree twice with different contexts to make sure removals don't affect
 	// other contexts.
@@ -67,7 +67,7 @@ func TestByteTree(t *testing.T) {
 
 func checkTree(ctx int64, t *testing.T, bt *Tree, e Expr) {
 	walkedValues := 0
-	bt.Walk(ctx, func(key []byte, data []encoding.Sequence) bool {
+	bt.Walk(ctx, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
 		if assert.Len(t, data, 1) {
 			walkedValues++
 			val, _ := data[0].ValueAt(0, e)
@@ -88,7 +88,7 @@ func checkTree(ctx int64, t *testing.T, bt *Tree, e Expr) {
 				assert.Fail(t, "Unknown key", string(key))
 			}
 		}
-		return true
+		return true, true, nil
 	})
 	assert.Equal(t, 6, walkedValues)
 
