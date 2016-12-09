@@ -15,15 +15,16 @@ var (
 	log = golog.LoggerFor("planner")
 )
 
-type QueryClusterFN func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, onRow core.OnFlatRow) error
+type QueryClusterFN func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error
 
 type Opts struct {
-	IsSubquery    bool
-	GetTable      func(table string) core.RowSource
-	Now           func(table string) time.Time
-	FieldSource   sql.FieldSource
-	QueryCluster  QueryClusterFN
-	PartitionKeys []string
+	IsSubquery      bool
+	GetTable        func(table string) core.RowSource
+	Now             func(table string) time.Time
+	FieldSource     sql.FieldSource
+	SubQueryResults [][]interface{}
+	QueryCluster    QueryClusterFN
+	PartitionKeys   []string
 }
 
 func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
@@ -32,10 +33,7 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 		return nil, err
 	}
 
-	if opts.IsSubquery {
-		// Change field to _points field
-		query.Fields[0] = sql.PointsField
-	}
+	fixupSubQuery(query, opts)
 
 	if opts.QueryCluster != nil {
 		allowPushdown := pushdownAllowed(opts, query)
@@ -51,6 +49,8 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 }
 
 func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
+	fixupSubQuery(query, opts)
+
 	var source core.RowSource
 	if query.FromSubQuery != nil {
 		subSource, err := Plan(query.FromSubQuery.SQL, opts)
@@ -107,6 +107,13 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 	}
 
 	return addOrderLimitOffset(flat, query), nil
+}
+
+func fixupSubQuery(query *sql.Query, opts *Opts) {
+	if opts.IsSubquery {
+		// Change field to _points field
+		query.Fields[0] = sql.PointsField
+	}
 }
 
 func needsGroupBy(query *sql.Query) bool {

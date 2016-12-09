@@ -34,7 +34,9 @@ func (cs *clusterSource) Iterate(ctx context.Context, onRow core.OnFlatRow) erro
 		}
 	}
 
-	return cs.opts.QueryCluster(ctx, cs.query.SQL, subQueryResults, onRow)
+	return cs.opts.QueryCluster(ctx, cs.query.SQL, subQueryResults, cs.opts.IsSubquery, func(row *core.FlatRow) (bool, error) {
+		return onRow(row)
+	})
 }
 
 func (cs *clusterSource) GetFields() core.Fields {
@@ -176,6 +178,7 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	if parseErr != nil {
 		return nil, parseErr
 	}
+	fixupSubQuery(clusterQuery, opts)
 
 	unflat := core.Unflatten(&clusterSource{
 		opts:          opts,

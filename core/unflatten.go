@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 )
@@ -28,7 +29,12 @@ func (f *unflatten) Iterate(ctx context.Context, onRow OnRow) error {
 		outRow := make(Vals, numFields)
 		params := expr.Map(make(map[string]float64, numIn))
 		for i, field := range inFields {
-			params[field.Name] = row.Values[i]
+			name := field.Name
+			if name == "_points" {
+				// Hack for _points magic field
+				name = "_point"
+			}
+			params[name] = row.Values[i]
 		}
 		for i, field := range f.fields {
 			outRow[i] = encoding.NewValue(field.Expr, ts, params, row.Key)
@@ -42,5 +48,5 @@ func (f *unflatten) GetFields() Fields {
 }
 
 func (f *unflatten) String() string {
-	return "unflatten"
+	return fmt.Sprintf("unflatten to %v", f.fields)
 }

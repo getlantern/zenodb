@@ -195,13 +195,13 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	}
 }
 
-func TestUnflatten(t *testing.T) {
+func TestUnflattenTransform(t *testing.T) {
 	ex := ADD(AVG("a"), AVG("b"))
 
 	f := Flatten(&goodSource{})
 	u := Unflatten(f, NewField("total", ex))
 
-	expectedRows := make([]*testRow, 0, len(testRows)*2)
+	expectedRows := make([]*testRow, 0, len(testRows))
 	for _, row := range testRows {
 		var ts time.Time
 		if row.vals[0] != nil {
@@ -270,9 +270,16 @@ func (r *testRow) equals(other *testRow) bool {
 	if len(r.vals) != len(other.vals) {
 		return false
 	}
+	fmt.Println("here")
 	for i, val := range r.vals {
+		ex := eA
+		if i > 0 {
+			ex = eB
+		}
 		otherVal := other.vals[i]
-		if string(val) != string(otherVal) {
+		v, _ := val.ValueAt(0, ex)
+		ov, _ := otherVal.ValueAt(0, ex)
+		if v != ov {
 			return false
 		}
 	}

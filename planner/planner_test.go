@@ -46,8 +46,9 @@ func TestPlans(t *testing.T) {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea"},
 		}
-		return Flatten(Group(Unflatten(t), GroupOpts{
-			Fields: []Field{sql.PointsField, fieldA, fieldB},
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
 		}))
 	})
 
@@ -113,9 +114,9 @@ func TestPlans(t *testing.T) {
 			query: &sql.Query{SQL: "select * from tablea"},
 		}
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		fields := []Field{sql.PointsField, fieldA, fieldB, fieldHaving}
+		fields := []Field{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
-			Fields: fields,
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
 		})), "a+b > 0", nil)
 	})
 
@@ -157,7 +158,7 @@ func TestPlans(t *testing.T) {
 								By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("y", goexpr.Param("y"))},
 							}),
 						),
-						fields...),
+						avgTotal),
 					GroupOpts{
 						Fields: []Field{avgTotal, fieldHaving},
 					},
@@ -180,9 +181,9 @@ func TestPlans(t *testing.T) {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea group by y"},
 		}
-		fields := []Field{sql.PointsField, fieldA, fieldB, fieldHaving}
+		fields := []Field{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
-			Fields: fields,
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
 			By:     []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
 		})), "a+b > 0", nil)
 	})
@@ -198,9 +199,9 @@ func TestPlans(t *testing.T) {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea group by z"},
 		}
-		fields := []Field{sql.PointsField, fieldA, fieldB, fieldHaving}
+		fields := []Field{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
-			Fields: fields,
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
 			By:     []GroupBy{NewGroupBy("z", goexpr.Param("z"))},
 		})), "a+b > 0", nil)
 	})
@@ -283,26 +284,13 @@ func TestPlans(t *testing.T) {
 	})
 
 	for i, sqlString := range queries {
-		opts := &Opts{
-			GetTable: func(table string) RowSource {
-				return &testTable{table}
-			},
-			Now: func(table string) time.Time {
-				return epoch
-			},
-			FieldSource: func(table string) ([]Field, error) {
-				t := &testTable{table}
-				return t.GetFields(), nil
-			},
-		}
+		opts := defaultOpts()
 		plan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
 			assert.Equal(t, FormatSource(expected[i]()), FormatSource(plan), fmt.Sprintf("Non-clustered: %v: %v", descriptions[i], sqlString))
 		}
 
-		opts.QueryCluster = func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, onRow OnFlatRow) error {
-			return nil
-		}
+		opts.QueryCluster = queryCluster
 		opts.PartitionKeys = []string{"x", "y"}
 		clusterPlan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
@@ -320,7 +308,38 @@ ORDER BY _time
 LIMIT 1
 `
 
-	opts := &Opts{
+	verify := func(plan FlatRowSource) {
+		var rows []*FlatRow
+		plan.Iterate(Context(), func(row *FlatRow) (bool, error) {
+			rows = append(rows, row)
+			return true, nil
+		})
+
+		if assert.Len(t, rows, 1) {
+			row := rows[0]
+			assert.Equal(t, 1, row.Key.Get("x"))
+			assert.Equal(t, 3, row.Key.Get("y"))
+			assert.EqualValues(t, []float64{1, 50, 0, 50}, row.Values)
+		}
+	}
+
+	opts := defaultOpts()
+	plan, err := Plan(sqlString, opts)
+	if !assert.NoError(t, err) {
+		return
+	}
+	verify(plan)
+
+	opts.QueryCluster = queryCluster
+	plan, err = Plan(sqlString, opts)
+	if !assert.NoError(t, err) {
+		return
+	}
+	verify(plan)
+}
+
+func defaultOpts() *Opts {
+	return &Opts{
 		GetTable: func(table string) RowSource {
 			return &testTable{table}
 		},
@@ -332,23 +351,36 @@ LIMIT 1
 			return t.GetFields(), nil
 		},
 	}
-	plan, err := Plan(sqlString, opts)
-	if !assert.NoError(t, err) {
-		return
-	}
+}
 
-	var rows []*FlatRow
-	plan.Iterate(Context(), func(row *FlatRow) (bool, error) {
-		rows = append(rows, row)
-		return true, nil
-	})
-
-	if assert.Len(t, rows, 1) {
-		row := rows[0]
-		assert.Equal(t, 1, row.Key.Get("x"))
-		assert.Equal(t, 3, row.Key.Get("y"))
-		assert.EqualValues(t, []float64{0, 50, 0, 50}, row.Values)
+func queryCluster(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow OnFlatRow) error {
+	parts := partitions(1)
+	for _, part := range parts {
+		opts := defaultOpts()
+		opts.IsSubquery = isSubQuery
+		opts.SubQueryResults = subQueryResults
+		opts.GetTable = func(table string) RowSource {
+			part.name = table
+			return part
+		}
+		plan, err := Plan(sqlString, opts)
+		if err != nil {
+			return err
+		}
+		err = plan.Iterate(ctx, onRow)
+		if err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func partitions(num int) []*partition {
+	partitions := make([]*partition, 0, num)
+	for i := 0; i < num; i++ {
+		partitions = append(partitions, &partition{partition: i, numPartitions: num})
+	}
+	return partitions
 }
 
 type testTable struct {
@@ -385,29 +417,6 @@ func (t *testTable) Iterate(ctx context.Context, onRow OnRow) error {
 	return nil
 }
 
-// type partition emulates a partition in a cluster, partitioning by x then y
-type partition struct {
-	testTable
-	partition     int
-	numPartitions int
-}
-
-func (t *partition) Iterate(ctx context.Context, onRow OnRow) error {
-	return t.testTable.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
-		x := key.Get("x")
-		y := key.Get("y")
-		if x != nil {
-			if x.(int)%t.numPartitions == t.partition {
-				onRow(key, vals)
-			}
-		}
-		if y.(int)%t.numPartitions == t.partition {
-			onRow(key, vals)
-		}
-		return true, nil
-	})
-}
-
 func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap, []encoding.Sequence) {
 	keyMap := make(map[string]interface{}, 2)
 	if x != 0 {
@@ -430,4 +439,30 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap,
 
 func (t *testTable) String() string {
 	return t.name
+}
+
+// type partition emulates a partition in a cluster, partitioning by x then y
+type partition struct {
+	testTable
+	partition     int
+	numPartitions int
+}
+
+func (t *partition) Iterate(ctx context.Context, onRow OnRow) error {
+	return t.testTable.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		x := key.Get("x")
+		y := key.Get("y")
+		if x != nil {
+			if x.(int)%t.numPartitions == t.partition {
+				onRow(key, vals)
+			}
+		} else if y.(int)%t.numPartitions == t.partition {
+			onRow(key, vals)
+		}
+		return true, nil
+	})
+}
+
+func (t *partition) String() string {
+	return fmt.Sprintf("partition %v %d/%d", t.name, t.partition, t.numPartitions)
 }
