@@ -108,195 +108,55 @@ type FlatRowSource interface {
 }
 
 type Transform interface {
-	GetSources() []Source
+	GetSource() Source
 }
 
-type RowConnectable interface {
-	Connect(source RowSource)
+type rowTransform struct {
+	source RowSource
 }
 
-type FlatRowConnectable interface {
-	Connect(source FlatRowSource)
+func (t *rowTransform) GetFields() Fields {
+	return t.source.GetFields()
 }
 
-type RowToRow interface {
-	RowSource
-	Transform
-	RowConnectable
+func (t *rowTransform) GetResolution() time.Duration {
+	return t.source.GetResolution()
 }
 
-type RowToFlat interface {
-	FlatRowSource
-	Transform
-	RowConnectable
+func (t *rowTransform) GetAsOf() time.Time {
+	return t.source.GetAsOf()
 }
 
-type FlatToFlat interface {
-	FlatRowSource
-	Transform
-	FlatRowConnectable
+func (t *rowTransform) GetUntil() time.Time {
+	return t.source.GetUntil()
 }
 
-type FlatToRow interface {
-	RowSource
-	Transform
-	FlatRowConnectable
+func (t *rowTransform) GetSource() Source {
+	return t.source
 }
 
-type connectable struct {
-	sources []Source
+type flatRowTransform struct {
+	source FlatRowSource
 }
 
-// TODO: Connectable assumes that the metadata for all sources is the same, we
-// should add validation about this.
-func (c *connectable) GetFields() Fields {
-	return c.sources[0].GetFields()
+func (t *flatRowTransform) GetFields() Fields {
+	return t.source.GetFields()
 }
 
-func (c *connectable) GetResolution() time.Duration {
-	return c.sources[0].GetResolution()
+func (t *flatRowTransform) GetResolution() time.Duration {
+	return t.source.GetResolution()
 }
 
-func (c *connectable) GetAsOf() time.Time {
-	return c.sources[0].GetAsOf()
+func (t *flatRowTransform) GetAsOf() time.Time {
+	return t.source.GetAsOf()
 }
 
-func (c *connectable) GetUntil() time.Time {
-	return c.sources[0].GetUntil()
+func (t *flatRowTransform) GetUntil() time.Time {
+	return t.source.GetUntil()
 }
 
-func (c *connectable) GetSources() []Source {
-	return c.sources
-}
-
-type rowConnectable struct {
-	connectable
-}
-
-func (c *rowConnectable) Connect(source RowSource) {
-	c.sources = append(c.sources, source)
-}
-
-func (c *rowConnectable) iterateSerial(ctx context.Context, onRow OnRow) error {
-	onRow = lockingOnRow(onRow)
-
-	for _, source := range c.sources {
-		err := source.(RowSource).Iterate(ctx, onRow)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (c *rowConnectable) iterateParallel(lock bool, ctx context.Context, onRow OnRow) error {
-	if len(c.sources) == 1 {
-		return c.iterateSerial(ctx, onRow)
-	}
-
-	if lock {
-		onRow = lockingOnRow(onRow)
-	}
-
-	errors := make(chan error, len(c.sources))
-
-	for _, s := range c.sources {
-		source := s
-		go func() {
-			errors <- source.(RowSource).Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
-				return onRow(key, vals)
-			})
-		}()
-	}
-
-	// TODO: add timeout handling
-	var finalErr error
-	for range c.sources {
-		err := <-errors
-		if err != nil {
-			finalErr = err
-		}
-	}
-
-	return finalErr
-}
-
-type flatRowConnectable struct {
-	connectable
-}
-
-func (c *flatRowConnectable) Connect(source FlatRowSource) {
-	c.sources = append(c.sources, source)
-}
-
-func (c *flatRowConnectable) getSource(i int) Source {
-	return c.sources[i]
-}
-
-func (c *flatRowConnectable) iterateSerial(ctx context.Context, onRow OnFlatRow) error {
-	onRow = lockingOnFlatRow(onRow)
-
-	for _, source := range c.sources {
-		err := source.(FlatRowSource).Iterate(ctx, onRow)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func (c *flatRowConnectable) iterateParallel(lock bool, ctx context.Context, onRow OnFlatRow) error {
-	if len(c.sources) == 1 {
-		return c.iterateSerial(ctx, onRow)
-	}
-
-	if lock {
-		onRow = lockingOnFlatRow(onRow)
-	}
-
-	errors := make(chan error, len(c.sources))
-
-	for _, s := range c.sources {
-		source := s
-		go func() {
-			errors <- source.(FlatRowSource).Iterate(ctx, func(flatRow *FlatRow) (bool, error) {
-				return onRow(flatRow)
-			})
-		}()
-	}
-
-	// TODO: add timeout handling
-	var finalErr error
-	for range c.sources {
-		err := <-errors
-		if err != nil {
-			finalErr = err
-		}
-	}
-
-	return finalErr
-}
-
-func lockingOnRow(onRow OnRow) OnRow {
-	var mx sync.Mutex
-	return func(key bytemap.ByteMap, vals Vals) (bool, error) {
-		mx.Lock()
-		more, err := onRow(key, vals)
-		mx.Unlock()
-		return more, err
-	}
-}
-
-func lockingOnFlatRow(onRow OnFlatRow) OnFlatRow {
-	var mx sync.Mutex
-	return func(row *FlatRow) (bool, error) {
-		mx.Lock()
-		more, err := onRow(row)
-		mx.Unlock()
-		return more, err
-	}
+func (t *flatRowTransform) GetSource() Source {
+	return t.source
 }
 
 func proceed() (bool, error) {

@@ -27,20 +27,13 @@ var (
 )
 
 func TestRowFilter(t *testing.T) {
-	f := &RowFilter{
-		Include: func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
-			x := key.Get("x")
-			if x != nil && x.(int)%2 == 0 {
-				return key, vals, nil
-			}
-			return nil, nil, nil
-		},
-		Label: "test",
-	}
-
-	f.Connect(&goodSource{})
-	f.Connect(&goodSource{})
-	f.Connect(&errorSource{})
+	f := RowFilter(&goodSource{}, "test", func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
+		x := key.Get("x")
+		if x != nil && x.(int)%2 == 0 {
+			return key, vals, nil
+		}
+		return nil, nil, nil
+	})
 
 	totalA := int64(0)
 	totalB := int64(0)
@@ -53,51 +46,24 @@ func TestRowFilter(t *testing.T) {
 		return true, nil
 	})
 
-	assert.Equal(t, errTest, err, "Error should have propagated")
-	assert.EqualValues(t, 520, atomic.LoadInt64(&totalB), "Total for b should include data from both good sources")
+	assert.NoError(t, err)
+	assert.EqualValues(t, 260, atomic.LoadInt64(&totalB))
 	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
 }
 
-func TestSplitFlatRowFilterAndMerge(t *testing.T) {
-	var fs []FlatRowSource
-	// This splitter doubles up goodSource
-	s := NewSplitter()
-	s.Connect(&goodSource{})
-
-	for i := 0; i < 3; i++ {
-		f := &FlatRowFilter{
-			Include: func(ctx context.Context, row *FlatRow) (*FlatRow, error) {
-				x := row.Key.Get("x")
-				if x != nil && x.(int)%2 == 0 {
-					return row, nil
-				}
-				return nil, nil
-			},
-			Label: "test",
+func TestFlatRowFilter(t *testing.T) {
+	f := FlatRowFilter(Flatten(&goodSource{}), "test", func(ctx context.Context, row *FlatRow) (*FlatRow, error) {
+		x := row.Key.Get("x")
+		if x != nil && x.(int)%2 == 0 {
+			return row, nil
 		}
-
-		fl := Flatten()
-		if i == 0 {
-			fl.Connect(&errorSource{})
-		} else {
-			fl.Connect(s.Split())
-		}
-		f.Connect(fl)
-
-		fs = append(fs, f)
-	}
-
-	m := MergeFlat()
-	for _, f := range fs {
-		m.Connect(f)
-	}
-
-	fmt.Println(FormatSource(m))
+		return nil, nil
+	})
 
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := m.Iterate(Context(), func(row *FlatRow) (bool, error) {
+	err := f.Iterate(Context(), func(row *FlatRow) (bool, error) {
 		a := row.Values[0]
 		b := row.Values[1]
 		atomic.AddInt64(&totalA, int64(a))
@@ -105,24 +71,17 @@ func TestSplitFlatRowFilterAndMerge(t *testing.T) {
 		return true, nil
 	})
 
-	assert.Equal(t, errTest, err, "Error should have propagated")
-	assert.EqualValues(t, 520, atomic.LoadInt64(&totalB), "Total for b should include data from both good sources")
+	assert.NoError(t, err)
+	assert.EqualValues(t, 260, atomic.LoadInt64(&totalB))
 	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
 }
 
 func TestDeadline(t *testing.T) {
-	f := &RowFilter{
-		Include: func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
-			// Slow things down by sleeping for a bit
-			time.Sleep(100 * time.Millisecond)
-			return key, vals, nil
-		},
-		Label: "deadline",
-	}
-
-	f.Connect(&goodSource{})
-	f.Connect(&goodSource{})
-	f.Connect(&errorSource{})
+	f := RowFilter(&goodSource{}, "deadline", func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
+		// Slow things down by sleeping for a bit
+		time.Sleep(100 * time.Millisecond)
+		return key, vals, nil
+	})
 
 	rowsSeen := int64(0)
 
@@ -134,12 +93,12 @@ func TestDeadline(t *testing.T) {
 	})
 
 	assert.Equal(t, ErrDeadlineExceeded, err, "Should have gotten deadline exceeded error")
-	assert.EqualValues(t, 2, atomic.LoadInt64(&rowsSeen), "Should have gotten only two rows (1 from each good source before deadline was exceeded)")
+	assert.EqualValues(t, 1, atomic.LoadInt64(&rowsSeen), "Should have gotten only 1 row before deadline exceeded")
 }
 
 func TestGroupSingle(t *testing.T) {
 	eTotal := ADD(eA, eB)
-	gx := &Group{
+	gx := Group(&goodSource{}, GroupOpts{
 		By: []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
 		Fields: Fields{
 			Field{
@@ -150,13 +109,7 @@ func TestGroupSingle(t *testing.T) {
 		Resolution: resolution * 2,
 		AsOf:       asOf.Add(2 * resolution),
 		Until:      until.Add(-2 * resolution),
-	}
-
-	gx.Connect(&goodSource{})
-	gx.Connect(&goodSource{})
-	gx.Connect(&errorSource{})
-
-	t.Log(FormatSource(gx))
+	})
 
 	totalByX := make(map[int]float64, 0)
 	err := gx.Iterate(Context(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
@@ -170,14 +123,14 @@ func TestGroupSingle(t *testing.T) {
 		return true, nil
 	})
 
-	assert.Equal(t, errTest, err, "Error should have propagated")
-	assert.EqualValues(t, 240, totalByX[1])
-	assert.EqualValues(t, 280, totalByX[2])
+	assert.NoError(t, err)
+	assert.EqualValues(t, 120, totalByX[1])
+	assert.EqualValues(t, 140, totalByX[2])
 }
 
 func TestGroupNone(t *testing.T) {
 	eTotal := ADD(eA, eB)
-	gx := &Group{
+	gx := Group(&goodSource{}, GroupOpts{
 		Fields: Fields{
 			Field{
 				Name: "total",
@@ -185,19 +138,15 @@ func TestGroupNone(t *testing.T) {
 			},
 		},
 		Resolution: resolution * 10,
-	}
-
-	gx.Connect(&goodSource{})
-	gx.Connect(&goodSource{})
-	gx.Connect(&errorSource{})
+	})
 
 	expectedValues := map[string]float64{
-		"1.1": (10 + 70) * 2,
-		"1.3": (50) * 2,
-		"1.5": (90) * 2,
-		"2.2": (100) * 2,
-		"2.3": (20 + 80) * 2,
-		"2.5": (60) * 2,
+		"1.1": 10 + 70,
+		"1.3": 50,
+		"1.5": 90,
+		"2.2": 100,
+		"2.3": 20 + 80,
+		"2.5": 60,
 	}
 
 	ctx := Context()
@@ -210,33 +159,24 @@ func TestGroupNone(t *testing.T) {
 		return true, nil
 	})
 
-	assert.Equal(t, errTest, err, "Error should have propagated")
+	assert.NoError(t, err)
 	assert.Empty(t, expectedValues, "All combinations should have been seen")
 	assert.EqualValues(t, []string{"x", "y"}, GetMD(ctx, MDKeyDims))
 }
 
 func TestFlattenSortOffsetAndLimit(t *testing.T) {
-	f := Flatten()
-	f.Connect(&goodSource{})
-	f.Connect(&goodSource{})
-	f.Connect(&errorSource{})
-
-	s := Sort(NewOrderBy("b", true), NewOrderBy("a", false))
-	s.Connect(f)
-
-	o := Offset(1)
-	o.Connect(s)
-
-	l := Limit(14)
-	l.Connect(o)
+	f := Flatten(&goodSource{})
+	s := Sort(f, NewOrderBy("b", true), NewOrderBy("a", false))
+	o := Offset(s, 1)
+	l := Limit(o, 6)
 
 	// This contains the data, sorted, but missing the first and last entries
 	expectedTSs := []time.Time{
-		epoch, epoch.Add(-2 * resolution), epoch.Add(-2 * resolution), epoch.Add(-4 * resolution), epoch.Add(-4 * resolution), epoch.Add(-8 * resolution), epoch.Add(-8 * resolution),
-		epoch.Add(-9 * resolution), epoch.Add(-9 * resolution), epoch.Add(-5 * resolution), epoch.Add(-5 * resolution), epoch.Add(-3 * resolution), epoch.Add(-3 * resolution), epoch.Add(-1 * resolution),
+		epoch.Add(-2 * resolution), epoch.Add(-4 * resolution), epoch.Add(-8 * resolution),
+		epoch.Add(-9 * resolution), epoch.Add(-5 * resolution), epoch.Add(-3 * resolution),
 	}
-	expectedAs := []float64{0, 0, 0, 0, 0, 0, 0, 10, 10, 50, 50, 70, 70, 90}
-	expectedBs := []float64{100, 80, 80, 60, 60, 20, 20, 0, 0, 0, 0, 0, 0, 0}
+	expectedAs := []float64{0, 0, 0, 10, 50, 70}
+	expectedBs := []float64{80, 60, 20, 0, 0, 0}
 	var expectedTS time.Time
 	var expectedA float64
 	var expectedB float64
@@ -250,20 +190,16 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 		return true, nil
 	})
 
-	assert.Equal(t, errTest, err, "Error should have propagated")
-
-	t.Log(FormatSource(l))
+	if !assert.NoError(t, err) {
+		t.Log(FormatSource(l))
+	}
 }
 
 func TestUnflatten(t *testing.T) {
 	ex := ADD(AVG("a"), AVG("b"))
 
-	f := Flatten()
-	u := Unflatten(NewField("total", ex))
-	f.Connect(&goodSource{})
-	f.Connect(&goodSource{})
-	f.Connect(&errorSource{})
-	u.Connect(f)
+	f := Flatten(&goodSource{})
+	u := Unflatten(f, NewField("total", ex))
 
 	expectedRows := make([]*testRow, 0, len(testRows)*2)
 	for _, row := range testRows {
@@ -283,7 +219,7 @@ func TestUnflatten(t *testing.T) {
 			key:  row.key,
 			vals: []encoding.Sequence{encoding.NewValue(ex, ts, params, row.key)},
 		}
-		expectedRows = append(expectedRows, expectedRow, expectedRow)
+		expectedRows = append(expectedRows, expectedRow)
 	}
 
 	err := u.Iterate(Context(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
@@ -297,7 +233,7 @@ func TestUnflatten(t *testing.T) {
 		return true, nil
 	})
 
-	assert.Equal(t, errTest, err, "Error should have propagated")
+	assert.NoError(t, err)
 	assert.Empty(t, expectedRows, "All rows should have been seen")
 }
 

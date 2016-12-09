@@ -38,8 +38,7 @@ func (g GroupBy) String() string {
 	return fmt.Sprintf("%v (%v)", g.Name, g.Expr)
 }
 
-type Group struct {
-	rowConnectable
+type GroupOpts struct {
 	By         []GroupBy
 	Fields     Fields
 	Resolution time.Duration
@@ -47,24 +46,36 @@ type Group struct {
 	Until      time.Time
 }
 
-func (g *Group) GetFields() Fields {
+func Group(source RowSource, opts GroupOpts) RowSource {
+	return &group{
+		rowTransform{source},
+		opts,
+	}
+}
+
+type group struct {
+	rowTransform
+	GroupOpts
+}
+
+func (g *group) GetFields() Fields {
 	if len(g.Fields) == 0 {
-		return g.rowConnectable.GetFields()
+		return g.source.GetFields()
 	}
 	return g.Fields
 }
 
-func (g *Group) GetResolution() time.Duration {
+func (g *group) GetResolution() time.Duration {
 	if g.Resolution == 0 {
-		return g.rowConnectable.GetResolution()
+		return g.source.GetResolution()
 	}
 	return g.Resolution
 }
 
-func (g *Group) GetAsOf() time.Time {
+func (g *group) GetAsOf() time.Time {
 	asOf := g.AsOf
 	if asOf.IsZero() {
-		asOf = g.rowConnectable.GetAsOf()
+		asOf = g.source.GetAsOf()
 	}
 	until := g.GetUntil()
 	resolution := g.GetResolution()
@@ -75,19 +86,19 @@ func (g *Group) GetAsOf() time.Time {
 	return asOf
 }
 
-func (g *Group) GetUntil() time.Time {
+func (g *group) GetUntil() time.Time {
 	if g.Until.IsZero() {
-		return g.rowConnectable.GetUntil()
+		return g.source.GetUntil()
 	}
 	return g.Until
 }
 
-func (g *Group) Iterate(ctx context.Context, onRow OnRow) error {
+func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 	bt := bytetree.New(
 		fieldsToExprs(g.GetFields()),
-		fieldsToExprs(g.rowConnectable.GetFields()), // todo: consider all sources
+		fieldsToExprs(g.source.GetFields()), // todo: consider all sources
 		g.GetResolution(),
-		g.rowConnectable.GetResolution(),
+		g.source.GetResolution(),
 		g.GetAsOf(),
 		g.GetUntil(),
 	)
@@ -118,7 +129,7 @@ func (g *Group) Iterate(ctx context.Context, onRow OnRow) error {
 		}
 	}
 
-	err := g.iterateParallel(true, ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := g.source.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		metadata := key
 		key = sliceKey(key)
 		bt.Update(key, vals, metadata)
@@ -161,7 +172,7 @@ func fieldsToExprs(fields Fields) []expr.Expr {
 	return exprs
 }
 
-func (g *Group) String() string {
+func (g *group) String() string {
 	result := &bytes.Buffer{}
 	result.WriteString("group")
 	if len(g.By) > 0 {

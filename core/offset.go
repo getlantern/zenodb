@@ -6,19 +6,22 @@ import (
 	"sync/atomic"
 )
 
-func Offset(off int) FlatToFlat {
-	return &offset{offset: off}
+func Offset(source FlatRowSource, off int) FlatRowSource {
+	return &offset{
+		flatRowTransform{source},
+		off,
+	}
 }
 
 type offset struct {
-	flatRowConnectable
+	flatRowTransform
 	offset int
 }
 
 func (o *offset) Iterate(ctx context.Context, onRow OnFlatRow) error {
 	idx := int64(0)
 
-	return o.iterateParallel(true, ctx, func(row *FlatRow) (bool, error) {
+	return o.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
 		newIdx := atomic.AddInt64(&idx, 1)
 		oldIdx := int(newIdx - 1)
 		// TODO: allow stopping iteration here

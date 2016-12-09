@@ -6,12 +6,12 @@ import (
 	"time"
 )
 
-func Flatten() RowToFlat {
-	return &flatten{}
+func Flatten(source RowSource) FlatRowSource {
+	return &flatten{rowTransform{source}}
 }
 
 type flatten struct {
-	rowConnectable
+	rowTransform
 }
 
 func (f *flatten) Iterate(ctx context.Context, onRow OnFlatRow) error {
@@ -19,7 +19,7 @@ func (f *flatten) Iterate(ctx context.Context, onRow OnFlatRow) error {
 	numFields := len(fields)
 	resolution := f.GetResolution()
 
-	return f.iterateParallel(false, ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	return f.source.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var until time.Time
 		var asOf time.Time
 		// Figure out total time range

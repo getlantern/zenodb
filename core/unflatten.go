@@ -6,21 +6,24 @@ import (
 	"github.com/getlantern/zenodb/expr"
 )
 
-func Unflatten(fields ...Field) FlatToRow {
-	return &unflatten{fields: fields}
+func Unflatten(source FlatRowSource, fields ...Field) RowSource {
+	return &unflatten{
+		flatRowTransform{source},
+		fields,
+	}
 }
 
 type unflatten struct {
-	flatRowConnectable
+	flatRowTransform
 	fields Fields
 }
 
 func (f *unflatten) Iterate(ctx context.Context, onRow OnRow) error {
-	inFields := f.flatRowConnectable.GetFields()
+	inFields := f.source.GetFields()
 	numIn := len(inFields)
 	numFields := len(f.fields)
 
-	return f.iterateParallel(false, ctx, func(row *FlatRow) (bool, error) {
+	return f.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
 		ts := encoding.TimeFromInt(row.TS)
 		outRow := make(Vals, numFields)
 		params := expr.Map(make(map[string]float64, numIn))

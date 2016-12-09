@@ -23,9 +23,7 @@ func doFormatSource(result *bytes.Buffer, indent string, source Source) {
 	t, ok := source.(Transform)
 	if ok {
 		indent += "  "
-		sources := t.GetSources()
-		for _, s := range sources {
-			doFormatSource(result, indent, s)
-		}
+		s := t.GetSource()
+		doFormatSource(result, indent, s)
 	}
 }

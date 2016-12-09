@@ -177,14 +177,13 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		return nil, parseErr
 	}
 
-	unflat := core.Unflatten(query.Fields...)
-	unflat.Connect(&clusterSource{
+	unflat := core.Unflatten(&clusterSource{
 		opts:          opts,
 		query:         clusterQuery,
 		planAsIfLocal: pail,
-	})
+	}, query.Fields...)
 
-	flat := flatten(addGroupBy(unflat, query))
+	var flat core.FlatRowSource = core.Flatten(addGroupBy(unflat, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
 	}
@@ -203,5 +202,5 @@ func planAsIfLocal(opts *Opts, sqlString string) (core.FlatRowSource, error) {
 		return nil, parseErr
 	}
 
-	return planSingle(unclusteredOpts, query)
+	return planLocal(query, unclusteredOpts)
 }

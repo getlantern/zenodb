@@ -21,7 +21,7 @@ func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) ([]
 	*sqOpts = *opts
 	sqOpts.IsSubquery = true
 	for _, sq := range subQueries {
-		sqPlan, sqPlanErr := Plan(sqOpts, sq.SQL)
+		sqPlan, sqPlanErr := Plan(sq.SQL, sqOpts)
 		if sqPlanErr != nil {
 			return nil, sqPlanErr
 		}

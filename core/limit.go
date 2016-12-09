@@ -6,19 +6,22 @@ import (
 	"sync/atomic"
 )
 
-func Limit(lim int) FlatToFlat {
-	return &limit{limit: lim}
+func Limit(source FlatRowSource, lim int) FlatRowSource {
+	return &limit{
+		flatRowTransform{source},
+		lim,
+	}
 }
 
 type limit struct {
-	flatRowConnectable
+	flatRowTransform
 	limit int
 }
 
 func (l *limit) Iterate(ctx context.Context, onRow OnFlatRow) error {
 	idx := int64(0)
 
-	return l.iterateParallel(true, ctx, func(row *FlatRow) (bool, error) {
+	return l.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
 		newIdx := atomic.AddInt64(&idx, 1)
 		oldIdx := int(newIdx - 1)
 		// TODO: allow stopping iteration here

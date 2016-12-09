@@ -42,12 +42,15 @@ func (row *FlatRow) Get(param string) interface{} {
 	return row.Key.Get(param)
 }
 
-func Sort(by ...OrderBy) FlatToFlat {
-	return &sorter{by: by}
+func Sort(source FlatRowSource, by ...OrderBy) FlatRowSource {
+	return &sorter{
+		flatRowTransform{source},
+		by,
+	}
 }
 
 type sorter struct {
-	flatRowConnectable
+	flatRowTransform
 	by []OrderBy
 }
 
@@ -55,7 +58,7 @@ func (s *sorter) Iterate(ctx context.Context, onRow OnFlatRow) error {
 	rows := orderedRows{
 		orderBy: s.by,
 	}
-	err := s.iterateParallel(true, ctx, func(row *FlatRow) (bool, error) {
+	err := s.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
 		rows.rows = append(rows.rows, row)
 		return proceed()
 	})

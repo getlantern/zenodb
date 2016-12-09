@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"github.com/getlantern/bytemap"
-	// "github.com/getlantern/goexpr"
 	"github.com/getlantern/goexpr"
-	"github.com/getlantern/zenodb/core"
+	. "github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/stretchr/testify/assert"
-	"strings"
 	"testing"
 	"time"
 )
@@ -25,476 +23,249 @@ var (
 	eA = SUM("a")
 	eB = SUM("b")
 
-	fieldA = core.NewField("a", eA)
-	fieldB = core.NewField("b", eB)
+	fieldA = NewField("a", eA)
+	fieldB = NewField("b", eB)
 )
 
 func TestPlans(t *testing.T) {
 	var descriptions []string
-	var queries [][]string
-	var expected []func() core.Source
-	var expectedCluster []func() core.Source
+	var queries []string
+	var expected []func() Source
+	var expectedCluster []func() Source
 
-	multiScenario := func(desc string, sqlStrings []string, sourceFn func() core.Source, clusterSourceFn func() core.Source) {
+	scenario := func(desc string, sqlString string, sourceFn func() Source, clusterSourceFn func() Source) {
 		descriptions = append(descriptions, desc)
-		queries = append(queries, sqlStrings)
+		queries = append(queries, sqlString)
 		expected = append(expected, sourceFn)
 		expectedCluster = append(expectedCluster, clusterSourceFn)
 	}
 
-	scenario := func(desc string, sqlString string, sourceFn func() core.Source, clusterSourceFn func() core.Source) {
-		multiScenario(desc, []string{sqlString}, sourceFn, clusterSourceFn)
-	}
-
-	scenario("No grouping", "SELECT * FROM TableA", func() core.Source {
-		t := &testTable{"tablea"}
-		f := core.Flatten()
-		f.Connect(t)
-		return f
-	}, func() core.Source {
+	scenario("No grouping", "SELECT * FROM TableA", func() Source {
+		return Flatten(&testTable{"tablea"})
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		return f
+		return Flatten(Group(Unflatten(t), GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB},
+		}))
 	})
 
-	multiScenario("Multi select", []string{"SELECT * FROM TableA", "SELECT * FROM TableA"}, func() core.Source {
-		t := &testTable{"tablea"}
-		s := core.NewSplitter()
-		s.Connect(t)
-		m := core.MergeFlat()
-		for i := 0; i < 2; i++ {
-			f := core.Flatten()
-			f.Connect(s.Split())
-			m.Connect(f)
-		}
-		return m
-	}, nil)
-
-	scenario("WHERE clause", "SELECT * FROM TableA WHERE x > 5", func() core.Source {
-		t := &testTable{"tablea"}
-		fi := &core.RowFilter{
-			Label: "where x > 5",
-		}
-		f := core.Flatten()
-		fi.Connect(t)
-		f.Connect(fi)
-		return f
-	}, func() core.Source {
+	scenario("WHERE clause", "SELECT * FROM TableA WHERE x > 5", func() Source {
+		return Flatten(RowFilter(&testTable{"tablea"}, "where x > 5", nil))
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea where x > 5"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		return f
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+		}))
 	})
 
-	scenario("WHERE with subquery", "SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)", func() core.Source {
-		t := &testTable{"tablea"}
-		fi := &core.RowFilter{
-			Label: "where dim in (select dim as dim from tableb)",
-		}
-		f := core.Flatten()
-		fi.Connect(t)
-		f.Connect(fi)
-		return f
-	}, func() core.Source {
+	scenario("WHERE with subquery", "SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)", func() Source {
+		return Flatten(RowFilter(&testTable{"tablea"}, "where dim in (select dim as dim from tableb)", nil))
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea where dim in (select dim from tableb)"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		return f
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+		}))
 	})
 
-	scenario("LIMIT and OFFSET", "SELECT * FROM TableA LIMIT 2, 5", func() core.Source {
-		t := &testTable{"tablea"}
-		f := core.Flatten()
-		o := core.Offset(2)
-		l := core.Limit(5)
-		f.Connect(t)
-		o.Connect(f)
-		l.Connect(o)
-		return l
-	}, func() core.Source {
+	scenario("LIMIT and OFFSET", "SELECT * FROM TableA LIMIT 2, 5", func() Source {
+		return Limit(Offset(Flatten(&testTable{"tablea"}), 2), 5)
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		o := core.Offset(2)
-		l := core.Limit(5)
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		o.Connect(f)
-		l.Connect(o)
-		return l
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return Limit(Offset(Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+		})), 2), 5)
 	})
 
-	scenario("Calculated field", "SELECT *, a + b AS total FROM TableA", func() core.Source {
-		fieldTotal := core.NewField("total", ADD(eA, eB))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldTotal},
-		}
-		f := core.Flatten()
-		g.Connect(t)
-		f.Connect(g)
-		return f
-	}, func() core.Source {
-		fieldTotal := core.NewField("total", ADD(eA, eB))
+	scenario("Calculated field", "SELECT *, a + b AS total FROM TableA", func() Source {
+		fieldTotal := NewField("total", ADD(eA, eB))
+		return Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldTotal},
+		}))
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select *, a+b as total from tablea"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldTotal},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		return f
+		fieldTotal := NewField("total", ADD(eA, eB))
+		fields := []Field{sql.PointsField, fieldA, fieldB, fieldTotal}
+		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+		}))
 	})
 
-	scenario("HAVING clause", "SELECT * FROM TableA HAVING a+b > 0", func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-		}
-		f := core.Flatten()
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		g.Connect(t)
-		f.Connect(g)
-		h.Connect(f)
-		return h
-	}, func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+	scenario("HAVING clause", "SELECT * FROM TableA HAVING a+b > 0", func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		return FlatRowFilter(Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+		})), "a+b > 0", nil)
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		h.Connect(f)
-		return h
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		fields := []Field{sql.PointsField, fieldA, fieldB, fieldHaving}
+		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+		})), "a+b > 0", nil)
 	})
 
-	scenario("HAVING clause with single group by, pushdown allowed", "SELECT * FROM TableA GROUP BY x HAVING a+b > 0", func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x"))},
-		}
-		f := core.Flatten()
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		g.Connect(t)
-		f.Connect(g)
-		h.Connect(f)
-		return h
-	}, func() core.Source {
-		t := &clusterSource{
+	scenario("HAVING clause with single group by, pushdown allowed", "SELECT * FROM TableA GROUP BY x HAVING a+b > 0", func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		return FlatRowFilter(Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
+		})), "a+b > 0", nil)
+	}, func() Source {
+		return &clusterSource{
 			query: &sql.Query{SQL: "select * from TableA group by x having a+b > 0"},
 		}
-		return t
 	})
 
-	scenario("HAVING clause with single group by, pushdown allowed", "SELECT * FROM TableA GROUP BY x HAVING a+b > 0", func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x"))},
-		}
-		f := core.Flatten()
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		g.Connect(t)
-		f.Connect(g)
-		h.Connect(f)
-		return h
-	}, func() core.Source {
-		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from TableA group by x having a+b > 0"},
-		}
-		return t
-	})
-
-	scenario("HAVING clause with contiguous group by, pushdown allowed", "SELECT * FROM TableA GROUP BY y, x HAVING a+b > 0", func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x")), core.NewGroupBy("y", goexpr.Param("y"))},
-		}
-		f := core.Flatten()
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		g.Connect(t)
-		f.Connect(g)
-		h.Connect(f)
-		return h
-	}, func() core.Source {
-		t := &clusterSource{
+	scenario("HAVING clause with contiguous group by, pushdown allowed", "SELECT * FROM TableA GROUP BY y, x HAVING a+b > 0", func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		return FlatRowFilter(Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("y", goexpr.Param("y"))},
+		})), "a+b > 0", nil)
+	}, func() Source {
+		return &clusterSource{
 			query: &sql.Query{SQL: "select * from TableA group by y, x having a+b > 0"},
 		}
-		return t
 	})
 
-	scenario("HAVING clause with contiguous group by and subselect, pushdown allowed", "SELECT * FROM (SELECT * FROM TableA GROUP BY y, x) HAVING a+b > 0", func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
-			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x")), core.NewGroupBy("y", goexpr.Param("y"))},
-		}
-		g2 := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-		}
-
-		f := core.Flatten()
-		uf := core.Unflatten(g.Fields...)
-		f2 := core.Flatten()
-
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		g.Connect(t)
-		f.Connect(g)
-		uf.Connect(f)
-		g2.Connect(uf)
-		f2.Connect(g2)
-		h.Connect(f2)
-		return h
-	}, func() core.Source {
-		t := &clusterSource{
+	scenario("HAVING clause with contiguous group by and subselect, pushdown allowed", "SELECT * FROM (SELECT * FROM TableA GROUP BY y, x) HAVING a+b > 0", func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return FlatRowFilter(
+			Flatten(
+				Group(
+					Unflatten(
+						Flatten(
+							Group(&testTable{"tablea"}, GroupOpts{
+								Fields: fields,
+								By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("y", goexpr.Param("y"))},
+							}),
+						), fields...),
+					GroupOpts{
+						Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+					},
+				),
+			), "a+b > 0", nil)
+	}, func() Source {
+		return &clusterSource{
 			query: &sql.Query{SQL: "select * from (select * from TableA group by y, x) having a+b > 0"},
 		}
-		return t
 	})
 
-	scenario("HAVING clause with discontiguous group by, pushdown not allowed", "SELECT * FROM TableA GROUP BY y HAVING a+b > 0", func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
-		}
-		f := core.Flatten()
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		g.Connect(t)
-		f.Connect(g)
-		h.Connect(f)
-		return h
-	}, func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+	scenario("HAVING clause with discontiguous group by, pushdown not allowed", "SELECT * FROM TableA GROUP BY y HAVING a+b > 0", func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		return FlatRowFilter(Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+		})), "a+b > 0", nil)
+	}, func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea group by y"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
-		}
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		h.Connect(f)
-		return h
+		fields := []Field{sql.PointsField, fieldA, fieldB, fieldHaving}
+		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+			By:     []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+		})), "a+b > 0", nil)
 	})
 
-	scenario("HAVING clause with group by on non partition key, pushdown not allowed", "SELECT * FROM TableA GROUP BY z HAVING a+b > 0", func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []core.GroupBy{core.NewGroupBy("z", goexpr.Param("z"))},
-		}
-		f := core.Flatten()
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		g.Connect(t)
-		f.Connect(g)
-		h.Connect(f)
-		return h
-	}, func() core.Source {
-		fieldHaving := core.NewField("_having", GT(ADD(eA, eB), CONST(0)))
+	scenario("HAVING clause with group by on non partition key, pushdown not allowed", "SELECT * FROM TableA GROUP BY z HAVING a+b > 0", func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		return FlatRowFilter(Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+			By:     []GroupBy{NewGroupBy("z", goexpr.Param("z"))},
+		})), "a+b > 0", nil)
+	}, func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea group by z"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []core.GroupBy{core.NewGroupBy("z", goexpr.Param("z"))},
-		}
-		h := &core.FlatRowFilter{
-			Label: "a+b > 0",
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		h.Connect(f)
-		return h
+		fields := []Field{sql.PointsField, fieldA, fieldB, fieldHaving}
+		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+			By:     []GroupBy{NewGroupBy("z", goexpr.Param("z"))},
+		})), "a+b > 0", nil)
 	})
 
-	scenario("ASOF", "SELECT * FROM TableA ASOF '-5s'", func() core.Source {
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
+	scenario("ASOF", "SELECT * FROM TableA ASOF '-5s'", func() Source {
+		return Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB},
 			AsOf:   epoch.Add(-5 * time.Second),
-		}
-		f := core.Flatten()
-		g.Connect(t)
-		f.Connect(g)
-		return f
-	}, func() core.Source {
+		}))
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea ASOF '-5s'"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		return f
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+		}))
 	})
 
-	scenario("ASOF UNTIL", "SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'", func() core.Source {
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
+	scenario("ASOF UNTIL", "SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'", func() Source {
+		return Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields: []Field{sql.PointsField, fieldA, fieldB},
 			AsOf:   epoch.Add(-5 * time.Second),
 			Until:  epoch.Add(-1 * time.Second),
-		}
-		f := core.Flatten()
-		g.Connect(t)
-		f.Connect(g)
-		return f
-	}, func() core.Source {
+		}))
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea ASOF '-5s' UNTIL '-1s'"},
 		}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, fieldA, fieldB},
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		return f
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields: fields,
+		}))
 	})
 
-	scenario("Group by partition key, pushdown allowed", "SELECT * FROM TableA GROUP BY x", func() core.Source {
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields: []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
-			By:     []core.GroupBy{core.NewGroupBy("x", goexpr.Param("x"))},
-		}
-		f := core.Flatten()
-		g.Connect(t)
-		f.Connect(g)
-		return f
-	}, func() core.Source {
-		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from TableA group by x"},
-		}
-		return t
-	})
-	//
-	scenario("Change Resolution", "SELECT * FROM TableA GROUP BY period(2s)", func() core.Source {
-		t := &testTable{"tablea"}
-		g := &core.Group{
-			Fields:     []core.Field{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)},
+	scenario("Change Resolution", "SELECT * FROM TableA GROUP BY period(2s)", func() Source {
+		return Flatten(Group(&testTable{"tablea"}, GroupOpts{
+			Fields:     []Field{sql.PointsField, fieldA, fieldB},
 			Resolution: 2 * time.Second,
-		}
-		f := core.Flatten()
-		g.Connect(t)
-		f.Connect(g)
-		return f
-	}, func() core.Source {
+		}))
+	}, func() Source {
 		t := &clusterSource{
 			query: &sql.Query{SQL: "select * from tablea group by period(2 as s)"},
 		}
-		g := &core.Group{
-			Fields:     []core.Field{sql.PointsField, fieldA, fieldB},
+		fields := []Field{sql.PointsField, fieldA, fieldB}
+		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields:     fields,
 			Resolution: 2 * time.Second,
-		}
-		uf := core.Unflatten(g.Fields...)
-		f := core.Flatten()
-		uf.Connect(t)
-		g.Connect(uf)
-		f.Connect(g)
-		return f
+		}))
 	})
 	//
-	// scenario("SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() core.Source {
+	// scenario("SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
 	// 	t := &testTable{"tablea"}
-	// 	fi := &core.RowFilter{
+	// 	fi := &RowFilter{
 	// 		Label: "where x > 5",
 	// 	}
-	// 	g := &core.Group{
-	// 		By:         []core.GroupBy{core.NewGroupBy("y", goexpr.Param("y"))},
-	// 		Fields:     core.Fields{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB), core.NewField("total", ADD(eA, eB))},
+	// 	g := &Group{
+	// 		By:         []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+	// 		Fields:     Fields{sql.PointsField, NewField("a", eA), NewField("b", eB), NewField("total", ADD(eA, eB))},
 	// 		AsOf:       epoch.Add(-5 * time.Second),
 	// 		Until:      epoch.Add(-1 * time.Second),
 	// 		Resolution: 2 * time.Second,
 	// 	}
-	// 	f := core.Flatten()
-	// 	s := core.Sort(core.NewOrderBy("total", true))
-	// 	o := core.Offset(2)
-	// 	l := core.Limit(5)
+	// 	f := Flatten()
+	// 	s := Sort(NewOrderBy("total", true))
+	// 	o := Offset(2)
+	// 	l := Limit(5)
 	// 	fi.Connect(t)
 	// 	g.Connect(fi)
 	// 	f.Connect(g)
@@ -504,26 +275,26 @@ func TestPlans(t *testing.T) {
 	// 	return l
 	// })
 	//
-	// scenario("SELECT * FROM (SELECT * FROM TableA)", func() core.Source {
+	// scenario("SELECT * FROM (SELECT * FROM TableA)", func() Source {
 	// 	t := &testTable{"tablea"}
-	// 	f := core.Flatten()
-	// 	u := core.Unflatten()
-	// 	f2 := core.Flatten()
+	// 	f := Flatten()
+	// 	u := Unflatten()
+	// 	f2 := Flatten()
 	// 	f.Connect(t)
 	// 	u.Connect(f)
 	// 	f2.Connect(u)
 	// 	return f2
 	// })
 	//
-	// scenario("SELECT AVG(a) + AVG(b) AS total, * FROM (SELECT * FROM TableA)", func() core.Source {
-	// 	avgTotal := core.NewField("total", ADD(AVG("a"), AVG("b")))
+	// scenario("SELECT AVG(a) + AVG(b) AS total, * FROM (SELECT * FROM TableA)", func() Source {
+	// 	avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
 	// 	t := &testTable{"tablea"}
-	// 	f := core.Flatten()
-	// 	u := core.Unflatten(avgTotal, sql.PointsField, fieldA, fieldB)
-	// 	g := &core.Group{
-	// 		Fields: core.Fields{avgTotal, sql.PointsField, fieldA, fieldB},
+	// 	f := Flatten()
+	// 	u := Unflatten(avgTotal, sql.PointsField, fieldA, fieldB)
+	// 	g := &Group{
+	// 		Fields: Fields{avgTotal, sql.PointsField, fieldA, fieldB},
 	// 	}
-	// 	f2 := core.Flatten()
+	// 	f2 := Flatten()
 	// 	f.Connect(t)
 	// 	u.Connect(f)
 	// 	g.Connect(u)
@@ -531,34 +302,31 @@ func TestPlans(t *testing.T) {
 	// 	return f2
 	// })
 
-	for i, sqlStrings := range queries {
+	for i, sqlString := range queries {
 		opts := &Opts{
-			GetTable: func(table string) core.RowSource {
+			GetTable: func(table string) RowSource {
 				return &testTable{table}
 			},
 			Now: func(table string) time.Time {
 				return epoch
 			},
-			FieldSource: func(table string) ([]core.Field, error) {
+			FieldSource: func(table string) ([]Field, error) {
 				t := &testTable{table}
 				return t.GetFields(), nil
 			},
 		}
-		plan, err := Plan(opts, sqlStrings...)
-		if !assert.NoError(t, err) {
-			return
+		plan, err := Plan(sqlString, opts)
+		if assert.NoError(t, err) {
+			assert.Equal(t, FormatSource(expected[i]()), FormatSource(plan), fmt.Sprintf("Non-clustered: %v: %v", descriptions[i], sqlString))
 		}
-		assert.Equal(t, core.FormatSource(expected[i]()), core.FormatSource(plan), fmt.Sprintf("Non-clustered: %v: %v", descriptions[i], strings.Join(sqlStrings, " | ")))
 
-		opts.QueryCluster = func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+		opts.QueryCluster = func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, onRow OnFlatRow) error {
 			return nil
 		}
 		opts.PartitionKeys = []string{"x", "y"}
-		clusterPlan, err := Plan(opts, sqlStrings...)
-		if len(sqlStrings) > 1 {
-			assert.Equal(t, ErrNoMultipleOnCluster, err)
-		} else if assert.NoError(t, err) {
-			assert.Equal(t, core.FormatSource(expectedCluster[i]()), core.FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], strings.Join(sqlStrings, " | ")))
+		clusterPlan, err := Plan(sqlString, opts)
+		if assert.NoError(t, err) {
+			assert.Equal(t, FormatSource(expectedCluster[i]()), FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], sqlString))
 		}
 	}
 }
@@ -573,24 +341,24 @@ LIMIT 1
 `
 
 	opts := &Opts{
-		GetTable: func(table string) core.RowSource {
+		GetTable: func(table string) RowSource {
 			return &testTable{table}
 		},
 		Now: func(table string) time.Time {
 			return epoch
 		},
-		FieldSource: func(table string) ([]core.Field, error) {
+		FieldSource: func(table string) ([]Field, error) {
 			t := &testTable{table}
 			return t.GetFields(), nil
 		},
 	}
-	plan, err := Plan(opts, sqlString)
+	plan, err := Plan(sqlString, opts)
 	if !assert.NoError(t, err) {
 		return
 	}
 
-	var rows []*core.FlatRow
-	plan.Iterate(core.Context(), func(row *core.FlatRow) (bool, error) {
+	var rows []*FlatRow
+	plan.Iterate(Context(), func(row *FlatRow) (bool, error) {
 		rows = append(rows, row)
 		return true, nil
 	})
@@ -607,8 +375,8 @@ type testTable struct {
 	name string
 }
 
-func (t *testTable) GetFields() core.Fields {
-	return core.Fields{sql.PointsField, core.NewField("a", eA), core.NewField("b", eB)}
+func (t *testTable) GetFields() Fields {
+	return Fields{sql.PointsField, NewField("a", eA), NewField("b", eB)}
 }
 
 func (t *testTable) GetResolution() time.Duration {
@@ -623,7 +391,7 @@ func (t *testTable) GetUntil() time.Time {
 	return until
 }
 
-func (t *testTable) Iterate(ctx context.Context, onRow core.OnRow) error {
+func (t *testTable) Iterate(ctx context.Context, onRow OnRow) error {
 	onRow(makeRow(epoch.Add(-9*resolution), 1, 0, 10, 0))
 	onRow(makeRow(epoch.Add(-8*resolution), 0, 3, 0, 20))
 
@@ -644,8 +412,8 @@ type partition struct {
 	numPartitions int
 }
 
-func (t *partition) Iterate(ctx context.Context, onRow core.OnRow) error {
-	return t.testTable.Iterate(ctx, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+func (t *partition) Iterate(ctx context.Context, onRow OnRow) error {
+	return t.testTable.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		x := key.Get("x")
 		y := key.Get("y")
 		if x != nil {
