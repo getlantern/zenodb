@@ -16,7 +16,6 @@ import (
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
 )
 
@@ -132,8 +131,8 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	opts.Name = strings.ToLower(opts.Name)
 
 	// prepend a magic _points field
-	newFields := make([]sql.Field, 0, len(q.Fields)+1)
-	newFields = append(newFields, sql.NewField("_points", expr.SUM("_point")))
+	newFields := make([]core.Field, 0, len(q.Fields)+1)
+	newFields = append(newFields, sql.PointsField)
 	for _, field := range q.Fields {
 		// Don't add _points twice
 		if field.Name != "_points" {
@@ -224,18 +223,6 @@ func (t *table) applyWhere(where goexpr.Expr) {
 	t.whereMutex.Lock()
 	t.Where = where
 	t.whereMutex.Unlock()
-}
-
-func (t *table) fields() []core.Field {
-	return t.Fields
-}
-
-func (t *table) resolution() time.Duration {
-	return t.Resolution
-}
-
-func (t *table) retentionPeriod() time.Duration {
-	return t.RetentionPeriod
 }
 
 func (t *table) truncateBefore() time.Time {

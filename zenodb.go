@@ -17,7 +17,7 @@ import (
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
-	"github.com/getlantern/zenodb/sql"
+	"github.com/getlantern/zenodb/core"
 )
 
 var (
@@ -133,12 +133,12 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 
-	if db.opts.RegisterRemoteQueryHandler != nil {
-		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
-	}
+	// if db.opts.RegisterRemoteQueryHandler != nil {
+	// 	go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
+	// }
 
 	if db.opts.Passthrough {
-		go db.freshenRemoteQueryHandlers()
+		// go db.freshenRemoteQueryHandlers()
 		log.Debugf("Partitioning by: %v", strings.Join(db.opts.PartitionBy, ","))
 	}
 
@@ -201,7 +201,7 @@ func (db *DB) now(table string) time.Time {
 	return db.clock.Now()
 }
 
-func (db *DB) getFields(table string) ([]sql.Field, error) {
+func (db *DB) getFields(table string) ([]core.Field, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil, fmt.Errorf("Table '%v' not found", table)
@@ -209,7 +209,7 @@ func (db *DB) getFields(table string) ([]sql.Field, error) {
 	return t.Fields, nil
 }
 
-func (db *DB) getFieldsOptional(table string) ([]sql.Field, error) {
+func (db *DB) getFieldsOptional(table string) ([]core.Field, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil, nil

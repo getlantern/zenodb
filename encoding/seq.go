@@ -270,6 +270,99 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	return
 }
 
+// Merge merges the other Sequence into this Sequence by applying the given
+// Expr's merge operator to each period in both Sequences. The resulting
+// Sequence will start at the early of the two Sequence's start times, and will
+// end at the later of the two Sequence's start times, or at the given
+// truncateBefore if that's later.
+//
+// The returned Sequence may reference the same underlying byte array as one or
+// the other Sequence if nothing needed merging, otherwise it will be a newly
+// allocated byte array. Merge will NOT update either of the supplied arrays.
+func (seq Sequence) Merge(other Sequence, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
+	if len(seq) == 0 {
+		return other
+	}
+	if len(other) == 0 {
+		return seq
+	}
+
+	truncateBefore = RoundTime(truncateBefore, resolution)
+	sa := seq
+	sb := other
+	startA := sa.Until()
+	startB := sb.Until()
+	if startB.After(startA) {
+		// Switch
+		sa, startA, sb, startB = sb, startB, sa, startA
+	}
+
+	if startB.Before(truncateBefore) {
+		return sa
+	}
+
+	encodedWidth := e.EncodedWidth()
+	aPeriods := sa.NumPeriods(encodedWidth)
+	bPeriods := sb.NumPeriods(encodedWidth)
+	endA := startA.Add(-1 * time.Duration(aPeriods) * resolution)
+	endB := startB.Add(-1 * time.Duration(bPeriods) * resolution)
+	end := endB
+	if endA.Before(endB) {
+		end = endA
+	}
+	totalPeriods := int(startA.Sub(end) / resolution)
+
+	out := make(Sequence, Width64bits+totalPeriods*encodedWidth)
+	sout := out
+
+	// Set start
+	copy(sout, sa[:Width64bits])
+	sout = sout[Width64bits:]
+	sa = sa[Width64bits:]
+	sb = sb[Width64bits:]
+
+	// Handle starting window with no overlap
+	leadEnd := startB
+	if startB.Before(endA) {
+		leadEnd = endA
+	}
+	leadNoOverlapPeriods := int(startA.Sub(leadEnd) / resolution)
+	if leadNoOverlapPeriods > 0 {
+		l := leadNoOverlapPeriods * encodedWidth
+		copy(sout, sa[:l])
+		sout = sout[l:]
+		sa = sa[l:]
+	}
+
+	if startB.After(endA) {
+		// Handle middle window with overlap
+		overlapPeriods := 0
+		if endB.After(endA) {
+			overlapPeriods = int(startA.Sub(endB) / resolution)
+		} else {
+			overlapPeriods = int(startA.Sub(endA) / resolution)
+		}
+		overlapPeriods -= leadNoOverlapPeriods
+		for i := 0; i < overlapPeriods; i++ {
+			sout, sa, sb = e.Merge(sout, sa, sb)
+		}
+	} else if startB.Before(endA) {
+		// Handle gap
+		gapPeriods := int(endA.Sub(startB) / resolution)
+		gap := gapPeriods * encodedWidth
+		sout = sout[gap:]
+	}
+
+	// Handle end window with no overlap
+	if endA.Before(endB) {
+		copy(sout, sa)
+	} else if endB.Before(endA) {
+		copy(sout, sb)
+	}
+
+	return out
+}
+
 // Truncate truncates all periods in the Sequence that fall outside of the given
 // asOf and until.
 func (seq Sequence) Truncate(width int, resolution time.Duration, asOf time.Time, until time.Time) (result Sequence) {

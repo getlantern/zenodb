@@ -20,7 +20,6 @@ import (
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
-	"github.com/getlantern/zenodb/sql"
 	"github.com/golang/snappy"
 	"github.com/oxtoacart/bpool"
 	"github.com/oxtoacart/emsort"
@@ -635,7 +634,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 
 	// Read remaining stuff from memstore
 	if tree != nil {
-		tree.Walk(ctx, func(key []byte, columns1 []encoding.Sequence) bool {
+		tree.Walk(ctx, func(key []byte, columns1 []encoding.Sequence) (bool, bool, error) {
 			columns := make([]encoding.Sequence, len(fs.t.Fields))
 			for i, column := range columns1 {
 				if includeField(i) {
@@ -643,7 +642,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 				}
 			}
 			onRow(bytemap.ByteMap(key), columns)
-			return false
+			return true, false, nil
 		})
 	}
 
