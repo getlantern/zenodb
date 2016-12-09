@@ -174,8 +174,8 @@ func (bt *Tree) Copy() *Tree {
 
 // Update updates all of the fields at the given timestamp with the given
 // parameters.
-func (bt *Tree) Update(key []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) int {
-	bytesAdded, newNode := bt.doUpdate(key, vals, metadata)
+func (bt *Tree) Update(key []byte, vals []encoding.Sequence, params encoding.TSParams, metadata bytemap.ByteMap) int {
+	bytesAdded, newNode := bt.doUpdate(key, vals, params, metadata)
 	bt.bytes += bytesAdded
 	if newNode {
 		bt.length++
@@ -183,7 +183,7 @@ func (bt *Tree) Update(key []byte, vals []encoding.Sequence, metadata bytemap.By
 	return bytesAdded
 }
 
-func (bt *Tree) doUpdate(fullKey []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) (int, bool) {
+func (bt *Tree) doUpdate(fullKey []byte, vals []encoding.Sequence, params encoding.TSParams, metadata bytemap.ByteMap) (int, bool) {
 	n := bt.root
 	key := fullKey
 	// Try to update on existing edge
@@ -200,7 +200,7 @@ nodeLoop:
 			}
 			if i == keyLength && keyLength == labelLength {
 				// update existing node
-				return edge.target.doUpdate(bt, fullKey, vals, metadata), false
+				return edge.target.doUpdate(bt, fullKey, vals, params, metadata), false
 			} else if i == labelLength && labelLength < keyLength {
 				// descend
 				n = edge.target
@@ -208,35 +208,45 @@ nodeLoop:
 				continue nodeLoop
 			} else if i > 0 {
 				// common substring, split on that
-				return edge.split(bt, i, fullKey, key, vals, metadata), true
+				return edge.split(bt, i, fullKey, key, vals, params, metadata), true
 			}
 		}
 
 		// Create new edge
 		target := &node{key: fullKey}
 		n.edges = append(n.edges, &edge{key, target})
-		return target.doUpdate(bt, fullKey, vals, metadata) + len(key), true
+		return target.doUpdate(bt, fullKey, vals, params, metadata) + len(key), true
 	}
 }
 
-func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) int {
+func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, params encoding.TSParams, metadata bytemap.ByteMap) int {
 	if n.data == nil {
 		n.data = make([]encoding.Sequence, len(bt.outExprs))
 	}
 	bytesAdded := 0
-	for o, subMergers := range bt.subMergers {
-		out := n.data[o]
-		outEx := bt.outExprs[o]
-		for i, submerge := range subMergers {
-			if submerge == nil {
-				continue
+	if params != nil {
+		for i, ex := range bt.outExprs {
+			current := n.data[i]
+			previousSize := cap(current)
+			updated := current.Update(params, metadata, ex, bt.outResolution, bt.asOf)
+			n.data[i] = updated
+			bytesAdded += cap(updated) - previousSize
+		}
+	} else {
+		for o, subMergers := range bt.subMergers {
+			out := n.data[o]
+			outEx := bt.outExprs[o]
+			for i, submerge := range subMergers {
+				if submerge == nil {
+					continue
+				}
+				in := vals[i]
+				inEx := bt.inExprs[i]
+				previousSize := cap(out)
+				out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, bt.asOf, bt.until)
+				n.data[o] = out
+				bytesAdded += cap(out) - previousSize
 			}
-			in := vals[i]
-			inEx := bt.inExprs[i]
-			previousSize := cap(out)
-			out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, bt.asOf, bt.until)
-			n.data[o] = out
-			bytesAdded += cap(out) - previousSize
 		}
 	}
 	return bytesAdded
@@ -266,7 +276,7 @@ func (n *node) doRemoveFor(bt *Tree, ctx int64) {
 	bt.mx.Unlock()
 }
 
-func (e *edge) split(bt *Tree, splitOn int, fullKey []byte, key []byte, vals []encoding.Sequence, metadata bytemap.ByteMap) int {
+func (e *edge) split(bt *Tree, splitOn int, fullKey []byte, key []byte, vals []encoding.Sequence, params encoding.TSParams, metadata bytemap.ByteMap) int {
 	newNode := &node{edges: edges{&edge{e.label[splitOn:], e.target}}}
 	newLeaf := newNode
 	if splitOn != len(key) {
@@ -275,7 +285,7 @@ func (e *edge) split(bt *Tree, splitOn int, fullKey []byte, key []byte, vals []e
 	}
 	e.label = e.label[:splitOn]
 	e.target = newNode
-	return len(key) - splitOn + newLeaf.doUpdate(bt, fullKey, vals, metadata)
+	return len(key) - splitOn + newLeaf.doUpdate(bt, fullKey, vals, params, metadata)
 }
 
 type edges []*edge
