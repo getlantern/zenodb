@@ -143,8 +143,9 @@ func TestPlans(t *testing.T) {
 		}
 	})
 
-	scenario("HAVING clause with contiguous group by and subselect, pushdown allowed", "SELECT * FROM (SELECT * FROM TableA GROUP BY y, x) HAVING a+b > 0", func() Source {
+	scenario("HAVING clause with contiguous group by and subselect, pushdown allowed", "SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, x) HAVING a+b > 0", func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
 		fields := []Field{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(
 			Flatten(
@@ -155,15 +156,16 @@ func TestPlans(t *testing.T) {
 								Fields: fields,
 								By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("y", goexpr.Param("y"))},
 							}),
-						), fields...),
+						),
+						fields...),
 					GroupOpts{
-						Fields: []Field{sql.PointsField, fieldA, fieldB, fieldHaving},
+						Fields: []Field{avgTotal, fieldHaving},
 					},
 				),
 			), "a+b > 0", nil)
 	}, func() Source {
 		return &clusterSource{
-			query: &sql.Query{SQL: "select * from (select * from TableA group by y, x) having a+b > 0"},
+			query: &sql.Query{SQL: "select avg(a)+avg(b) as total from (select * from TableA group by y, x) having a+b > 0"},
 		}
 	})
 
@@ -250,57 +252,35 @@ func TestPlans(t *testing.T) {
 		}))
 	})
 	//
-	// scenario("SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
-	// 	t := &testTable{"tablea"}
-	// 	fi := &RowFilter{
-	// 		Label: "where x > 5",
-	// 	}
-	// 	g := &Group{
-	// 		By:         []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
-	// 		Fields:     Fields{sql.PointsField, NewField("a", eA), NewField("b", eB), NewField("total", ADD(eA, eB))},
-	// 		AsOf:       epoch.Add(-5 * time.Second),
-	// 		Until:      epoch.Add(-1 * time.Second),
-	// 		Resolution: 2 * time.Second,
-	// 	}
-	// 	f := Flatten()
-	// 	s := Sort(NewOrderBy("total", true))
-	// 	o := Offset(2)
-	// 	l := Limit(5)
-	// 	fi.Connect(t)
-	// 	g.Connect(fi)
-	// 	f.Connect(g)
-	// 	s.Connect(f)
-	// 	o.Connect(s)
-	// 	l.Connect(o)
-	// 	return l
-	// })
-	//
-	// scenario("SELECT * FROM (SELECT * FROM TableA)", func() Source {
-	// 	t := &testTable{"tablea"}
-	// 	f := Flatten()
-	// 	u := Unflatten()
-	// 	f2 := Flatten()
-	// 	f.Connect(t)
-	// 	u.Connect(f)
-	// 	f2.Connect(u)
-	// 	return f2
-	// })
-	//
-	// scenario("SELECT AVG(a) + AVG(b) AS total, * FROM (SELECT * FROM TableA)", func() Source {
-	// 	avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
-	// 	t := &testTable{"tablea"}
-	// 	f := Flatten()
-	// 	u := Unflatten(avgTotal, sql.PointsField, fieldA, fieldB)
-	// 	g := &Group{
-	// 		Fields: Fields{avgTotal, sql.PointsField, fieldA, fieldB},
-	// 	}
-	// 	f2 := Flatten()
-	// 	f.Connect(t)
-	// 	u.Connect(f)
-	// 	g.Connect(u)
-	// 	f2.Connect(g)
-	// 	return f2
-	// })
+	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
+		return Limit(
+			Offset(
+				Sort(
+					Flatten(
+						Group(
+							RowFilter(&testTable{"tablea"}, "where x > 5", nil),
+							GroupOpts{
+								By:         []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+								Fields:     Fields{sql.PointsField, NewField("a", eA), NewField("b", eB), NewField("total", ADD(eA, eB))},
+								AsOf:       epoch.Add(-5 * time.Second),
+								Until:      epoch.Add(-1 * time.Second),
+								Resolution: 2 * time.Second,
+							}),
+					), NewOrderBy("total", true),
+				), 2,
+			), 5,
+		)
+	}, func() Source {
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select *, a+b as total from tablea ASOF '-5s' UNTIL '-1s' where x > 5 group by y, period(2 as s)"},
+		}
+		fields := []Field{sql.PointsField, fieldA, fieldB, NewField("total", ADD(eA, eB))}
+		return Limit(Offset(Sort(Flatten(Group(Unflatten(t, fields...), GroupOpts{
+			Fields:     fields,
+			By:         []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+			Resolution: 2 * time.Second,
+		})), NewOrderBy("total", true)), 2), 5)
+	})
 
 	for i, sqlString := range queries {
 		opts := &Opts{
