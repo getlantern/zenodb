@@ -1,35 +1,35 @@
-package zenodb
+package core
 
 import (
 	"sort"
 	"testing"
 
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/expr"
-	"github.com/getlantern/zenodb/sql"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestSortTime(t *testing.T) {
 	rows := sortedRows(false, "_time")
-	assert.Equal(t, []int{5, 4, 3, 2, 1, 0}, actualTimes(rows))
+	assert.Equal(t, []int64{0, 1, 2, 3, 4, 5}, actualTimes(rows))
 
 	rows = sortedRows(true, "_time")
-	assert.Equal(t, []int{0, 1, 2, 3, 4, 5}, actualTimes(rows))
+	assert.Equal(t, []int64{5, 4, 3, 2, 1, 0}, actualTimes(rows))
 }
 
 func TestSortBools(t *testing.T) {
-	rows := sortedRows(false, "bool")
+	rows := sortedRows(false, "b")
 	assert.Equal(t, []bool{false, false, false, true, true, true}, actualBools(rows))
 
-	rows = sortedRows(true, "bool")
+	rows = sortedRows(true, "b")
 	assert.Equal(t, []bool{true, true, true, false, false, false}, actualBools(rows))
 }
 
 func TestSortString(t *testing.T) {
-	rows := sortedRows(false, "string")
+	rows := sortedRows(false, "s")
 	assert.Equal(t, []string{"", "a", "b", "b", "c", "c"}, actualStrings(rows))
 
-	rows = sortedRows(true, "string")
+	rows = sortedRows(true, "s")
 	assert.Equal(t, []string{"c", "c", "b", "b", "a", ""}, actualStrings(rows))
 }
 
@@ -42,41 +42,41 @@ func TestSortVals(t *testing.T) {
 }
 
 func TestSortAll(t *testing.T) {
-	rows := sortedRows(false, "bool", "string", "val", "_time")
+	rows := sortedRows(false, "b", "s", "val", "_time")
 	assert.Equal(t, []bool{false, false, false, true, true, true}, actualBools(rows))
 	assert.Equal(t, []string{"a", "b", "b", "", "c", "c"}, actualStrings(rows))
 	assert.Equal(t, []float64{78, 0, 23, 12, 56, 56}, actualVals(rows))
-	assert.Equal(t, []int{1, 5, 2, 4, 3, 0}, actualTimes(rows))
+	assert.Equal(t, []int64{1, 5, 2, 4, 0, 3}, actualTimes(rows))
 
-	rows = sortedRows(true, "bool", "string", "val", "_time")
+	rows = sortedRows(true, "b", "s", "val", "_time")
 	assert.Equal(t, []bool{true, true, true, false, false, false}, actualBools(rows))
 	assert.Equal(t, []string{"c", "c", "", "b", "b", "a"}, actualStrings(rows))
 	assert.Equal(t, []float64{56, 56, 12, 23, 0, 78}, actualVals(rows))
-	assert.Equal(t, []int{0, 3, 4, 2, 5, 1}, actualTimes(rows))
+	assert.Equal(t, []int64{3, 0, 4, 2, 5, 1}, actualTimes(rows))
 }
 
-func actualTimes(rows []*Row) []int {
-	return []int{rows[0].Period, rows[1].Period, rows[2].Period, rows[3].Period, rows[4].Period, rows[5].Period}
+func actualTimes(rows []*FlatRow) []int64 {
+	return []int64{rows[0].TS, rows[1].TS, rows[2].TS, rows[3].TS, rows[4].TS, rows[5].TS}
 }
 
-func actualStrings(rows []*Row) []string {
-	return []string{rows[0].Dims[0].(string), rows[1].Dims[0].(string), rows[2].Dims[0].(string), rows[3].Dims[0].(string), rows[4].Dims[0].(string), rows[5].Dims[0].(string)}
+func actualStrings(rows []*FlatRow) []string {
+	return []string{rows[0].Key.Get("s").(string), rows[1].Key.Get("s").(string), rows[2].Key.Get("s").(string), rows[3].Key.Get("s").(string), rows[4].Key.Get("s").(string), rows[5].Key.Get("s").(string)}
 }
 
-func actualBools(rows []*Row) []bool {
-	return []bool{rows[0].Dims[1].(bool), rows[1].Dims[1].(bool), rows[2].Dims[1].(bool), rows[3].Dims[1].(bool), rows[4].Dims[1].(bool), rows[5].Dims[1].(bool)}
+func actualBools(rows []*FlatRow) []bool {
+	return []bool{rows[0].Key.Get("b").(bool), rows[1].Key.Get("b").(bool), rows[2].Key.Get("b").(bool), rows[3].Key.Get("b").(bool), rows[4].Key.Get("b").(bool), rows[5].Key.Get("b").(bool)}
 }
 
-func actualVals(rows []*Row) []float64 {
+func actualVals(rows []*FlatRow) []float64 {
 	return []float64{rows[0].Values[0], rows[1].Values[0], rows[2].Values[0], rows[3].Values[0], rows[4].Values[0], rows[5].Values[0]}
 }
 
-func sortedRows(descending bool, orderByStrings ...string) []*Row {
+func sortedRows(descending bool, orderByStrings ...string) []*FlatRow {
 	rows := buildRows()
 
-	orderBy := make([]sql.Order, 0, len(orderByStrings))
+	orderBy := make([]OrderBy, 0, len(orderByStrings))
 	for _, field := range orderByStrings {
-		orderBy = append(orderBy, sql.Order{Field: field, Descending: descending})
+		orderBy = append(orderBy, NewOrderBy(field, descending))
 	}
 	sort.Sort(&orderedRows{
 		orderBy: orderBy,
@@ -86,22 +86,18 @@ func sortedRows(descending bool, orderByStrings ...string) []*Row {
 	return rows
 }
 
-func buildRows() []*Row {
+func buildRows() []*FlatRow {
 	strs := []string{"c", "a", "b", "c", "", "b"}
 	bools := []bool{true, false, false, true, true, false}
 	vals := []float64{56, 78, 23, 56, 12, 0}
 
-	groupBy := []string{"string", "bool"}
-	fields := []sql.Field{sql.NewField("val", expr.SUM("Val"))}
-
-	rows := make([]*Row, 0, len(strs))
+	rows := make([]*FlatRow, 0, len(strs))
 	for i, str := range strs {
-		rows = append(rows, &Row{
-			Period:  i,
-			Dims:    []interface{}{str, bools[i]},
-			Values:  []float64{vals[i]},
-			groupBy: groupBy,
-			fields:  fields,
+		rows = append(rows, &FlatRow{
+			TS:     int64(i),
+			Key:    bytemap.New(map[string]interface{}{"s": str, "b": bools[i]}),
+			Values: []float64{vals[i]},
+			fields: []Field{NewField("val", expr.FIELD("val"))},
 		})
 	}
 
