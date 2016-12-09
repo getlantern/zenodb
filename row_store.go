@@ -93,7 +93,6 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 			existingFileName = filepath.Join(opts.dir, files[i].Name())
 			fileVersion := versionFor(existingFileName)
 			if fileVersion >= FileVersion_4 {
-				log.Debug("Recent version")
 				// Get WAL offset
 				file, err := os.Open(existingFileName)
 				if err != nil {
@@ -415,7 +414,7 @@ func (rs *rowStore) removeOldFiles() {
 			name := filepath.Join(rs.opts.dir, file.Name())
 			// To be safe, we wait a little before deleting files
 			if now.Sub(file.ModTime()) > 5*time.Minute {
-				log.Debugf("Removing old file %v", name)
+				rs.t.log.Debugf("Removing old file %v", name)
 				err := os.Remove(name)
 				if err != nil {
 					rs.t.log.Errorf("Unable to delete old file store %v, still consuming disk space unnecessarily: %v", name, err)

@@ -96,18 +96,17 @@ func (g *group) GetUntil() time.Time {
 func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 	bt := bytetree.New(
 		fieldsToExprs(g.GetFields()),
-		fieldsToExprs(g.source.GetFields()), // todo: consider all sources
+		fieldsToExprs(g.source.GetFields()),
 		g.GetResolution(),
 		g.source.GetResolution(),
 		g.GetAsOf(),
 		g.GetUntil(),
 	)
 
-	var uniqueDims map[string]bool
+	uniqueDims := make(map[string]bool)
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(g.By) == 0 {
 		// Wildcard, select all and track all unique dims
-		uniqueDims = make(map[string]bool)
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
 			for k := range key.AsMap() {
 				uniqueDims[k] = true
@@ -115,6 +114,9 @@ func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 			return key
 		}
 	} else {
+		for _, by := range g.By {
+			uniqueDims[by.Name] = true
+		}
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
 			names := make([]string, 0, len(g.By))
 			values := make([]interface{}, 0, len(g.By))
@@ -148,14 +150,12 @@ func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 		})
 	}
 
-	if uniqueDims != nil {
-		dimsArray := make([]string, 0, len(uniqueDims))
-		for dim, _ := range uniqueDims {
-			dimsArray = append(dimsArray, dim)
-		}
-		sort.Strings(dimsArray)
-		SetMD(ctx, MDKeyDims, dimsArray)
+	dimsArray := make([]string, 0, len(uniqueDims))
+	for dim, _ := range uniqueDims {
+		dimsArray = append(dimsArray, dim)
 	}
+	sort.Strings(dimsArray)
+	SetMD(ctx, MDKeyDims, dimsArray)
 
 	if walkErr != nil {
 		return walkErr

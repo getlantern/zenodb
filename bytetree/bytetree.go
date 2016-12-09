@@ -3,12 +3,11 @@
 package bytetree
 
 import (
-	"sync"
-	"time"
-
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
+	"sync"
+	"time"
 )
 
 type Tree struct {
@@ -225,11 +224,11 @@ func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, para
 	}
 	bytesAdded := 0
 	if params != nil {
-		for i, ex := range bt.outExprs {
-			current := n.data[i]
+		for o, ex := range bt.outExprs {
+			current := n.data[o]
 			previousSize := cap(current)
 			updated := current.Update(params, metadata, ex, bt.outResolution, bt.asOf)
-			n.data[i] = updated
+			n.data[o] = updated
 			bytesAdded += cap(updated) - previousSize
 		}
 	} else {

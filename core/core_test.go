@@ -20,8 +20,9 @@ var (
 	asOf       = epoch.Add(-10 * resolution)
 	until      = epoch
 
-	eA = SUM("a")
-	eB = SUM("b")
+	cond, _ = goexpr.Boolean(">", goexpr.Param("d"), goexpr.Constant(0))
+	eA, _   = IF(cond, SUM("a"))
+	eB      = SUM("b")
 
 	errTest = errors.New("test error")
 )

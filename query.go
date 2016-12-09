@@ -20,6 +20,7 @@ type QueryResult struct {
 	Rows         []*core.FlatRow
 	Stats        *QueryStats
 	NumPeriods   int
+	Plan         string
 }
 
 type QueryStats struct {
@@ -45,24 +46,30 @@ func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*QueryResult, er
 	}
 	var rows []*core.FlatRow
 	ctx := core.Context()
-	plan.Iterate(ctx, func(row *core.FlatRow) (bool, error) {
+	iterErr := plan.Iterate(ctx, func(row *core.FlatRow) (bool, error) {
 		rows = append(rows, row)
 		return true, nil
 	})
-	fields := plan.GetFields()
-	fieldNames := make([]string, 0, len(fields))
-	for _, field := range fields {
-		fieldNames = append(fieldNames, field.Name)
+	if iterErr != nil {
+		return nil, iterErr
+	}
+
+	planString := core.FormatSource(plan)
+	var groupBy []string
+	groupByMD := core.GetMD(ctx, core.MDKeyDims)
+	if groupByMD != nil {
+		groupBy = groupByMD.([]string)
 	}
 
 	return &QueryResult{
 		AsOf:       plan.GetAsOf(),
 		Until:      plan.GetUntil(),
 		Resolution: plan.GetResolution(),
-		FieldNames: fieldNames,
-		GroupBy:    core.GetMD(ctx, core.MDKeyDims).([]string),
+		FieldNames: fieldNames(plan.GetFields()),
+		GroupBy:    groupBy,
 		NumPeriods: int(plan.GetUntil().Sub(plan.GetAsOf()) / plan.GetResolution()),
 		Rows:       rows,
+		Plan:       planString,
 	}, nil
 }
 
@@ -100,16 +107,19 @@ func (q *queryable) GetUntil() time.Time {
 }
 
 func (q *queryable) String() string {
-	return q.String()
+	return q.t.Name
 }
 
 func (q *queryable) Iterate(ctx context.Context, onRow core.OnRow) error {
-	fields := q.t.Fields
+	return q.t.iterate(fieldNames(q.GetFields()), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
+		onRow(key, vals)
+	})
+}
+
+func fieldNames(fields []core.Field) []string {
 	fieldNames := make([]string, 0, len(fields))
 	for _, field := range fields {
 		fieldNames = append(fieldNames, field.Name)
 	}
-	return q.t.iterate(fieldNames, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
-		onRow(key, vals)
-	})
+	return fieldNames
 }
