@@ -24,7 +24,7 @@ var (
 	log = golog.LoggerFor("zenodb")
 )
 
-type QueryFN func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
+// type QueryFN func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
@@ -67,34 +67,34 @@ type DBOpts struct {
 	Partition int
 	// Follow is a function that allows a follower to request following a stream
 	// from a passthrough node.
-	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
-	RegisterRemoteQueryHandler func(partition int, query QueryFN)
+	Follow func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
+	// RegisterRemoteQueryHandler func(partition int, query QueryFN)
 }
 
 // DB is a zenodb database.
 type DB struct {
-	opts                *DBOpts
-	clock               vtime.Clock
-	streams             map[string]*wal.WAL
-	tables              map[string]*table
-	orderedTables       []*table
-	tablesMutex         sync.RWMutex
-	isSorting           bool
-	nextTableToSort     int
-	memory              uint64
-	flushMutex          sync.Mutex
-	remoteQueryHandlers map[int]chan QueryRemote
+	opts            *DBOpts
+	clock           vtime.Clock
+	streams         map[string]*wal.WAL
+	tables          map[string]*table
+	orderedTables   []*table
+	tablesMutex     sync.RWMutex
+	isSorting       bool
+	nextTableToSort int
+	memory          uint64
+	flushMutex      sync.Mutex
+	// remoteQueryHandlers map[int]chan QueryRemote
 }
 
 // NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
 	db := &DB{
-		opts:                opts,
-		clock:               vtime.RealClock,
-		tables:              make(map[string]*table),
-		streams:             make(map[string]*wal.WAL),
-		remoteQueryHandlers: make(map[int]chan QueryRemote),
+		opts:    opts,
+		clock:   vtime.RealClock,
+		tables:  make(map[string]*table),
+		streams: make(map[string]*wal.WAL),
+		// remoteQueryHandlers: make(map[int]chan QueryRemote),
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
@@ -195,6 +195,10 @@ func (db *DB) getTable(table string) *table {
 	t := db.tables[strings.ToLower(table)]
 	db.tablesMutex.RUnlock()
 	return t
+}
+
+func (db *DB) now(table string) time.Time {
+	return db.clock.Now()
 }
 
 func (db *DB) getFields(table string) ([]sql.Field, error) {

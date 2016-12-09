@@ -270,7 +270,6 @@ func (r *testRow) equals(other *testRow) bool {
 	if len(r.vals) != len(other.vals) {
 		return false
 	}
-	fmt.Println("here")
 	for i, val := range r.vals {
 		ex := eA
 		if i > 0 {

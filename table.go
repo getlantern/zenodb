@@ -14,6 +14,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
@@ -225,7 +226,7 @@ func (t *table) applyWhere(where goexpr.Expr) {
 	t.whereMutex.Unlock()
 }
 
-func (t *table) fields() []sql.Field {
+func (t *table) fields() []core.Field {
 	return t.Fields
 }
 

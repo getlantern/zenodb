@@ -17,7 +17,9 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/bytetree"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/golang/snappy"
 	"github.com/oxtoacart/bpool"
@@ -157,8 +159,16 @@ func (rs *rowStore) forceFlush() {
 	<-rs.forceFlushCompletes
 }
 
+func (t *table) newByteTree() *bytetree.Tree {
+	exprs := make([]expr.Expr, 0, len(t.Fields))
+	for _, field := range t.Fields {
+		exprs = append(exprs, field.Expr)
+	}
+	return bytetree.New(exprs, nil, t.Resolution, 0, time.Time{}, time.Time{})
+}
+
 func (rs *rowStore) processInserts() {
-	ms := &memstore{tree: bytetree.New()}
+	ms := &memstore{tree: rs.t.newByteTree()}
 	rs.mx.Lock()
 	rs.memStore = ms
 	rs.mx.Unlock()
@@ -176,7 +186,7 @@ func (rs *rowStore) processInserts() {
 		}
 		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(ms.tree.Bytes())))
 		flushDuration := rs.processFlush(ms, allowSort)
-		ms = &memstore{tree: bytetree.New()}
+		ms = &memstore{tree: rs.t.newByteTree()}
 		rs.mx.Lock()
 		rs.memStore = ms
 		rs.mx.Unlock()
@@ -192,9 +202,8 @@ func (rs *rowStore) processInserts() {
 	for {
 		select {
 		case insert := <-rs.inserts:
-			truncateBefore := rs.t.truncateBefore()
 			rs.mx.Lock()
-			ms.tree.Update(rs.t.Fields, rs.t.Resolution, truncateBefore, insert.key, insert.vals, insert.metadata)
+			ms.tree.Update(insert.key, nil, insert.vals, insert.metadata)
 			ms.offset = insert.offset
 			rs.mx.Unlock()
 		case <-flushTimer.C:
@@ -288,7 +297,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		hasActiveSequence := false
 		for i, seq := range columns {
-			seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore)
+			seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore, time.Time{})
 			columns[i] = seq
 			if seq != nil {
 				hasActiveSequence = true
@@ -490,7 +499,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 			}
 			delim := fieldsDelims[fileVersion]
 			fieldStrings := strings.Split(string(fieldsBytes), delim)
-			fileFields = make([]sql.Field, 0, len(fieldStrings))
+			fileFields = make([]core.Field, 0, len(fieldStrings))
 			for _, fieldString := range fieldStrings {
 				foundField := false
 				for _, field := range fs.t.Fields {
@@ -502,7 +511,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 				}
 				if !foundField {
 					fs.t.log.Debugf("Unable to find field %v on table %v", fieldString, fs.t.Name)
-					fileFields = append(fileFields, sql.Field{})
+					fileFields = append(fileFields, core.Field{})
 				}
 			}
 		}
@@ -583,7 +592,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 					}
 				}
 				if fs.t.log.IsTraceEnabled() {
-					fs.t.log.Tracef("File Read: %v", seq.String(fileFields[i].Expr))
+					fs.t.log.Tracef("File Read: %v", seq.String(fileFields[i].Expr, fs.t.Resolution))
 				}
 			}
 

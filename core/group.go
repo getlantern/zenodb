@@ -132,7 +132,7 @@ func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 	err := g.source.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		metadata := key
 		key = sliceKey(key)
-		bt.Update(key, vals, metadata)
+		bt.Update(key, vals, nil, metadata)
 		return proceed()
 	})
 
