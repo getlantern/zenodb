@@ -293,7 +293,7 @@ func TestPlans(t *testing.T) {
 		}
 
 		opts.QueryCluster = queryCluster
-		opts.PartitionKeys = []string{"x", "y"}
+		opts.PartitionBy = []string{"x", "y"}
 		clusterPlan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
 			assert.Equal(t, FormatSource(expectedCluster[i]()), FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], sqlString))

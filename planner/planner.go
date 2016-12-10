@@ -22,7 +22,7 @@ type Opts struct {
 	SubQueryResults [][]interface{}
 	IsSubQuery      bool
 	QueryCluster    QueryClusterFN
-	PartitionKeys   []string
+	PartitionBy     []string
 }
 
 func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {

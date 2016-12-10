@@ -72,7 +72,7 @@ func (db *DB) query(ctx context.Context, sqlString string, subQueryResults [][]i
 	}
 	if db.opts.Passthrough {
 		opts.QueryCluster = db.queryCluster
-		opts.PartitionKeys = db.opts.PartitionBy
+		opts.PartitionBy = db.opts.PartitionBy
 	}
 	plan, err := planner.Plan(sqlString, opts)
 	if err != nil {

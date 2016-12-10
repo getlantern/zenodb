@@ -71,7 +71,7 @@ func (cs *clusterSource) String() string {
 // further processing, which is much slower than pushdown processing for queries
 // that aggregate heavily.
 func pushdownAllowed(opts *Opts, query *sql.Query) bool {
-	if len(opts.PartitionKeys) == 0 {
+	if len(opts.PartitionBy) == 0 {
 		// With no partition keys, we can't push down
 		return false
 	}
@@ -105,9 +105,9 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 		groupBy.Expr.Eval(fc)
 	}
 
-	partitionKeyRepresented := make([]bool, len(opts.PartitionKeys))
+	partitionKeyRepresented := make([]bool, len(opts.PartitionBy))
 	for field := range fc {
-		for i, partitionKey := range opts.PartitionKeys {
+		for i, partitionKey := range opts.PartitionBy {
 			if partitionKey == field {
 				partitionKeyRepresented[i] = true
 				break
@@ -200,7 +200,7 @@ func planAsIfLocal(opts *Opts, sqlString string) (core.FlatRowSource, error) {
 	unclusteredOpts := &Opts{}
 	*unclusteredOpts = *opts
 	unclusteredOpts.QueryCluster = nil
-	unclusteredOpts.PartitionKeys = nil
+	unclusteredOpts.PartitionBy = nil
 
 	query, parseErr := sql.Parse(sqlString, opts.FieldSource)
 	if parseErr != nil {
