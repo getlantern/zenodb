@@ -18,11 +18,11 @@ var (
 type QueryClusterFN func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error
 
 type Opts struct {
-	IsSubquery      bool
 	GetTable        func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource
 	Now             func(table string) time.Time
 	FieldSource     sql.FieldSource
 	SubQueryResults [][]interface{}
+	IsSubQuery      bool
 	QueryCluster    QueryClusterFN
 	PartitionKeys   []string
 }
@@ -146,7 +146,7 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 }
 
 func fixupSubQuery(query *sql.Query, opts *Opts) {
-	if opts.IsSubquery {
+	if opts.IsSubQuery {
 		// Change field to _points field
 		query.Fields[0] = sql.PointsField
 	}

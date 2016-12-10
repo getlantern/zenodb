@@ -325,6 +325,7 @@ view_a:
 func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, modifyTable func(string, func(*table))) {
 	scalingFactor := 5
 
+	var rows []*core.FlatRow
 	result, err := db.SQLQuery(fmt.Sprintf(`
 SELECT
 	iii / 2 AS ciii,
@@ -338,7 +339,10 @@ WHERE b != true AND r IN (SELECT r FROM test_a)
 GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
-`, time.Duration(1-scalingFactor)*resolution, resolution, resolution*time.Duration(scalingFactor)), randomlyIncludeMemStore())
+`, time.Duration(1-scalingFactor)*resolution, resolution, resolution*time.Duration(scalingFactor)), nil, false, randomlyIncludeMemStore(), func(row *core.FlatRow) (bool, error) {
+		rows = append(rows, row)
+		return true, nil
+	})
 	if !assert.NoError(t, err, "Unable to run SQL query") {
 		return
 	}
@@ -347,15 +351,14 @@ ORDER BY u DESC
 	if !assert.Equal(t, 1, result.NumPeriods, "Wrong number of periods, bucketing may not be working correctly") {
 		return
 	}
-	rows := result.Rows
-	log.Debug(spew.Sdump(result.Rows))
+	log.Debug(spew.Sdump(rows))
 	if !assert.Len(t, rows, 2, "Wrong number of rows, perhaps HAVING isn't working") {
 		return
 	}
-	if !assert.EqualValues(t, 2, result.Rows[0].Key.Get("u"), "Wrong dim, result may be sorted incorrectly") {
+	if !assert.EqualValues(t, 2, rows[0].Key.Get("u"), "Wrong dim, result may be sorted incorrectly") {
 		return
 	}
-	if !assert.EqualValues(t, 1, result.Rows[1].Key.Get("u"), "Wrong dim, result may be sorted incorrectly") {
+	if !assert.EqualValues(t, 1, rows[1].Key.Get("u"), "Wrong dim, result may be sorted incorrectly") {
 		return
 	}
 	// TODO: _having shouldn't bleed through like that

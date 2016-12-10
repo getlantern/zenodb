@@ -34,7 +34,7 @@ func (cs *clusterSource) Iterate(ctx context.Context, onRow core.OnFlatRow) erro
 		}
 	}
 
-	return cs.opts.QueryCluster(ctx, cs.query.SQL, subQueryResults, cs.opts.IsSubquery, func(row *core.FlatRow) (bool, error) {
+	return cs.opts.QueryCluster(ctx, cs.query.SQL, subQueryResults, cs.opts.IsSubQuery, func(row *core.FlatRow) (bool, error) {
 		return onRow(row)
 	})
 }

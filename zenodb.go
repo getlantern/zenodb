@@ -18,13 +18,12 @@ import (
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/planner"
 )
 
 var (
 	log = golog.LoggerFor("zenodb")
 )
-
-// type QueryFN func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
@@ -67,34 +66,34 @@ type DBOpts struct {
 	Partition int
 	// Follow is a function that allows a follower to request following a stream
 	// from a passthrough node.
-	Follow func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
-	// RegisterRemoteQueryHandler func(partition int, query QueryFN)
+	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
+	RegisterRemoteQueryHandler func(partition int, query planner.QueryClusterFN)
 }
 
 // DB is a zenodb database.
 type DB struct {
-	opts            *DBOpts
-	clock           vtime.Clock
-	streams         map[string]*wal.WAL
-	tables          map[string]*table
-	orderedTables   []*table
-	tablesMutex     sync.RWMutex
-	isSorting       bool
-	nextTableToSort int
-	memory          uint64
-	flushMutex      sync.Mutex
-	// remoteQueryHandlers map[int]chan QueryRemote
+	opts                *DBOpts
+	clock               vtime.Clock
+	streams             map[string]*wal.WAL
+	tables              map[string]*table
+	orderedTables       []*table
+	tablesMutex         sync.RWMutex
+	isSorting           bool
+	nextTableToSort     int
+	memory              uint64
+	flushMutex          sync.Mutex
+	remoteQueryHandlers map[int]chan planner.QueryClusterFN
 }
 
 // NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
 	var err error
 	db := &DB{
-		opts:    opts,
-		clock:   vtime.RealClock,
-		tables:  make(map[string]*table),
-		streams: make(map[string]*wal.WAL),
-		// remoteQueryHandlers: make(map[int]chan QueryRemote),
+		opts:                opts,
+		clock:               vtime.RealClock,
+		tables:              make(map[string]*table),
+		streams:             make(map[string]*wal.WAL),
+		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
@@ -133,9 +132,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 
-	// if db.opts.RegisterRemoteQueryHandler != nil {
-	// 	go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
-	// }
+	if db.opts.RegisterRemoteQueryHandler != nil {
+		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.queryForRemote)
+	}
 
 	if db.opts.Passthrough {
 		// go db.freshenRemoteQueryHandlers()

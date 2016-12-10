@@ -358,7 +358,7 @@ func queryCluster(ctx context.Context, sqlString string, subQueryResults [][]int
 	parts := partitions(1)
 	for _, part := range parts {
 		opts := defaultOpts()
-		opts.IsSubquery = isSubQuery
+		opts.IsSubQuery = isSubQuery
 		opts.SubQueryResults = subQueryResults
 		opts.GetTable = func(table string, includedFields func(tableFields Fields) Fields) RowSource {
 			part.name = table

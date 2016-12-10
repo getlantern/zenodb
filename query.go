@@ -18,7 +18,6 @@ type QueryResult struct {
 	IsCrosstab   bool
 	CrosstabDims []interface{}
 	GroupBy      []string
-	Rows         []*core.FlatRow
 	Stats        *QueryStats
 	NumPeriods   int
 	Plan         string
@@ -34,25 +33,23 @@ type QueryStats struct {
 	Runtime      time.Duration
 }
 
-func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*QueryResult, error) {
+func (db *DB) SQLQuery(sqlString string, subQueryResults [][]interface{}, isSubQuery bool, includeMemStore bool, onRow core.OnFlatRow) (*QueryResult, error) {
 	plan, err := planner.Plan(sqlString, &planner.Opts{
 		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource {
 			return db.getQueryable(table, includedFields, includeMemStore)
 		},
-		Now:         db.now,
-		FieldSource: db.getFields,
+		Now:             db.now,
+		FieldSource:     db.getFields,
+		SubQueryResults: subQueryResults,
+		IsSubQuery:      isSubQuery,
 	})
 	if err != nil {
 		return nil, err
 	}
 	log.Debugf("\n------------ Query Plan ------------\n\n%v\n----------- End Query Plan ----------", core.FormatSource(plan))
 
-	var rows []*core.FlatRow
 	ctx := core.Context()
-	iterErr := plan.Iterate(ctx, func(row *core.FlatRow) (bool, error) {
-		rows = append(rows, row)
-		return true, nil
-	})
+	iterErr := plan.Iterate(ctx, onRow)
 	if iterErr != nil {
 		return nil, iterErr
 	}
@@ -71,7 +68,6 @@ func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*QueryResult, er
 		FieldNames: plan.GetFields().Names(),
 		GroupBy:    groupBy,
 		NumPeriods: int(plan.GetUntil().Sub(plan.GetAsOf()) / plan.GetResolution()),
-		Rows:       rows,
 		Plan:       planString,
 	}, nil
 }
