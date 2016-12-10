@@ -9,15 +9,7 @@ import (
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
-	"sort"
 	"time"
-)
-
-const (
-	// MDKeyDims is the key under which the list of all seen dimensions is stored
-	// in the context metadata. Only set if doing a wildcard query. Dimensions are
-	// sorted alphabetically.
-	MDKeyDims = "group.dims"
 )
 
 // GroupBy is a named goexpr.Expr.
@@ -103,20 +95,13 @@ func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 		g.GetUntil(),
 	)
 
-	uniqueDims := make(map[string]bool)
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(g.By) == 0 {
 		// Wildcard, select all and track all unique dims
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			for k := range key.AsMap() {
-				uniqueDims[k] = true
-			}
 			return key
 		}
 	} else {
-		for _, by := range g.By {
-			uniqueDims[by.Name] = true
-		}
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
 			names := make([]string, 0, len(g.By))
 			values := make([]interface{}, 0, len(g.By))
@@ -149,13 +134,6 @@ func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 			return more, true, iterErr
 		})
 	}
-
-	dimsArray := make([]string, 0, len(uniqueDims))
-	for dim, _ := range uniqueDims {
-		dimsArray = append(dimsArray, dim)
-	}
-	sort.Strings(dimsArray)
-	SetMD(ctx, MDKeyDims, dimsArray)
 
 	if walkErr != nil {
 		return walkErr

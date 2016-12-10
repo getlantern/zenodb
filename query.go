@@ -10,83 +10,28 @@ import (
 	"time"
 )
 
-type QueryResult struct {
-	AsOf         time.Time
-	Until        time.Time
-	Resolution   time.Duration
-	FieldNames   []string // FieldNames are needed for serializing QueryResult across rpc
-	IsCrosstab   bool
-	CrosstabDims []interface{}
-	GroupBy      []string
-	Stats        *QueryStats
-	NumPeriods   int
-	Plan         string
-}
-
-type QueryStats struct {
-	Scanned      int64
-	FilterPass   int64
-	FilterReject int64
-	ReadValue    int64
-	DataValid    int64
-	InTimeRange  int64
-	Runtime      time.Duration
-}
-
-func (db *DB) SQLQuery(sqlString string, subQueryResults [][]interface{}, isSubQuery bool, includeMemStore bool, onRow core.OnFlatRow) (*QueryResult, error) {
-	ctx := core.Context()
-	err := db.query(ctx, sqlString, subQueryResults, isSubQuery, includeMemStore, onRow)
-	if err != nil {
-		return nil, err
-	}
-
-	var groupBy []string
-	groupByMD := core.GetMD(ctx, core.MDKeyDims)
-	if groupByMD != nil {
-		groupBy = groupByMD.([]string)
-	}
-
-	plan := core.GetMD(ctx, "_plan").(core.Source)
-	planString := core.FormatSource(plan)
-
-	return &QueryResult{
-		AsOf:       plan.GetAsOf(),
-		Until:      plan.GetUntil(),
-		Resolution: plan.GetResolution(),
-		FieldNames: plan.GetFields().Names(),
-		GroupBy:    groupBy,
-		NumPeriods: int(plan.GetUntil().Sub(plan.GetAsOf()) / plan.GetResolution()),
-		Plan:       planString,
-	}, nil
-}
-
-func (db *DB) query(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, includeMemStore bool, onRow core.OnFlatRow) error {
+func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
 	opts := &planner.Opts{
 		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource {
 			return db.getQueryable(table, includedFields, includeMemStore)
 		},
 		Now:             db.now,
 		FieldSource:     db.getFields,
-		SubQueryResults: subQueryResults,
 		IsSubQuery:      isSubQuery,
+		SubQueryResults: subQueryResults,
 	}
 	if db.opts.Passthrough {
-		opts.QueryCluster = db.queryCluster
+		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, onRow)
+		}
 		opts.PartitionBy = db.opts.PartitionBy
 	}
 	plan, err := planner.Plan(sqlString, opts)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	log.Debugf("\n------------ Query Plan ------------\n\n%v\n----------- End Query Plan ----------", core.FormatSource(plan))
-	core.SetMD(ctx, "_plan", plan)
-
-	err = plan.Iterate(ctx, onRow)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return plan, nil
 }
 
 func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) core.Fields, includeMemStore bool) *queryable {
@@ -97,6 +42,24 @@ func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fi
 	until := encoding.RoundTime(db.clock.Now(), t.Resolution)
 	asOf := encoding.RoundTime(until.Add(-1*t.RetentionPeriod), t.Resolution)
 	return &queryable{t, includedFields(t.Fields), asOf, until, includeMemStore}
+}
+
+type QueryMetaData struct {
+	FieldNames []string
+	AsOf       time.Time
+	Until      time.Time
+	Resolution time.Duration
+	Plan       string
+}
+
+func MetaDataFor(source core.FlatRowSource) *QueryMetaData {
+	return &QueryMetaData{
+		FieldNames: source.GetFields().Names(),
+		AsOf:       source.GetAsOf(),
+		Until:      source.GetUntil(),
+		Resolution: source.GetResolution(),
+		Plan:       core.FormatSource(source),
+	}
 }
 
 type queryable struct {

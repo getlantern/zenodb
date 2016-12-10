@@ -13,7 +13,7 @@ const (
 	backtick = "`"
 )
 
-type QueryClusterFN func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error
+type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error
 
 type clusterSource struct {
 	opts          *Opts
@@ -36,7 +36,7 @@ func (cs *clusterSource) Iterate(ctx context.Context, onRow core.OnFlatRow) erro
 		}
 	}
 
-	return cs.opts.QueryCluster(ctx, cs.query.SQL, subQueryResults, cs.opts.IsSubQuery, func(row *core.FlatRow) (bool, error) {
+	return cs.opts.QueryCluster(ctx, cs.query.SQL, cs.opts.IsSubQuery, subQueryResults, func(row *core.FlatRow) (bool, error) {
 		return onRow(row)
 	})
 }

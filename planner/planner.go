@@ -19,8 +19,8 @@ type Opts struct {
 	GetTable        func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource
 	Now             func(table string) time.Time
 	FieldSource     sql.FieldSource
-	SubQueryResults [][]interface{}
 	IsSubQuery      bool
+	SubQueryResults [][]interface{}
 	QueryCluster    QueryClusterFN
 	PartitionBy     []string
 }

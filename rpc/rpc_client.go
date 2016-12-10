@@ -8,6 +8,8 @@ import (
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/planner"
 	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
@@ -22,11 +24,11 @@ type ClientOpts struct {
 }
 
 type Client interface {
-	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryResult, func() (*zenodb.Row, error), error)
+	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error)
 
 	Follow(ctx context.Context, in *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
 
-	ProcessRemoteQuery(ctx context.Context, partition int, query func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*zenodb.Entry) error) error, opts ...grpc.CallOption) error
+	ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error
 
 	Close() error
 }
@@ -57,7 +59,7 @@ type client struct {
 	password string
 }
 
-func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryResult, func() (*zenodb.Row, error), error) {
+func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error) {
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[0], c.cc, "/zenodb/query", opts...)
 	if err != nil {
 		return nil, nil, err
@@ -69,18 +71,30 @@ func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bo
 		return nil, nil, err
 	}
 
-	result := &zenodb.QueryResult{}
-	err = stream.RecvMsg(result)
+	md := &zenodb.QueryMetaData{}
+	err = stream.RecvMsg(md)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	nextRow := func() (*zenodb.Row, error) {
-		row := &zenodb.Row{}
-		err := stream.RecvMsg(row)
-		return row, err
+	iterate := func(onRow core.OnFlatRow) error {
+		for {
+			result := &RemoteQueryResult{}
+			rowErr := stream.RecvMsg(result)
+			if rowErr != nil {
+				return rowErr
+			}
+			if result.EndOfResults {
+				return nil
+			}
+			_, rowErr = onRow(result.Row)
+			if rowErr != nil {
+				return rowErr
+			}
+		}
 	}
-	return result, nextRow, nil
+
+	return md, iterate, nil
 }
 
 func (c *client) Follow(ctx context.Context, f *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error) {
@@ -107,7 +121,7 @@ func (c *client) Follow(ctx context.Context, f *zenodb.Follow, opts ...grpc.Call
 	return next, nil
 }
 
-func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*zenodb.Entry) error) error, opts ...grpc.CallOption) error {
+func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error {
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)
 	if err != nil {
 		return errors.New("Unable to obtain client stream: %v", err)
@@ -127,8 +141,9 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query fu
 		// It's a noop query, ignore
 		return nil
 	}
-	queryErr := query(q.SQLString, q.IncludeMemStore, q.IsSubQuery, q.SubQueryResults, func(entry *zenodb.Entry) error {
-		return stream.SendMsg(&RemoteQueryResult{Entry: entry})
+	queryErr := query(stream.Context(), q.SQLString, q.IsSubQuery, q.SubQueryResults, func(row *core.FlatRow) (bool, error) {
+		err := stream.SendMsg(&RemoteQueryResult{Row: row})
+		return true, err
 	})
 	result := &RemoteQueryResult{EndOfResults: true}
 	if queryErr != nil && queryErr != io.EOF {

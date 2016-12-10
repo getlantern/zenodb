@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+const (
+	keyIncludeMemStore = "zenodb.includeMemStore"
+)
+
 type Follow struct {
 	Stream    string
 	Offset    wal.Offset
@@ -99,7 +103,7 @@ func (db *DB) freshenRemoteQueryHandlers() {
 				if handler == nil {
 					break
 				}
-				go handler(core.Context(), "", nil, false, nil)
+				go handler(context.Background(), "", false, nil, nil)
 			}
 		}
 	}
@@ -116,11 +120,25 @@ func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryCluster
 	}
 }
 
-func (db *DB) queryForRemote(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error {
-	return db.query(ctx, sqlString, subQueryResults, isSubQuery, false, onRow)
+func withIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
+	return context.WithValue(ctx, keyIncludeMemStore, includeMemStore)
 }
 
-func (db *DB) queryCluster(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error {
+func shouldIncludeMemStore(ctx context.Context) bool {
+	include := ctx.Value(keyIncludeMemStore)
+	return include != nil && include.(bool)
+}
+
+func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+	source, err := db.Query(sqlString, isSubQuery, subQueryResults, shouldIncludeMemStore(ctx))
+	if err != nil {
+		return err
+	}
+	return source.Iterate(ctx, onRow)
+}
+
+func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, onRow core.OnFlatRow) error {
+	ctx = withIncludeMemStore(ctx, includeMemStore)
 	numPartitions := db.opts.NumPartitions
 	results := make(chan *remoteResult, numPartitions)
 	resultsByPartition := make(map[int]*int64)
@@ -141,7 +159,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, subQueryResult
 					break
 				}
 
-				err := query(ctx, sqlString, subQueryResults, isSubQuery, func(row *core.FlatRow) (bool, error) {
+				err := query(ctx, sqlString, isSubQuery, subQueryResults, func(row *core.FlatRow) (bool, error) {
 					mx.Lock()
 					if timedOut {
 						mx.Unlock()

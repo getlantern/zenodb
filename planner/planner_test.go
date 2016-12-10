@@ -312,7 +312,7 @@ LIMIT 1
 
 	verify := func(plan FlatRowSource) {
 		var rows []*FlatRow
-		plan.Iterate(Context(), func(row *FlatRow) (bool, error) {
+		plan.Iterate(context.Background(), func(row *FlatRow) (bool, error) {
 			rows = append(rows, row)
 			return true, nil
 		})
@@ -354,7 +354,7 @@ func defaultOpts() *Opts {
 	}
 }
 
-func queryCluster(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow OnFlatRow) error {
+func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow OnFlatRow) error {
 	parts := partitions(1)
 	for _, part := range parts {
 		opts := defaultOpts()

@@ -4,6 +4,7 @@ import (
 	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/core"
 	"google.golang.org/grpc"
 )
 
@@ -19,9 +20,9 @@ var (
 
 type Query struct {
 	SQLString       string
-	IncludeMemStore bool
 	IsSubQuery      bool
 	SubQueryResults [][]interface{}
+	IncludeMemStore bool
 }
 
 type Point struct {
@@ -30,7 +31,7 @@ type Point struct {
 }
 
 type RemoteQueryResult struct {
-	Entry        *zenodb.Entry
+	Row          *core.FlatRow
 	Error        string
 	EndOfResults bool
 }
@@ -68,7 +69,7 @@ func queryHandler(srv interface{}, stream grpc.ServerStream) error {
 	if err := stream.RecvMsg(q); err != nil {
 		return err
 	}
-	return srv.(Server).Query(q.SQLString, q.IncludeMemStore, stream)
+	return srv.(Server).Query(q, stream)
 }
 
 func followHandler(srv interface{}, stream grpc.ServerStream) error {

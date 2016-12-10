@@ -79,10 +79,10 @@ func TestCluster(t *testing.T) {
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
 					var register func()
 					register = func() {
-						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error {
+						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
 							// Re-register when finished
 							defer register()
-							return query(ctx, sqlString, subQueryResults, isSubQuery, onRow)
+							return query(ctx, sqlString, isSubQuery, subQueryResults, onRow)
 						})
 					}
 
@@ -320,8 +320,7 @@ view_a:
 func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, modifyTable func(string, func(*table))) {
 	scalingFactor := 5
 
-	var rows []*core.FlatRow
-	result, err := db.SQLQuery(fmt.Sprintf(`
+	sqlString := fmt.Sprintf(`
 SELECT
 	iii / 2 AS ciii,
 	IF(b != true, ii) AS ii,
@@ -334,18 +333,23 @@ WHERE b != true AND r IN (SELECT r FROM test_a)
 GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
-`, time.Duration(1-scalingFactor)*resolution, resolution, resolution*time.Duration(scalingFactor)), nil, false, randomlyIncludeMemStore(), func(row *core.FlatRow) (bool, error) {
+`, time.Duration(1-scalingFactor)*resolution, resolution, resolution*time.Duration(scalingFactor))
+
+	var rows []*core.FlatRow
+	source, err := db.Query(sqlString, false, nil, randomlyIncludeMemStore())
+	if !assert.NoError(t, err, "Unable to plan SQL query") {
+		return
+	}
+	err = source.Iterate(context.Background(), func(row *core.FlatRow) (bool, error) {
 		rows = append(rows, row)
 		return true, nil
 	})
-	if !assert.NoError(t, err, "Unable to run SQL query") {
+	if !assert.NoError(t, err, "Unable to plan SQL query") {
 		return
 	}
 
-	log.Debugf("%v -> %v", result.AsOf, result.Until)
-	if !assert.Equal(t, 1, result.NumPeriods, "Wrong number of periods, bucketing may not be working correctly") {
-		return
-	}
+	md := MetaDataFor(source)
+	log.Debugf("%v -> %v", md.AsOf, md.Until)
 	log.Debug(spew.Sdump(rows))
 	if !assert.Len(t, rows, 2, "Wrong number of rows, perhaps HAVING isn't working") {
 		return
@@ -357,10 +361,10 @@ ORDER BY u DESC
 		return
 	}
 	// TODO: _having shouldn't bleed through like that
-	assert.Equal(t, []string{"ciii", "ii", "_points", "i", "iii", "z", "i_filtered", "_having"}, result.FieldNames)
+	assert.Equal(t, []string{"ciii", "ii", "_points", "i", "iii", "z", "i_filtered", "_having"}, md.FieldNames)
 
 	fieldIdx := func(name string) int {
-		for i, candidate := range result.FieldNames {
+		for i, candidate := range md.FieldNames {
 			if candidate == name {
 				return i
 			}
@@ -390,8 +394,5 @@ ORDER BY u DESC
 }
 
 func randomlyIncludeMemStore() bool {
-	if rand.Float64() > 0.5 {
-		return true
-	}
-	return false
+	return rand.Float64() > 0.5
 }
