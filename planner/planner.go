@@ -19,7 +19,7 @@ type QueryClusterFN func(ctx context.Context, sqlString string, subQueryResults 
 
 type Opts struct {
 	IsSubquery      bool
-	GetTable        func(table string) core.RowSource
+	GetTable        func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource
 	Now             func(table string) time.Time
 	FieldSource     sql.FieldSource
 	SubQueryResults [][]interface{}
@@ -59,7 +59,43 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		}
 		source = core.Unflatten(subSource, query.Fields...)
 	} else {
-		source = opts.GetTable(query.From)
+		source = opts.GetTable(query.From, func(tableFields core.Fields) core.Fields {
+			if query.HasSelectAll {
+				// For SELECT *, include all table fields
+				return tableFields
+			}
+
+			tableExprs := query.Fields.Exprs()
+
+			// Otherwise, figure out minimum set of fields needed by query
+			includedFields := make([]bool, len(tableFields))
+			for _, field := range query.Fields {
+				sms := field.Expr.SubMergers(tableExprs)
+				for i, sm := range sms {
+					if sm != nil {
+						includedFields[i] = true
+					}
+				}
+			}
+
+			if query.Having != nil {
+				sms := query.Having.SubMergers(tableExprs)
+				for i, sm := range sms {
+					if sm != nil {
+						includedFields[i] = true
+					}
+				}
+			}
+
+			fields := make(core.Fields, 0, len(tableFields))
+			for i, included := range includedFields {
+				if included {
+					fields = append(fields, tableFields[i])
+				}
+			}
+
+			return fields
+		})
 	}
 
 	now := opts.Now(query.From)
@@ -100,7 +136,7 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		source = addGroupBy(source, query)
 	}
 
-	var flat core.FlatRowSource = core.Flatten(source)
+	flat := core.Flatten(source)
 
 	if query.Having != nil {
 		flat = addHaving(flat, query)
@@ -125,7 +161,7 @@ func addGroupBy(source core.RowSource, query *sql.Query) core.RowSource {
 	fields := query.Fields
 	if query.Having != nil {
 		// Add having to fields
-		fields = make([]core.Field, 0, len(query.Fields))
+		fields = make(core.Fields, 0, len(query.Fields))
 		fields = append(fields, query.Fields...)
 		fields = append(fields, core.NewField("_having", query.Having))
 	}

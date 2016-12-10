@@ -2,6 +2,7 @@ package zenodb
 
 import (
 	"context"
+	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
@@ -35,8 +36,8 @@ type QueryStats struct {
 
 func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*QueryResult, error) {
 	plan, err := planner.Plan(sqlString, &planner.Opts{
-		GetTable: func(table string) core.RowSource {
-			return db.getQueryable(table, includeMemStore)
+		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource {
+			return db.getQueryable(table, includedFields, includeMemStore)
 		},
 		Now:         db.now,
 		FieldSource: db.getFields,
@@ -44,6 +45,8 @@ func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*QueryResult, er
 	if err != nil {
 		return nil, err
 	}
+	log.Debugf("\n------------ Query Plan ------------\n\n%v\n----------- End Query Plan ----------", core.FormatSource(plan))
+
 	var rows []*core.FlatRow
 	ctx := core.Context()
 	iterErr := plan.Iterate(ctx, func(row *core.FlatRow) (bool, error) {
@@ -65,7 +68,7 @@ func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*QueryResult, er
 		AsOf:       plan.GetAsOf(),
 		Until:      plan.GetUntil(),
 		Resolution: plan.GetResolution(),
-		FieldNames: fieldNames(plan.GetFields()),
+		FieldNames: plan.GetFields().Names(),
 		GroupBy:    groupBy,
 		NumPeriods: int(plan.GetUntil().Sub(plan.GetAsOf()) / plan.GetResolution()),
 		Rows:       rows,
@@ -73,25 +76,26 @@ func (db *DB) SQLQuery(sqlString string, includeMemStore bool) (*QueryResult, er
 	}, nil
 }
 
-func (db *DB) getQueryable(table string, includeMemStore bool) *queryable {
+func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) core.Fields, includeMemStore bool) *queryable {
 	t := db.getTable(table)
 	if t == nil {
 		return nil
 	}
 	until := encoding.RoundTime(db.clock.Now(), t.Resolution)
 	asOf := encoding.RoundTime(until.Add(-1*t.RetentionPeriod), t.Resolution)
-	return &queryable{t, asOf, until, includeMemStore}
+	return &queryable{t, includedFields(t.Fields), asOf, until, includeMemStore}
 }
 
 type queryable struct {
 	t               *table
+	fields          core.Fields
 	asOf            time.Time
 	until           time.Time
 	includeMemStore bool
 }
 
 func (q *queryable) GetFields() core.Fields {
-	return q.t.Fields
+	return q.fields
 }
 
 func (q *queryable) GetResolution() time.Duration {
@@ -107,19 +111,11 @@ func (q *queryable) GetUntil() time.Time {
 }
 
 func (q *queryable) String() string {
-	return q.t.Name
+	return fmt.Sprintf("%v (%v)", q.t.Name, q.GetFields().Names())
 }
 
 func (q *queryable) Iterate(ctx context.Context, onRow core.OnRow) error {
-	return q.t.iterate(fieldNames(q.GetFields()), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
+	return q.t.iterate(q.GetFields().Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
 		onRow(key, vals)
 	})
-}
-
-func fieldNames(fields []core.Field) []string {
-	fieldNames := make([]string, 0, len(fields))
-	for _, field := range fields {
-		fieldNames = append(fieldNames, field.Name)
-	}
-	return fieldNames
 }

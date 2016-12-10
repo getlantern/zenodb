@@ -201,7 +201,7 @@ func (db *DB) now(table string) time.Time {
 	return db.clock.Now()
 }
 
-func (db *DB) getFields(table string) ([]core.Field, error) {
+func (db *DB) getFields(table string) (core.Fields, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil, fmt.Errorf("Table '%v' not found", table)
@@ -209,7 +209,7 @@ func (db *DB) getFields(table string) ([]core.Field, error) {
 	return t.Fields, nil
 }
 
-func (db *DB) getFieldsOptional(table string) ([]core.Field, error) {
+func (db *DB) getFieldsOptional(table string) (core.Fields, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil, nil

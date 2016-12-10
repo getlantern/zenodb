@@ -215,7 +215,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+func (rs *rowStore) iterate(includedFields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	var tree *bytetree.Tree
@@ -223,7 +223,7 @@ func (rs *rowStore) iterate(fields []string, includeMemStore bool, onValue func(
 		tree = rs.memStore.tree.Copy()
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(onValue, false, tree, fields...)
+	return fs.iterate(onValue, false, tree, includedFields...)
 }
 
 func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
@@ -438,7 +438,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), okayToReuseBuffers bool, tree *bytetree.Tree, fields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), okayToReuseBuffers bool, tree *bytetree.Tree, includedFields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -447,26 +447,26 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 
 	truncateBefore := fs.t.truncateBefore()
 	var includeField func(int) bool
-	if len(fields) == 0 {
+	if len(includedFields) == 0 {
 		includeField = func(i int) bool {
 			return true
 		}
 	} else {
-		includedFields := make([]bool, 0, len(fs.t.Fields))
+		includedFieldIdxs := make([]bool, 0, len(fs.t.Fields))
 		for _, field := range fs.t.Fields {
-			includeThisField := len(fields) == 0
+			includeThisField := len(includedFields) == 0
 			if !includeThisField {
-				for _, fieldName := range fields {
+				for _, fieldName := range includedFields {
 					if fieldName == field.Name {
 						includeThisField = true
 						break
 					}
 				}
 			}
-			includedFields = append(includedFields, includeThisField)
+			includedFieldIdxs = append(includedFieldIdxs, includeThisField)
 		}
 		includeField = func(i int) bool {
-			return includedFields[i]
+			return includedFieldIdxs[i]
 		}
 	}
 
@@ -514,7 +514,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 			}
 		}
 
-		reverseFileFieldIndexes := make([]int, 0, len(fields))
+		reverseFileFieldIndexes := make([]int, 0, len(includedFields))
 		for _, candidate := range fileFields {
 			idx := -1
 			if candidate.Expr != nil {

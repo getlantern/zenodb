@@ -113,7 +113,7 @@ func (sq *SubQuery) Values() []goexpr.Expr {
 type Query struct {
 	SQL string
 	// Fields are the fields from the SELECT clause in the order they appear.
-	Fields            []core.Field
+	Fields            core.Fields
 	HasSelectAll      bool
 	HasSpecificFields bool
 	// From is the Table from the FROM clause
@@ -143,15 +143,15 @@ type Query struct {
 	IncludedDims []string
 	includedDims map[string]bool
 	fieldSource  FieldSource
-	knownFields  []core.Field
+	knownFields  core.Fields
 	fieldsMap    map[string]core.Field
 }
 
 // FieldSource is a function that returns the known fields for a given table.
-type FieldSource func(table string) ([]core.Field, error)
+type FieldSource func(table string) (core.Fields, error)
 
-func noopFieldSource(table string) ([]core.Field, error) {
-	return []core.Field{}, nil
+func noopFieldSource(table string) (core.Fields, error) {
+	return core.Fields{}, nil
 }
 
 // TableFor returns the table in the FROM clause of this query

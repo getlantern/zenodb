@@ -57,12 +57,12 @@ GROUP BY
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
 LIMIT 100, 10
-`, func(table string) ([]core.Field, error) {
+`, func(table string) (core.Fields, error) {
 		if table == "table_a" {
-			return []core.Field{knownField, oKnownField, xKnownField}, nil
+			return core.Fields{knownField, oKnownField, xKnownField}, nil
 		}
 		if table == "subtable" {
-			return []core.Field{}, nil
+			return core.Fields{}, nil
 		}
 		return nil, fmt.Errorf("Unknown table %v", table)
 	})
@@ -165,11 +165,11 @@ LIMIT 100, 10
 
 func TestFromSubQuery(t *testing.T) {
 	field := core.NewField("field", MAX("field"))
-	fieldSource := func(table string) ([]core.Field, error) {
+	fieldSource := func(table string) (core.Fields, error) {
 		if table != "the_table" {
 			return nil, fmt.Errorf("Table %v not found", table)
 		}
-		return []core.Field{field}, nil
+		return core.Fields{field}, nil
 	}
 	subSQL := "SELECT name, * FROM the_table ASOF '-2h' UNTIL '-1h' GROUP BY *, period('5s') HAVING stuff > 5"
 	subQuery, err := Parse(subSQL, fieldSource)
@@ -215,8 +215,8 @@ func TestSQLDefaults(t *testing.T) {
 	q, err := Parse(`
 SELECT _
 FROM Table_A
-`, func(table string) ([]core.Field, error) {
-		return []core.Field{}, nil
+`, func(table string) (core.Fields, error) {
+		return core.Fields{}, nil
 	})
 	if !assert.NoError(t, err) {
 		return

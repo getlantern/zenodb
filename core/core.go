@@ -69,6 +69,22 @@ func (f Field) String() string {
 
 type Fields []Field
 
+func (fields Fields) Names() []string {
+	names := make([]string, 0, len(fields))
+	for _, field := range fields {
+		names = append(names, field.Name)
+	}
+	return names
+}
+
+func (fields Fields) Exprs() []expr.Expr {
+	exprs := make([]expr.Expr, 0, len(fields))
+	for _, field := range fields {
+		exprs = append(exprs, field.Expr)
+	}
+	return exprs
+}
+
 type Vals []encoding.Sequence
 
 type FlatRow struct {
