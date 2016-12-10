@@ -290,6 +290,7 @@ func TestPlans(t *testing.T) {
 		plan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
 			assert.Equal(t, FormatSource(expected[i]()), FormatSource(plan), fmt.Sprintf("Non-clustered: %v: %v", descriptions[i], sqlString))
+			verifyNoHaving(t, plan, sqlString)
 		}
 
 		opts.QueryCluster = queryCluster
@@ -297,6 +298,15 @@ func TestPlans(t *testing.T) {
 		clusterPlan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
 			assert.Equal(t, FormatSource(expectedCluster[i]()), FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], sqlString))
+			verifyNoHaving(t, plan, sqlString)
+		}
+	}
+}
+
+func verifyNoHaving(t *testing.T, plan Source, sqlString string) {
+	for _, field := range plan.GetFields().Names() {
+		if !assert.NotEqual(t, "_having", field, sqlString) {
+			log.Debug(FormatSource(plan))
 		}
 	}
 }

@@ -361,7 +361,7 @@ ORDER BY u DESC
 		return
 	}
 	// TODO: _having shouldn't bleed through like that
-	assert.Equal(t, []string{"ciii", "ii", "_points", "i", "iii", "z", "i_filtered", "_having"}, md.FieldNames)
+	assert.Equal(t, []string{"ciii", "ii", "_points", "i", "iii", "z", "i_filtered"}, md.FieldNames)
 
 	fieldIdx := func(name string) int {
 		for i, candidate := range md.FieldNames {
@@ -385,7 +385,7 @@ ORDER BY u DESC
 	assert.EqualValues(t, 244, rows[1].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
 
-	assert.EqualValues(t, 3, rows[1].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 1, rows[0].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[0].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 31, rows[0].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 42, rows[0].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")

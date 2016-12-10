@@ -173,19 +173,6 @@ func addGroupBy(source core.RowSource, query *sql.Query) core.RowSource {
 	})
 }
 
-func addHaving(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {
-	havingIdx := len(query.Fields)
-	return core.FlatRowFilter(flat, query.HavingSQL, func(ctx context.Context, row *core.FlatRow) (*core.FlatRow, error) {
-		include := row.Values[havingIdx]
-		if include == 1 {
-			// Removing having field
-			row.Values = row.Values[:havingIdx]
-			return row, nil
-		}
-		return nil, nil
-	})
-}
-
 func addOrderLimitOffset(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {
 	if len(query.OrderBy) > 0 {
 		flat = core.Sort(flat, query.OrderBy...)
