@@ -120,7 +120,7 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 	for _, represented := range partitionKeyRepresented {
 		if represented {
 			if foundNonRepresented {
-				// Represnted partition keys are discontiguous, can't push down.
+				// Represented partition keys are discontiguous, can't push down.
 				return false
 			}
 			foundRepresented = true

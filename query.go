@@ -53,8 +53,17 @@ type QueryMetaData struct {
 }
 
 func MetaDataFor(source core.FlatRowSource) *QueryMetaData {
+	fieldNames := source.GetFields().Names()
+	// Remove _having field
+	for i, name := range fieldNames {
+		if name == "_having" {
+			fieldNames = append(fieldNames[:i], fieldNames[i+1:]...)
+			break
+		}
+	}
+
 	return &QueryMetaData{
-		FieldNames: source.GetFields().Names(),
+		FieldNames: fieldNames,
 		AsOf:       source.GetAsOf(),
 		Until:      source.GetUntil(),
 		Resolution: source.GetResolution(),

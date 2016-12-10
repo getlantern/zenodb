@@ -484,5 +484,8 @@ func printQueryStats(stderr io.Writer, md *zenodb.QueryMetaData) {
 	fmt.Fprintf(stderr, "# As Of:      %v\n", md.AsOf.In(time.UTC).Format(time.RFC1123))
 	fmt.Fprintf(stderr, "# Until:      %v\n", md.Until.In(time.UTC).Format(time.RFC1123))
 	fmt.Fprintf(stderr, "# Resolution: %v\n", md.Resolution)
+	fmt.Fprintln(stderr, "\n")
+	fmt.Fprintln(stderr, md.Plan)
+	fmt.Fprintln(stderr, "\n")
 	fmt.Fprintln(stderr, "-------------------------------------------------\n")
 }
