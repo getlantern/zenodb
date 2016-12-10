@@ -34,7 +34,7 @@ func Context() context.Context {
 // SetMD sets metadata in the given Context (thread-safe)
 func SetMD(ctx context.Context, key string, value interface{}) {
 	mdmx.Lock()
-	getMDMap(ctx)[key] = value
+	GetMDMap(ctx)[key] = value
 	mdmx.Unlock()
 }
 
@@ -42,10 +42,10 @@ func SetMD(ctx context.Context, key string, value interface{}) {
 func GetMD(ctx context.Context, key string) interface{} {
 	mdmx.RLock()
 	defer mdmx.RUnlock()
-	return getMDMap(ctx)[key]
+	return GetMDMap(ctx)[key]
 }
 
-func getMDMap(ctx context.Context) map[string]interface{} {
+func GetMDMap(ctx context.Context) map[string]interface{} {
 	return ctx.Value(metadataKey).(map[string]interface{})
 }
 

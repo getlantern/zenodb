@@ -1,6 +1,7 @@
 package zenodb
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"math/rand"
@@ -9,10 +10,11 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
-	// "github.com/getlantern/wal"
+	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
+	"github.com/getlantern/zenodb/planner"
 
 	"github.com/stretchr/testify/assert"
 	"testing"
@@ -44,76 +46,69 @@ func TestSingleDB(t *testing.T) {
 	})
 }
 
-// func TestCluster(t *testing.T) {
-// 	numPartitions := 1 + rand.Intn(10)
-// 	numPartitions = 1
-//
-// 	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
-// 		leader, err := NewDB(&DBOpts{
-// 			Dir:            filepath.Join(tmpDir, "leader"),
-// 			SchemaFile:     tmpFile,
-// 			VirtualTime:    true,
-// 			Passthrough:    true,
-// 			PartitionBy:    []string{"r", "u"},
-// 			NumPartitions:  numPartitions,
-// 			MaxMemoryBytes: 1,
-// 		})
-// 		if !assert.NoError(t, err, "Unable to create leader DB") {
-// 			t.Fatal()
-// 		}
-//
-// 		followers := make([]*DB, 0, numPartitions)
-// 		for i := 0; i < numPartitions; i++ {
-// 			part := i
-// 			follower, followerErr := NewDB(&DBOpts{
-// 				Dir:            filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
-// 				SchemaFile:     tmpFile,
-// 				VirtualTime:    true,
-// 				Partition:      part,
-// 				MaxMemoryBytes: 1,
-// 				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
-// 					leader.Follow(f, cb)
-// 				},
-// 				RegisterRemoteQueryHandler: func(partition int, query QueryFN) {
-// 					var register func()
-// 					register = func() {
-// 						leader.RegisterQueryHandler(partition, func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(dims bytemap.ByteMap, vals []encoding.Sequence)) (bool, error) {
-// 							// Re-register when finished
-// 							defer register()
-//
-// 							hasReadResult := false
-// 							err := query(sqlString, includeMemStore, isSubQuery, subQueryResults, func(entry *Entry) error {
-// 								onValue(entry.Dims, entry.Vals)
-// 								hasReadResult = true
-// 								return nil
-// 							})
-// 							return hasReadResult, err
-// 						})
-// 					}
-//
-// 					register()
-// 				},
-// 			})
-// 			if !assert.NoError(t, followerErr, "Unable to create follower DB") {
-// 				t.Fatal()
-// 			}
-//
-// 			followers = append(followers, follower)
-// 		}
-//
-// 		return leader, func(t time.Time) {
-// 				leader.clock.Advance(t)
-// 				for _, follower := range followers {
-// 					follower.clock.Advance(t)
-// 				}
-// 			}, func(tableName string, cb func(tbl *table)) {
-// 				cb(leader.getTable(tableName))
-// 				for _, follower := range followers {
-// 					cb(follower.getTable(tableName))
-// 				}
-// 			}
-// 	})
-// }
+func TestCluster(t *testing.T) {
+	numPartitions := 1 + rand.Intn(10)
+	numPartitions = 1
+
+	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
+		leader, err := NewDB(&DBOpts{
+			Dir:            filepath.Join(tmpDir, "leader"),
+			SchemaFile:     tmpFile,
+			VirtualTime:    true,
+			Passthrough:    true,
+			PartitionBy:    []string{"r", "u"},
+			NumPartitions:  numPartitions,
+			MaxMemoryBytes: 1,
+		})
+		if !assert.NoError(t, err, "Unable to create leader DB") {
+			t.Fatal()
+		}
+
+		followers := make([]*DB, 0, numPartitions)
+		for i := 0; i < numPartitions; i++ {
+			part := i
+			follower, followerErr := NewDB(&DBOpts{
+				Dir:            filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
+				SchemaFile:     tmpFile,
+				VirtualTime:    true,
+				Partition:      part,
+				MaxMemoryBytes: 1,
+				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
+					leader.Follow(f, cb)
+				},
+				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
+					var register func()
+					register = func() {
+						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error {
+							// Re-register when finished
+							defer register()
+							return query(ctx, sqlString, subQueryResults, isSubQuery, onRow)
+						})
+					}
+
+					register()
+				},
+			})
+			if !assert.NoError(t, followerErr, "Unable to create follower DB") {
+				t.Fatal()
+			}
+
+			followers = append(followers, follower)
+		}
+
+		return leader, func(t time.Time) {
+				leader.clock.Advance(t)
+				for _, follower := range followers {
+					follower.clock.Advance(t)
+				}
+			}, func(tableName string, cb func(tbl *table)) {
+				cb(leader.getTable(tableName))
+				for _, follower := range followers {
+					cb(follower.getTable(tableName))
+				}
+			}
+	})
+}
 
 func doTest(t *testing.T, isClustered bool, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table)))) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)

@@ -15,8 +15,6 @@ var (
 	log = golog.LoggerFor("planner")
 )
 
-type QueryClusterFN func(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, onRow core.OnFlatRow) error
-
 type Opts struct {
 	GetTable        func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource
 	Now             func(table string) time.Time

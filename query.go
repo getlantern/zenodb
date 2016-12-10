@@ -34,32 +34,20 @@ type QueryStats struct {
 }
 
 func (db *DB) SQLQuery(sqlString string, subQueryResults [][]interface{}, isSubQuery bool, includeMemStore bool, onRow core.OnFlatRow) (*QueryResult, error) {
-	plan, err := planner.Plan(sqlString, &planner.Opts{
-		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource {
-			return db.getQueryable(table, includedFields, includeMemStore)
-		},
-		Now:             db.now,
-		FieldSource:     db.getFields,
-		SubQueryResults: subQueryResults,
-		IsSubQuery:      isSubQuery,
-	})
+	ctx := core.Context()
+	err := db.query(ctx, sqlString, subQueryResults, isSubQuery, includeMemStore, onRow)
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("\n------------ Query Plan ------------\n\n%v\n----------- End Query Plan ----------", core.FormatSource(plan))
 
-	ctx := core.Context()
-	iterErr := plan.Iterate(ctx, onRow)
-	if iterErr != nil {
-		return nil, iterErr
-	}
-
-	planString := core.FormatSource(plan)
 	var groupBy []string
 	groupByMD := core.GetMD(ctx, core.MDKeyDims)
 	if groupByMD != nil {
 		groupBy = groupByMD.([]string)
 	}
+
+	plan := core.GetMD(ctx, "_plan").(core.Source)
+	planString := core.FormatSource(plan)
 
 	return &QueryResult{
 		AsOf:       plan.GetAsOf(),
@@ -70,6 +58,35 @@ func (db *DB) SQLQuery(sqlString string, subQueryResults [][]interface{}, isSubQ
 		NumPeriods: int(plan.GetUntil().Sub(plan.GetAsOf()) / plan.GetResolution()),
 		Plan:       planString,
 	}, nil
+}
+
+func (db *DB) query(ctx context.Context, sqlString string, subQueryResults [][]interface{}, isSubQuery bool, includeMemStore bool, onRow core.OnFlatRow) error {
+	opts := &planner.Opts{
+		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource {
+			return db.getQueryable(table, includedFields, includeMemStore)
+		},
+		Now:             db.now,
+		FieldSource:     db.getFields,
+		SubQueryResults: subQueryResults,
+		IsSubQuery:      isSubQuery,
+	}
+	if db.opts.Passthrough {
+		opts.QueryCluster = db.queryCluster
+		opts.PartitionKeys = db.opts.PartitionBy
+	}
+	plan, err := planner.Plan(sqlString, opts)
+	if err != nil {
+		return err
+	}
+	log.Debugf("\n------------ Query Plan ------------\n\n%v\n----------- End Query Plan ----------", core.FormatSource(plan))
+	core.SetMD(ctx, "_plan", plan)
+
+	err = plan.Iterate(ctx, onRow)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) core.Fields, includeMemStore bool) *queryable {
