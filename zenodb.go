@@ -14,11 +14,13 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
+	geredis "github.com/getlantern/goexpr/redis"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
+	"gopkg.in/redis.v3"
 )
 
 var (
@@ -37,6 +39,11 @@ type DBOpts struct {
 	// ISPProvider configures a provider of ISP lookups. Specify this to allow the
 	// use of ISP functions.
 	ISPProvider isp.Provider
+	// RedisClient provides a connection to redis which enables the use of Redis
+	// expressions like HMGET.
+	RedisClient *redis.Client
+	// RedisCacheSize controls the size of redis hash caches
+	RedisCacheSize int
 	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
 	// based on the timestamps of Points received via inserts.
 	VirtualTime bool
@@ -122,6 +129,11 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.ISPProvider != nil {
 		log.Debugf("Setting ISP provider to %v", opts.ISPProvider)
 		isp.SetProvider(opts.ISPProvider)
+	}
+
+	if opts.RedisClient != nil {
+		log.Debug("Enabling redis expressions")
+		geredis.Configure(opts.RedisClient, opts.RedisCacheSize)
 	}
 
 	if opts.SchemaFile != "" {

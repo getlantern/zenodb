@@ -13,6 +13,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
+	"github.com/getlantern/goexpr/redis"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/sqlparser"
 	"github.com/getlantern/zenodb/core"
@@ -73,6 +74,10 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"ISP":          isp.ISP,
 	"ORG":          isp.ORG,
 	"ASN":          isp.ASN,
+}
+
+var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
+	"HMGET": redis.HMGet,
 }
 
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {
@@ -771,6 +776,28 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				return nil, err
 			}
 			return fn(wrapped), nil
+		case 2:
+			fn, found := binaryGoExpr[fname]
+			if !found {
+				return nil, fmt.Errorf("Unknown binary function %v", fname)
+			}
+			nse1, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			wrapped1, err := q.goExprFor(nse1.Expr)
+			if err != nil {
+				return nil, err
+			}
+			nse2, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			wrapped2, err := q.goExprFor(nse2.Expr)
+			if err != nil {
+				return nil, err
+			}
+			return fn(wrapped1, wrapped2), nil
 		default:
 			fn, found := varGoExpr[fname]
 			if !found {

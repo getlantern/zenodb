@@ -8,6 +8,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
+	"github.com/getlantern/goexpr/redis"
 	"github.com/getlantern/zenodb/core"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/kylelemons/godebug/pretty"
@@ -53,7 +54,7 @@ GROUP BY
 	COUNTRY_CODE(ip) AS country,
 	CONCAT('|', part_a, part_b) AS joined,
 	TEST(dim_k) AS test_dim_k,
-	ANY(dim_l, dim_m, dim_n) AS any_of_three,
+	ANY(dim_l, HMGET('hash', dim_m), dim_n) AS any_of_three,
 	period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
@@ -119,7 +120,7 @@ LIMIT 100, 10
 	assert.Equal(t, "table_a", q.From)
 	if assert.Len(t, q.GroupBy, 11) {
 		idx := 0
-		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), goexpr.Param("dim_m"), goexpr.Param("dim_n"))), q.GroupBy[idx])
+		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HMGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))), q.GroupBy[idx])
 		idx++
 		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
