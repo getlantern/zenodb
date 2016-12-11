@@ -87,62 +87,74 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 		}
 	}
 
-	// Find deepest query
-	rootQuery := query
-	for {
-		if rootQuery.FromSubQuery == nil {
-			break
+	for currentQuery := query; currentQuery != nil; currentQuery = currentQuery.FromSubQuery {
+		maybeAllowed, groupBy := pushdownMaybeAllowed(opts, currentQuery)
+		if !maybeAllowed {
+			return false
 		}
-		rootQuery = rootQuery.FromSubQuery
-	}
+		if len(groupBy) == 0 {
+			// If we're not grouping by anything in base table or query, we can't push
+			// down
+			return false
+		}
 
-	t := opts.GetTable(rootQuery.From, func(fields core.Fields) core.Fields {
-		return fields
-	})
-	// Include all of base table's groupBy
-	groupBy := t.GetGroupBy()
+		fc := make(fieldCollector)
+		for _, groupBy := range groupBy {
+			groupBy.Expr.Eval(fc)
+		}
 
-	if len(rootQuery.GroupBy) > 0 {
-		// Add query's group by
-		groupBy = append(groupBy, rootQuery.GroupBy...)
-	}
-
-	if len(groupBy) == 0 {
-		// If we're not grouping by anything in base table or query, we can't push
-		// down
-		return false
-	}
-
-	fc := make(fieldCollector)
-	for _, groupBy := range rootQuery.GroupBy {
-		groupBy.Expr.Eval(fc)
-	}
-
-	partitionKeyRepresented := make([]bool, len(opts.PartitionBy))
-	for field := range fc {
-		for i, partitionKey := range opts.PartitionBy {
-			if partitionKey == field {
-				partitionKeyRepresented[i] = true
-				break
+		partitionKeyRepresented := make([]bool, len(opts.PartitionBy))
+		for field := range fc {
+			for i, partitionKey := range opts.PartitionBy {
+				if partitionKey == field {
+					partitionKeyRepresented[i] = true
+					break
+				}
 			}
 		}
-	}
 
-	foundNonRepresented := false
-	foundRepresented := false
-	for _, represented := range partitionKeyRepresented {
-		if represented {
-			if foundNonRepresented {
-				// Represented partition keys are discontiguous, can't push down.
-				return false
+		foundNonRepresented := false
+		foundRepresented := false
+		for _, represented := range partitionKeyRepresented {
+			if represented {
+				if foundNonRepresented {
+					// Represented partition keys are discontiguous, can't push down.
+					return false
+				}
+				foundRepresented = true
+			} else {
+				foundNonRepresented = true
 			}
-			foundRepresented = true
-		} else {
-			foundNonRepresented = true
+		}
+
+		if !foundRepresented {
+			return false
 		}
 	}
 
-	return foundRepresented
+	return true
+}
+
+func pushdownMaybeAllowed(opts *Opts, query *sql.Query) (bool, []core.GroupBy) {
+	if query.FromSubQuery != nil {
+		if len(query.FromSubQuery.OrderBy) > 0 || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
+			// If subquery contains order by, limit or offset, we can't push down
+			return false, nil
+		}
+	}
+	if len(query.GroupBy) > 0 {
+		return true, query.GroupBy
+	}
+	if query.FromSubQuery != nil {
+		return pushdownMaybeAllowed(opts, query.FromSubQuery)
+	}
+	if query.GroupByAll {
+		t := opts.GetTable(query.From, func(fields core.Fields) core.Fields {
+			return fields
+		})
+		return true, t.GetGroupBy()
+	}
+	return false, nil
 }
 
 // fieldCollector is an implementation of goexpr.Params that remembers what

@@ -27,6 +27,9 @@ var (
 	fieldB = NewField("b", eB)
 
 	defaultFields = Fields{sql.PointsField, NewField("a", eA), NewField("b", eB)}
+
+	groupByX = NewGroupBy("x", goexpr.Param("x"))
+	groupByY = NewGroupBy("y", goexpr.Param("y"))
 )
 
 func TestPlans(t *testing.T) {
@@ -126,7 +129,7 @@ func TestPlans(t *testing.T) {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		return FlatRowFilter(Flatten(Group(&testTable{"tablea", defaultFields}, GroupOpts{
 			Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
+			By:     []GroupBy{groupByX},
 		})), "a+b > 0", nil)
 	}, func() Source {
 		return &clusterSource{
@@ -138,7 +141,7 @@ func TestPlans(t *testing.T) {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		return FlatRowFilter(Flatten(Group(&testTable{"tablea", defaultFields}, GroupOpts{
 			Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("y", goexpr.Param("y"))},
+			By:     []GroupBy{groupByX, groupByY},
 		})), "a+b > 0", nil)
 	}, func() Source {
 		return &clusterSource{
@@ -157,7 +160,7 @@ func TestPlans(t *testing.T) {
 						Flatten(
 							Group(&testTable{"tablea", defaultFields}, GroupOpts{
 								Fields: fields,
-								By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("y", goexpr.Param("y"))},
+								By:     []GroupBy{groupByX, groupByY},
 							}),
 						),
 						avgTotal),
@@ -172,11 +175,51 @@ func TestPlans(t *testing.T) {
 		}
 	})
 
+	scenario("HAVING clause with contiguous group by in subselect but discontiguous group by in main select, pushdown not allowed", "SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, x) GROUP BY y HAVING a+b > 0", func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
+		fields := Fields{sql.PointsField, fieldA, fieldB}
+		return FlatRowFilter(
+			Flatten(
+				Group(
+					Unflatten(
+						Flatten(
+							Group(&testTable{"tablea", defaultFields}, GroupOpts{
+								Fields: fields,
+								By:     []GroupBy{groupByX, groupByY},
+							}),
+						),
+						avgTotal),
+					GroupOpts{
+						Fields: Fields{avgTotal, fieldHaving},
+						By:     []GroupBy{groupByY},
+					},
+				),
+			), "a+b > 0", nil)
+	}, func() Source {
+		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
+		avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
+		fields := Fields{avgTotal}
+		t := &clusterSource{
+			query: &sql.Query{SQL: "select * from TableA group by y, x"},
+		}
+		return FlatRowFilter(
+			Flatten(
+				Group(
+					Unflatten(t, fields...),
+					GroupOpts{
+						Fields: Fields{avgTotal, fieldHaving},
+						By:     []GroupBy{groupByY},
+					},
+				),
+			), "a+b > 0", nil)
+	})
+
 	scenario("HAVING clause with discontiguous group by, pushdown not allowed", "SELECT * FROM TableA GROUP BY y HAVING a+b > 0", func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		return FlatRowFilter(Flatten(Group(&testTable{"tablea", defaultFields}, GroupOpts{
 			Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+			By:     []GroupBy{groupByY},
 		})), "a+b > 0", nil)
 	}, func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
@@ -186,7 +229,7 @@ func TestPlans(t *testing.T) {
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
 			Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+			By:     []GroupBy{groupByY},
 		})), "a+b > 0", nil)
 	})
 
@@ -263,7 +306,7 @@ func TestPlans(t *testing.T) {
 						Group(
 							RowFilter(&testTable{"tablea", defaultFields}, "where x > 5", nil),
 							GroupOpts{
-								By:         []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+								By:         []GroupBy{groupByY},
 								Fields:     Fields{sql.PointsField, NewField("a", eA), NewField("b", eB), NewField("total", ADD(eA, eB))},
 								AsOf:       epoch.Add(-5 * time.Second),
 								Until:      epoch.Add(-1 * time.Second),
@@ -280,7 +323,7 @@ func TestPlans(t *testing.T) {
 		fields := Fields{sql.PointsField, fieldA, fieldB, NewField("total", ADD(eA, eB))}
 		return Limit(Offset(Sort(Flatten(Group(Unflatten(t, fields...), GroupOpts{
 			Fields:     fields,
-			By:         []GroupBy{NewGroupBy("y", goexpr.Param("y"))},
+			By:         []GroupBy{groupByY},
 			Resolution: 2 * time.Second,
 		})), NewOrderBy("total", true)), 2), 5)
 	})
