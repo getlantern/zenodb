@@ -30,7 +30,7 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("\n------------ Query Plan ------------\n\n%v\n----------- End Query Plan ----------", core.FormatSource(plan))
+	log.Debugf("\n------------ Query Plan ------------\n\n%v\n\n%v\n----------- End Query Plan ----------", sqlString, core.FormatSource(plan))
 	return plan, nil
 }
 
@@ -71,7 +71,8 @@ type queryable struct {
 }
 
 func (q *queryable) GetFields() core.Fields {
-	return q.fields
+	// We report all fields from the table
+	return q.t.Fields
 }
 
 func (q *queryable) GetResolution() time.Duration {
@@ -91,7 +92,9 @@ func (q *queryable) String() string {
 }
 
 func (q *queryable) Iterate(ctx context.Context, onRow core.OnRow) error {
-	return q.t.iterate(q.GetFields().Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
+	// When iterating, as an optimization, we read only the needed fields (not
+	// all table fields).
+	return q.t.iterate(q.fields.Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
 		onRow(key, vals)
 	})
 }

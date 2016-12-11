@@ -63,7 +63,7 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 				return tableFields
 			}
 
-			tableExprs := query.Fields.Exprs()
+			tableExprs := tableFields.Exprs()
 
 			// Otherwise, figure out minimum set of fields needed by query
 			includedFields := make([]bool, len(tableFields))

@@ -8,7 +8,6 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/getlantern/zenodb/expr"
 	"time"
 )
 
@@ -87,8 +86,8 @@ func (g *group) GetUntil() time.Time {
 
 func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 	bt := bytetree.New(
-		fieldsToExprs(g.GetFields()),
-		fieldsToExprs(g.source.GetFields()),
+		g.GetFields().Exprs(),
+		g.source.GetFields().Exprs(),
 		g.GetResolution(),
 		g.source.GetResolution(),
 		g.GetAsOf(),
@@ -140,14 +139,6 @@ func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 	}
 
 	return err
-}
-
-func fieldsToExprs(fields Fields) []expr.Expr {
-	exprs := make([]expr.Expr, 0, len(fields))
-	for _, field := range fields {
-		exprs = append(exprs, field.Expr)
-	}
-	return exprs
 }
 
 func (g *group) String() string {
