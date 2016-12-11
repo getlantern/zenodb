@@ -87,6 +87,7 @@ func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) err
 
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CONCAT": goexpr.Concat,
+	"ANY":    goexpr.Any,
 }
 
 // SubQuery is a placeholder for a sub query within a query. Executors of a
