@@ -404,6 +404,10 @@ func (t *testTable) GetFields() Fields {
 	return t.fields
 }
 
+func (t *testTable) GetGroupBy() []GroupBy {
+	return []GroupBy{}
+}
+
 func (t *testTable) GetResolution() time.Duration {
 	return resolution
 }

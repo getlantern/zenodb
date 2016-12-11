@@ -35,6 +35,10 @@ func (f *havingFilter) GetFields() core.Fields {
 	return fields[:len(fields)-1]
 }
 
+func (f *havingFilter) GetGroupBy() []core.GroupBy {
+	return f.base.GetGroupBy()
+}
+
 func (f *havingFilter) GetResolution() time.Duration {
 	return f.base.GetResolution()
 }

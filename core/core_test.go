@@ -243,6 +243,10 @@ func (s *testSource) GetFields() Fields {
 	return Fields{NewField("a", eA), NewField("b", eB)}
 }
 
+func (s *testSource) GetGroupBy() []GroupBy {
+	return []GroupBy{}
+}
+
 func (s *testSource) GetResolution() time.Duration {
 	return resolution
 }

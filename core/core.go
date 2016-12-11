@@ -72,6 +72,8 @@ type FlatRow struct {
 type Source interface {
 	GetFields() Fields
 
+	GetGroupBy() []GroupBy
+
 	GetResolution() time.Duration
 
 	GetAsOf() time.Time
@@ -107,6 +109,10 @@ func (t *rowTransform) GetFields() Fields {
 	return t.source.GetFields()
 }
 
+func (t *rowTransform) GetGroupBy() []GroupBy {
+	return t.source.GetGroupBy()
+}
+
 func (t *rowTransform) GetResolution() time.Duration {
 	return t.source.GetResolution()
 }
@@ -129,6 +135,10 @@ type flatRowTransform struct {
 
 func (t *flatRowTransform) GetFields() Fields {
 	return t.source.GetFields()
+}
+
+func (t *flatRowTransform) GetGroupBy() []GroupBy {
+	return t.source.GetGroupBy()
 }
 
 func (t *flatRowTransform) GetResolution() time.Duration {

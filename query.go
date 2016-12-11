@@ -75,6 +75,10 @@ func (q *queryable) GetFields() core.Fields {
 	return q.t.Fields
 }
 
+func (q *queryable) GetGroupBy() []core.GroupBy {
+	return q.t.GroupBy
+}
+
 func (q *queryable) GetResolution() time.Duration {
 	return q.t.Resolution
 }

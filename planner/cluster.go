@@ -45,6 +45,10 @@ func (cs *clusterSource) GetFields() core.Fields {
 	return cs.planAsIfLocal.GetFields()
 }
 
+func (cs *clusterSource) GetGroupBy() []core.GroupBy {
+	return cs.planAsIfLocal.GetGroupBy()
+}
+
 func (cs *clusterSource) GetResolution() time.Duration {
 	return cs.planAsIfLocal.GetResolution()
 }
@@ -92,11 +96,20 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 		rootQuery = rootQuery.FromSubQuery
 	}
 
-	if rootQuery.GroupByAll {
-		return false
+	t := opts.GetTable(rootQuery.From, func(fields core.Fields) core.Fields {
+		return fields
+	})
+	// Include all of base table's groupBy
+	groupBy := t.GetGroupBy()
+
+	if len(rootQuery.GroupBy) > 0 {
+		// Add query's group by
+		groupBy = append(groupBy, rootQuery.GroupBy...)
 	}
 
-	if len(rootQuery.GroupBy) == 0 {
+	if len(groupBy) == 0 {
+		// If we're not grouping by anything in base table or query, we can't push
+		// down
 		return false
 	}
 

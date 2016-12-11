@@ -56,6 +56,10 @@ func (g *group) GetFields() Fields {
 	return g.Fields
 }
 
+func (g *group) GetGroupBy() []GroupBy {
+	return g.GroupOpts.By
+}
+
 func (g *group) GetResolution() time.Duration {
 	if g.Resolution == 0 {
 		return g.source.GetResolution()
