@@ -4,9 +4,13 @@ import (
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"path/filepath"
+	"plugin"
 	"strings"
 	"time"
 
@@ -54,6 +58,9 @@ var (
 )
 
 func main() {
+	// First load plugins to let them register their own flags
+	plugins := loadPlugins()
+	// Parse flags
 	iniflags.Parse()
 
 	if *pprofAddr != "" {
@@ -63,6 +70,20 @@ func main() {
 				log.Error(err)
 			}
 		}()
+	}
+
+	// Start plugins
+	for _, p := range plugins {
+		start, err := p.Lookup("Start")
+		if err != nil {
+			log.Errorf("Unable to look up Start function in plugin %v: %v", p, err)
+			continue
+		}
+
+		err = start.(func() error)()
+		if err != nil {
+			log.Errorf("Unable to start plugin %v: %v", p, err)
+		}
 	}
 
 	l, err := tlsdefaults.Listen(*addr, *pkfile, *certfile)
@@ -267,6 +288,38 @@ func main() {
 
 	go serveHTTP(db, hl)
 	serveRPC(db, l)
+}
+
+func loadPlugins() []*plugin.Plugin {
+	// TODO: make location of plugins configurable
+	binaryDir, err := filepath.Abs(filepath.Dir(os.Args[0]))
+	if err != nil {
+		log.Errorf("Unable to determine binary directory for finding plugins: %v", err)
+		return nil
+	}
+
+	pluginsDir := filepath.Join(binaryDir, "plugins")
+	files, err := ioutil.ReadDir(pluginsDir)
+	if err != nil {
+		log.Errorf("Unable to read plugins directory %v: %v", pluginsDir, err)
+	}
+
+	plugins := make([]*plugin.Plugin, 0, len(files))
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), ".so") {
+			filename := filepath.Join(pluginsDir, file.Name())
+			log.Debugf("Loading plugin at %v", filename)
+
+			p, err := plugin.Open(filename)
+			if err != nil {
+				log.Errorf("Unable to open plugin file %v: %v", filename, err)
+				continue
+			}
+			plugins = append(plugins, p)
+		}
+	}
+
+	return plugins
 }
 
 func serveRPC(db *zenodb.DB, l net.Listener) {
