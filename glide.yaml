@@ -21,18 +21,19 @@ import:
 - package: github.com/jmcvetta/randutil
 - package: github.com/oxtoacart/emsort
 - package: golang.org/x/net
-  vcs: git
   repo: https://github.com/golang/net
+  vcs: git
   subpackages:
   - context
-- package: golang.org/x/sys/
-  vcs: git
+- package: golang.org/x/sys
   repo: https://github.com/golang/sys
+  vcs: git
   subpackages:
   - windows
   - unix
 - package: google.golang.org/grpc
 - package: gopkg.in/vmihailenco/msgpack.v2
+- package: github.com/getlantern/redis
 testImport:
 - package: github.com/stretchr/testify
   subpackages:
