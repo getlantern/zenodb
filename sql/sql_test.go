@@ -8,6 +8,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
+	"github.com/getlantern/goexpr/redis"
 	"github.com/getlantern/zenodb/core"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/kylelemons/godebug/pretty"
@@ -18,6 +19,7 @@ func TestSQL(t *testing.T) {
 	RegisterUnaryDIMFunction("TEST", func(val goexpr.Expr) goexpr.Expr {
 		return &testexpr{val}
 	})
+	RegisterAlias("MYALIAS", "ANY(%v, HMGET('hash', %v), %v)")
 	known := AVG("k")
 	knownField := core.NewField("knownfield", known)
 	oKnownField := core.NewField("oknownfield", SUM("o"))
@@ -53,6 +55,7 @@ GROUP BY
 	COUNTRY_CODE(ip) AS country,
 	CONCAT('|', part_a, part_b) AS joined,
 	TEST(dim_k) AS test_dim_k,
+	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
 	period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
@@ -116,17 +119,29 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, "table_a", q.From)
-	if assert.Len(t, q.GroupBy, 10) {
-		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[0].String())
-		assert.Equal(t, core.NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[1])
-		assert.Equal(t, core.NewGroupBy("city_state", geo.REGION_CITY(goexpr.Param("ip"))), q.GroupBy[2])
-		assert.Equal(t, core.NewGroupBy("country", geo.COUNTRY_CODE(goexpr.Param("ip"))), q.GroupBy[3])
-		assert.Equal(t, core.NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[4])
-		assert.Equal(t, core.NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))).String(), q.GroupBy[5].String())
-		assert.Equal(t, core.NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))), q.GroupBy[6])
-		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[7].String())
-		assert.Equal(t, core.NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[8])
-		assert.Equal(t, core.NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[9])
+	if assert.Len(t, q.GroupBy, 11) {
+		idx := 0
+		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HMGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("city_state", geo.REGION_CITY(goexpr.Param("ip"))), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("country", geo.COUNTRY_CODE(goexpr.Param("ip"))), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[idx])
 	}
 	assert.False(t, q.GroupByAll)
 	assert.Equal(t, goexpr.Param("dim_b"), q.Crosstab)
@@ -160,7 +175,7 @@ LIMIT 100, 10
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
 	assert.EqualValues(t, []string{"_points", "a", "b", "bfield", "c", "h", "knownfield", "myfield", "oknownfield", "rate", "x"}, q.IncludedFields)
-	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "ip", "part_a", "part_b"}, q.IncludedDims)
+	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "dim_l", "dim_m", "dim_n", "ip", "part_a", "part_b"}, q.IncludedDims)
 }
 
 func TestFromSubQuery(t *testing.T) {
@@ -232,6 +247,10 @@ type testexpr struct {
 func (e *testexpr) Eval(params goexpr.Params) interface{} {
 	v := e.val.Eval(params)
 	return fmt.Sprintf("test: %v", v)
+}
+
+func (e *testexpr) WalkOneToOneParams(cb func(string)) {
+	e.val.WalkOneToOneParams(cb)
 }
 
 func (e *testexpr) WalkLists(cb func(goexpr.List)) {

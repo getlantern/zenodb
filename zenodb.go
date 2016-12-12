@@ -14,11 +14,15 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
+	geredis "github.com/getlantern/goexpr/redis"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
+	"github.com/getlantern/zenodb/sql"
+	"github.com/rickar/props"
+	"gopkg.in/redis.v3"
 )
 
 var (
@@ -32,11 +36,19 @@ type DBOpts struct {
 	// SchemaFile points at a YAML schema file that configures the tables and
 	// views in the database.
 	SchemaFile string
+	// AliasesFile points at a file that contains expression aliases in the form
+	// name=template(%v, %v), with one alias per line.
+	AliasesFile string
 	// EnableGeo enables geolocation functions
 	EnableGeo bool
 	// ISPProvider configures a provider of ISP lookups. Specify this to allow the
 	// use of ISP functions.
 	ISPProvider isp.Provider
+	// RedisClient provides a connection to redis which enables the use of Redis
+	// expressions like HMGET.
+	RedisClient *redis.Client
+	// RedisCacheSize controls the size of redis hash caches
+	RedisCacheSize int
 	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
 	// based on the timestamps of Points received via inserts.
 	VirtualTime bool
@@ -124,6 +136,15 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		isp.SetProvider(opts.ISPProvider)
 	}
 
+	if opts.AliasesFile != "" {
+		registerAliases(opts.AliasesFile)
+	}
+
+	if opts.RedisClient != nil {
+		log.Debug("Enabling redis expressions")
+		geredis.Configure(opts.RedisClient, opts.RedisCacheSize)
+	}
+
 	if opts.SchemaFile != "" {
 		err = db.pollForSchema(opts.SchemaFile)
 		if err != nil {
@@ -144,6 +165,30 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	go db.trackMemStats()
 
 	return db, err
+}
+
+func registerAliases(aliasesFile string) {
+	log.Debugf("Registering aliases from file at %v", aliasesFile)
+
+	file, err := os.Open(aliasesFile)
+	if err != nil {
+		log.Errorf("Unable to open aliases file at %v: %v", aliasesFile, err)
+		return
+	}
+	defer file.Close()
+
+	p, err := props.Read(file)
+	if err != nil {
+		log.Errorf("Unable to read aliases file at %v: %v", aliasesFile, err)
+		return
+	}
+
+	for _, alias := range p.Names() {
+		template := strings.TrimSpace(p.Get(alias))
+		alias = strings.TrimSpace(alias)
+		sql.RegisterAlias(alias, template)
+		log.Debugf("Registered alias %v = %v", alias, template)
+	}
 }
 
 // TableStats returns the TableStats for the named table.

@@ -14,6 +14,7 @@ import (
 	"github.com/getlantern/goexpr/isp/ip2location"
 	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
+	lredis "github.com/getlantern/redis"
 	"github.com/getlantern/tlsdefaults"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
@@ -21,6 +22,7 @@ import (
 	"github.com/getlantern/zenodb/rpc"
 	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
+	"gopkg.in/redis.v3"
 )
 
 var (
@@ -28,6 +30,7 @@ var (
 
 	dbdir             = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
 	schema            = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
+	aliasesFile       = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
 	enablegeo         = flag.Bool("enablegeo", false, "enable geolocation functions")
 	ispformat         = flag.String("ispformat", "ip2location", "ip2location or maxmind")
 	ispdb             = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
@@ -51,6 +54,11 @@ var (
 	feedOverride      = flag.String("feedoverride", "", "if specified, dial network connection for -feed using this address, but verify TLS connection using the address from -feed")
 	numPartitions     = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition         = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
+	redisAddr         = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
+	redisCA           = flag.String("redisca", "", "Certificate for redislabs's CA")
+	redisClientPK     = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
+	redisClientCert   = flag.String("redisclientcert", "", "Certificate for authenticating client to redis's stunnel")
+	redisCacheSize    = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HMGET operations, defaults to 25,000 per hash")
 )
 
 func main() {
@@ -235,6 +243,22 @@ func main() {
 		}
 	}
 
+	var redisClient *redis.Client
+	if *redisAddr != "" {
+		log.Debugf("Connecting to Redis at %v", *redisAddr)
+		redisClient, err = lredis.NewClient(&lredis.Opts{
+			RedisURL:       *redisAddr,
+			RedisCAFile:    *redisCA,
+			ClientPKFile:   *redisClientPK,
+			ClientCertFile: *redisClientCert,
+		})
+		if err == nil {
+			log.Debugf("Connected to Redis at %v", *redisAddr)
+		} else {
+			log.Errorf("Unable to connect to redis: %v", err)
+		}
+	}
+
 	var partitionByArray []string
 	if *partitionBy != "" {
 		partitionByArray = strings.Split(strings.ToLower(*partitionBy), ",")
@@ -244,6 +268,9 @@ func main() {
 		SchemaFile:        *schema,
 		EnableGeo:         *enablegeo,
 		ISPProvider:       ispProvider,
+		AliasesFile:       *aliasesFile,
+		RedisClient:       redisClient,
+		RedisCacheSize:    *redisCacheSize,
 		VirtualTime:       *vtime,
 		WALSyncInterval:   *walSync,
 		MaxWALAge:         *maxWALAge,

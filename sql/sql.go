@@ -13,6 +13,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
+	"github.com/getlantern/goexpr/redis"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/sqlparser"
 	"github.com/getlantern/zenodb/core"
@@ -75,6 +76,10 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"ASN":          isp.ASN,
 }
 
+var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
+	"HMGET": redis.HMGet,
+}
+
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {
 	name = strings.ToUpper(name)
 	_, found := unaryGoExpr[name]
@@ -87,6 +92,13 @@ func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) err
 
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CONCAT": goexpr.Concat,
+	"ANY":    goexpr.Any,
+}
+
+var aliases = make(map[string]string)
+
+func RegisterAlias(alias string, template string) {
+	aliases[strings.ToUpper(alias)] = template
 }
 
 // SubQuery is a placeholder for a sub query within a query. Executors of a
@@ -749,6 +761,10 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		return goexpr.Constant(val), nil
 	case *sqlparser.FuncExpr:
 		fname := strings.ToUpper(string(e.Name))
+		alias, foundAlias := aliases[fname]
+		if foundAlias {
+			return q.applyAlias(e, alias)
+		}
 		switch len(e.Exprs) {
 		case 0:
 			fn, found := nullaryGoExpr[fname]
@@ -770,6 +786,28 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				return nil, err
 			}
 			return fn(wrapped), nil
+		case 2:
+			fn, found := binaryGoExpr[fname]
+			if !found {
+				return nil, fmt.Errorf("Unknown binary function %v", fname)
+			}
+			nse1, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			wrapped1, err := q.goExprFor(nse1.Expr)
+			if err != nil {
+				return nil, err
+			}
+			nse2, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			wrapped2, err := q.goExprFor(nse2.Expr)
+			if err != nil {
+				return nil, err
+			}
+			return fn(wrapped1, wrapped2), nil
 		default:
 			fn, found := varGoExpr[fname]
 			if !found {
@@ -802,6 +840,24 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	default:
 		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
+}
+
+func (q *Query) applyAlias(e *sqlparser.FuncExpr, alias string) (goexpr.Expr, error) {
+	parameterStrings := make([]interface{}, 0, len(e.Exprs))
+	for _, pe := range e.Exprs {
+		parameterStrings = append(parameterStrings, nodeToString(pe))
+	}
+	template := fmt.Sprintf("SELECT phcol FROM phtable GROUP BY %v AS phgb", alias)
+	queryPlaceholder := fmt.Sprintf(template, parameterStrings...)
+	qp, err := Parse(queryPlaceholder, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse query placeholder for applying alias: %v", err)
+	}
+	// Copy over included dims
+	for dim := range qp.includedDims {
+		q.includedDims[dim] = true
+	}
+	return qp.GroupBy[0].Expr, nil
 }
 
 func (q *Query) processInclusions() {

@@ -98,15 +98,17 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 			return false
 		}
 
-		fc := make(fieldCollector)
+		params := make(map[string]bool)
 		for _, groupBy := range groupBy {
-			groupBy.Expr.Eval(fc)
+			groupBy.Expr.WalkOneToOneParams(func(param string) {
+				params[param] = true
+			})
 		}
 
 		partitionKeyRepresented := make([]bool, len(opts.PartitionBy))
-		for field := range fc {
+		for param := range params {
 			for i, partitionKey := range opts.PartitionBy {
-				if partitionKey == field {
+				if partitionKey == param {
 					partitionKeyRepresented[i] = true
 					break
 				}
@@ -155,16 +157,6 @@ func pushdownMaybeAllowed(opts *Opts, query *sql.Query) (bool, []core.GroupBy) {
 		return true, t.GetGroupBy()
 	}
 	return false, nil
-}
-
-// fieldCollector is an implementation of goexpr.Params that remembers what
-// keys were requested, thereby allowing it to record what fields are used in
-// one or more expressions.
-type fieldCollector map[string]bool
-
-func (fc fieldCollector) Get(param string) interface{} {
-	fc[param] = true
-	return nil
 }
 
 func planClusterPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
