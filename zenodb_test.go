@@ -33,7 +33,7 @@ func TestSingleDB(t *testing.T) {
 			Dir:            filepath.Join(tmpDir, "leader"),
 			SchemaFile:     tmpFile,
 			VirtualTime:    true,
-			MaxMemoryBytes: 1,
+			MaxMemoryRatio: 0.00001,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -58,7 +58,7 @@ func TestCluster(t *testing.T) {
 			Passthrough:    true,
 			PartitionBy:    []string{"r", "u"},
 			NumPartitions:  numPartitions,
-			MaxMemoryBytes: 1,
+			MaxMemoryRatio: 0.00001,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -72,7 +72,7 @@ func TestCluster(t *testing.T) {
 				SchemaFile:     tmpFile,
 				VirtualTime:    true,
 				Partition:      part,
-				MaxMemoryBytes: 1,
+				MaxMemoryRatio: 0.00001,
 				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
 					leader.Follow(f, cb)
 				},
