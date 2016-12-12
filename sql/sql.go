@@ -95,6 +95,12 @@ var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"ANY":    goexpr.Any,
 }
 
+var aliases = make(map[string]string)
+
+func RegisterAlias(alias string, template string) {
+	aliases[strings.ToUpper(alias)] = template
+}
+
 // SubQuery is a placeholder for a sub query within a query. Executors of a
 // query should first execute all SubQueries and then call SetResult to set the
 // results of the subquery. The subquery
@@ -755,6 +761,10 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		return goexpr.Constant(val), nil
 	case *sqlparser.FuncExpr:
 		fname := strings.ToUpper(string(e.Name))
+		alias, foundAlias := aliases[fname]
+		if foundAlias {
+			return q.applyAlias(e, alias)
+		}
 		switch len(e.Exprs) {
 		case 0:
 			fn, found := nullaryGoExpr[fname]
@@ -830,6 +840,24 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	default:
 		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
+}
+
+func (q *Query) applyAlias(e *sqlparser.FuncExpr, alias string) (goexpr.Expr, error) {
+	parameterStrings := make([]interface{}, 0, len(e.Exprs))
+	for _, pe := range e.Exprs {
+		parameterStrings = append(parameterStrings, nodeToString(pe))
+	}
+	template := fmt.Sprintf("SELECT phcol FROM phtable GROUP BY %v AS phgb", alias)
+	queryPlaceholder := fmt.Sprintf(template, parameterStrings...)
+	qp, err := Parse(queryPlaceholder, nil)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse query placeholder for applying alias: %v", err)
+	}
+	// Copy over included dims
+	for dim := range qp.includedDims {
+		q.includedDims[dim] = true
+	}
+	return qp.GroupBy[0].Expr, nil
 }
 
 func (q *Query) processInclusions() {

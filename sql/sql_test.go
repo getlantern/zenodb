@@ -19,6 +19,7 @@ func TestSQL(t *testing.T) {
 	RegisterUnaryDIMFunction("TEST", func(val goexpr.Expr) goexpr.Expr {
 		return &testexpr{val}
 	})
+	RegisterAlias("MYALIAS", "ANY(%v, HMGET('hash', %v), %v)")
 	known := AVG("k")
 	knownField := core.NewField("knownfield", known)
 	oKnownField := core.NewField("oknownfield", SUM("o"))
@@ -54,7 +55,7 @@ GROUP BY
 	COUNTRY_CODE(ip) AS country,
 	CONCAT('|', part_a, part_b) AS joined,
 	TEST(dim_k) AS test_dim_k,
-	ANY(dim_l, HMGET('hash', dim_m), dim_n) AS any_of_three,
+	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
 	period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y

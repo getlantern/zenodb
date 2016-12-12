@@ -30,6 +30,7 @@ var (
 
 	dbdir             = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
 	schema            = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
+	aliasesFile       = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
 	enablegeo         = flag.Bool("enablegeo", false, "enable geolocation functions")
 	ispformat         = flag.String("ispformat", "ip2location", "ip2location or maxmind")
 	ispdb             = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
@@ -267,6 +268,7 @@ func main() {
 		SchemaFile:        *schema,
 		EnableGeo:         *enablegeo,
 		ISPProvider:       ispProvider,
+		AliasesFile:       *aliasesFile,
 		RedisClient:       redisClient,
 		RedisCacheSize:    *redisCacheSize,
 		VirtualTime:       *vtime,
