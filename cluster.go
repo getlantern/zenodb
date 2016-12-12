@@ -181,11 +181,15 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		}()
 	}
 
-	// TODO: get this from context
-	minTimeout := 10 * time.Minute
-	nextTimeout := 24 * time.Hour
-	timeout := time.NewTimer(nextTimeout)
-	maxDelta := 0 * time.Second
+	start := time.Now()
+	deadline := start.Add(10 * time.Minute)
+	ctxDeadline, ctxHasDeadline := ctx.Deadline()
+	if ctxHasDeadline {
+		deadline = ctxDeadline
+	}
+	log.Debugf("Deadline for results from partitions: %v (T - %v)", deadline, deadline.Sub(time.Now()))
+
+	timeout := time.NewTimer(deadline.Sub(time.Now()))
 	resultCount := 0
 	var finalErr error
 	for i := 0; i < numPartitions; i++ {
@@ -196,25 +200,14 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 			if result.err != nil && finalErr == nil {
 				finalErr = result.err
 			}
-			if result.handlerFound {
-				delta := time.Now().Sub(start)
-				if delta > maxDelta {
-					maxDelta = delta
-				}
-				// Reduce timer based on how quickly existing results returned
-				nextTimeout = maxDelta * 2
-				if nextTimeout < minTimeout {
-					nextTimeout = minTimeout
-				}
-				timeout.Reset(nextTimeout)
-			}
-			log.Debugf("%d/%d got %d results from partition %d, next timeout: %v", resultCount, db.opts.NumPartitions, result.results, result.partition, nextTimeout)
+			delta := time.Now().Sub(start)
+			log.Debugf("%d/%d got %d results from partition %d in %v", resultCount, db.opts.NumPartitions, result.results, result.partition, delta)
 			delete(resultsByPartition, result.partition)
 		case <-timeout.C:
 			mx.Lock()
 			timedOut = true
 			mx.Unlock()
-			log.Errorf("Failed to get results within timeout, %d of %d partitions reporting", resultCount, numPartitions)
+			log.Errorf("Failed to get results by deadline, %d of %d partitions reporting", resultCount, numPartitions)
 			msg := bytes.NewBuffer([]byte("Missing partitions: "))
 			first := true
 			for partition, results := range resultsByPartition {
