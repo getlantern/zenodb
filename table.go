@@ -239,7 +239,7 @@ func (t *table) iterate(fields []string, includeMemStore bool, onValue func(byte
 // must call stopSorting when finished so that other tables have a chance to
 // sort.
 func (t *table) shouldSort() bool {
-	if t.db.opts.MaxMemoryBytes <= 0 {
+	if t.db.opts.MaxMemoryRatio <= 0 {
 		return false
 	}
 

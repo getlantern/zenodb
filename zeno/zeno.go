@@ -38,7 +38,7 @@ var (
 	walSync           = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	maxWALAge         = flag.Duration("maxwalage", 336*time.Hour, "Maximum age for WAL files. Files older than this will be deleted. Defaults to 336 hours (2 weeks).")
 	walCompressionAge = flag.Duration("walcompressage", 1*time.Hour, "Age at which to start compressing WAL files with gzip. Defaults to 1 hour.")
-	maxMemory         = flag.Int("maxmemory", 0, "Set to a non-zero value to cap the total size of the process in bytes")
+	maxMemory         = flag.Float64("maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
 	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
 	httpsAddr         = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
 	pprofAddr         = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
@@ -275,7 +275,7 @@ func main() {
 		WALSyncInterval:   *walSync,
 		MaxWALAge:         *maxWALAge,
 		WALCompressionAge: *walCompressionAge,
-		MaxMemoryBytes:    *maxMemory,
+		MaxMemoryRatio:    *maxMemory,
 		Passthrough:       *passthrough,
 		PartitionBy:       partitionByArray,
 		NumPartitions:     *numPartitions,

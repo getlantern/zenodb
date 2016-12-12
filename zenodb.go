@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/cloudfoundry/gosigar"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
@@ -27,7 +28,18 @@ import (
 
 var (
 	log = golog.LoggerFor("zenodb")
+
+	systemRAM float64
 )
+
+func init() {
+	mem := sigar.Mem{}
+	err := mem.Get()
+	if err != nil {
+		panic(fmt.Sprintf("Unable to get system memory: %v", err))
+	}
+	systemRAM = float64(mem.Total)
+}
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
@@ -60,9 +72,9 @@ type DBOpts struct {
 	// WALCompressionAge sets a cutoff for the age of WAL files that will be
 	// gzipped
 	WALCompressionAge time.Duration
-	// MaxMemoryBytes caps the maximum memory of this process. When the system
+	// MaxMemoryRatio caps the maximum memory of this process. When the system
 	// comes under memory pressure, it will start flushing table memstores.
-	MaxMemoryBytes int
+	MaxMemoryRatio float64
 	// Passthrough flags this node as a passthrough (won't store data in tables,
 	// just WAL). Passthrough nodes will also outsource queries to specific
 	// partition handlers. Requires that NumPartitions be specified.
@@ -289,7 +301,7 @@ func (db *DB) updateMemStats() {
 }
 
 func (db *DB) capMemStoreSize() {
-	if db.opts.MaxMemoryBytes <= 0 {
+	if db.opts.MaxMemoryRatio <= 0 {
 		return
 	}
 
@@ -301,15 +313,21 @@ func (db *DB) capMemStoreSize() {
 	db.tablesMutex.RUnlock()
 
 	db.flushMutex.Lock()
-	if atomic.LoadUint64(&db.memory) > uint64(db.opts.MaxMemoryBytes) {
+	actual := atomic.LoadUint64(&db.memory)
+	allowed := db.maxMemoryBytes()
+	if actual > allowed {
 		// Force flushing on the table with the largest memstore
 		sort.Sort(sizes)
-		log.Debugf("Forcing flush on %v", sizes[0].t.Name)
+		log.Debugf("Memory usage of %v exceeds allowed %v, forcing flush on %v", humanize.Bytes(actual), humanize.Bytes(allowed), sizes[0].t.Name)
 		sizes[0].t.forceFlush()
 		db.updateMemStats()
 		log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
 	}
 	db.flushMutex.Unlock()
+}
+
+func (db *DB) maxMemoryBytes() uint64 {
+	return uint64(systemRAM * db.opts.MaxMemoryRatio)
 }
 
 type memStoreSize struct {

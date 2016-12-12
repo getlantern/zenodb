@@ -285,7 +285,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 		}
 
 		var sortErr error
-		cout, sortErr = emsort.New(sout, chunk, less, rs.t.db.opts.MaxMemoryBytes/10)
+		cout, sortErr = emsort.New(sout, chunk, less, int(rs.t.db.maxMemoryBytes())/10)
 		if sortErr != nil {
 			panic(sortErr)
 		}
