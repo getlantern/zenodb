@@ -152,7 +152,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		registerAliases(opts.AliasesFile)
 	}
 
-	if opts.RedisClient != nil {
+	if opts.RedisClient != nil && opts.RedisCacheSize > 0 {
 		log.Debug("Enabling redis expressions")
 		geredis.Configure(opts.RedisClient, opts.RedisCacheSize)
 	}
@@ -174,6 +174,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		log.Debugf("Partitioning by: %v", strings.Join(db.opts.PartitionBy, ","))
 	}
 
+	if db.opts.MaxMemoryRatio > 0 {
+		log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
+	}
 	go db.trackMemStats()
 
 	return db, err
