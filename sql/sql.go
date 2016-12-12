@@ -15,13 +15,14 @@ import (
 	"github.com/getlantern/goexpr/isp"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/sqlparser"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/expr"
 )
 
 var (
 	log = golog.LoggerFor("zenodb.sql")
 
-	pointsField = NewField("_points", expr.SUM("_point"))
+	PointsField = core.NewField("_points", expr.SUM("_point"))
 )
 
 var (
@@ -88,52 +89,11 @@ var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CONCAT": goexpr.Concat,
 }
 
-// Field is a named Expr.
-type Field struct {
-	Expr expr.Expr
-	Name string
-}
-
-// NewField is a convenience method for creating new Fields.
-func NewField(name string, ex expr.Expr) Field {
-	return Field{
-		Expr: ex,
-		Name: name,
-	}
-}
-
-func (f Field) String() string {
-	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
-}
-
-// GroupBy is a named goexpr.Expr.
-type GroupBy struct {
-	Expr goexpr.Expr
-	Name string
-}
-
-// NewGroupBy is a convenience method for creating new Fields.
-func NewGroupBy(name string, ex goexpr.Expr) GroupBy {
-	return GroupBy{
-		Expr: ex,
-		Name: name,
-	}
-}
-
-func (g GroupBy) String() string {
-	return fmt.Sprintf("%v (%v)", g.Name, g.Expr)
-}
-
-// Order represents an element in the ORDER BY clause such as "field DESC".
-type Order struct {
-	Field      string
-	Descending bool
-}
-
 // SubQuery is a placeholder for a sub query within a query. Executors of a
 // query should first execute all SubQueries and then call SetResult to set the
 // results of the subquery. The subquery
 type SubQuery struct {
+	Dim    string
 	SQL    string
 	result []goexpr.Expr
 }
@@ -153,7 +113,9 @@ func (sq *SubQuery) Values() []goexpr.Expr {
 type Query struct {
 	SQL string
 	// Fields are the fields from the SELECT clause in the order they appear.
-	Fields []Field
+	Fields            core.Fields
+	HasSelectAll      bool
+	HasSpecificFields bool
 	// From is the Table from the FROM clause
 	From         string
 	FromSubQuery *Query
@@ -165,15 +127,15 @@ type Query struct {
 	Until        time.Time
 	UntilOffset  time.Duration
 	// GroupBy are the GroupBy expressions ordered alphabetically by name.
-	GroupBy    []GroupBy
+	GroupBy    []core.GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab   goexpr.Expr
-	Having     expr.Expr
-	OrderBy    []Order
-	Offset     int
-	Limit      int
-	SubQueries []*SubQuery
+	Crosstab  goexpr.Expr
+	Having    expr.Expr
+	HavingSQL string
+	OrderBy   []core.OrderBy
+	Offset    int
+	Limit     int
 	// IncludedFields are the names of all knownFields included in this query.
 	IncludedFields []string
 	includedFields map[string]bool
@@ -181,15 +143,15 @@ type Query struct {
 	IncludedDims []string
 	includedDims map[string]bool
 	fieldSource  FieldSource
-	knownFields  []Field
-	fieldsMap    map[string]Field
+	knownFields  core.Fields
+	fieldsMap    map[string]core.Field
 }
 
 // FieldSource is a function that returns the known fields for a given table.
-type FieldSource func(table string) ([]Field, error)
+type FieldSource func(table string) (core.Fields, error)
 
-func noopFieldSource(table string) ([]Field, error) {
-	return []Field{}, nil
+func noopFieldSource(table string) (core.Fields, error) {
+	return core.Fields{}, nil
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -218,13 +180,13 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 	}
 	q := &Query{
 		SQL:            nodeToString(stmt),
-		fieldsMap:      make(map[string]Field),
+		fieldsMap:      make(map[string]core.Field),
 		fieldSource:    fieldSource,
 		includedFields: make(map[string]bool),
 		includedDims:   make(map[string]bool),
 	}
 	// Always include "_points"
-	q.includedFields[pointsField.Name] = true
+	q.includedFields[PointsField.Name] = true
 	err := q.applyFrom(stmt, fieldSource)
 	if err != nil {
 		return nil, err
@@ -286,11 +248,13 @@ func (q *Query) applySelect(stmt *sqlparser.Select) error {
 		}
 		switch e := _e.(type) {
 		case *sqlparser.StarExpr:
+			q.HasSelectAll = true
 			for _, field := range q.knownFields {
 				q.addField(field)
 				q.includedFields[field.Name] = true
 			}
 		case *sqlparser.NonStarExpr:
+			q.HasSpecificFields = true
 			if len(e.As) == 0 {
 				col, isColName := e.Expr.(*sqlparser.ColName)
 				if !isColName {
@@ -310,14 +274,14 @@ func (q *Query) applySelect(stmt *sqlparser.Select) error {
 			if err != nil {
 				return fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
 			}
-			q.addField(Field{fe.(expr.Expr), strings.ToLower(string(e.As))})
+			q.addField(core.NewField(strings.ToLower(string(e.As)), fe.(expr.Expr)))
 		}
 	}
 
 	return nil
 }
 
-func (q *Query) addField(field Field) {
+func (q *Query) addField(field core.Field) {
 	fieldAlreadySelected := false
 	for _, existingField := range q.Fields {
 		if existingField.Name == field.Name {
@@ -364,7 +328,7 @@ func (q *Query) applyWhere(stmt *sqlparser.Select) error {
 	}
 	log.Tracef("Applying where: %v", where)
 	q.Where = where
-	q.WhereSQL = nodeToString(stmt.Where)
+	q.WhereSQL = strings.TrimSpace(nodeToString(stmt.Where))
 	return err
 }
 
@@ -398,7 +362,7 @@ func (q *Query) applyTimeRange(stmt *sqlparser.Select) error {
 
 func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	groupedByAnything := false
-	groupBy := make(map[string]GroupBy)
+	groupBy := make(map[string]core.GroupBy)
 	var groupByNames []string
 	for _, e := range stmt.GroupBy {
 		groupedByAnything = true
@@ -457,7 +421,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 				if len(name) == 0 {
 					return fmt.Errorf("Expression %v needs to be named via an AS", nodeToString(nse))
 				}
-				groupBy[name] = NewGroupBy(name, ex)
+				groupBy[name] = core.NewGroupBy(name, ex)
 				groupByNames = append(groupByNames, name)
 			}
 		}
@@ -484,6 +448,7 @@ func (q *Query) applyHaving(stmt *sqlparser.Select) error {
 		if err != nil {
 			return fmt.Errorf("Invalid expression for HAVING clause: %v", err)
 		}
+		q.HavingSQL = nodeToString(stmt.Having.Expr)
 	}
 	return nil
 }
@@ -500,7 +465,7 @@ func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 			}
 		}
 		desc := strings.EqualFold("desc", _e.Direction)
-		q.OrderBy = append(q.OrderBy, Order{field, desc})
+		q.OrderBy = append(q.OrderBy, core.NewOrderBy(field, desc))
 	}
 	return nil
 }
@@ -752,12 +717,10 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				if parseErr != nil {
 					return nil, fmt.Errorf("In subquery %v: %v", nodeToString(stmt), parseErr)
 				}
-				if len(_sq.Fields) < 1 {
-					return nil, fmt.Errorf("Subqueries must select at least 1 field")
+				if len(_sq.Fields) != 1 {
+					return nil, fmt.Errorf("Subqueries must select at exactly 1 dimension")
 				}
-				sq := &SubQuery{SQL: nodeToString(stmt)}
-				q.SubQueries = append(q.SubQueries, sq)
-				right = sq
+				right = &SubQuery{Dim: _sq.Fields[0].Name, SQL: nodeToString(stmt)}
 			default:
 				return nil, fmt.Errorf("IN requires a list of values on the right hand side, not %v %v", reflect.TypeOf(e.Right), nodeToString(e.Right))
 			}
@@ -874,12 +837,12 @@ func (query *Query) AddPointsIfNecessary() {
 	// Add _points hidden field if necessary
 	foundPoints := false
 	for _, field := range query.Fields {
-		if field.String() == pointsField.String() {
+		if field.String() == PointsField.String() {
 			foundPoints = true
 			break
 		}
 	}
 	if !foundPoints {
-		query.Fields = append(query.Fields, pointsField)
+		query.Fields = append(query.Fields, PointsField)
 	}
 }

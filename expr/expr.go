@@ -45,6 +45,14 @@ func (p Map) Get(name string) (val float64, found bool) {
 	return val, found
 }
 
+// FloatParams is an implementation of Params that always returns the same
+// float64 value.
+type FloatParams float64
+
+func (p FloatParams) Get(name string) (val float64, found bool) {
+	return float64(p), true
+}
+
 // SubMerge is a function that merges other into data for a given Expr,
 // potentially taking into account the supplied metadata.
 type SubMerge func(data []byte, other []byte, metadata goexpr.Params)

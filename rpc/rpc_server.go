@@ -1,19 +1,18 @@
 package rpc
 
 import (
-	"net"
-
-	"github.com/getlantern/bytemap"
+	"context"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
-	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/core"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"net"
 )
 
 type Server interface {
-	Query(string, bool, grpc.ServerStream) error
+	Query(*Query, grpc.ServerStream) error
 
 	Follow(*zenodb.Follow, grpc.ServerStream) error
 
@@ -39,41 +38,37 @@ type server struct {
 	password string
 }
 
-func (s *server) Query(sqlString string, includeMemStore bool, stream grpc.ServerStream) error {
+func (s *server) Query(q *Query, stream grpc.ServerStream) error {
 	authorizeErr := s.authorize(stream)
 	if authorizeErr != nil {
 		return authorizeErr
 	}
 
-	query, err := s.db.SQLQuery(sqlString, includeMemStore)
+	source, err := s.db.Query(q.SQLString, q.IsSubQuery, q.SubQueryResults, q.IncludeMemStore)
 	if err != nil {
 		return err
 	}
 
-	result, err := query.Run(false)
+	// Send query metadata
+	md := zenodb.MetaDataFor(source)
+	err = stream.SendMsg(md)
 	if err != nil {
 		return err
 	}
 
-	rows := result.Rows
-	// Clear out result.Rows as we will be streaming these
-	result.Rows = nil
-
-	// Send header
-	err = stream.SendMsg(result)
+	rr := &RemoteQueryResult{}
+	err = source.Iterate(stream.Context(), func(row *core.FlatRow) (bool, error) {
+		rr.Row = row
+		return true, stream.SendMsg(rr)
+	})
 	if err != nil {
 		return err
 	}
 
-	// Stream rows
-	for _, row := range rows {
-		err = stream.SendMsg(row)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	// Send end of results
+	rr.Row = nil
+	rr.EndOfResults = true
+	return stream.SendMsg(rr)
 }
 
 func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
@@ -103,10 +98,9 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 		}
 	}
 
-	s.db.RegisterQueryHandler(r.Partition, func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (bool, error) {
+	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
 		sendErr := stream.SendMsg(&Query{
 			SQLString:       sqlString,
-			IncludeMemStore: includeMemStore,
 			IsSubQuery:      isSubQuery,
 			SubQueryResults: subQueryResults,
 		})
@@ -118,11 +112,10 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 		if sendErr != nil {
 			err := errors.New("Unable to send query: %v", sendErr)
 			finish(err)
-			return false, err
+			return err
 		}
 
 		var finalErr error
-		hasReadResult := false
 
 		for {
 			// Process current result
@@ -134,8 +127,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 			if m.EndOfResults {
 				break
 			}
-			onValue(m.Entry.Dims, m.Entry.Vals)
-			hasReadResult = true
+			onRow(m.Row)
 
 			// Read next result
 			m = &RemoteQueryResult{}
@@ -143,7 +135,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 		}
 
 		finish(finalErr)
-		return hasReadResult, finalErr
+		return finalErr
 	})
 
 	// Block on reading initial result to keep connection open

@@ -2,16 +2,22 @@ package zenodb
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/getlantern/zenodb/sql"
+	"github.com/getlantern/zenodb/planner"
 	"github.com/spaolacci/murmur3"
 	"sync"
 	"sync/atomic"
 	"time"
+)
+
+const (
+	keyIncludeMemStore = "zenodb.includeMemStore"
 )
 
 type Follow struct {
@@ -74,12 +80,12 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	}
 }
 
-func (db *DB) RegisterQueryHandler(partition int, query QueryRemote) {
+func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {
 	db.tablesMutex.Lock()
 	handlersCh := db.remoteQueryHandlers[partition]
 	if handlersCh == nil {
 		// TODO: maybe make size based on configuration or something
-		handlersCh = make(chan QueryRemote, 100)
+		handlersCh = make(chan planner.QueryClusterFN, 100)
 	}
 	db.remoteQueryHandlers[partition] = handlersCh
 	db.tablesMutex.Unlock()
@@ -97,13 +103,13 @@ func (db *DB) freshenRemoteQueryHandlers() {
 				if handler == nil {
 					break
 				}
-				go handler("", false, false, nil, nil)
+				go handler(context.Background(), "", false, nil, nil)
 			}
 		}
 	}
 }
 
-func (db *DB) remoteQueryHandlerForPartition(partition int) QueryRemote {
+func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryClusterFN {
 	db.tablesMutex.RLock()
 	defer db.tablesMutex.RUnlock()
 	select {
@@ -114,42 +120,30 @@ func (db *DB) remoteQueryHandlerForPartition(partition int) QueryRemote {
 	}
 }
 
-type remoteQueryable struct {
-	*table
-	exec  *queryExecution
-	query *sql.Query
-	res   time.Duration
+func withIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
+	return context.WithValue(ctx, keyIncludeMemStore, includeMemStore)
 }
 
-func (rq *remoteQueryable) fields() []sql.Field {
-	return rq.query.Fields
+func shouldIncludeMemStore(ctx context.Context) bool {
+	include := ctx.Value(keyIncludeMemStore)
+	return include != nil && include.(bool)
 }
 
-func (rq *remoteQueryable) resolution() time.Duration {
-	return rq.res
+func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+	source, err := db.Query(sqlString, isSubQuery, subQueryResults, shouldIncludeMemStore(ctx))
+	if err != nil {
+		return err
+	}
+	return source.Iterate(ctx, onRow)
 }
 
-func (rq *remoteQueryable) retentionPeriod() time.Duration {
-	return rq.table.retentionPeriod()
-}
-
-func (rq *remoteQueryable) truncateBefore() time.Time {
-	return rq.table.truncateBefore()
-}
-
-type remoteResult struct {
-	partition    int
-	handlerFound bool
-	results      int
-	err          error
-}
-
-func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
-	numPartitions := rq.db.opts.NumPartitions
+func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, onRow core.OnFlatRow) error {
+	ctx = withIncludeMemStore(ctx, includeMemStore)
+	numPartitions := db.opts.NumPartitions
 	results := make(chan *remoteResult, numPartitions)
 	resultsByPartition := make(map[int]*int64)
 	timedOut := false
-	var mx sync.RWMutex
+	var mx sync.Mutex
 
 	for i := 0; i < numPartitions; i++ {
 		partition := i
@@ -158,22 +152,26 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 		resultsByPartition[partition] = resultsForPartition
 		go func() {
 			for {
-				query := rq.db.remoteQueryHandlerForPartition(partition)
+				query := db.remoteQueryHandlerForPartition(partition)
 				if query == nil {
 					log.Errorf("No query handler for partition %d, ignoring", partition)
 					results <- &remoteResult{partition, false, 0, nil}
 					break
 				}
 
-				hasReadResult, err := query(rq.query.SQL, rq.exec.includeMemStore, rq.exec.isSubQuery, rq.exec.subQueryResults, func(key bytemap.ByteMap, values []encoding.Sequence) {
-					mx.RLock()
-					if !timedOut {
-						atomic.AddInt64(resultsForPartition, 1)
-						onValue(key, values)
+				err := query(ctx, sqlString, isSubQuery, subQueryResults, func(row *core.FlatRow) (bool, error) {
+					mx.Lock()
+					if timedOut {
+						mx.Unlock()
+						return false, core.ErrDeadlineExceeded
 					}
-					mx.RUnlock()
+					atomic.AddInt64(resultsForPartition, 1)
+					more, onRowErr := onRow(row)
+					mx.Unlock()
+					return more, onRowErr
 				})
-				if err != nil && !hasReadResult {
+
+				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue
 				}
@@ -210,7 +208,7 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 				}
 				timeout.Reset(nextTimeout)
 			}
-			log.Debugf("%d/%d got %d results from partition %d, next timeout: %v", resultCount, rq.db.opts.NumPartitions, result.results, result.partition, nextTimeout)
+			log.Debugf("%d/%d got %d results from partition %d, next timeout: %v", resultCount, db.opts.NumPartitions, result.results, result.partition, nextTimeout)
 			delete(resultsByPartition, result.partition)
 		case <-timeout.C:
 			mx.Lock()
@@ -232,4 +230,11 @@ func (rq *remoteQueryable) iterate(fields []string, includeMemStore bool, onValu
 	}
 
 	return finalErr
+}
+
+type remoteResult struct {
+	partition    int
+	handlerFound bool
+	results      int
+	err          error
 }

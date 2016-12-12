@@ -17,14 +17,13 @@ import (
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
-	"github.com/getlantern/zenodb/sql"
+	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/planner"
 )
 
 var (
 	log = golog.LoggerFor("zenodb")
 )
-
-type QueryFN func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onEntry func(*Entry) error) error
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
@@ -68,7 +67,7 @@ type DBOpts struct {
 	// Follow is a function that allows a follower to request following a stream
 	// from a passthrough node.
 	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
-	RegisterRemoteQueryHandler func(partition int, query QueryFN)
+	RegisterRemoteQueryHandler func(partition int, query planner.QueryClusterFN)
 }
 
 // DB is a zenodb database.
@@ -83,7 +82,7 @@ type DB struct {
 	nextTableToSort     int
 	memory              uint64
 	flushMutex          sync.Mutex
-	remoteQueryHandlers map[int]chan QueryRemote
+	remoteQueryHandlers map[int]chan planner.QueryClusterFN
 }
 
 // NewDB creates a database using the given options.
@@ -94,7 +93,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		clock:               vtime.RealClock,
 		tables:              make(map[string]*table),
 		streams:             make(map[string]*wal.WAL),
-		remoteQueryHandlers: make(map[int]chan QueryRemote),
+		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
@@ -134,11 +133,11 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 
 	if db.opts.RegisterRemoteQueryHandler != nil {
-		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.QueryForRemote)
+		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.queryForRemote)
 	}
 
 	if db.opts.Passthrough {
-		go db.freshenRemoteQueryHandlers()
+		// go db.freshenRemoteQueryHandlers()
 		log.Debugf("Partitioning by: %v", strings.Join(db.opts.PartitionBy, ","))
 	}
 
@@ -197,7 +196,11 @@ func (db *DB) getTable(table string) *table {
 	return t
 }
 
-func (db *DB) getFields(table string) ([]sql.Field, error) {
+func (db *DB) now(table string) time.Time {
+	return db.clock.Now()
+}
+
+func (db *DB) getFields(table string) (core.Fields, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil, fmt.Errorf("Table '%v' not found", table)
@@ -205,7 +208,7 @@ func (db *DB) getFields(table string) ([]sql.Field, error) {
 	return t.Fields, nil
 }
 
-func (db *DB) getFieldsOptional(table string) ([]sql.Field, error) {
+func (db *DB) getFieldsOptional(table string) (core.Fields, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil, nil

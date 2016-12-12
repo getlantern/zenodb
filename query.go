@@ -1,141 +1,104 @@
 package zenodb
 
 import (
+	"context"
 	"fmt"
-	"time"
-
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/goexpr"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/getlantern/zenodb/expr"
-	"github.com/getlantern/zenodb/sql"
+	"github.com/getlantern/zenodb/planner"
+	"time"
 )
 
-type queryable interface {
-	fields() []sql.Field
-	resolution() time.Duration
-	retentionPeriod() time.Duration
-	truncateBefore() time.Time
-	iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error
+func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
+	opts := &planner.Opts{
+		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource {
+			return db.getQueryable(table, includedFields, includeMemStore)
+		},
+		Now:             db.now,
+		FieldSource:     db.getFields,
+		IsSubQuery:      isSubQuery,
+		SubQueryResults: subQueryResults,
+	}
+	if db.opts.Passthrough {
+		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, onRow)
+		}
+		opts.PartitionBy = db.opts.PartitionBy
+	}
+	plan, err := planner.Plan(sqlString, opts)
+	if err != nil {
+		return nil, err
+	}
+	log.Debugf("\n------------ Query Plan ------------\n\n%v\n\n%v\n----------- End Query Plan ----------", sqlString, core.FormatSource(plan))
+	return plan, nil
 }
 
-type query struct {
-	fields      []string
-	filter      goexpr.Expr
-	asOf        time.Time
-	asOfOffset  time.Duration
-	until       time.Time
-	untilOffset time.Duration
-	onValues    func(key bytemap.ByteMap, field string, e expr.Expr, seq encoding.Sequence, startOffset int)
-	t           queryable
+func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) core.Fields, includeMemStore bool) *queryable {
+	t := db.getTable(table)
+	if t == nil {
+		return nil
+	}
+	until := encoding.RoundTime(db.clock.Now(), t.Resolution)
+	asOf := encoding.RoundTime(until.Add(-1*t.RetentionPeriod), t.Resolution)
+	return &queryable{t, includedFields(t.Fields), asOf, until, includeMemStore}
 }
 
-type QueryStats struct {
-	Scanned      int64
-	FilterPass   int64
-	FilterReject int64
-	ReadValue    int64
-	DataValid    int64
-	InTimeRange  int64
-	Runtime      time.Duration
+type QueryMetaData struct {
+	FieldNames []string
+	AsOf       time.Time
+	Until      time.Time
+	Resolution time.Duration
+	Plan       string
 }
 
-func (q *query) init(db *DB) error {
-	// Set up time-based parameters
-	now := db.clock.Now()
-	truncateBefore := q.t.truncateBefore()
-	if q.asOf.IsZero() && q.asOfOffset >= 0 {
-		log.Trace("No asOf and no negative asOfOffset, defaulting to retention period")
-		q.asOf = truncateBefore
+func MetaDataFor(source core.FlatRowSource) *QueryMetaData {
+	return &QueryMetaData{
+		FieldNames: source.GetFields().Names(),
+		AsOf:       source.GetAsOf(),
+		Until:      source.GetUntil(),
+		Resolution: source.GetResolution(),
+		Plan:       core.FormatSource(source),
 	}
-	if q.asOf.IsZero() {
-		q.asOf = now.Add(q.asOfOffset)
-		log.Tracef("Defaulting asOf to %v based on now %v and asOfOffset %v", q.asOf, now, q.asOfOffset)
-	}
-	if q.asOf.Before(truncateBefore) {
-		log.Tracef("asOf %v before end of retention window %v, using retention period instead", q.asOf.In(time.UTC), truncateBefore.In(time.UTC))
-		q.asOf = truncateBefore
-	}
-	if q.until.IsZero() {
-		q.until = now
-		if q.untilOffset != 0 {
-			q.until = q.until.Add(q.untilOffset)
-		}
-	}
-	q.until = encoding.RoundTime(q.until, q.t.resolution())
-	q.asOf = encoding.RoundTime(q.asOf, q.t.resolution())
-
-	return nil
 }
 
-func (q *query) run(db *DB, includeMemStore bool) (*QueryStats, error) {
-	start := time.Now()
-	stats := &QueryStats{}
+type queryable struct {
+	t               *table
+	fields          core.Fields
+	asOf            time.Time
+	until           time.Time
+	includeMemStore bool
+}
 
-	if q.t == nil {
-		err := q.init(db)
-		if err != nil {
-			return nil, err
-		}
-	}
-	numPeriods := int(q.until.Sub(q.asOf) / q.t.resolution())
-	log.Tracef("Query will return %d periods for range %v to %v", numPeriods, q.asOf, q.until)
+func (q *queryable) GetFields() core.Fields {
+	// We report all fields from the table
+	return q.t.Fields
+}
 
-	allFields := q.t.fields()
-	iterateErr := q.t.iterate(q.fields, includeMemStore, func(key bytemap.ByteMap, columns []encoding.Sequence) {
-		stats.Scanned++
+func (q *queryable) GetGroupBy() []core.GroupBy {
+	return q.t.GroupBy
+}
 
-		testedInclude := false
-		shouldInclude := func() (bool, error) {
-			return true, nil
-		}
-		if q.filter != nil {
-			shouldInclude = func() (bool, error) {
-				include := q.filter.Eval(key)
-				inc, ok := include.(bool)
-				if !ok {
-					return false, fmt.Errorf("Filter expression returned something other than a boolean: %v", include)
-				}
-				if !inc {
-					stats.FilterReject++
-					return false, nil
-				}
-				stats.FilterPass++
-				return true, nil
-			}
-		}
+func (q *queryable) GetResolution() time.Duration {
+	return q.t.Resolution
+}
 
-		for i := 0; i < len(columns); i++ {
-			stats.ReadValue++
-			field := allFields[i]
-			e := field.Expr
-			encodedWidth := e.EncodedWidth()
-			seq := columns[i]
-			if len(seq) > 0 {
-				stats.DataValid++
-				if log.IsTraceEnabled() {
-					log.Tracef("Reading encoding.Sequence %v", seq.String(e))
-				}
-				seq = seq.Truncate(encodedWidth, q.t.resolution(), q.asOf)
-				if seq != nil {
-					if !testedInclude {
-						include, includeErr := shouldInclude()
-						if includeErr != nil {
-							log.Error(includeErr)
-							return
-						}
-						if !include {
-							return
-						}
-						testedInclude = true
-					}
-					stats.InTimeRange++
-					startOffset := int(seq.Start().Sub(q.until) / q.t.resolution())
-					q.onValues(key, field.Name, e, seq, startOffset)
-				}
-			}
-		}
+func (q *queryable) GetAsOf() time.Time {
+	return q.asOf
+}
+
+func (q *queryable) GetUntil() time.Time {
+	return q.until
+}
+
+func (q *queryable) String() string {
+	return fmt.Sprintf("%v (%v)", q.t.Name, q.GetFields().Names())
+}
+
+func (q *queryable) Iterate(ctx context.Context, onRow core.OnRow) error {
+	// When iterating, as an optimization, we read only the needed fields (not
+	// all table fields).
+	return q.t.iterate(q.fields.Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
+		onRow(key, vals)
 	})
-	stats.Runtime = time.Now().Sub(start)
-	return stats, iterateErr
 }

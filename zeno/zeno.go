@@ -17,6 +17,7 @@ import (
 	"github.com/getlantern/tlsdefaults"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/rpc"
 	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
@@ -95,7 +96,7 @@ func main() {
 
 	clientSessionCache := tls.NewLRUClientSessionCache(10000)
 	var follow func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
-	var registerQueryHandler func(partition int, query zenodb.QueryFN)
+	var registerQueryHandler func(partition int, query planner.QueryClusterFN)
 	if *capture != "" {
 		host, _, _ := net.SplitHostPort(*capture)
 		clientTLSConfig := &tls.Config{
@@ -203,7 +204,7 @@ func main() {
 			clients = append(clients, client)
 			log.Debugf("Handling queries for: %v", leader)
 		}
-		registerQueryHandler = func(partition int, query zenodb.QueryFN) {
+		registerQueryHandler = func(partition int, query planner.QueryClusterFN) {
 			minWaitTime := 50 * time.Millisecond
 			maxWaitTime := 5 * time.Second
 
