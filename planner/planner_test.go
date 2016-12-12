@@ -49,7 +49,7 @@ func TestPlans(t *testing.T) {
 		return Flatten(&testTable{"tablea", defaultFields})
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea"},
+			query: &sql.Query{SQL: "select * from TableA"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -57,11 +57,11 @@ func TestPlans(t *testing.T) {
 		}))
 	})
 
-	scenario("WHERE clause", "SELECT * FROM TableA WHERE x > 5", func() Source {
-		return Flatten(RowFilter(&testTable{"tablea", defaultFields}, "where x > 5", nil))
+	scenario("WHERE clause", "SELECT * FROM TableA WHERE x = 'CN'", func() Source {
+		return Flatten(RowFilter(&testTable{"tablea", defaultFields}, "where x = 'CN'", nil))
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea where x > 5"},
+			query: &sql.Query{SQL: "select * from TableA where x = 'CN'"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -73,7 +73,7 @@ func TestPlans(t *testing.T) {
 		return Flatten(RowFilter(&testTable{"tablea", defaultFields}, "where dim in (select dim as dim from tableb)", nil))
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea where dim in (select dim from tableb)"},
+			query: &sql.Query{SQL: "select * from TableA where dim in (select dim from tableb)"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -85,7 +85,7 @@ func TestPlans(t *testing.T) {
 		return Limit(Offset(Flatten(&testTable{"tablea", defaultFields}), 2), 5)
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea"},
+			query: &sql.Query{SQL: "select * from TableA"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return Limit(Offset(Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -100,7 +100,7 @@ func TestPlans(t *testing.T) {
 		}))
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select *, a+b as total from tablea"},
+			query: &sql.Query{SQL: "select *, a+b as total from TableA"},
 		}
 		fieldTotal := NewField("total", ADD(eA, eB))
 		fields := Fields{sql.PointsField, fieldA, fieldB, fieldTotal}
@@ -116,7 +116,7 @@ func TestPlans(t *testing.T) {
 		})), "a+b > 0", nil)
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea"},
+			query: &sql.Query{SQL: "select * from TableA"},
 		}
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		fields := Fields{sql.PointsField, fieldA, fieldB}
@@ -224,7 +224,7 @@ func TestPlans(t *testing.T) {
 	}, func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea group by y"},
+			query: &sql.Query{SQL: "select * from TableA group by y"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -242,7 +242,7 @@ func TestPlans(t *testing.T) {
 	}, func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea group by concat(',', z, 'thing') as zplus"},
+			query: &sql.Query{SQL: "select * from TableA group by concat(',', z, 'thing') as zplus"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -258,7 +258,7 @@ func TestPlans(t *testing.T) {
 		}))
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea ASOF '-5s'"},
+			query: &sql.Query{SQL: "select * from TableA ASOF '-5s'"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -274,7 +274,7 @@ func TestPlans(t *testing.T) {
 		}))
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea ASOF '-5s' UNTIL '-1s'"},
+			query: &sql.Query{SQL: "select * from TableA ASOF '-5s' UNTIL '-1s'"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -289,7 +289,7 @@ func TestPlans(t *testing.T) {
 		}))
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea group by period(2 as s)"},
+			query: &sql.Query{SQL: "select * from TableA group by period(2 as s)"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return Flatten(Group(Unflatten(t, fields...), GroupOpts{
@@ -298,13 +298,13 @@ func TestPlans(t *testing.T) {
 		}))
 	})
 	//
-	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x > 5 GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
+	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x = 'CN' GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
 		return Limit(
 			Offset(
 				Sort(
 					Flatten(
 						Group(
-							RowFilter(&testTable{"tablea", defaultFields}, "where x > 5", nil),
+							RowFilter(&testTable{"tablea", defaultFields}, "where x = 'CN'", nil),
 							GroupOpts{
 								By:         []GroupBy{groupByY},
 								Fields:     Fields{sql.PointsField, NewField("a", eA), NewField("b", eB), NewField("total", ADD(eA, eB))},
@@ -318,7 +318,7 @@ func TestPlans(t *testing.T) {
 		)
 	}, func() Source {
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select *, a+b as total from tablea ASOF '-5s' UNTIL '-1s' where x > 5 group by y, period(2 as s)"},
+			query: &sql.Query{SQL: "select *, a+b as total from TableA ASOF '-5s' UNTIL '-1s' where x = 'CN' group by y, period(2 as s)"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB, NewField("total", ADD(eA, eB))}
 		return Limit(Offset(Sort(Flatten(Group(Unflatten(t, fields...), GroupOpts{

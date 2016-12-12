@@ -177,10 +177,11 @@ func planClusterPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, erro
 
 func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
 	// Remove having, order by and limit from query
-	sqlString := strings.ToLower(query.SQL)
-	indexOfHaving := strings.Index(sqlString, "having ")
-	indexOfOrderBy := strings.Index(sqlString, "order by ")
-	indexOfLimit := strings.Index(sqlString, "limit ")
+	sqlString := query.SQL
+	lowerSQL := strings.ToLower(sqlString)
+	indexOfHaving := strings.Index(lowerSQL, "having ")
+	indexOfOrderBy := strings.Index(lowerSQL, "order by ")
+	indexOfLimit := strings.Index(lowerSQL, "limit ")
 	if indexOfHaving > 0 {
 		sqlString = sqlString[:indexOfHaving]
 	} else if indexOfOrderBy > 0 {
