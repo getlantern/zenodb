@@ -22,7 +22,7 @@ import (
 	"github.com/getlantern/zenodb/rpc"
 	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
-	"gopkg.in/redis.v3"
+	"gopkg.in/redis.v5"
 )
 
 var (

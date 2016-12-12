@@ -23,7 +23,7 @@ import (
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/rickar/props"
-	"gopkg.in/redis.v3"
+	"gopkg.in/redis.v5"
 )
 
 var (
