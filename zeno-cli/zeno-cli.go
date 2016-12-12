@@ -375,7 +375,6 @@ func dumpCSV(stdout io.Writer, md *zenodb.QueryMetaData, iterate func(onRow core
 			for _, dim := range dimNames {
 				val := dims[dim]
 				rowStrings = append(rowStrings, fmt.Sprint(nilToBlank(val)))
-				rowStrings = append(rowStrings, fmt.Sprint(nilToBlank(val)))
 				knownDims = append(knownDims, dim)
 			}
 		}
