@@ -175,7 +175,7 @@ func TestPlans(t *testing.T) {
 		}
 	})
 
-	scenario("HAVING clause with contiguous group by in subselect but discontiguous group by in main select, pushdown not allowed", "SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, x) GROUP BY y HAVING a+b > 0", func() Source {
+	scenario("HAVING clause with contiguous group by in subselect but discontiguous group by in main select, pushdown not allowed", "SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, CONCAT(',', x, 'thing') AS xplus) GROUP BY y, xplus HAVING a+b > 0", func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
 		fields := Fields{sql.PointsField, fieldA, fieldB}
@@ -186,13 +186,13 @@ func TestPlans(t *testing.T) {
 						Flatten(
 							Group(&testTable{"tablea", defaultFields}, GroupOpts{
 								Fields: fields,
-								By:     []GroupBy{groupByX, groupByY},
+								By:     []GroupBy{NewGroupBy("xplus", goexpr.Concat(goexpr.Constant(","), goexpr.Param("x"), goexpr.Constant("thing"))), groupByY},
 							}),
 						),
 						avgTotal),
 					GroupOpts{
 						Fields: Fields{avgTotal, fieldHaving},
-						By:     []GroupBy{groupByY},
+						By:     []GroupBy{NewGroupBy("xplus", goexpr.Param("xplus")), groupByY},
 					},
 				),
 			), "a+b > 0", nil)
@@ -201,7 +201,7 @@ func TestPlans(t *testing.T) {
 		avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
 		fields := Fields{avgTotal}
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from TableA group by y, x"},
+			query: &sql.Query{SQL: "select * from TableA group by y, concat(',', x, 'thing') as xplus"},
 		}
 		return FlatRowFilter(
 			Flatten(
@@ -209,7 +209,7 @@ func TestPlans(t *testing.T) {
 					Unflatten(t, fields...),
 					GroupOpts{
 						Fields: Fields{avgTotal, fieldHaving},
-						By:     []GroupBy{groupByY},
+						By:     []GroupBy{NewGroupBy("xplus", goexpr.Param("xplus")), groupByY},
 					},
 				),
 			), "a+b > 0", nil)
@@ -233,21 +233,21 @@ func TestPlans(t *testing.T) {
 		})), "a+b > 0", nil)
 	})
 
-	scenario("HAVING clause with group by on non partition key, pushdown not allowed", "SELECT * FROM TableA GROUP BY z HAVING a+b > 0", func() Source {
+	scenario("HAVING clause with group by on non partition key, pushdown not allowed", "SELECT * FROM TableA GROUP BY CONCAT(',', z, 'thing') as zplus HAVING a+b > 0", func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		return FlatRowFilter(Flatten(Group(&testTable{"tablea", defaultFields}, GroupOpts{
 			Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []GroupBy{NewGroupBy("z", goexpr.Param("z"))},
+			By:     []GroupBy{NewGroupBy("zplus", goexpr.Concat(goexpr.Constant(","), goexpr.Param("z"), goexpr.Constant("thing")))},
 		})), "a+b > 0", nil)
 	}, func() Source {
 		fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 		t := &clusterSource{
-			query: &sql.Query{SQL: "select * from tablea group by z"},
+			query: &sql.Query{SQL: "select * from tablea group by concat(',', z, 'thing') as zplus"},
 		}
 		fields := Fields{sql.PointsField, fieldA, fieldB}
 		return FlatRowFilter(Flatten(Group(Unflatten(t, fields...), GroupOpts{
 			Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
-			By:     []GroupBy{NewGroupBy("z", goexpr.Param("z"))},
+			By:     []GroupBy{NewGroupBy("zplus", goexpr.Param("zplus"))},
 		})), "a+b > 0", nil)
 	})
 

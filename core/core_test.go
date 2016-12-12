@@ -244,7 +244,8 @@ func (s *testSource) GetFields() Fields {
 }
 
 func (s *testSource) GetGroupBy() []GroupBy {
-	return []GroupBy{}
+	x, _ := goexpr.Binary("+", goexpr.Param("x"), goexpr.Constant(1))
+	return []GroupBy{NewGroupBy("x", x), NewGroupBy("y", goexpr.Param("y"))}
 }
 
 func (s *testSource) GetResolution() time.Duration {

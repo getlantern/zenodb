@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"fmt"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
 	"strings"
@@ -205,6 +206,12 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		planAsIfLocal: pail,
 	}, query.Fields...)
 
+	// Flatten group by to just params
+	flattenedGroupBys := make([]core.GroupBy, 0, len(query.GroupBy))
+	for _, groupBy := range query.GroupBy {
+		flattenedGroupBys = append(flattenedGroupBys, core.NewGroupBy(groupBy.Name, goexpr.Param(groupBy.Name)))
+	}
+	query.GroupBy = flattenedGroupBys
 	var flat core.FlatRowSource = core.Flatten(addGroupBy(unflat, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)

@@ -186,7 +186,7 @@ func TestFromSubQuery(t *testing.T) {
 		}
 		return core.Fields{field}, nil
 	}
-	subSQL := "SELECT name, * FROM the_table ASOF '-2h' UNTIL '-1h' GROUP BY *, period('5s') HAVING stuff > 5"
+	subSQL := "SELECT name, * FROM the_table ASOF '-2h' UNTIL '-1h' GROUP BY CONCAT(',', A, B) AS A, period('5s') HAVING stuff > 5"
 	subQuery, err := Parse(subSQL, fieldSource)
 	if !assert.NoError(t, err) {
 		return
@@ -196,7 +196,7 @@ func TestFromSubQuery(t *testing.T) {
 	q, err := Parse(fmt.Sprintf(`
 SELECT AVG(field) AS the_avg, *
 FROM (%s)
-GROUP BY *, period('10s')
+GROUP BY A, period('10s')
 `, subSQL), fieldSource)
 	if !assert.NoError(t, err) {
 		return
@@ -223,6 +223,10 @@ GROUP BY *, period('10s')
 		expected = core.NewField("field", MAX("field")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
+	}
+
+	if assert.Len(t, q.GroupBy, 1) {
+		assert.Equal(t, core.NewGroupBy("a", goexpr.Param("a")), q.GroupBy[0])
 	}
 }
 
