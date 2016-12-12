@@ -19,7 +19,7 @@ func TestSQL(t *testing.T) {
 	RegisterUnaryDIMFunction("TEST", func(val goexpr.Expr) goexpr.Expr {
 		return &testexpr{val}
 	})
-	RegisterAlias("MYALIAS", "ANY(%v, HMGET('hash', %v), %v)")
+	RegisterAlias("MYALIAS", "ANY(%v, HGET('hash', %v), %v)")
 	known := AVG("k")
 	knownField := core.NewField("knownfield", known)
 	oKnownField := core.NewField("oknownfield", SUM("o"))
@@ -121,7 +121,7 @@ LIMIT 100, 10
 	assert.Equal(t, "table_a", q.From)
 	if assert.Len(t, q.GroupBy, 11) {
 		idx := 0
-		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HMGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))), q.GroupBy[idx])
+		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))), q.GroupBy[idx])
 		idx++
 		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++

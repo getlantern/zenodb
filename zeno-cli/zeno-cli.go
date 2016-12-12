@@ -35,6 +35,7 @@ var (
 
 	addr       = flag.String("addr", ":17712", "The address to which to connect with gRPC over TLS, defaults to localhost:17712")
 	insecure   = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to the server (don't use this in production!)")
+	timeout    = flag.Duration("timeout", 1*time.Minute, "specify the timeout for queries, defaults to 1 minute")
 	fresh      = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
 	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
 	password   = flag.String("password", "", "if specified, will authenticate against server using this password")
@@ -130,7 +131,9 @@ func processLine(rl *readline.Instance, client rpc.Client, cmds []string, line s
 }
 
 func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, csv bool) error {
-	md, iterate, err := client.Query(context.Background(), sql, *fresh)
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	md, iterate, err := client.Query(ctx, sql, *fresh)
 	if err != nil {
 		return err
 	}
@@ -396,6 +399,11 @@ func dumpCSV(stdout io.Writer, md *zenodb.QueryMetaData, iterate func(onRow core
 
 	if err != nil {
 		return err
+	}
+
+	if true {
+		// Skip writing header for now
+		return nil
 	}
 
 	// Write header

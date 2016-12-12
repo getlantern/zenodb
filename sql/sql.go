@@ -77,7 +77,7 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 }
 
 var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
-	"HMGET": redis.HMGet,
+	"HGET": redis.HGet,
 }
 
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {

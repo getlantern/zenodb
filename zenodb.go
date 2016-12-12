@@ -45,7 +45,7 @@ type DBOpts struct {
 	// use of ISP functions.
 	ISPProvider isp.Provider
 	// RedisClient provides a connection to redis which enables the use of Redis
-	// expressions like HMGET.
+	// expressions like HGET.
 	RedisClient *redis.Client
 	// RedisCacheSize controls the size of redis hash caches
 	RedisCacheSize int

@@ -58,7 +58,7 @@ var (
 	redisCA           = flag.String("redisca", "", "Certificate for redislabs's CA")
 	redisClientPK     = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
 	redisClientCert   = flag.String("redisclientcert", "", "Certificate for authenticating client to redis's stunnel")
-	redisCacheSize    = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HMGET operations, defaults to 25,000 per hash")
+	redisCacheSize    = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HGET operations, defaults to 25,000 per hash")
 )
 
 func main() {
