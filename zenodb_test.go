@@ -139,7 +139,7 @@ Test_a:
       z
     FROM inbound
     WHERE r = 'A'
-    GROUP BY *, period(1ms)
+    GROUP BY r, u, b, period(1ms)
 `
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
 	if !assert.NoError(t, err, "Unable to write schemaA") {
@@ -148,6 +148,7 @@ Test_a:
 
 	db, advanceClock, modifyTable := buildDB(tmpDir, tmpFile.Name())
 
+	// TODO: verify that we can actually select successfully from the view.
 	schemaB := schemaA + `
 view_a:
   view: true
