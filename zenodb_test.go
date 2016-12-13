@@ -331,6 +331,7 @@ func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, re
 SELECT
 	iii / 2 AS ciii,
 	IF(b != true, ii) AS ii,
+	biv / 10 AS biv,
 	*,
 	IF(b = true, i) AS i_filtered,
 	_points
@@ -368,7 +369,7 @@ ORDER BY u DESC
 		return
 	}
 	// TODO: _having shouldn't bleed through like that
-	assert.Equal(t, []string{"ciii", "ii", "_points", "i", "iii", "iv", "biv", "z", "i_filtered"}, md.FieldNames)
+	assert.Equal(t, []string{"ciii", "ii", "biv", "_points", "i", "iii", "iv", "z", "i_filtered"}, md.FieldNames)
 
 	fieldIdx := func(name string) int {
 		for i, candidate := range md.FieldNames {
@@ -393,7 +394,7 @@ ORDER BY u DESC
 	assert.EqualValues(t, 122, rows[1].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 244, rows[1].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 20, rows[1].Values[ivIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 10, rows[1].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 1, rows[1].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
 
 	assert.EqualValues(t, 1, rows[0].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
