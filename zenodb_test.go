@@ -136,6 +136,8 @@ Test_a:
       IF(md = 'glub', SUM(i)) AS i,
       ii,
       i * ii / COUNT(ii) AS iii,
+      AVG(iv) AS iv,
+      AVG(BOUNDED(iv, 0, 10)) as biv,
       z
     FROM inbound
     WHERE r = 'A'
@@ -216,6 +218,7 @@ view_a:
 		map[string]float64{
 			"i":  1,
 			"ii": 2,
+			"iv": 10,
 		})
 	shuffleFields()
 
@@ -231,6 +234,7 @@ view_a:
 		map[string]float64{
 			"i":  1,
 			"ii": 2,
+			"iv": 10,
 		})
 	shuffleFields()
 
@@ -245,6 +249,7 @@ view_a:
 		map[string]float64{
 			"i":  10,
 			"ii": 20,
+			"iv": 20,
 		})
 	shuffleFields()
 
@@ -276,6 +281,7 @@ view_a:
 		map[string]float64{
 			"i":  111,
 			"ii": 222,
+			"iv": 30,
 		})
 	shuffleFields()
 
@@ -362,7 +368,7 @@ ORDER BY u DESC
 		return
 	}
 	// TODO: _having shouldn't bleed through like that
-	assert.Equal(t, []string{"ciii", "ii", "_points", "i", "iii", "z", "i_filtered"}, md.FieldNames)
+	assert.Equal(t, []string{"ciii", "ii", "_points", "i", "iii", "iv", "biv", "z", "i_filtered"}, md.FieldNames)
 
 	fieldIdx := func(name string) int {
 		for i, candidate := range md.FieldNames {
@@ -377,6 +383,8 @@ ORDER BY u DESC
 	iIdx := fieldIdx("i")
 	iiIdx := fieldIdx("ii")
 	ciiiIdx := fieldIdx("ciii")
+	ivIdx := fieldIdx("iv")
+	bivIdx := fieldIdx("biv")
 	zIdx := fieldIdx("z")
 	iFilteredIdx := fieldIdx("i_filtered")
 
@@ -384,12 +392,16 @@ ORDER BY u DESC
 	assert.EqualValues(t, 0, rows[1].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 122, rows[1].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 244, rows[1].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 20, rows[1].Values[ivIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 10, rows[1].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
 
 	assert.EqualValues(t, 1, rows[0].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[0].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 31, rows[0].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 42, rows[0].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 0, rows[0].Values[ivIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 0, rows[0].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 53, rows[0].Values[zIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
 }

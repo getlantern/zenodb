@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"fmt"
 	"github.com/getlantern/goexpr"
 )
 
@@ -63,5 +64,5 @@ func (e *bounded) IsConstant() bool {
 }
 
 func (e *bounded) String() string {
-	return e.wrapped.String()
+	return fmt.Sprintf("BOUNDED(%v, %v, %v)", e.wrapped, e.min, e.max)
 }

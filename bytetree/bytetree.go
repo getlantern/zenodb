@@ -46,8 +46,8 @@ func New(
 	until time.Time,
 ) *Tree {
 	var subMergers [][]expr.SubMerge
-	for _, e := range outExprs {
-		subMergers = append(subMergers, e.SubMergers(inExprs))
+	for _, o := range outExprs {
+		subMergers = append(subMergers, o.SubMergers(inExprs))
 	}
 	return &Tree{
 		outExprs:      outExprs,

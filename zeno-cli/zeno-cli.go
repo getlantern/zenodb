@@ -37,6 +37,7 @@ var (
 	insecure   = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to the server (don't use this in production!)")
 	timeout    = flag.Duration("timeout", 1*time.Minute, "specify the timeout for queries, defaults to 1 minute")
 	fresh      = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
+	porcelain  = flag.Bool("porcelain", false, "Set this flag to display results in a more machine-readable format (e.g. no headers)")
 	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
 	password   = flag.String("password", "", "if specified, will authenticate against server using this password")
 )
@@ -400,7 +401,7 @@ func dumpCSV(stdout io.Writer, md *zenodb.QueryMetaData, iterate func(onRow core
 		return err
 	}
 
-	if true {
+	if *porcelain {
 		// Skip writing header for now
 		return nil
 	}
