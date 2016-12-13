@@ -201,6 +201,7 @@ func (rs *rowStore) processInserts() {
 		select {
 		case insert := <-rs.inserts:
 			rs.mx.Lock()
+			rs.t.updateHighWaterMarkMemory(insert.vals.TimeInt())
 			ms.tree.Update(insert.key, nil, insert.vals, insert.metadata)
 			ms.offset = insert.offset
 			rs.mx.Unlock()
@@ -291,6 +292,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 		}
 	}
 
+	highWaterMark := int64(0)
 	truncateBefore := rs.t.truncateBefore()
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence) {
 		hasActiveSequence := false
@@ -310,6 +312,10 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 		rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
 		for _, seq := range columns {
 			rowLength += encoding.Width64bits + len(seq)
+			ts := seq.UntilInt()
+			if ts > highWaterMark {
+				highWaterMark = ts
+			}
 		}
 
 		var o io.Writer = cout
@@ -395,6 +401,8 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	} else {
 		rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
 	}
+
+	rs.t.updateHighWaterMarkDisk(highWaterMark)
 	return flushDuration
 }
 

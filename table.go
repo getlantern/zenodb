@@ -53,13 +53,16 @@ type TableOpts struct {
 type table struct {
 	*TableOpts
 	sql.Query
-	db         *DB
-	rowStore   *rowStore
-	log        golog.Logger
-	whereMutex sync.RWMutex
-	stats      TableStats
-	statsMutex sync.RWMutex
-	wal        *wal.Reader
+	db                  *DB
+	rowStore            *rowStore
+	log                 golog.Logger
+	whereMutex          sync.RWMutex
+	stats               TableStats
+	statsMutex          sync.RWMutex
+	wal                 *wal.Reader
+	highWaterMarkDisk   int64
+	highWaterMarkMemory int64
+	highWaterMarkMx     sync.RWMutex
 }
 
 // CreateTable creates a table based on the given opts.
@@ -216,6 +219,9 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	}
 
 	go t.processInserts()
+	if !t.db.opts.Passthrough {
+		go t.logHighWaterMark()
+	}
 	return nil
 }
 
@@ -266,4 +272,31 @@ func (t *table) memStoreSize() int {
 
 func (t *table) forceFlush() {
 	t.rowStore.forceFlush()
+}
+
+func (t *table) logHighWaterMark() {
+	for {
+		time.Sleep(15 * time.Second)
+		t.highWaterMarkMx.RLock()
+		disk := t.highWaterMarkDisk
+		memory := t.highWaterMarkMemory
+		t.highWaterMarkMx.RUnlock()
+		t.log.Debugf("High Water Mark    disk: %v    memory: %v", encoding.TimeFromInt(disk).In(time.UTC), encoding.TimeFromInt(memory).In(time.UTC))
+	}
+}
+
+func (t *table) updateHighWaterMarkDisk(ts int64) {
+	t.highWaterMarkMx.Lock()
+	if ts > t.highWaterMarkDisk {
+		t.highWaterMarkDisk = ts
+	}
+	t.highWaterMarkMx.Unlock()
+}
+
+func (t *table) updateHighWaterMarkMemory(ts int64) {
+	t.highWaterMarkMx.Lock()
+	if ts > t.highWaterMarkMemory {
+		t.highWaterMarkMemory = ts
+	}
+	t.highWaterMarkMx.Unlock()
 }

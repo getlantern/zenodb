@@ -49,6 +49,14 @@ func (seq Sequence) Until() time.Time {
 	return TimeFromBytes(seq)
 }
 
+// Until returns the most recent date represented by this Sequence as an integer
+func (seq Sequence) UntilInt() int64 {
+	if len(seq) == 0 {
+		return 0
+	}
+	return TimeIntFromBytes(seq)
+}
+
 // AsOf returns the oldest date represented by this Sequence.
 func (seq Sequence) AsOf(width int, resolution time.Duration) time.Time {
 	if len(seq) == 0 {

@@ -25,6 +25,10 @@ func (tsp TSParams) TimeAndParams() (time.Time, expr.Params) {
 	return ts, params
 }
 
+func (tsp TSParams) TimeInt() int64 {
+	return TimeIntFromBytes(tsp)
+}
+
 // bytemapParams is an implementation of the expr.Params interface backed by a
 // ByteMap.
 type bytemapParams bytemap.ByteMap
