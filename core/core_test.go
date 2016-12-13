@@ -20,9 +20,10 @@ var (
 	asOf       = epoch.Add(-10 * resolution)
 	until      = epoch
 
-	cond, _ = goexpr.Boolean(">", goexpr.Param("d"), goexpr.Constant(0))
-	eA, _   = IF(cond, SUM("a"))
-	eB      = SUM("b")
+	cond, _    = goexpr.Boolean(">", goexpr.Param("d"), goexpr.Constant(0))
+	eA, _      = IF(cond, SUM("a"))
+	eB         = SUM("b")
+	totalField = NewField("total", ADD(eA, eB))
 
 	errTest = errors.New("test error")
 )
@@ -196,11 +197,27 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 }
 
 func TestUnflattenTransform(t *testing.T) {
-	ex := ADD(AVG("a"), AVG("b"))
-
+	avgTotal := ADD(AVG("a"), AVG("b"))
 	f := Flatten(&goodSource{})
-	u := Unflatten(f, NewField("total", ex))
+	u := Unflatten(f, NewField("total", avgTotal))
+	doTestUnflattened(t, u, avgTotal)
+}
 
+func TestUnflattenOptimized(t *testing.T) {
+	total := ADD(eA, eB)
+	s := &totalingSource{}
+	f := Flatten(s)
+	u := UnflattenOptimized(f)
+	_, isTotalingSource := u.(*totalingSource)
+
+	if !assert.True(t, isTotalingSource, "Unflattened should point directly at totaling source, put points at: %v", u.String()) {
+		return
+	}
+
+	doTestUnflattened(t, u, total)
+}
+
+func doTestUnflattened(t *testing.T, u RowSource, ex Expr) {
 	expectedRows := make([]*testRow, 0, len(testRows))
 	for _, row := range testRows {
 		var ts time.Time
@@ -348,4 +365,21 @@ func (s *errorSource) Iterate(ctx context.Context, onRow OnRow) error {
 
 func (s *errorSource) String() string {
 	return "test.error"
+}
+
+type totalingSource struct {
+	goodSource
+}
+
+func (s *totalingSource) GetFields() Fields {
+	return Fields{totalField}
+}
+
+func (s *totalingSource) Iterate(ctx context.Context, onRow OnRow) error {
+	return s.goodSource.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		a, _ := vals[0].ValueAt(0, eA)
+		b, _ := vals[0].ValueAt(0, eB)
+		val := encoding.NewValue(totalField.Expr, vals[0].Until(), Map{"a": a, "b": b}, key)
+		return onRow(key, Vals{val})
+	})
 }

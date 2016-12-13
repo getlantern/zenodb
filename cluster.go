@@ -103,7 +103,7 @@ func (db *DB) freshenRemoteQueryHandlers() {
 				if handler == nil {
 					break
 				}
-				go handler(context.Background(), "", false, nil, nil)
+				go handler(context.Background(), "", false, nil, false, nil, nil)
 			}
 		}
 	}
@@ -129,15 +129,19 @@ func shouldIncludeMemStore(ctx context.Context) bool {
 	return include != nil && include.(bool)
 }
 
-func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	source, err := db.Query(sqlString, isSubQuery, subQueryResults, shouldIncludeMemStore(ctx))
 	if err != nil {
 		return err
 	}
-	return source.Iterate(ctx, onRow)
+	if unflat {
+		return core.UnflattenOptimized(source).Iterate(ctx, onRow)
+	} else {
+		return source.Iterate(ctx, onFlatRow)
+	}
 }
 
-func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, onRow core.OnFlatRow) error {
+func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	ctx = withIncludeMemStore(ctx, includeMemStore)
 	numPartitions := db.opts.NumPartitions
 	results := make(chan *remoteResult, numPartitions)
@@ -159,18 +163,35 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					break
 				}
 
-				err := query(ctx, sqlString, isSubQuery, subQueryResults, func(row *core.FlatRow) (bool, error) {
-					mx.Lock()
-					if timedOut {
+				var newOnRow core.OnRow
+				var newOnFlatRow core.OnFlatRow
+				if unflat {
+					newOnRow = func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+						mx.Lock()
+						if timedOut {
+							mx.Unlock()
+							return false, core.ErrDeadlineExceeded
+						}
+						atomic.AddInt64(resultsForPartition, 1)
+						more, onRowErr := onRow(key, vals)
 						mx.Unlock()
-						return false, core.ErrDeadlineExceeded
+						return more, onRowErr
 					}
-					atomic.AddInt64(resultsForPartition, 1)
-					more, onRowErr := onRow(row)
-					mx.Unlock()
-					return more, onRowErr
-				})
+				} else {
+					newOnFlatRow = func(row *core.FlatRow) (bool, error) {
+						mx.Lock()
+						if timedOut {
+							mx.Unlock()
+							return false, core.ErrDeadlineExceeded
+						}
+						atomic.AddInt64(resultsForPartition, 1)
+						more, onRowErr := onFlatRow(row)
+						mx.Unlock()
+						return more, onRowErr
+					}
+				}
 
+				err := query(ctx, sqlString, isSubQuery, subQueryResults, unflat, newOnRow, newOnFlatRow)
 				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue

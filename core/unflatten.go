@@ -14,6 +14,18 @@ func Unflatten(source FlatRowSource, fields ...Field) RowSource {
 	}
 }
 
+func UnflattenOptimized(source FlatRowSource) RowSource {
+	fl, ok := source.(Transform)
+	if ok {
+		rs, ok := fl.GetSource().(RowSource)
+		if ok {
+			// We're attempting to unflatten a flatten, just go back to the original source and skip the flatten/unflatten cycle
+			return rs
+		}
+	}
+	return Unflatten(source, source.GetFields()...)
+}
+
 type unflatten struct {
 	flatRowTransform
 	fields Fields

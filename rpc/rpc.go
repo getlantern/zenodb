@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
@@ -23,6 +24,7 @@ type Query struct {
 	IsSubQuery      bool
 	SubQueryResults [][]interface{}
 	IncludeMemStore bool
+	Unflat          bool
 }
 
 type Point struct {
@@ -31,6 +33,8 @@ type Point struct {
 }
 
 type RemoteQueryResult struct {
+	Key          bytemap.ByteMap
+	Vals         core.Vals
 	Row          *core.FlatRow
 	Error        string
 	EndOfResults bool

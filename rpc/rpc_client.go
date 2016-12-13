@@ -5,6 +5,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
@@ -64,10 +65,10 @@ func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bo
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := stream.SendMsg(&Query{SQLString: sqlString, IncludeMemStore: includeMemStore}); err != nil {
+	if err = stream.SendMsg(&Query{SQLString: sqlString, IncludeMemStore: includeMemStore}); err != nil {
 		return nil, nil, err
 	}
-	if err := stream.CloseSend(); err != nil {
+	if err = stream.CloseSend(); err != nil {
 		return nil, nil, err
 	}
 
@@ -141,10 +142,23 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query pl
 		// It's a noop query, ignore
 		return nil
 	}
-	queryErr := query(stream.Context(), q.SQLString, q.IsSubQuery, q.SubQueryResults, func(row *core.FlatRow) (bool, error) {
-		err := stream.SendMsg(&RemoteQueryResult{Row: row})
-		return true, err
-	})
+
+	var onRow core.OnRow
+	var onFlatRow core.OnFlatRow
+
+	if q.Unflat {
+		onRow = func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+			err := stream.SendMsg(&RemoteQueryResult{Key: key, Vals: vals})
+			return true, err
+		}
+	} else {
+		onFlatRow = func(row *core.FlatRow) (bool, error) {
+			err := stream.SendMsg(&RemoteQueryResult{Row: row})
+			return true, err
+		}
+	}
+
+	queryErr := query(stream.Context(), q.SQLString, q.IsSubQuery, q.SubQueryResults, q.Unflat, onRow, onFlatRow)
 	result := &RemoteQueryResult{EndOfResults: true}
 	if queryErr != nil && queryErr != io.EOF {
 		result.Error = queryErr.Error()

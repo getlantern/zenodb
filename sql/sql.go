@@ -303,8 +303,8 @@ func (q *Query) addField(field core.Field) {
 	}
 	if !fieldAlreadySelected {
 		q.Fields = append(q.Fields, field)
+		q.fieldsMap[field.Name] = field
 	}
-	q.fieldsMap[field.Name] = field
 }
 
 func (q *Query) applyFrom(stmt *sqlparser.Select, fieldSource FieldSource) error {
