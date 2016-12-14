@@ -130,6 +130,34 @@ func TestGroupSingle(t *testing.T) {
 	assert.EqualValues(t, 140, totalByX[2])
 }
 
+func TestGroupResolutionOnly(t *testing.T) {
+	eTotal := ADD(eA, eB)
+	gx := Group(&goodSource{}, GroupOpts{
+		By: []GroupBy{NewGroupBy("_", goexpr.Constant("_"))},
+		Fields: Fields{
+			Field{
+				Name: "total",
+				Expr: eTotal,
+			},
+		},
+		Resolution: resolution * 20,
+	})
+
+	total := float64(0)
+	err := gx.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		v := vals[0]
+		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
+			val, _ := v.ValueAt(p, eTotal)
+			total += val
+		}
+		// We expect only one row
+		return false, nil
+	})
+
+	assert.NoError(t, err)
+	assert.EqualValues(t, 480, total)
+}
+
 func TestGroupNone(t *testing.T) {
 	eTotal := ADD(eA, eB)
 	gx := Group(&goodSource{}, GroupOpts{
@@ -166,6 +194,8 @@ func TestGroupNone(t *testing.T) {
 }
 
 func TestFlattenSortOffsetAndLimit(t *testing.T) {
+	// TODO: add test that tests flattening of rows that contain multiple periods
+	// worth of values
 	f := Flatten(&goodSource{})
 	s := Sort(f, NewOrderBy("b", true), NewOrderBy("a", false))
 	o := Offset(s, 1)

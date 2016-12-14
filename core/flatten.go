@@ -59,7 +59,10 @@ func (f *flatten) Iterate(ctx context.Context, onRow OnFlatRow) error {
 				row.Values[i] = val
 			}
 			if anyValueFound {
-				return onRow(row)
+				more, err := onRow(row)
+				if !more || err != nil {
+					return more, err
+				}
 			}
 		}
 
