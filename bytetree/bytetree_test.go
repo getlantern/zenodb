@@ -23,7 +23,7 @@ func TestByteTreeSubMerge(t *testing.T) {
 		assert.Equal(t, 1, bt.Length())
 		bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 2), encoding.NewFloatValue(eB, epoch, 2)}, nil, nil)
 		assert.Equal(t, 2, bt.Length())
-		bt.Update([]byte("water"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 3), encoding.NewFloatValue(eB, epoch, 3)}, nil, nil)
+		bt.Update(nil, []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 3), encoding.NewFloatValue(eB, epoch, 3)}, nil, nil)
 		assert.Equal(t, 3, bt.Length())
 		bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 4), encoding.NewFloatValue(eB, epoch, 4)}, nil, nil)
 		assert.Equal(t, 4, bt.Length())
@@ -37,7 +37,7 @@ func TestByteTreeSubMerge(t *testing.T) {
 		assert.Equal(t, 6, bt.Length())
 		bt.Update([]byte("slow"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil, nil)
 		assert.Equal(t, 6, bt.Length())
-		bt.Update([]byte("water"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil, nil)
+		bt.Update(nil, []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil, nil)
 		assert.Equal(t, 6, bt.Length())
 		bt.Update([]byte("slower"), []encoding.Sequence{encoding.NewFloatValue(eA, epoch, 10), encoding.NewFloatValue(eB, epoch, 10)}, nil, nil)
 		assert.Equal(t, 6, bt.Length())
@@ -58,7 +58,7 @@ func TestByteTreeUpdate(t *testing.T) {
 		assert.Equal(t, 1, bt.Length())
 		bt.Update([]byte("slow"), nil, params(2, 2), nil)
 		assert.Equal(t, 2, bt.Length())
-		bt.Update([]byte("water"), nil, params(3, 3), nil)
+		bt.Update(nil, nil, params(3, 3), nil)
 		assert.Equal(t, 3, bt.Length())
 		bt.Update([]byte("slower"), nil, params(4, 4), nil)
 		assert.Equal(t, 4, bt.Length())
@@ -72,7 +72,7 @@ func TestByteTreeUpdate(t *testing.T) {
 		assert.Equal(t, 6, bt.Length())
 		bt.Update([]byte("slow"), nil, params(10, 10), nil)
 		assert.Equal(t, 6, bt.Length())
-		bt.Update([]byte("water"), nil, params(10, 10), nil)
+		bt.Update(nil, nil, params(10, 10), nil)
 		assert.Equal(t, 6, bt.Length())
 		bt.Update([]byte("slower"), nil, params(10, 10), nil)
 		assert.Equal(t, 6, bt.Length())
@@ -129,8 +129,8 @@ func checkTree(ctx int64, t *testing.T, bt *Tree, e Expr) {
 				assert.EqualValues(t, 22, val, "test")
 			case "slow":
 				assert.EqualValues(t, 24, val, "slow")
-			case "water":
-				assert.EqualValues(t, 26, val, "water")
+			case "":
+				assert.EqualValues(t, 26, val, "")
 			case "slower":
 				assert.EqualValues(t, 28, val, "slower")
 			case "team":
@@ -149,7 +149,7 @@ func checkTree(ctx int64, t *testing.T, bt *Tree, e Expr) {
 	assert.EqualValues(t, 22, val)
 	val, _ = bt.Remove(ctx, []byte("slow"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 24, val)
-	val, _ = bt.Remove(ctx, []byte("water"))[0].ValueAt(0, e)
+	val, _ = bt.Remove(ctx, nil)[0].ValueAt(0, e)
 	assert.EqualValues(t, 26, val)
 	val, _ = bt.Remove(ctx, []byte("slower"))[0].ValueAt(0, e)
 	assert.EqualValues(t, 28, val)

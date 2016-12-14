@@ -3,6 +3,7 @@ package planner
 
 import (
 	"context"
+	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb/core"
@@ -107,6 +108,14 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 	asOfChanged := !query.AsOf.IsZero() && query.AsOf.UnixNano() != source.GetAsOf().UnixNano()
 	untilChanged := !query.Until.IsZero() && query.Until.UnixNano() != source.GetUntil().UnixNano()
 	resolutionChanged := query.Resolution != 0 && query.Resolution != source.GetResolution()
+	if resolutionChanged {
+		if query.Resolution < source.GetResolution() {
+			return nil, fmt.Errorf("Query resolution '%v' is higher than table resolution of '%v'", query.Resolution, source.GetResolution())
+		}
+		if query.Resolution%source.GetResolution() != 0 {
+			return nil, fmt.Errorf("Query resolution '%v' is not an even multpile of table resolution of '%v'", query.Resolution, source.GetResolution())
+		}
+	}
 
 	if query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(opts, query)
