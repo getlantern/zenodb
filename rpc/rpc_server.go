@@ -98,11 +98,12 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 		}
 	}
 
-	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 		sendErr := stream.SendMsg(&Query{
 			SQLString:       sqlString,
 			IsSubQuery:      isSubQuery,
 			SubQueryResults: subQueryResults,
+			Unflat:          unflat,
 		})
 
 		m, recvErr := <-initialResultCh, <-initialErrCh
@@ -127,7 +128,11 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 			if m.EndOfResults {
 				break
 			}
-			onRow(m.Row)
+			if unflat {
+				onRow(m.Key, m.Vals)
+			} else {
+				onFlatRow(m.Row)
+			}
 
 			// Read next result
 			m = &RemoteQueryResult{}

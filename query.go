@@ -21,8 +21,8 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 		SubQueryResults: subQueryResults,
 	}
 	if db.opts.Passthrough {
-		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
-			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, onRow)
+		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onRow, onFlatRow)
 		}
 		opts.PartitionBy = db.opts.PartitionBy
 	}

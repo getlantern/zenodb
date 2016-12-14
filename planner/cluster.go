@@ -14,7 +14,7 @@ const (
 	backtick = "`"
 )
 
-type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error
+type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error
 
 type clusterSource struct {
 	opts          *Opts
@@ -22,7 +22,7 @@ type clusterSource struct {
 	planAsIfLocal core.Source
 }
 
-func (cs *clusterSource) Iterate(ctx context.Context, onRow core.OnFlatRow) error {
+func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	var subQueryResults [][]interface{}
 	if cs.query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(cs.opts, cs.query)
@@ -37,9 +37,7 @@ func (cs *clusterSource) Iterate(ctx context.Context, onRow core.OnFlatRow) erro
 		}
 	}
 
-	return cs.opts.QueryCluster(ctx, cs.query.SQL, cs.opts.IsSubQuery, subQueryResults, func(row *core.FlatRow) (bool, error) {
-		return onRow(row)
-	})
+	return cs.opts.QueryCluster(ctx, cs.query.SQL, cs.opts.IsSubQuery, subQueryResults, unflat, onRow, onFlatRow)
 }
 
 func (cs *clusterSource) GetFields() core.Fields {
@@ -62,8 +60,28 @@ func (cs *clusterSource) GetUntil() time.Time {
 	return cs.planAsIfLocal.GetUntil()
 }
 
-func (cs *clusterSource) String() string {
+type clusterRowSource struct {
+	clusterSource
+}
+
+func (cs *clusterRowSource) Iterate(ctx context.Context, onRow core.OnRow) error {
+	return cs.doIterate(ctx, true, onRow, nil)
+}
+
+func (cs *clusterRowSource) String() string {
 	return fmt.Sprintf("cluster %v", cs.query.SQL)
+}
+
+type clusterFlatRowSource struct {
+	clusterSource
+}
+
+func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onFlatRow core.OnFlatRow) error {
+	return cs.doIterate(ctx, false, nil, onFlatRow)
+}
+
+func (cs *clusterFlatRowSource) String() string {
+	return fmt.Sprintf("cluster flat %v", cs.query.SQL)
 }
 
 // pushdownAllowed checks whether we're allowed to push down a query to the
@@ -166,10 +184,12 @@ func planClusterPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, erro
 		return nil, err
 	}
 
-	flat := &clusterSource{
-		opts:          opts,
-		query:         query,
-		planAsIfLocal: pail,
+	flat := &clusterFlatRowSource{
+		clusterSource{
+			opts:          opts,
+			query:         query,
+			planAsIfLocal: pail,
+		},
 	}
 
 	return addOrderLimitOffset(flat, query), nil
@@ -201,11 +221,13 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	}
 	fixupSubQuery(clusterQuery, opts)
 
-	unflat := core.Unflatten(&clusterSource{
-		opts:          opts,
-		query:         clusterQuery,
-		planAsIfLocal: pail,
-	}, query.Fields...)
+	source := &clusterRowSource{
+		clusterSource{
+			opts:          opts,
+			query:         clusterQuery,
+			planAsIfLocal: core.UnflattenOptimized(pail),
+		},
+	}
 
 	// Flatten group by to just params
 	flattenedGroupBys := make([]core.GroupBy, 0, len(query.GroupBy))
@@ -213,7 +235,7 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		flattenedGroupBys = append(flattenedGroupBys, core.NewGroupBy(groupBy.Name, goexpr.Param(groupBy.Name)))
 	}
 	query.GroupBy = flattenedGroupBys
-	var flat core.FlatRowSource = core.Flatten(addGroupBy(unflat, query))
+	var flat core.FlatRowSource = core.Flatten(addGroupBy(source, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
 	}

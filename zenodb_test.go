@@ -46,7 +46,15 @@ func TestSingleDB(t *testing.T) {
 	})
 }
 
-func TestCluster(t *testing.T) {
+func TestClusterPushdown(t *testing.T) {
+	doTestCluster(t, []string{"r", "u"})
+}
+
+func TestClusterNoPushdown(t *testing.T) {
+	doTestCluster(t, nil)
+}
+
+func doTestCluster(t *testing.T, partitionBy []string) {
 	numPartitions := 1 + rand.Intn(10)
 	numPartitions = 1
 
@@ -56,7 +64,7 @@ func TestCluster(t *testing.T) {
 			SchemaFile:     tmpFile,
 			VirtualTime:    true,
 			Passthrough:    true,
-			PartitionBy:    []string{"r", "u"},
+			PartitionBy:    partitionBy,
 			NumPartitions:  numPartitions,
 			MaxMemoryRatio: 0.00001,
 		})
@@ -79,10 +87,10 @@ func TestCluster(t *testing.T) {
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
 					var register func()
 					register = func() {
-						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, onRow core.OnFlatRow) error {
+						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 							// Re-register when finished
 							defer register()
-							return query(ctx, sqlString, isSubQuery, subQueryResults, onRow)
+							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onRow, onFlatRow)
 						})
 					}
 
