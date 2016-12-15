@@ -201,10 +201,10 @@ func (rs *rowStore) processInserts() {
 		select {
 		case insert := <-rs.inserts:
 			rs.mx.Lock()
-			rs.t.updateHighWaterMarkMemory(insert.vals.TimeInt())
 			ms.tree.Update(insert.key, nil, insert.vals, insert.metadata)
 			ms.offset = insert.offset
 			rs.mx.Unlock()
+			rs.t.updateHighWaterMarkMemory(insert.vals.TimeInt())
 		case <-flushTimer.C:
 			rs.t.log.Trace("Requesting flush due to flush interval")
 			flush(false)
@@ -413,20 +413,16 @@ func (rs *rowStore) removeOldFiles() {
 		if err != nil {
 			log.Errorf("Unable to list data files in %v: %v", rs.opts.dir, err)
 		}
-		now := time.Now()
 		// Note - the list of files is sorted by name, which in our case is the
 		// timestamp, so that means they're sorted chronologically. We don't want
 		// to delete the last file in the list because that's the current one.
 		for i := 0; i < len(files)-1; i++ {
 			file := files[i]
 			name := filepath.Join(rs.opts.dir, file.Name())
-			// To be safe, we wait a little before deleting files
-			if now.Sub(file.ModTime()) > 5*time.Minute {
-				rs.t.log.Debugf("Removing old file %v", name)
-				err := os.Remove(name)
-				if err != nil {
-					rs.t.log.Errorf("Unable to delete old file store %v, still consuming disk space unnecessarily: %v", name, err)
-				}
+			rs.t.log.Debugf("Removing old file %v", name)
+			err := os.Remove(name)
+			if err != nil {
+				rs.t.log.Errorf("Unable to delete old file store %v, still consuming disk space unnecessarily: %v", name, err)
 			}
 		}
 	}
