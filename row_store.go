@@ -408,7 +408,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 
 func (rs *rowStore) removeOldFiles() {
 	for {
-		time.Sleep(1 * time.Minute)
+		time.Sleep(10 * time.Second)
 		files, err := ioutil.ReadDir(rs.opts.dir)
 		if err != nil {
 			log.Errorf("Unable to list data files in %v: %v", rs.opts.dir, err)
