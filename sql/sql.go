@@ -80,6 +80,16 @@ var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
 	"HGET": redis.HGet,
 }
 
+var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexpr.Expr{
+	"SPLIT":  goexpr.Split,
+	"SUBSTR": goexpr.Substr,
+}
+
+var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
+	"CONCAT": goexpr.Concat,
+	"ANY":    goexpr.Any,
+}
+
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {
 	name = strings.ToUpper(name)
 	_, found := unaryGoExpr[name]
@@ -88,11 +98,6 @@ func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) err
 	}
 	unaryGoExpr[name] = fn
 	return nil
-}
-
-var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
-	"CONCAT": goexpr.Concat,
-	"ANY":    goexpr.Any,
 }
 
 var aliases = make(map[string]string)
@@ -765,68 +770,69 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		if foundAlias {
 			return q.applyAlias(e, alias)
 		}
-		switch len(e.Exprs) {
-		case 0:
-			fn, found := nullaryGoExpr[fname]
-			if !found {
-				return nil, fmt.Errorf("Unknown nullary function %v", fname)
+		numParams := len(e.Exprs)
+		nfn, found := nullaryGoExpr[fname]
+		if found {
+			return nfn(), nil
+		}
+		ufn, found := unaryGoExpr[fname]
+		if found {
+			if numParams != 1 {
+				return nil, fmt.Errorf("Function %v requires 1 parameter, not %d", fname, numParams)
 			}
-			return fn(), nil
-		case 1:
-			fn, found := unaryGoExpr[fname]
-			if !found {
-				return nil, fmt.Errorf("Unknown unary function %v", fname)
-			}
-			nse, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			wrapped, err := q.goExprFor(nse.Expr)
+			p0, err := q.paramGoExpr(e, 0)
 			if err != nil {
 				return nil, err
 			}
-			return fn(wrapped), nil
-		case 2:
-			fn, found := binaryGoExpr[fname]
-			if !found {
-				return nil, fmt.Errorf("Unknown binary function %v", fname)
+			return ufn(p0), nil
+		}
+		bfn, found := binaryGoExpr[fname]
+		if found {
+			if numParams != 2 {
+				return nil, fmt.Errorf("Function %v requires 2 parameters, not %d", fname, numParams)
 			}
-			nse1, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			wrapped1, err := q.goExprFor(nse1.Expr)
+			p0, err := q.paramGoExpr(e, 0)
 			if err != nil {
 				return nil, err
 			}
-			nse2, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			wrapped2, err := q.goExprFor(nse2.Expr)
+			p1, err := q.paramGoExpr(e, 1)
 			if err != nil {
 				return nil, err
 			}
-			return fn(wrapped1, wrapped2), nil
-		default:
-			fn, found := varGoExpr[fname]
-			if !found {
-				return nil, fmt.Errorf("Unknown var function %v", fname)
+			return bfn(p0, p1), nil
+		}
+		tfn, found := ternaryGoExpr[fname]
+		if found {
+			if numParams != 3 {
+				return nil, fmt.Errorf("Function %v requires 3 parameters, not %d", fname, numParams)
 			}
-			exprs := make([]goexpr.Expr, 0, len(e.Exprs))
-			for _, _ex := range e.Exprs {
-				nse, ok := _ex.(*sqlparser.NonStarExpr)
-				if !ok {
-					return nil, ErrWildcardNotAllowed
-				}
-				ex, err := q.goExprFor(nse.Expr)
+			p0, err := q.paramGoExpr(e, 0)
+			if err != nil {
+				return nil, err
+			}
+			p1, err := q.paramGoExpr(e, 1)
+			if err != nil {
+				return nil, err
+			}
+			p2, err := q.paramGoExpr(e, 2)
+			if err != nil {
+				return nil, err
+			}
+			return tfn(p0, p1, p2), nil
+		}
+		vfn, found := varGoExpr[fname]
+		if found {
+			params := make([]goexpr.Expr, 0, numParams)
+			for i := 0; i < numParams; i++ {
+				param, err := q.paramGoExpr(e, i)
 				if err != nil {
 					return nil, err
 				}
-				exprs = append(exprs, ex)
+				params = append(params, param)
 			}
-			return fn(exprs...), nil
+			return vfn(params...), nil
 		}
+		return nil, fmt.Errorf("Unknown function %v", fname)
 	case *sqlparser.NullCheck:
 		wrapped, err := q.goExprFor(e.Expr)
 		if err != nil {
@@ -840,6 +846,14 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	default:
 		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
+}
+
+func (q *Query) paramGoExpr(e *sqlparser.FuncExpr, idx int) (goexpr.Expr, error) {
+	nse, ok := e.Exprs[idx].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	return q.goExprFor(nse.Expr)
 }
 
 func (q *Query) applyAlias(e *sqlparser.FuncExpr, alias string) (goexpr.Expr, error) {
