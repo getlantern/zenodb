@@ -192,6 +192,8 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 			latest, _, err := w.Latest()
 			if err != nil || len(latest) < wal.OffsetSize {
 				log.Debugf("Unable to obtain latest data from wal, assuming we're at beginning: %v", err)
+				// Start at offset commensurate with max WAL age
+				offset = wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxWALAge))
 			} else {
 				// Followers store offset as first 16 bytes of data in WAL
 				offset = wal.Offset(latest[:wal.OffsetSize])
