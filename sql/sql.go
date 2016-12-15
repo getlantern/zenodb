@@ -759,11 +759,15 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	case sqlparser.StrVal:
 		return goexpr.Constant(string(e)), nil
 	case sqlparser.NumVal:
-		val, parseErr := strconv.ParseFloat(string(e), 64)
+		intVal, parseErr := strconv.Atoi(string(e))
+		if parseErr == nil {
+			return goexpr.Constant(intVal), nil
+		}
+		floatVal, parseErr := strconv.ParseFloat(string(e), 64)
 		if parseErr != nil {
 			return nil, parseErr
 		}
-		return goexpr.Constant(val), nil
+		return goexpr.Constant(floatVal), nil
 	case *sqlparser.FuncExpr:
 		fname := strings.ToUpper(string(e.Name))
 		alias, foundAlias := aliases[fname]

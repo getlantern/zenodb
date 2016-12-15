@@ -142,10 +142,12 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("spl", goexpr.Split(goexpr.Param("dim_o"), goexpr.Constant(","), goexpr.Constant(2))).String(), q.GroupBy[idx].String())
+		assert.Equal(t, "c", q.GroupBy[idx].Expr.Eval(goexpr.MapParams{"dim_o": "a,b,c"}))
 		idx++
 		assert.Equal(t, core.NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[idx])
 		idx++
 		assert.Equal(t, core.NewGroupBy("sub", goexpr.Substr(goexpr.Param("dim_p"), goexpr.Constant(1), goexpr.Constant(5))).String(), q.GroupBy[idx].String())
+		assert.Equal(t, "bcdef", q.GroupBy[idx].Expr.Eval(goexpr.MapParams{"dim_p": "abcdefg"}))
 		idx++
 		assert.Equal(t, core.NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[idx])
 	}
