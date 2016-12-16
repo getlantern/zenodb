@@ -66,7 +66,11 @@ type FlatRow struct {
 	Values []float64
 	// For crosstab queries, this contains the total value for each field
 	Totals []float64
-	fields []Field
+	fields Fields
+}
+
+func (row *FlatRow) SetFields(fields Fields) {
+	row.fields = fields
 }
 
 type Source interface {
