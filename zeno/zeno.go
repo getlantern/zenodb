@@ -21,6 +21,7 @@ import (
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/rpc"
 	"github.com/getlantern/zenodb/web"
+	"github.com/gorilla/mux"
 	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
 	"gopkg.in/redis.v5"
@@ -42,7 +43,6 @@ var (
 	maxMemory         = flag.Float64("maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
 	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
 	httpsAddr         = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
-	webAddr           = flag.String("webaddr", "localhost:14443", "The address at which to listen for web requests over HTTPS, defaults to localhost:443")
 	pprofAddr         = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
 	password          = flag.String("password", "", "if specified, will authenticate clients using this password")
 	pkfile            = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
@@ -83,11 +83,6 @@ func main() {
 	l, err := tlsdefaults.Listen(*addr, *pkfile, *certfile)
 	if err != nil {
 		log.Fatalf("Unable to listen for gRPC over TLS connections at %v: %v", *addr, err)
-	}
-
-	wl, err := tlsdefaults.Listen(*webAddr, *pkfile, *certfile)
-	if err != nil {
-		log.Errorf("Unable to listen for web connections at %v: %v", *webAddr, err)
 	}
 
 	hl, err := tlsdefaults.Listen(*httpsAddr, *pkfile, *certfile)
@@ -305,15 +300,6 @@ func main() {
 	fmt.Printf("Listening for HTTP connections at %v\n", hl.Addr())
 
 	go serveHTTP(db, hl)
-	if wl != nil {
-		go web.Serve(db, wl, &web.Opts{
-			OAuthClientID:     *oauthClientID,
-			OAuthClientSecret: *oauthClientSecret,
-			GitHubOrg:         *gitHubOrg,
-			HashKey:           *cookieHashKey,
-			BlockKey:          *cookieBlockKey,
-		})
-	}
 	serveRPC(db, l)
 }
 
@@ -324,4 +310,20 @@ func serveRPC(db *zenodb.DB, l net.Listener) {
 	if err != nil {
 		log.Fatalf("Error serving gRPC: %v", err)
 	}
+}
+
+func serveHTTP(db *zenodb.DB, hl net.Listener) {
+	router := mux.NewRouter()
+	err := web.Configure(db, router, &web.Opts{
+		OAuthClientID:     *oauthClientID,
+		OAuthClientSecret: *oauthClientSecret,
+		GitHubOrg:         *gitHubOrg,
+		HashKey:           *cookieHashKey,
+		BlockKey:          *cookieBlockKey,
+	})
+	if err != nil {
+		log.Errorf("Unable to configure web: %v", err)
+		return
+	}
+	http.Serve(hl, router)
 }

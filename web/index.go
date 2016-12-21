@@ -4,8 +4,8 @@ import (
 	"net/http"
 )
 
-func (s *server) index(resp http.ResponseWriter, req *http.Request) {
-	if !s.authenticate(resp, req) {
+func (h *handler) index(resp http.ResponseWriter, req *http.Request) {
+	if !h.authenticate(resp, req) {
 		return
 	}
 

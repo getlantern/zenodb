@@ -23,13 +23,13 @@ type ResultRow struct {
 	Vals []float64
 }
 
-func (s *server) runQuery(resp http.ResponseWriter, req *http.Request) {
-	if !s.authenticate(resp, req) {
+func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
+	if !h.authenticate(resp, req) {
 		return
 	}
 
 	_, sqlString := path.Split(req.URL.Path)
-	rs, err := s.db.Query(sqlString, false, nil, false)
+	rs, err := h.db.Query(sqlString, false, nil, false)
 	if err != nil {
 		resp.WriteHeader(http.StatusInternalServerError)
 		fmt.Fprintf(resp, "Unable to query: %v", err)

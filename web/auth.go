@@ -24,16 +24,16 @@ type AuthData struct {
 	Expiration  time.Time
 }
 
-func (s *server) authenticate(resp http.ResponseWriter, req *http.Request) bool {
+func (h *handler) authenticate(resp http.ResponseWriter, req *http.Request) bool {
 	cookie, err := req.Cookie(authcookie)
 	if err == nil {
 		ad := &AuthData{}
-		err = s.sc.Decode(authcookie, cookie.Value, ad)
+		err = h.sc.Decode(authcookie, cookie.Value, ad)
 		if err == nil {
 			if ad.Expiration.Before(time.Now()) {
 				return true
 			}
-			inOrg, err := s.userInOrg(ad.AccessToken)
+			inOrg, err := h.userInOrg(ad.AccessToken)
 			if err != nil {
 				log.Errorf("Unable to check if user is in org: %v", err)
 			} else if inOrg {
@@ -44,14 +44,14 @@ func (s *server) authenticate(resp http.ResponseWriter, req *http.Request) bool 
 	}
 
 	// User not logged in, request authorization from OAuth provider
-	s.requestAuthorization(resp, req)
+	h.requestAuthorization(resp, req)
 
 	return false
 }
 
-func (s *server) requestAuthorization(resp http.ResponseWriter, req *http.Request) {
+func (h *handler) requestAuthorization(resp http.ResponseWriter, req *http.Request) {
 	xsrfExpiration := time.Now().Add(1 * time.Minute)
-	state, err := s.sc.Encode(xsrftoken, xsrfExpiration)
+	state, err := h.sc.Encode(xsrftoken, xsrfExpiration)
 	if err != nil {
 		log.Errorf("Unable to encode xsrf token: %v", err)
 		// TODO: figure out how to handle this
@@ -59,7 +59,7 @@ func (s *server) requestAuthorization(resp http.ResponseWriter, req *http.Reques
 	}
 
 	u, err := buildURL("https://github.com/login/oauth/authorize", map[string]string{
-		"client_id": s.OAuthClientID,
+		"client_id": h.OAuthClientID,
 		"state":     state,
 		"scope":     "read:org",
 	})
@@ -73,24 +73,24 @@ func (s *server) requestAuthorization(resp http.ResponseWriter, req *http.Reques
 	resp.WriteHeader(http.StatusTemporaryRedirect)
 }
 
-func (s *server) oauthCode(resp http.ResponseWriter, req *http.Request) {
+func (h *handler) oauthCode(resp http.ResponseWriter, req *http.Request) {
 	code := req.URL.Query().Get("code")
 	state := req.URL.Query().Get("state")
 	var xsrfExpiration time.Time
-	err := s.sc.Decode(xsrftoken, state, &xsrfExpiration)
+	err := h.sc.Decode(xsrftoken, state, &xsrfExpiration)
 	if err != nil {
 		log.Errorf("Unable to decode xsrf token, may indicate attempted attack, re-authorizing: %v", err)
-		s.requestAuthorization(resp, req)
+		h.requestAuthorization(resp, req)
 	}
 	if time.Now().After(xsrfExpiration) {
 		log.Error("XSRF Token expired, re-authorizing")
-		s.requestAuthorization(resp, req)
+		h.requestAuthorization(resp, req)
 		return
 	}
 
 	u, err := buildURL("https://github.com/login/oauth/access_token", map[string]string{
-		"client_id":     s.OAuthClientID,
-		"client_secret": s.OAuthClientSecret,
+		"client_id":     h.OAuthClientID,
+		"client_secret": h.OAuthClientSecret,
 		"code":          code,
 		"state":         state,
 	})
@@ -100,10 +100,10 @@ func (s *server) oauthCode(resp http.ResponseWriter, req *http.Request) {
 
 	post, _ := http.NewRequest(http.MethodPost, u.String(), nil)
 	post.Header.Set("Accept", "application/json")
-	tokenResp, err := s.client.Do(post)
+	tokenResp, err := h.client.Do(post)
 	if err != nil {
 		log.Errorf("Error requesting access token, re-authorizing: %v", err)
-		s.requestAuthorization(resp, req)
+		h.requestAuthorization(resp, req)
 		return
 	}
 
@@ -111,7 +111,7 @@ func (s *server) oauthCode(resp http.ResponseWriter, req *http.Request) {
 	body, err := ioutil.ReadAll(tokenResp.Body)
 	if err != nil {
 		log.Errorf("Error reading access token, re-authorizing: %v", err)
-		s.requestAuthorization(resp, req)
+		h.requestAuthorization(resp, req)
 		return
 	}
 
@@ -119,12 +119,12 @@ func (s *server) oauthCode(resp http.ResponseWriter, req *http.Request) {
 	err = json.Unmarshal(body, &tokenData)
 	if err != nil {
 		log.Errorf("Error unmarshalling access token, re-authorizing: %v", err)
-		s.requestAuthorization(resp, req)
+		h.requestAuthorization(resp, req)
 		return
 	}
 
 	accessToken := tokenData["access_token"]
-	inOrg, err := s.userInOrg(accessToken)
+	inOrg, err := h.userInOrg(accessToken)
 	if err != nil {
 		log.Errorf("Unable to check if user is in org, re-authorizing: %v", err)
 	} else if !inOrg {
@@ -137,7 +137,7 @@ func (s *server) oauthCode(resp http.ResponseWriter, req *http.Request) {
 		AccessToken: accessToken,
 		Expiration:  time.Now().Add(sessionTimeout),
 	}
-	cookieData, err := s.sc.Encode(authcookie, ad)
+	cookieData, err := h.sc.Encode(authcookie, ad)
 	if err != nil {
 		log.Errorf("Unable to encode authcookie: %v", err)
 		// TODO: figure out what to handle here
@@ -156,10 +156,10 @@ func (s *server) oauthCode(resp http.ResponseWriter, req *http.Request) {
 	resp.WriteHeader(http.StatusTemporaryRedirect)
 }
 
-func (s *server) userInOrg(accessToken string) (bool, error) {
+func (h *handler) userInOrg(accessToken string) (bool, error) {
 	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/user/orgs", nil)
 	req.Header.Set("Authorization", fmt.Sprintf("token %v", accessToken))
-	resp, err := s.client.Do(req)
+	resp, err := h.client.Do(req)
 	if err != nil {
 		return false, fmt.Errorf("Unable to get user orgs from GitHub: %v", err)
 	}
@@ -177,11 +177,11 @@ func (s *server) userInOrg(accessToken string) (bool, error) {
 	}
 
 	for _, org := range orgs {
-		if org["login"] == s.GitHubOrg {
+		if org["login"] == h.GitHubOrg {
 			return true, nil
 		}
 	}
 
-	log.Debugf("User not in org %v", s.GitHubOrg)
+	log.Debugf("User not in org %v", h.GitHubOrg)
 	return false, nil
 }

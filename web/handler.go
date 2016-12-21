@@ -2,11 +2,12 @@ package web
 
 import (
 	"crypto/rand"
+	"errors"
+	"fmt"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
-	"net"
 	"net/http"
 	"net/url"
 )
@@ -23,7 +24,7 @@ type Opts struct {
 	BlockKey          string
 }
 
-type server struct {
+type handler struct {
 	Opts
 	db     *zenodb.DB
 	fs     http.Handler
@@ -31,15 +32,13 @@ type server struct {
 	client *http.Client
 }
 
-func Serve(db *zenodb.DB, l net.Listener, opts *Opts) {
+func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	if opts.OAuthClientID == "" || opts.OAuthClientSecret == "" {
-		log.Error("Unable to start web server, missing OAuthClientID and/or OAuthClientSecret")
-		return
+		return errors.New("Unable to start web server, missing OAuthClientID and/or OAuthClientSecret")
 	}
 
 	if opts.GitHubOrg == "" {
-		log.Error("Unable to start web server, no GitHubOrg specified")
-		return
+		return errors.New("Unable to start web server, no GitHubOrg specified")
 	}
 
 	hashKey := []byte(opts.HashKey)
@@ -50,7 +49,7 @@ func Serve(db *zenodb.DB, l net.Listener, opts *Opts) {
 		hashKey = make([]byte, 64)
 		_, err := rand.Read(hashKey)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("Unable to generate random hash key: %v", err)
 		}
 	}
 
@@ -59,26 +58,24 @@ func Serve(db *zenodb.DB, l net.Listener, opts *Opts) {
 		blockKey = make([]byte, 32)
 		_, err := rand.Read(blockKey)
 		if err != nil {
-			panic(err)
+			return fmt.Errorf("Unable to generate random block key: %v", err)
 		}
 	}
 
-	s := &server{
+	h := &handler{
 		Opts:   *opts,
 		db:     db,
 		sc:     securecookie.New(hashKey, blockKey),
 		client: &http.Client{},
 	}
 
-	router := mux.NewRouter().StrictSlash(true)
-	router.HandleFunc("/oauth/code", s.oauthCode)
-	router.PathPrefix("/run").HandlerFunc(s.runQuery)
-	router.PathPrefix("/").HandlerFunc(s.index)
+	router.StrictSlash(true)
+	router.HandleFunc("/insert/{stream}", h.insert)
+	router.HandleFunc("/oauth/code", h.oauthCode)
+	router.PathPrefix("/run").HandlerFunc(h.runQuery)
+	router.PathPrefix("/").HandlerFunc(h.index)
 
-	err := http.Serve(l, router)
-	if err != nil {
-		panic(err)
-	}
+	return nil
 }
 
 func buildURL(base string, params map[string]string) (*url.URL, error) {
