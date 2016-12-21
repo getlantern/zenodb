@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"sync"
+	"time"
 )
 
 type QueryResult struct {
@@ -67,7 +68,9 @@ func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	var mx sync.Mutex
-	rs.Iterate(context.Background(), func(row *core.FlatRow) (bool, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	rs.Iterate(ctx, func(row *core.FlatRow) (bool, error) {
 		mx.Lock()
 		key := row.Key.AsMap()
 		for dim := range key {
