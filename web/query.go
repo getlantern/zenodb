@@ -77,7 +77,7 @@ func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 			addDim(dim)
 		}
 		resultRow := &ResultRow{
-			TS:   row.TS,
+			TS:   row.TS / 1000000, // convert nanoseconds to milliseconds
 			Key:  key,
 			Vals: make([]float64, 0, len(row.Values)),
 		}

@@ -123,7 +123,7 @@ var indexHTML = []byte(`
 
   <script type="text/javascript">
     function formatTS(ts) {
-      return new Date(ts/1000).toString();
+      return new Date(ts).toString();
     }
 
     function runQuery() {

@@ -73,6 +73,7 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	router.HandleFunc("/insert/{stream}", h.insert)
 	router.HandleFunc("/oauth/code", h.oauthCode)
 	router.PathPrefix("/run").HandlerFunc(h.runQuery)
+	router.PathPrefix("/favicon").Handler(http.NotFoundHandler())
 	router.PathPrefix("/").HandlerFunc(h.index)
 
 	return nil

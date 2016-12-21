@@ -164,12 +164,15 @@ func (h *handler) userInOrg(accessToken string) (bool, error) {
 		return false, fmt.Errorf("Unable to get user orgs from GitHub: %v", err)
 	}
 	defer resp.Body.Close()
-	orgsData, err := ioutil.ReadAll(resp.Body)
+	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		return false, fmt.Errorf("Unable to read user orgs from GitHub: %v", err)
 	}
+	if resp.StatusCode > 299 {
+		return false, fmt.Errorf("Got response status %d: %v", resp.StatusCode, string(body))
+	}
 	orgs := make([]map[string]interface{}, 0)
-	err = json.Unmarshal(orgsData, &orgs)
+	err = json.Unmarshal(body, &orgs)
 	if err != nil {
 		if err != nil {
 			return false, fmt.Errorf("Unable to unmarshal user orgs from GitHub: %v", err)
