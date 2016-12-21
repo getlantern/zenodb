@@ -20,6 +20,7 @@ import (
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/rpc"
+	"github.com/getlantern/zenodb/web"
 	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
 	"gopkg.in/redis.v5"
@@ -41,10 +42,16 @@ var (
 	maxMemory         = flag.Float64("maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
 	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
 	httpsAddr         = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
+	webAddr           = flag.String("webaddr", "localhost:14443", "The address at which to listen for web requests over HTTPS, defaults to localhost:443")
 	pprofAddr         = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
 	password          = flag.String("password", "", "if specified, will authenticate clients using this password")
 	pkfile            = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
 	certfile          = flag.String("certfile", "cert.pem", "path to the certificate PEM file")
+	cookieHashKey     = flag.String("cookiehashkey", "", "key to use for HMAC authentication of web auth cookies, should be 64 bytes, defaults to random 64 bytes if not specified")
+	cookieBlockKey    = flag.String("cookieblockkey", "", "key to use for encrypting web auth cookies, should be 256 bytes, defaults to random 32 bytes if not specified")
+	oauthClientID     = flag.String("oauthclientid", "", "id to use for oauth client to connect to GitHub")
+	oauthClientSecret = flag.String("oauthclientsecret", "", "secret id to use for oauth client to connect to GitHub")
+	gitHubOrg         = flag.String("githuborg", "", "the GitHug org against which web users are authenticated")
 	insecure          = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to other zeno servers (don't use this in production!)")
 	passthrough       = flag.Bool("passthrough", false, "set to true to make this node a passthrough that doesn't capture data in table but is capable of feeding and querying other nodes. requires that -partitions to be specified.")
 	partitionBy       = flag.String("partitionby", "", "comman delimited list of dimensions by which to partition, in priority order")
@@ -76,6 +83,11 @@ func main() {
 	l, err := tlsdefaults.Listen(*addr, *pkfile, *certfile)
 	if err != nil {
 		log.Fatalf("Unable to listen for gRPC over TLS connections at %v: %v", *addr, err)
+	}
+
+	wl, err := tlsdefaults.Listen(*webAddr, *pkfile, *certfile)
+	if err != nil {
+		log.Errorf("Unable to listen for web connections at %v: %v", *webAddr, err)
 	}
 
 	hl, err := tlsdefaults.Listen(*httpsAddr, *pkfile, *certfile)
@@ -293,6 +305,15 @@ func main() {
 	fmt.Printf("Listening for HTTP connections at %v\n", hl.Addr())
 
 	go serveHTTP(db, hl)
+	if wl != nil {
+		go web.Serve(db, wl, &web.Opts{
+			OAuthClientID:     *oauthClientID,
+			OAuthClientSecret: *oauthClientSecret,
+			GitHubOrg:         *gitHubOrg,
+			HashKey:           *cookieHashKey,
+			BlockKey:          *cookieBlockKey,
+		})
+	}
 	serveRPC(db, l)
 }
 
