@@ -218,8 +218,11 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		select {
 		case result := <-results:
 			resultCount++
-			if result.err != nil && finalErr == nil {
-				finalErr = result.err
+			if result.err != nil {
+				log.Errorf("Error from partition %d: %v", result.partition, result.err)
+				if finalErr == nil {
+					finalErr = result.err
+				}
 			}
 			delta := time.Now().Sub(start)
 			log.Debugf("%d/%d got %d results from partition %d in %v", resultCount, db.opts.NumPartitions, result.results, result.partition, delta)

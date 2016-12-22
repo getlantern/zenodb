@@ -196,7 +196,10 @@ func TestGroupNone(t *testing.T) {
 func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	// TODO: add test that tests flattening of rows that contain multiple periods
 	// worth of values
-	f := Flatten(&goodSource{})
+	g := Group(&goodSource{}, GroupOpts{
+		Fields: Fields{NewField("a", eA), NewField("b", eB), NewField("c", CONST(10))},
+	})
+	f := Flatten(g)
 	s := Sort(f, NewOrderBy("b", true), NewOrderBy("a", false))
 	o := Offset(s, 1)
 	l := Limit(o, 6)

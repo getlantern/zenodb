@@ -48,7 +48,7 @@ var (
 	pkfile            = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
 	certfile          = flag.String("certfile", "cert.pem", "path to the certificate PEM file")
 	cookieHashKey     = flag.String("cookiehashkey", "", "key to use for HMAC authentication of web auth cookies, should be 64 bytes, defaults to random 64 bytes if not specified")
-	cookieBlockKey    = flag.String("cookieblockkey", "", "key to use for encrypting web auth cookies, should be 256 bytes, defaults to random 32 bytes if not specified")
+	cookieBlockKey    = flag.String("cookieblockkey", "", "key to use for encrypting web auth cookies, should be 32 bytes, defaults to random 32 bytes if not specified")
 	oauthClientID     = flag.String("oauthclientid", "", "id to use for oauth client to connect to GitHub")
 	oauthClientSecret = flag.String("oauthclientsecret", "", "secret id to use for oauth client to connect to GitHub")
 	gitHubOrg         = flag.String("githuborg", "", "the GitHug org against which web users are authenticated")

@@ -670,7 +670,6 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		fl, _ := strconv.ParseFloat(nodeToString(_e), 64)
 		return expr.CONST(fl), nil
 	default:
-		log.Debugf("Expression type: %v", reflect.TypeOf(_e))
 		str := nodeToString(_e)
 		log.Tracef("Returning string for expression: %v", str)
 		return str, nil

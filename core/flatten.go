@@ -50,15 +50,15 @@ func (f *flatten) Iterate(ctx context.Context, onRow OnFlatRow) error {
 				Values: make([]float64, numFields),
 				fields: fields,
 			}
-			anyValueFound := false
+			anyNonConstantValueFound := false
 			for i, field := range fields {
 				val, found := vals[i].ValueAtTime(ts, field.Expr, resolution)
-				if found {
-					anyValueFound = true
+				if found && !field.Expr.IsConstant() {
+					anyNonConstantValueFound = true
 				}
 				row.Values[i] = val
 			}
-			if anyValueFound {
+			if anyNonConstantValueFound {
 				more, err := onRow(row)
 				if !more || err != nil {
 					return more, err

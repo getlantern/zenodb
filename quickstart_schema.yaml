@@ -5,4 +5,4 @@ combined:
       requests,
       AVG(load_avg) AS load_avg
     FROM inbound
-    GROUP BY *, period(5m)
+    GROUP BY *, period(15s)
