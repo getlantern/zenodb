@@ -106,44 +106,10 @@ var indexHTML = []byte(`
       <button type="button" class="btn btn-default" aria-label="Left Align" on-click="run" {{#if running}}disabled{{/if}}>
         <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
       </button>
-      {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{ result.Rows.length}} results at {{ date }}</span>{{/if}}
+      {{#if !running}}
+        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{ result.Rows.length}}{{else}}No{{/if}} results at {{ date }}</span>{{/if}}
+      {{/if}}
     </div>
-
-    {{#if result && result.Rows}}
-      <table class="table table-striped" style="margin-top: 10px;">
-        <thead>
-          <tr>
-            {{#if result.TSCardinality > 1}}
-              <th>Time</th>
-            {{/if}}
-            {{#each result.Dims}}
-              <th class="dim"><th>{{ . }}</th>
-            {{/each}}
-            {{#each result.Fields}}
-              <th class="field">{{ . }}</th>
-            {{/each}}
-          </tr>
-        </thead>
-        <tbody>
-          {{#each result.Rows as row}}
-          <tr>
-            {{#if result.TSCardinality > 1}}
-              <th>{{ formatTS(row.TS) }}</th>
-            {{/if}}
-            {{#each result.Dims as dim}}
-              <th class="dim"><th>{{ row.Key[dim] }}</th>
-            {{/each}}
-            {{#each row.Vals as val}}
-              <th class="field">{{ val }}</th>
-            {{/each}}
-          </tr>
-          {{/each}}
-        </tbody>
-      </table>
-
-      <div id="chartDiv" class="defaultHide" style="width: 100%; {{#if showTimeSeriesChart}}display: block;{{/if}}"></div>
-      <canvas id="chartCanvas" width="600" height="200" class="defaultHide" style="{{#if showOtherChart}}display: block;{{/if}}"></canvas>
-    {{/if}}
 
     <div class="defaultHide" style="margin: 10px; {{#if plottingNotSupported}}display: block;{{/if}}">
       <h3>Autoplotting Not Supported for this Query</h3>
@@ -188,7 +154,43 @@ ORDER BY server</code></pre>
 FROM combined
 GROUP BY server, period(24h)
 ORDER BY server</code></pre>
-  </div>
+    </div>
+
+    {{#if result && result.Rows}}
+      <div id="chartDiv" class="defaultHide" style="margin-top: 20px; width: 100%; {{#if showTimeSeriesChart}}display: block;{{/if}}"></div>
+      <canvas id="chartCanvas" width="600" height="200" class="defaultHide" style="margin-top: 20px; {{#if showOtherChart}}display: block;{{/if}}"></canvas>
+
+      <table class="table table-striped" style="margin-top: 10px;">
+        <thead>
+          <tr>
+            {{#if result.TSCardinality > 1}}
+              <th>Time</th>
+            {{/if}}
+            {{#each result.Dims}}
+              <th class="dim"><th>{{ . }}</th>
+            {{/each}}
+            {{#each result.Fields}}
+              <th class="field">{{ . }}</th>
+            {{/each}}
+          </tr>
+        </thead>
+        <tbody>
+          {{#each result.Rows as row}}
+          <tr>
+            {{#if result.TSCardinality > 1}}
+              <th>{{ formatTS(row.TS) }}</th>
+            {{/if}}
+            {{#each result.Dims as dim}}
+              <th class="dim"><th>{{ row.Key[dim] }}</th>
+            {{/each}}
+            {{#each row.Vals as val}}
+              <th class="field">{{ val }}</th>
+            {{/each}}
+          </tr>
+          {{/each}}
+        </tbody>
+      </table>
+    {{/if}}
   </script>
 
   <!-- ACE Code Editor -->
@@ -225,8 +227,9 @@ ORDER BY server</code></pre>
     // Handle routing
     function handlePage(context, next) {
       if (!sqlInitialized) {
-        if (context.params.sql) {
-          editor.setValue(context.params.sql);
+        console.log(context);
+        if (context.querystring) {
+          editor.setValue(context.querystring);
           runQuery();
         }
         sqlInitialized = true;
@@ -234,14 +237,17 @@ ORDER BY server</code></pre>
     }
 
     page('/', '/query');
-    page('/query/:sql', handlePage);
+    page('/query', handlePage);
     page({
-      decodeURLComponents: false,
+      decodeURLComponents: true,
     });
 
     // Periodically check editor value and update link
     setInterval(function() {
-      page(encodeURI('/query/' + editor.getValue()));
+      var sql = editor.getValue();
+      if (sql) {
+        page('/query?' + encodeURIComponent(sql));
+      }
     }, 1000);
 
     function runQuery() {
@@ -255,13 +261,14 @@ ORDER BY server</code></pre>
       var query = editor.getValue();
       console.log("Running query", query);
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', encodeURI('/run/' + query), true);
+      xhr.open('GET', '/run?' + encodeURIComponent(query), true);
 
       xhr.onreadystatechange = function(e) {
         if (this.readyState == 4) {
           if (this.status == 200) {
             ractive.set("date", new Date());
             var result = JSON.parse(this.responseText);
+            console.log(result);
             ractive.set("result", result);
 
             if (result.Rows) {
@@ -369,18 +376,17 @@ ORDER BY server</code></pre>
     }
 
     function bubblechart(canvas, result) {
-      var fieldIndexes = fieldsByCardinality(result);
       var calculateR = result.Fields.length == 3;
       var datasets = [];
 
       result.Rows.forEach(function(row) {
         var datum = {
-          x: row.Vals[fieldIndexes[0]],
-          y: row.Vals[fieldIndexes[1]],
+          x: row.Vals[0],
+          y: row.Vals[1],
           r: 10,
         }
         if (calculateR) {
-          datum.r = row.Vals[fieldIndexes[2]];
+          datum.r = row.Vals[2];
         }
         var color = randomColor();
         datasets.push({
@@ -404,7 +410,7 @@ ORDER BY server</code></pre>
             xAxes: [{
               scaleLabel: {
                 display: true,
-                labelString: result.Fields[fieldIndexes[0]],
+                labelString: result.Fields[0],
               },
               ticks: {
                 beginAtZero:true
@@ -413,7 +419,7 @@ ORDER BY server</code></pre>
             yAxes: [{
               scaleLabel: {
                 display: true,
-                labelString: result.Fields[fieldIndexes[1]],
+                labelString: result.Fields[1],
               },
               ticks: {
                 beginAtZero:true
@@ -422,23 +428,6 @@ ORDER BY server</code></pre>
           }
         }
       });
-    }
-
-    // fieldsByCardinality returns an array of field indexes sorted by the
-    // fields' cardinality in descending order
-    function fieldsByCardinality(result) {
-      var temp = [];
-      result.FieldCardinalities.forEach(function(cardinality, idx) {
-        temp.push({c: cardinality, i: idx});
-      });
-      temp.sort(function(a, b) {
-        return b.c - a.c;
-      });
-      var result = [];
-      temp.forEach(function(t) {
-        result.push(t.i);
-      });
-      return result;
     }
 
     function formatTS(ts) {

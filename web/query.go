@@ -9,7 +9,7 @@ import (
 	"github.com/retailnext/hllpp"
 	"math"
 	"net/http"
-	"path"
+	"net/url"
 	"sort"
 	"sync"
 	"time"
@@ -35,7 +35,7 @@ func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	_, sqlString := path.Split(req.URL.Path)
+	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
 	rs, err := h.db.Query(sqlString, false, nil, false)
 	if err != nil {
 		resp.WriteHeader(http.StatusInternalServerError)
