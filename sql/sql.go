@@ -666,7 +666,11 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		// TODO: make sure that we don't need to worry about parens in our
 		// expression tree
 		return q.exprFor(e.Expr, defaultToSum)
+	case sqlparser.NumVal:
+		fl, _ := strconv.ParseFloat(nodeToString(_e), 64)
+		return expr.CONST(fl), nil
 	default:
+		log.Debugf("Expression type: %v", reflect.TypeOf(_e))
 		str := nodeToString(_e)
 		log.Tracef("Returning string for expression: %v", str)
 		return str, nil

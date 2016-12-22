@@ -31,7 +31,8 @@ SELECT
 	knownfield,
 	IF(dim = 'test', AVG(myfield)) AS the_avg,
 	*,
-	SUM(BOUNDED(bfield, 0, 100)) AS bounded
+	SUM(BOUNDED(bfield, 0, 100)) AS bounded,
+	5 as cval
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -76,7 +77,7 @@ LIMIT 100, 10
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	if assert.Len(t, q.Fields, 7) {
+	if assert.Len(t, q.Fields, 8) {
 		field := q.Fields[0]
 		expected := core.NewField("rate", rate).String()
 		actual := field.String()
@@ -117,6 +118,11 @@ LIMIT 100, 10
 
 		field = q.Fields[6]
 		expected = core.NewField("bounded", SUM(BOUNDED("bfield", 0, 100))).String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = q.Fields[7]
+		expected = core.NewField("cval", CONST(5)).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}

@@ -137,6 +137,17 @@ func TestSequenceValue(t *testing.T) {
 	assert.Equal(t, 56.78, val)
 }
 
+func TestSequenceConstant(t *testing.T) {
+	e := CONST(5.1)
+	s := Sequence(nil)
+	v, _ := s.ValueAt(0, e)
+	assert.EqualValues(t, 5.1, v)
+	v, _ = s.ValueAtOffset(0, e)
+	assert.EqualValues(t, 5.1, v)
+	v, _ = s.ValueAtTime(time.Time{}, e, 0)
+	assert.EqualValues(t, 5.1, v)
+}
+
 func randBelow(res time.Duration) time.Duration {
 	return time.Duration(-1 * rand.Intn(int(res)))
 }

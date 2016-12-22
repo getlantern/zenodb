@@ -342,7 +342,8 @@ SELECT
 	biv / 10 AS biv,
 	*,
 	IF(b = true, i) AS i_filtered,
-	_points
+	_points,
+	5.1 as cval
 FROM test_a
 ASOF '%s' UNTIL '%s'
 WHERE b != true AND r IN (SELECT r FROM test_a)
@@ -377,7 +378,7 @@ ORDER BY u DESC
 		return
 	}
 	// TODO: _having shouldn't bleed through like that
-	assert.Equal(t, []string{"ciii", "ii", "biv", "_points", "i", "iii", "iv", "z", "i_filtered"}, md.FieldNames)
+	assert.Equal(t, []string{"ciii", "ii", "biv", "_points", "i", "iii", "iv", "z", "i_filtered", "cval"}, md.FieldNames)
 
 	fieldIdx := func(name string) int {
 		for i, candidate := range md.FieldNames {
@@ -396,6 +397,7 @@ ORDER BY u DESC
 	bivIdx := fieldIdx("biv")
 	zIdx := fieldIdx("z")
 	iFilteredIdx := fieldIdx("i_filtered")
+	cvalIdx := fieldIdx("cval")
 
 	assert.EqualValues(t, 3, rows[1].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[1].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
@@ -404,6 +406,7 @@ ORDER BY u DESC
 	assert.EqualValues(t, 20, rows[1].Values[ivIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 1, rows[1].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 5.1, rows[1].Values[cvalIdx])
 
 	assert.EqualValues(t, 1, rows[0].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 0, rows[0].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
@@ -413,6 +416,7 @@ ORDER BY u DESC
 	assert.EqualValues(t, 0, rows[0].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, 53, rows[0].Values[zIdx], "Wrong derived value, bucketing may not be working correctly")
 	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
+	assert.EqualValues(t, 5.1, rows[0].Values[cvalIdx])
 }
 
 func randomlyIncludeMemStore() bool {

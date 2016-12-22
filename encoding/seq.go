@@ -89,6 +89,10 @@ func (seq Sequence) DataLength() int {
 // extracted using the given Expr and assuming each period represents 1 *
 // resolution. If no value is set for the given time, found will be false.
 func (seq Sequence) ValueAtTime(t time.Time, e expr.Expr, resolution time.Duration) (val float64, found bool) {
+	if e.IsConstant() {
+		val, found, _ = e.Get(nil)
+		return
+	}
 	if len(seq) == 0 {
 		return 0, false
 	}
@@ -104,6 +108,10 @@ func (seq Sequence) ValueAtTime(t time.Time, e expr.Expr, resolution time.Durati
 // ValueAt returns the value at the given period extracted using the given Expr.
 // If no value is set for the given period, found will be false.
 func (seq Sequence) ValueAt(period int, e expr.Expr) (val float64, found bool) {
+	if e.IsConstant() {
+		val, found, _ = e.Get(nil)
+		return
+	}
 	if len(seq) == 0 {
 		return 0, false
 	}
@@ -117,6 +125,10 @@ func (seq Sequence) ValueAt(period int, e expr.Expr) (val float64, found bool) {
 // including the start time) extracted using the given Expr.  If no value is set
 // for the given offset, found will be false.
 func (seq Sequence) ValueAtOffset(offset int, e expr.Expr) (val float64, found bool) {
+	if e.IsConstant() {
+		val, found, _ = e.Get(nil)
+		return
+	}
 	if len(seq) == 0 {
 		return 0, false
 	}
