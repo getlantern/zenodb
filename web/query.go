@@ -15,7 +15,12 @@ import (
 	"time"
 )
 
+const (
+	nanosPerMilli = 1000000
+)
+
 type QueryResult struct {
+	TS                 int64
 	TSCardinality      uint64
 	Fields             []string
 	FieldCardinalities []uint64
@@ -36,16 +41,47 @@ func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
+
+	var resultBytes []byte
+	if req.Header.Get("Cache-control") != "no-cache" {
+		resultBytes = h.cache.get(sqlString)
+	}
+	if resultBytes != nil {
+		log.Debugf("Found results for %v in cache", sqlString)
+	} else {
+		result, err := h.doQuery(sqlString)
+		if err != nil {
+			resp.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(resp, "Unable to query: %v", err)
+			return
+		}
+		resultBytes, err = json.Marshal(result)
+		if err != nil {
+			resp.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprintf(resp, "Unable to marshal result: %v", err)
+			return
+		}
+		if len(resultBytes) < h.MaxCacheEntryBytes {
+			log.Debugf("Caching result for %v", sqlString)
+			h.cache.put(sqlString, resultBytes)
+		}
+	}
+
+	resp.Header().Set("Content-Type", "application/json")
+	resp.Header().Set("Cache-control", fmt.Sprintf("max-age=%d", int64(h.CacheTTL.Seconds())))
+	resp.WriteHeader(http.StatusOK)
+	resp.Write(resultBytes)
+}
+
+func (h *handler) doQuery(sqlString string) (*QueryResult, error) {
 	rs, err := h.db.Query(sqlString, false, nil, false)
 	if err != nil {
-		resp.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprintf(resp, "Unable to query: %v", err)
-		return
+		return nil, err
 	}
 
 	var addDim func(dim string)
 
-	result := &QueryResult{}
+	result := &QueryResult{TS: time.Now().UnixNano() / nanosPerMilli}
 	groupBy := rs.GetGroupBy()
 	if len(groupBy) > 0 {
 		addDim = func(dim string) {
@@ -101,7 +137,7 @@ func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 		tsCardinality.Add(cbytes)
 
 		resultRow := &ResultRow{
-			TS:   row.TS / 1000000, // convert nanoseconds to milliseconds
+			TS:   row.TS / nanosPerMilli,
 			Key:  key,
 			Vals: make([]float64, 0, len(row.Values)),
 		}
@@ -131,10 +167,7 @@ func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 		result.FieldCardinalities = append(result.FieldCardinalities, fieldCardinality.Count())
 	}
 
-	resp.Header().Set("Content-Type", "application/json")
-	resp.WriteHeader(http.StatusOK)
-	enc := json.NewEncoder(resp)
-	enc.Encode(result)
+	return result, nil
 }
 
 func intToBytes(i uint64) []byte {

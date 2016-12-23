@@ -107,7 +107,7 @@ var indexHTML = []byte(`
         <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
       </button>
       {{#if !running}}
-        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{ result.Rows.length}}{{else}}No{{/if}} results at {{ date }}</span>{{/if}}
+        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{ result.Rows.length}}{{else}}No{{/if}} results as of {{ date }}</span>{{/if}}
       {{/if}}
     </div>
 
@@ -216,7 +216,9 @@ ORDER BY server</code></pre>
       "showTimeSeriesChart": false,
       "showOtherChart": false,
     }});
-    ractive.on("run", runQuery);
+    ractive.on("run", function() {
+      runQuery(false)
+    });
 
     // Set up ace editor
     var editor = ace.edit("sql");
@@ -227,10 +229,9 @@ ORDER BY server</code></pre>
     // Handle routing
     function handlePage(context, next) {
       if (!sqlInitialized) {
-        console.log(context);
         if (context.querystring) {
           editor.setValue(context.querystring);
-          runQuery();
+          runQuery(true);
         }
         sqlInitialized = true;
       }
@@ -250,7 +251,7 @@ ORDER BY server</code></pre>
       }
     }, 1000);
 
-    function runQuery() {
+    function runQuery(allowCaching) {
       ractive.set("running", true);
       ractive.set("result", null);
       ractive.set("error", null);
@@ -262,13 +263,15 @@ ORDER BY server</code></pre>
       console.log("Running query", query);
       var xhr = new XMLHttpRequest();
       xhr.open('GET', '/run?' + encodeURIComponent(query), true);
+      if (!allowCaching) {
+        xhr.setRequestHeader("Cache-Control", "no-cache");
+      }
 
       xhr.onreadystatechange = function(e) {
         if (this.readyState == 4) {
           if (this.status == 200) {
-            ractive.set("date", new Date());
             var result = JSON.parse(this.responseText);
-            console.log(result);
+            ractive.set("date", formatTS(result.TS));
             ractive.set("result", result);
 
             if (result.Rows) {

@@ -10,6 +10,7 @@ import (
 	"github.com/gorilla/securecookie"
 	"net/http"
 	"net/url"
+	"time"
 )
 
 var (
@@ -17,11 +18,14 @@ var (
 )
 
 type Opts struct {
-	OAuthClientID     string
-	OAuthClientSecret string
-	GitHubOrg         string
-	HashKey           string
-	BlockKey          string
+	OAuthClientID      string
+	OAuthClientSecret  string
+	GitHubOrg          string
+	HashKey            string
+	BlockKey           string
+	CacheTTL           time.Duration
+	MaxCacheBytes      int
+	MaxCacheEntryBytes int
 }
 
 type handler struct {
@@ -30,6 +34,7 @@ type handler struct {
 	fs     http.Handler
 	sc     *securecookie.SecureCookie
 	client *http.Client
+	cache  *cache
 }
 
 func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
@@ -39,6 +44,18 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 
 	if opts.GitHubOrg == "" {
 		return errors.New("Unable to start web server, no GitHubOrg specified")
+	}
+
+	if opts.CacheTTL == 0 {
+		opts.CacheTTL = 1 * time.Hour
+	}
+
+	if opts.MaxCacheBytes <= 0 {
+		opts.MaxCacheBytes = 100 * 1024 * 1204
+	}
+
+	if opts.MaxCacheEntryBytes <= 0 {
+		opts.MaxCacheEntryBytes = opts.MaxCacheBytes / 20
 	}
 
 	hashKey := []byte(opts.HashKey)
@@ -67,6 +84,7 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 		db:     db,
 		sc:     securecookie.New(hashKey, blockKey),
 		client: &http.Client{},
+		cache:  newCache(opts.CacheTTL, opts.MaxCacheBytes),
 	}
 
 	router.StrictSlash(true)
