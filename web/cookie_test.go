@@ -28,13 +28,13 @@ func TestPendingAuthCookie(t *testing.T) {
 	randomKey := make([]byte, randomKeyLength)
 	rand.Read(randomKey)
 
-	encoded, err := sc.Encode(pendingauthcookie, randomKey)
+	encoded, err := sc.Encode(authcookie, randomKey)
 	if !assert.NoError(t, err) {
 		return
 	}
 
 	randomKeyRT := make([]byte, randomKeyLength)
-	err = sc.Decode(pendingauthcookie, encoded, &randomKeyRT)
+	err = sc.Decode(authcookie, encoded, &randomKeyRT)
 	if !assert.NoError(t, err) {
 		return
 	}
