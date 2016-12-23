@@ -127,6 +127,7 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, "table_a", q.From)
+	assert.Equal(t, "Table_A", q.FromSQL)
 	if assert.Len(t, q.GroupBy, 13) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
@@ -215,6 +216,7 @@ GROUP BY A, period('10s')
 	if !assert.NoError(t, err) {
 		return
 	}
+	assert.Equal(t, "(select name, * from the_table ASOF '-2h' UNTIL '-1h' group by concat(',', a, b) as a, period('5s') having stuff > 5)", q.FromSQL)
 	assert.Empty(t, q.From)
 	if !assert.NotNil(t, q.FromSubQuery) {
 		return

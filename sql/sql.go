@@ -136,6 +136,7 @@ type Query struct {
 	// From is the Table from the FROM clause
 	From         string
 	FromSubQuery *Query
+	FromSQL      string
 	Resolution   time.Duration
 	Where        goexpr.Expr
 	WhereSQL     string
@@ -313,6 +314,7 @@ func (q *Query) addField(field core.Field) {
 }
 
 func (q *Query) applyFrom(stmt *sqlparser.Select, fieldSource FieldSource) error {
+	q.FromSQL = nodeToString(stmt.From)
 	switch f := stmt.From[0].(type) {
 	case *sqlparser.AliasedTableExpr:
 		switch e := f.Expr.(type) {
