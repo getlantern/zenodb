@@ -149,6 +149,17 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	timedOut := false
 	var mx sync.Mutex
 
+	subCtx := ctx
+	ctxDeadline, ctxHasDeadline := subCtx.Deadline()
+	if ctxHasDeadline {
+		// Halve timeout for sub-contexts
+		now := time.Now()
+		timeout := ctxDeadline.Sub(now)
+		var cancel context.CancelFunc
+		subCtx, cancel = context.WithDeadline(subCtx, now.Add(timeout/2))
+		defer cancel()
+	}
+
 	for i := 0; i < numPartitions; i++ {
 		partition := i
 		_resultsForPartition := int64(0)
@@ -191,7 +202,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 				}
 
-				err := query(ctx, sqlString, isSubQuery, subQueryResults, unflat, newOnRow, newOnFlatRow)
+				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, newOnRow, newOnFlatRow)
 				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue
@@ -204,7 +215,6 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 
 	start := time.Now()
 	deadline := start.Add(10 * time.Minute)
-	ctxDeadline, ctxHasDeadline := ctx.Deadline()
 	if ctxHasDeadline {
 		deadline = ctxDeadline
 	}
