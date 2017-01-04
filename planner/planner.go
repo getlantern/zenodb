@@ -105,15 +105,30 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		query.Until = now.Add(query.UntilOffset)
 	}
 
+	asOf := source.GetAsOf()
 	asOfChanged := !query.AsOf.IsZero() && query.AsOf.UnixNano() != source.GetAsOf().UnixNano()
+	if asOfChanged {
+		asOf = query.AsOf
+	}
+
+	until := source.GetUntil()
 	untilChanged := !query.Until.IsZero() && query.Until.UnixNano() != source.GetUntil().UnixNano()
+	if untilChanged {
+		until = query.Until
+	}
+
+	window := until.Sub(asOf)
+	if query.Resolution > window {
+		query.Resolution = window
+	}
+
 	resolutionChanged := query.Resolution != 0 && query.Resolution != source.GetResolution()
 	if resolutionChanged {
 		if query.Resolution < source.GetResolution() {
 			return nil, fmt.Errorf("Query resolution '%v' is higher than table resolution of '%v'", query.Resolution, source.GetResolution())
 		}
 		if query.Resolution%source.GetResolution() != 0 {
-			return nil, fmt.Errorf("Query resolution '%v' is not an even multpile of table resolution of '%v'", query.Resolution, source.GetResolution())
+			return nil, fmt.Errorf("Query resolution '%v' is not an even multiple of table resolution of '%v'", query.Resolution, source.GetResolution())
 		}
 	}
 

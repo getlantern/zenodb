@@ -344,6 +344,23 @@ func TestPlans(t *testing.T) {
 			Resolution: 2 * time.Second,
 		})
 
+	nonPushdownScenario("Resolution smaller than data window",
+		"SELECT * FROM TableA ASOF '-5s' UNTIL '-4s' GROUP BY period(2s)",
+		"select * from TableA ASOF '-5s' UNTIL '-4s' group by period(2 as s)",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields:     Fields{sql.PointsField, fieldA, fieldB},
+				AsOf:       epoch.Add(-5 * time.Second),
+				Until:      epoch.Add(-4 * time.Second),
+				Resolution: 1 * time.Second,
+			})
+		},
+		flatten,
+		GroupOpts{
+			Fields:     Fields{sql.PointsField, fieldA, fieldB},
+			Resolution: 1 * time.Second,
+		})
+
 	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x = 'CN' GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
 		return Limit(
 			Offset(

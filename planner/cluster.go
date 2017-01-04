@@ -238,6 +238,9 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	for _, groupBy := range query.GroupBy {
 		flattenedGroupBys = append(flattenedGroupBys, core.NewGroupBy(groupBy.Name, goexpr.Param(groupBy.Name)))
 	}
+	if query.Resolution > pail.GetResolution() {
+		query.Resolution = pail.GetResolution()
+	}
 	query.GroupBy = flattenedGroupBys
 	var flat core.FlatRowSource = core.Flatten(addGroupBy(source, query))
 	if query.Having != nil {
