@@ -311,7 +311,9 @@ func (db *DB) capMemStoreSize() {
 	db.tablesMutex.RLock()
 	sizes := make(byCurrentSize, 0, len(db.tables))
 	for _, table := range db.tables {
-		sizes = append(sizes, &memStoreSize{table, table.memStoreSize()})
+		if !table.Virtual {
+			sizes = append(sizes, &memStoreSize{table, table.memStoreSize()})
+		}
 	}
 	db.tablesMutex.RUnlock()
 

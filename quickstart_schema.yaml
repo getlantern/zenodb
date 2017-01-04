@@ -1,8 +1,14 @@
-combined:
-  retentionperiod: 1h
+base:
+  virtual: true
   sql: >
     SELECT
       requests,
       AVG(load_avg) AS load_avg
     FROM inbound
     GROUP BY *, period(15s)
+
+combined:
+  retentionperiod: 1h
+  view: true
+  sql: >
+    SELECT * FROM base

@@ -46,7 +46,11 @@ type TableOpts struct {
 	RetentionPeriod time.Duration
 	// SQL is the SELECT query that determines the fields, filtering and input
 	// source for this table.
-	SQL          string
+	SQL string
+	// Virtual, if true, means that the table's data isn't actually stored or
+	// queryable. Virtual tables are useful for defining a base set of fields
+	// from which other tables can select.
+	Virtual      bool
 	dependencyOf []*TableOpts
 }
 
@@ -121,15 +125,17 @@ func (db *DB) CreateView(opts *TableOpts) error {
 }
 
 func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
-	if opts.RetentionPeriod <= 0 {
-		return errors.New("Please specify a positive RetentionPeriod")
-	}
-	if opts.MinFlushLatency <= 0 {
-		log.Debug("MinFlushLatency disabled")
-	}
-	if opts.MaxFlushLatency <= 0 {
-		opts.MaxFlushLatency = time.Duration(math.MaxInt64)
-		log.Debug("MaxFlushLatency disabled")
+	if !opts.Virtual {
+		if opts.RetentionPeriod <= 0 {
+			return errors.New("Please specify a positive RetentionPeriod")
+		}
+		if opts.MinFlushLatency <= 0 {
+			log.Debug("MinFlushLatency disabled")
+		}
+		if opts.MaxFlushLatency <= 0 {
+			opts.MaxFlushLatency = time.Duration(math.MaxInt64)
+			log.Debug("MaxFlushLatency disabled")
+		}
 	}
 	opts.Name = strings.ToLower(opts.Name)
 
@@ -155,13 +161,15 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 
 	var rsErr error
 	var walOffset wal.Offset
-	t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
-		dir:             filepath.Join(db.opts.Dir, t.Name),
-		minFlushLatency: t.MinFlushLatency,
-		maxFlushLatency: t.MaxFlushLatency,
-	})
-	if rsErr != nil {
-		return rsErr
+	if !t.Virtual {
+		t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
+			dir:             filepath.Join(db.opts.Dir, t.Name),
+			minFlushLatency: t.MinFlushLatency,
+			maxFlushLatency: t.MaxFlushLatency,
+		})
+		if rsErr != nil {
+			return rsErr
+		}
 	}
 
 	db.tablesMutex.Lock()
@@ -172,34 +180,43 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	}
 	db.tables[t.Name] = t
 	db.orderedTables = append(db.orderedTables, t)
+
+	if !t.Virtual {
+		return t.startProcessing(walOffset)
+	}
+
+	return nil
+}
+
+func (t *table) startProcessing(walOffset wal.Offset) error {
 	var walErr error
-	w := db.streams[q.From]
+	w := t.db.streams[t.From]
 	if w == nil {
-		walDir := filepath.Join(db.opts.Dir, "_wal", q.From)
+		walDir := filepath.Join(t.db.opts.Dir, "_wal", t.From)
 		dirErr := os.MkdirAll(walDir, 0755)
 		if dirErr != nil && !os.IsExist(dirErr) {
 			return dirErr
 		}
-		w, walErr = wal.Open(walDir, db.opts.WALSyncInterval)
+		w, walErr = wal.Open(walDir, t.db.opts.WALSyncInterval)
 		if walErr != nil {
 			return walErr
 		}
-		go db.capWALAge(w)
-		db.streams[q.From] = w
+		go t.db.capWALAge(w)
+		t.db.streams[t.From] = w
 
-		if db.opts.Follow != nil {
+		if t.db.opts.Follow != nil {
 			var offset wal.Offset
 			latest, _, err := w.Latest()
 			if err != nil || len(latest) < wal.OffsetSize {
 				log.Debugf("Unable to obtain latest data from wal, assuming we're at beginning: %v", err)
 				// Start at offset commensurate with max WAL age
-				offset = wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxWALAge))
+				offset = wal.NewOffsetForTS(t.db.clock.Now().Add(-1 * t.db.opts.MaxWALAge))
 			} else {
 				// Followers store offset as first 16 bytes of data in WAL
 				offset = wal.Offset(latest[:wal.OffsetSize])
 			}
-			log.Debugf("Following stream %v starting at %v", q.From, offset)
-			go db.opts.Follow(&Follow{q.From, offset, db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
+			log.Debugf("Following stream %v starting at %v", t.From, offset)
+			go t.db.opts.Follow(&Follow{t.From, offset, t.db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
 				_, err := w.Write(newOffset, data)
 				if err != nil {
 					log.Debug(err)
@@ -209,12 +226,12 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		}
 	}
 
-	if db.opts.Passthrough {
+	if t.db.opts.Passthrough {
 		log.Debugf("Passthrough will not insert data to table %v", t.Name)
 		return nil
 	}
 
-	log.Debugf("%v will read inserts from %v at offset %v", t.Name, q.From, walOffset)
+	log.Debugf("%v will read inserts from %v at offset %v", t.Name, t.From, walOffset)
 	t.wal, walErr = w.NewReader(t.Name, walOffset)
 	if walErr != nil {
 		return fmt.Errorf("Unable to obtain WAL reader: %v", walErr)
