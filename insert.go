@@ -98,9 +98,7 @@ func (t *table) insert(ts time.Time, data []byte) {
 }
 
 func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) {
-	t.whereMutex.RLock()
-	where := t.Where
-	t.whereMutex.RUnlock()
+	where := t.getWhere()
 
 	if where != nil {
 		ok := where.Eval(dims)

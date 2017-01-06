@@ -449,6 +449,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 		fs.t.log.Tracef("Iterating with memstore ? %v from file %v", tree != nil, fs.filename)
 	}
 
+	where := fs.t.getWhere()
+
 	truncateBefore := fs.t.truncateBefore()
 	var includeField func(int) bool
 	if len(includedFields) == 0 {
@@ -623,6 +625,11 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 					// merge
 					columns[i] = column.Merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
 				}
+			}
+
+			if where != nil && !where.Eval(key).(bool) {
+				// Filter out row
+				continue
 			}
 
 			if includesAtLeastOneColumn {

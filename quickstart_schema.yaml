@@ -12,3 +12,11 @@ combined:
   view: true
   sql: >
     SELECT * FROM base
+
+filtered:
+  retentionperiod: 1h
+  view: true
+  sql: >
+    SELECT *
+    FROM combined
+    WHERE path='/index.html'

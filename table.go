@@ -250,6 +250,13 @@ func (t *table) applyWhere(where goexpr.Expr) {
 	t.whereMutex.Unlock()
 }
 
+func (t *table) getWhere() goexpr.Expr {
+	t.whereMutex.RLock()
+	where := t.Where
+	t.whereMutex.RUnlock()
+	return where
+}
+
 func (t *table) truncateBefore() time.Time {
 	return t.db.clock.Now().Add(-1 * t.RetentionPeriod)
 }
