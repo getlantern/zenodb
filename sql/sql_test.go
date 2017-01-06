@@ -59,6 +59,7 @@ GROUP BY
 	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
 	SPLIT(dim_o, ',', 2) AS spl,
 	SUBSTR(dim_p, 1, 5) AS sub,
+	LEN(dim_q) AS qlen,
 	period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
@@ -128,7 +129,7 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 13) {
+	if assert.Len(t, q.GroupBy, 14) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -147,6 +148,8 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("qlen", goexpr.Len(goexpr.Param("dim_q"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("spl", goexpr.Split(goexpr.Param("dim_o"), goexpr.Constant(","), goexpr.Constant(2))).String(), q.GroupBy[idx].String())
 		assert.Equal(t, "c", q.GroupBy[idx].Expr.Eval(goexpr.MapParams{"dim_o": "a,b,c"}))
@@ -190,7 +193,7 @@ LIMIT 100, 10
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
 	assert.EqualValues(t, []string{"_points", "a", "b", "bfield", "c", "h", "knownfield", "myfield", "oknownfield", "rate", "x"}, q.IncludedFields)
-	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "dim_l", "dim_m", "dim_n", "dim_o", "dim_p", "ip", "part_a", "part_b"}, q.IncludedDims)
+	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "dim_l", "dim_m", "dim_n", "dim_o", "dim_p", "dim_q", "ip", "part_a", "part_b"}, q.IncludedDims)
 }
 
 func TestFromSubQuery(t *testing.T) {

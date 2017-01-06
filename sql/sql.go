@@ -74,6 +74,7 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"ISP":          isp.ISP,
 	"ORG":          isp.ORG,
 	"ASN":          isp.ASN,
+	"LEN":          goexpr.Len,
 }
 
 var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
