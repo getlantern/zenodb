@@ -177,12 +177,12 @@ func (rs *rowStore) processInserts() {
 
 	flush := func(allowSort bool) {
 		if ms.tree.Length() == 0 {
-			rs.t.log.Trace("Nothing to flush")
+			rs.t.log.Debug("Nothing to flush")
 			// Immediately reset flushTimer
 			flushTimer.Reset(flushInterval)
 			return
 		}
-		rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(ms.tree.Bytes())))
+		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(ms.tree.Bytes())))
 		flushDuration := rs.processFlush(ms, allowSort)
 		ms = &memstore{tree: rs.t.newByteTree()}
 		rs.mx.Lock()
@@ -206,7 +206,7 @@ func (rs *rowStore) processInserts() {
 			rs.mx.Unlock()
 			rs.t.updateHighWaterMarkMemory(insert.vals.TimeInt())
 		case <-flushTimer.C:
-			rs.t.log.Trace("Requesting flush due to flush interval")
+			rs.t.log.Debug("Requesting flush due to flush interval")
 			flush(false)
 		case <-rs.forceFlushes:
 			rs.t.log.Debug("Forcing flush")
@@ -627,13 +627,10 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 				}
 			}
 
-			if where != nil && !where.Eval(key).(bool) {
-				// Filter out row
-				continue
-			}
-
-			if includesAtLeastOneColumn {
-				onRow(key, columns)
+			if where == nil || where.Eval(key).(bool) {
+				if includesAtLeastOneColumn {
+					onRow(key, columns)
+				}
 			}
 
 			if useBuffer {
