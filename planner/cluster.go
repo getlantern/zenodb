@@ -92,7 +92,7 @@ func (cs *clusterFlatRowSource) String() string {
 // individual partitions. "Push down" means that the entire query (including
 // subquery) is run on each partition and the results are combined through a
 // simple union on the leader node. If a query cannot be pushed down, the leader
-// will query the partitions for the raw data and then performing group by and
+// will query the partitions for the raw data and then perform group by and
 // having logic on the leader. For queries that contains subqueries, if pushdown
 // is not allowed, the entire subquery result set is returned to the leader for
 // further processing, which is much slower than pushdown processing for queries
@@ -128,32 +128,11 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 			})
 		}
 
-		partitionKeyRepresented := make([]bool, len(opts.PartitionBy))
-		for param := range params {
-			for i, partitionKey := range opts.PartitionBy {
-				if partitionKey == param {
-					partitionKeyRepresented[i] = true
-					break
-				}
+		for _, partitionKey := range opts.PartitionBy {
+			if !params[partitionKey] {
+				// Partition key not represented, can't push down
+				return false
 			}
-		}
-
-		foundNonRepresented := false
-		foundRepresented := false
-		for _, represented := range partitionKeyRepresented {
-			if represented {
-				if foundNonRepresented {
-					// Represented partition keys are discontiguous, can't push down.
-					return false
-				}
-				foundRepresented = true
-			} else {
-				foundNonRepresented = true
-			}
-		}
-
-		if !foundRepresented {
-			return false
 		}
 	}
 
