@@ -64,9 +64,11 @@ func (t *table) processInserts() {
 		if ts.Before(t.truncateBefore()) {
 			// Ignore old data
 			skipped++
-		} else {
-			t.insert(ts, data)
+		} else if t.insert(ts, data) {
 			inserted++
+		} else {
+			// Did not insert (probably due to WHERE clause)
+			skipped++
 		}
 		delta := time.Now().Sub(start)
 		if delta > 1*time.Minute {
@@ -81,7 +83,7 @@ func (t *table) processInserts() {
 	}
 }
 
-func (t *table) insert(ts time.Time, data []byte) {
+func (t *table) insert(ts time.Time, data []byte) bool {
 	offset := t.wal.Offset()
 	dimsLen, remain := encoding.ReadInt32(data)
 	dims, remain := encoding.Read(remain, dimsLen)
@@ -94,23 +96,29 @@ func (t *table) insert(ts time.Time, data []byte) {
 	valsBM := make(bytemap.ByteMap, len(vals))
 	copy(dimsBM, dims)
 	copy(valsBM, vals)
-	t.doInsert(ts, dimsBM, valsBM, offset)
+	return t.doInsert(ts, dimsBM, valsBM, offset)
 }
 
-func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) {
+func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) bool {
 	where := t.getWhere()
 
 	if where != nil {
 		ok := where.Eval(dims)
 		if !ok.(bool) {
-			t.log.Tracef("Filtering out inbound point: %v", dims)
+			if t.log.IsTraceEnabled() {
+				t.log.Tracef("Filtering out inbound point at %v due to %v: %v", ts, where, dims.AsMap())
+			}
 			t.statsMutex.Lock()
 			t.stats.FilteredPoints++
 			t.statsMutex.Unlock()
-			return
+			return false
 		}
 	}
 	t.db.clock.Advance(ts)
+
+	if t.log.IsTraceEnabled() {
+		t.log.Tracef("Including inbound point at %v: %v", ts, dims.AsMap())
+	}
 
 	var key bytemap.ByteMap
 	if len(t.GroupBy) == 0 {
@@ -135,6 +143,8 @@ func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMa
 	t.statsMutex.Lock()
 	t.stats.InsertedPoints++
 	t.statsMutex.Unlock()
+
+	return true
 }
 
 func (t *table) recordQueued() {

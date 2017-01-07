@@ -182,7 +182,9 @@ func (rs *rowStore) processInserts() {
 			flushTimer.Reset(flushInterval)
 			return
 		}
-		rs.t.log.Debugf("Requesting flush at memstore size: %v", humanize.Bytes(uint64(ms.tree.Bytes())))
+		if rs.t.log.IsTraceEnabled() {
+			rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(ms.tree.Bytes())))
+		}
 		flushDuration := rs.processFlush(ms, allowSort)
 		ms = &memstore{tree: rs.t.newByteTree()}
 		rs.mx.Lock()
@@ -449,8 +451,6 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 		fs.t.log.Tracef("Iterating with memstore ? %v from file %v", tree != nil, fs.filename)
 	}
 
-	where := fs.t.getWhere()
-
 	truncateBefore := fs.t.truncateBefore()
 	var includeField func(int) bool
 	if len(includedFields) == 0 {
@@ -627,10 +627,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 				}
 			}
 
-			if where == nil || where.Eval(key).(bool) {
-				if includesAtLeastOneColumn {
-					onRow(key, columns)
-				}
+			if includesAtLeastOneColumn {
+				onRow(key, columns)
 			}
 
 			if useBuffer {
