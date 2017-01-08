@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,10 @@ type TableOpts struct {
 	// RetentionPeriod limits how long data is kept in the table (based on the
 	// timestamp of the data itself).
 	RetentionPeriod time.Duration
+	// PartitionBy can be used in clustered deployments to decide which
+	// dimensions to use in partitioning data. If unspecified, all dimensions are
+	// used for partitioning.
+	PartitionBy []string
 	// SQL is the SELECT query that determines the fields, filtering and input
 	// source for this table.
 	SQL string
@@ -106,6 +111,10 @@ func (db *DB) CreateView(opts *TableOpts) error {
 
 	if q.Resolution == 0 {
 		q.Resolution = t.Resolution
+	}
+
+	if len(opts.PartitionBy) == 0 {
+		opts.PartitionBy = t.PartitionBy
 	}
 
 	// Combine where clauses
@@ -189,10 +198,23 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 }
 
 func (t *table) startProcessing(walOffset wal.Offset) error {
+	partitionKeys := t.PartitionBy
+	if t.db.opts.Passthrough {
+		// For passthrough (cluster leader), send everything to a single WAL
+		partitionKeys = nil
+	}
+	sort.Strings(partitionKeys)
+	partitionKeysString := partitionKeysToString(partitionKeys)
+	streamsByPartitionKeys := t.db.streamsByName[t.From]
+	if streamsByPartitionKeys == nil {
+		streamsByPartitionKeys = make(map[string]*wal.WAL)
+		t.db.streamsByName[t.From] = streamsByPartitionKeys
+	}
+
 	var walErr error
-	w := t.db.streams[t.From]
+	w := streamsByPartitionKeys[partitionKeysString]
 	if w == nil {
-		walDir := filepath.Join(t.db.opts.Dir, "_wal", t.From)
+		walDir := filepath.Join(t.db.opts.Dir, "_wal", t.From, partitionKeysString)
 		dirErr := os.MkdirAll(walDir, 0755)
 		if dirErr != nil && !os.IsExist(dirErr) {
 			return dirErr
@@ -202,7 +224,7 @@ func (t *table) startProcessing(walOffset wal.Offset) error {
 			return walErr
 		}
 		go t.db.capWALAge(w)
-		t.db.streams[t.From] = w
+		streamsByPartitionKeys[partitionKeysString] = w
 
 		if t.db.opts.Follow != nil {
 			var offset wal.Offset
@@ -216,7 +238,7 @@ func (t *table) startProcessing(walOffset wal.Offset) error {
 				offset = wal.Offset(latest[:wal.OffsetSize])
 			}
 			log.Debugf("Following stream %v starting at %v", t.From, offset)
-			go t.db.opts.Follow(&Follow{t.From, offset, t.db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
+			go t.db.opts.Follow(&Follow{t.From, offset, t.db.opts.Partition, partitionKeys}, func(data []byte, newOffset wal.Offset) error {
 				_, err := w.Write(newOffset, data)
 				if err != nil {
 					log.Debug(err)

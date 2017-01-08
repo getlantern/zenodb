@@ -177,7 +177,7 @@ func (rs *rowStore) processInserts() {
 
 	flush := func(allowSort bool) {
 		if ms.tree.Length() == 0 {
-			rs.t.log.Debug("Nothing to flush")
+			rs.t.log.Trace("Nothing to flush")
 			// Immediately reset flushTimer
 			flushTimer.Reset(flushInterval)
 			return
@@ -208,7 +208,7 @@ func (rs *rowStore) processInserts() {
 			rs.mx.Unlock()
 			rs.t.updateHighWaterMarkMemory(insert.vals.TimeInt())
 		case <-flushTimer.C:
-			rs.t.log.Debug("Requesting flush due to flush interval")
+			rs.t.log.Trace("Requesting flush due to flush interval")
 			flush(false)
 		case <-rs.forceFlushes:
 			rs.t.log.Debug("Forcing flush")

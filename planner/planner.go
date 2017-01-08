@@ -16,14 +16,18 @@ var (
 	log = golog.LoggerFor("planner")
 )
 
+type Table interface {
+	core.RowSource
+	GetPartitionBy() []string
+}
+
 type Opts struct {
-	GetTable        func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource
+	GetTable        func(table string, includedFields func(tableFields core.Fields) core.Fields) Table
 	Now             func(table string) time.Time
 	FieldSource     sql.FieldSource
 	IsSubQuery      bool
 	SubQueryResults [][]interface{}
 	QueryCluster    QueryClusterFN
-	PartitionBy     []string
 }
 
 func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {

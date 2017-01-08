@@ -229,8 +229,8 @@ func TestPlans(t *testing.T) {
 	// 		By:     []GroupBy{NewGroupBy("xplus", goexpr.Param("xplus")), groupByY},
 	// 	})
 
-	scenario("HAVING clause with contiguous group by in subselect but discontiguous group by in main select, pushdown not allowed",
-		"SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, CONCAT(',', x, 'thing') AS xplus) GROUP BY y, xplus HAVING a+b > 0",
+	scenario("HAVING clause with complete group by in subselect but incomplete group by in main select, pushdown not allowed",
+		"SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, LEN(x) AS xplus) GROUP BY y HAVING a+b > 0",
 		func() Source {
 			fieldHaving := NewField("_having", GT(ADD(eA, eB), CONST(0)))
 			avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
@@ -242,13 +242,13 @@ func TestPlans(t *testing.T) {
 							Flatten(
 								Group(&testTable{"tablea", defaultFields}, GroupOpts{
 									Fields: fields,
-									By:     []GroupBy{NewGroupBy("xplus", goexpr.Concat(goexpr.Constant(","), goexpr.Param("x"), goexpr.Constant("thing"))), groupByY},
+									By:     []GroupBy{NewGroupBy("xplus", goexpr.Len(goexpr.Param("x"))), groupByY},
 								}),
 							),
 							avgTotal),
 						GroupOpts{
 							Fields: Fields{avgTotal, fieldHaving},
-							By:     []GroupBy{NewGroupBy("xplus", goexpr.Param("xplus")), groupByY},
+							By:     []GroupBy{groupByY},
 						},
 					),
 				), "a+b > 0", nil)
@@ -259,7 +259,7 @@ func TestPlans(t *testing.T) {
 			fields := Fields{avgTotal}
 			t := &clusterFlatRowSource{
 				clusterSource{
-					query: &sql.Query{SQL: "select * from TableA group by y, concat(',', x, 'thing') as xplus"},
+					query: &sql.Query{SQL: "select * from TableA group by y, len(x) as xplus"},
 				},
 			}
 			return FlatRowFilter(
@@ -268,7 +268,7 @@ func TestPlans(t *testing.T) {
 						Unflatten(t, fields...),
 						GroupOpts{
 							Fields: Fields{avgTotal, fieldHaving},
-							By:     []GroupBy{NewGroupBy("xplus", goexpr.Param("xplus")), groupByY},
+							By:     []GroupBy{groupByY},
 						},
 					),
 				), "a+b > 0", nil)
@@ -410,7 +410,6 @@ func TestPlans(t *testing.T) {
 		}
 
 		opts.QueryCluster = queryCluster
-		opts.PartitionBy = []string{"x", "y"}
 		clusterPlan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
 			assert.Equal(t, FormatSource(expectedCluster[i]()), FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], sqlString))
@@ -468,7 +467,7 @@ LIMIT 1
 
 func defaultOpts() *Opts {
 	return &Opts{
-		GetTable: func(table string, includedFields func(tableFields Fields) Fields) RowSource {
+		GetTable: func(table string, includedFields func(tableFields Fields) Fields) Table {
 			return &testTable{table, includedFields(defaultFields)}
 		},
 		Now: func(table string) time.Time {
@@ -486,7 +485,7 @@ func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQue
 		opts := defaultOpts()
 		opts.IsSubQuery = isSubQuery
 		opts.SubQueryResults = subQueryResults
-		opts.GetTable = func(table string, includedFields func(tableFields Fields) Fields) RowSource {
+		opts.GetTable = func(table string, includedFields func(tableFields Fields) Fields) Table {
 			part.name = table
 			part.fields = includedFields(defaultFields)
 			return part
@@ -538,6 +537,10 @@ func (t *testTable) GetAsOf() time.Time {
 
 func (t *testTable) GetUntil() time.Time {
 	return until
+}
+
+func (t *testTable) GetPartitionBy() []string {
+	return []string{"x", "y"}
 }
 
 func (t *testTable) Iterate(ctx context.Context, onRow OnRow) error {

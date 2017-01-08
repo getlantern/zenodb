@@ -98,11 +98,6 @@ func (cs *clusterFlatRowSource) String() string {
 // further processing, which is much slower than pushdown processing for queries
 // that aggregate heavily.
 func pushdownAllowed(opts *Opts, query *sql.Query) bool {
-	if len(opts.PartitionBy) == 0 {
-		// With no partition keys, we can't push down
-		return false
-	}
-
 	if query.FromSubQuery != nil {
 		if len(query.FromSubQuery.OrderBy) > 0 || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
 			// If subquery contains order by, limit or offset, we can't push down
@@ -110,55 +105,54 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 		}
 	}
 
-	for currentQuery := query; currentQuery != nil; currentQuery = currentQuery.FromSubQuery {
-		maybeAllowed, groupBy := pushdownMaybeAllowed(opts, currentQuery)
-		if !maybeAllowed {
-			return false
+	params := make(map[string]bool)
+	for current := query; current != nil; current = current.FromSubQuery {
+		if len(current.GroupBy) > 0 {
+			for _, groupBy := range current.GroupBy {
+				groupBy.Expr.WalkOneToOneParams(func(param string) {
+					params[param] = true
+				})
+			}
 		}
-		if len(groupBy) == 0 {
-			// If we're not grouping by anything in base table or query, we can't push
-			// down
-			return false
+		if !current.GroupByAll {
+			break
 		}
-
-		params := make(map[string]bool)
-		for _, groupBy := range groupBy {
-			groupBy.Expr.WalkOneToOneParams(func(param string) {
-				params[param] = true
+		if current.FromSubQuery == nil {
+			t := opts.GetTable(current.From, func(fields core.Fields) core.Fields {
+				return fields
 			})
-		}
-
-		for _, partitionKey := range opts.PartitionBy {
-			if !params[partitionKey] {
-				// Partition key not represented, can't push down
-				return false
+			for _, groupBy := range t.GetGroupBy() {
+				groupBy.Expr.WalkOneToOneParams(func(param string) {
+					params[param] = true
+				})
 			}
 		}
 	}
 
-	return true
-}
-
-func pushdownMaybeAllowed(opts *Opts, query *sql.Query) (bool, []core.GroupBy) {
-	if query.FromSubQuery != nil {
-		if len(query.FromSubQuery.OrderBy) > 0 || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
-			// If subquery contains order by, limit or offset, we can't push down
-			return false, nil
+	var partitionBy []string
+	for current := query; current != nil; current = current.FromSubQuery {
+		if current.FromSubQuery == nil {
+			t := opts.GetTable(current.From, func(fields core.Fields) core.Fields {
+				return fields
+			})
+			partitionBy = t.GetPartitionBy()
+			break
 		}
 	}
-	if len(query.GroupBy) > 0 {
-		return true, query.GroupBy
+
+	if len(partitionBy) == 0 {
+		// Table not partitioned, can't push down
+		return false
 	}
-	if query.FromSubQuery != nil {
-		return pushdownMaybeAllowed(opts, query.FromSubQuery)
+
+	for _, partitionKey := range partitionBy {
+		if !params[partitionKey] {
+			// Partition key not represented, can't push down
+			return false
+		}
 	}
-	if query.GroupByAll {
-		t := opts.GetTable(query.From, func(fields core.Fields) core.Fields {
-			return fields
-		})
-		return true, t.GetGroupBy()
-	}
-	return false, nil
+
+	return query.FromSubQuery == nil || pushdownAllowed(opts, query.FromSubQuery)
 }
 
 func planClusterPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
@@ -233,7 +227,6 @@ func planAsIfLocal(opts *Opts, sqlString string) (core.FlatRowSource, error) {
 	unclusteredOpts := &Opts{}
 	*unclusteredOpts = *opts
 	unclusteredOpts.QueryCluster = nil
-	unclusteredOpts.PartitionBy = nil
 
 	query, parseErr := sql.Parse(sqlString, opts.FieldSource)
 	if parseErr != nil {

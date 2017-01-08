@@ -11,12 +11,13 @@ combined:
   retentionperiod: 1h
   view: true
   sql: >
-    SELECT * FROM base
+    SELECT *
+    FROM base
 
-filtered:
+partitioned:
   retentionperiod: 1h
   view: true
+  partitionby: [server,path]
   sql: >
     SELECT *
     FROM combined
-    WHERE path='/index.html'

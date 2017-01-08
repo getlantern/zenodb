@@ -79,10 +79,6 @@ type DBOpts struct {
 	// just WAL). Passthrough nodes will also outsource queries to specific
 	// partition handlers. Requires that NumPartitions be specified.
 	Passthrough bool
-	// PartitionBy identifies the dimensions by which to partition, in order of
-	// priority. If a datum includes none of these dimensions, we partition on the
-	// entire key.
-	PartitionBy []string
 	// NumPartitions identifies how many partitions to split data from
 	// passthrough nodes.
 	NumPartitions int
@@ -98,7 +94,7 @@ type DBOpts struct {
 type DB struct {
 	opts                *DBOpts
 	clock               vtime.Clock
-	streams             map[string]*wal.WAL
+	streamsByName       map[string]map[string]*wal.WAL
 	tables              map[string]*table
 	orderedTables       []*table
 	tablesMutex         sync.RWMutex
@@ -116,7 +112,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts:                opts,
 		clock:               vtime.RealClock,
 		tables:              make(map[string]*table),
-		streams:             make(map[string]*wal.WAL),
+		streamsByName:       make(map[string]map[string]*wal.WAL),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 	}
 	if opts.VirtualTime {
@@ -171,7 +167,6 @@ func NewDB(opts *DBOpts) (*DB, error) {
 
 	if db.opts.Passthrough {
 		// go db.freshenRemoteQueryHandlers()
-		log.Debugf("Partitioning by: %v", strings.Join(db.opts.PartitionBy, ","))
 	}
 
 	if db.opts.MaxMemoryRatio > 0 {

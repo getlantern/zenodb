@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -28,7 +29,7 @@ func TestRoundTime(t *testing.T) {
 }
 
 func TestSingleDB(t *testing.T) {
-	doTest(t, false, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
+	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		db, err := NewDB(&DBOpts{
 			Dir:            filepath.Join(tmpDir, "leader"),
 			SchemaFile:     tmpFile,
@@ -58,13 +59,12 @@ func doTestCluster(t *testing.T, partitionBy []string) {
 	numPartitions := 1 + rand.Intn(10)
 	numPartitions = 1
 
-	doTest(t, true, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
+	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		leader, err := NewDB(&DBOpts{
 			Dir:            filepath.Join(tmpDir, "leader"),
 			SchemaFile:     tmpFile,
 			VirtualTime:    true,
 			Passthrough:    true,
-			PartitionBy:    partitionBy,
 			NumPartitions:  numPartitions,
 			MaxMemoryRatio: 0.00001,
 		})
@@ -118,7 +118,7 @@ func doTestCluster(t *testing.T, partitionBy []string) {
 	})
 }
 
-func doTest(t *testing.T, isClustered bool, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table)))) {
+func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table)))) {
 	epoch := time.Date(2015, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 	tmpDir, err := ioutil.TempDir("", "zenodbtest")
@@ -135,10 +135,14 @@ func doTest(t *testing.T, isClustered bool, buildDB func(tmpDir string, tmpFile 
 
 	resolution := time.Millisecond
 
-	schemaA := `
+	partitionClause := ""
+	if len(partitionKeys) > 0 {
+		partitionClause = fmt.Sprintf("\n  partitionby: [%v]\n", strings.Join(partitionKeys, ","))
+	}
+	schemaA := fmt.Sprintf(`
 Test_a:
   maxflushlatency: 1ms
-  retentionperiod: 200ms
+  retentionperiod: 200ms%s
   sql: >
     SELECT
       IF(md = 'glub', SUM(i)) AS i,
@@ -150,7 +154,8 @@ Test_a:
     FROM inbound
     WHERE r = 'A'
     GROUP BY r, u, b, period(1ms)
-`
+`, partitionClause)
+	log.Debug(schemaA)
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
 	if !assert.NoError(t, err, "Unable to write schemaA") {
 		return

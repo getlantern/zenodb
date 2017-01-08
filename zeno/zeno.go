@@ -54,7 +54,6 @@ var (
 	gitHubOrg         = flag.String("githuborg", "", "the GitHug org against which web users are authenticated")
 	insecure          = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to other zeno servers (don't use this in production!)")
 	passthrough       = flag.Bool("passthrough", false, "set to true to make this node a passthrough that doesn't capture data in table but is capable of feeding and querying other nodes. requires that -partitions to be specified.")
-	partitionBy       = flag.String("partitionby", "", "comman delimited list of dimensions by which to partition, in priority order")
 	capture           = flag.String("capture", "", "if specified, connect to the node at the given address to receive updates, authenticating with value of -password.  requires that you specify which -partition this node handles.")
 	captureOverride   = flag.String("captureoverride", "", "if specified, dial network connection for -capture using this address, but verify TLS connection using the address from -capture")
 	feed              = flag.String("feed", "", "if specified, connect to the nodes at the given comma,delimited addresses to handle queries for them, authenticating with value of -password. requires that you specify which -partition this node handles.")
@@ -266,10 +265,6 @@ func main() {
 		}
 	}
 
-	var partitionByArray []string
-	if *partitionBy != "" {
-		partitionByArray = strings.Split(strings.ToLower(*partitionBy), ",")
-	}
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		Dir:               *dbdir,
 		SchemaFile:        *schema,
@@ -284,7 +279,6 @@ func main() {
 		WALCompressionAge: *walCompressionAge,
 		MaxMemoryRatio:    *maxMemory,
 		Passthrough:       *passthrough,
-		PartitionBy:       partitionByArray,
 		NumPartitions:     *numPartitions,
 		Partition:         *partition,
 		Follow:            follow,

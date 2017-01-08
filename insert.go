@@ -12,10 +12,20 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 )
 
-func (db *DB) Insert(stream string, ts time.Time, dims map[string]interface{}, vals map[string]float64) error {
-	return db.InsertRaw(stream, ts, bytemap.New(dims), bytemap.NewFloat(vals))
+func (db *DB) Insert(stream string, ts time.Time, dimsMap map[string]interface{}, vals map[string]float64) error {
+	// Build dims from sorted keys and values so that partitioning is operating on
+	// consistent keys.
+	dimNames := make([]string, 0, len(dimsMap))
+	dimValues := make([]interface{}, 0, len(dimsMap))
+	for name, val := range dimsMap {
+		dimNames = append(dimNames, name)
+		dimValues = append(dimValues, val)
+	}
+	dims := bytemap.FromSortedKeysAndValues(dimNames, dimValues)
+	return db.InsertRaw(stream, ts, dims, bytemap.NewFloat(vals))
 }
 
+// Note, this assumes that dims are already sorted by dim name
 func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) error {
 	if db.opts.Follow != nil {
 		return errors.New("Declining to insert data directly to follower")
@@ -23,20 +33,34 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 
 	stream = strings.TrimSpace(strings.ToLower(stream))
 	db.tablesMutex.Lock()
-	w := db.streams[stream]
+	// Copy streamsByPartitionKeys
+	_streamsByPartitionKeys := db.streamsByName[stream]
+	streams := make([]*wal.WAL, 0, len(_streamsByPartitionKeys))
+	for _, stream := range _streamsByPartitionKeys {
+		streams = append(streams, stream)
+	}
 	db.tablesMutex.Unlock()
-	if w == nil {
+	if len(streams) == 0 {
 		return fmt.Errorf("No wal found for stream %v", stream)
 	}
 
-	tsd := make([]byte, encoding.Width64bits)
-	encoding.EncodeTime(tsd, ts)
-	dimsLen := make([]byte, encoding.Width32bits)
-	encoding.WriteInt32(dimsLen, len(dims))
-	valsLen := make([]byte, encoding.Width32bits)
-	encoding.WriteInt32(valsLen, len(vals))
-	_, err := w.Write(tsd, dimsLen, dims, valsLen, vals)
-	return err
+	var lastErr error
+	for _, w := range streams {
+		tsd := make([]byte, encoding.Width64bits)
+		encoding.EncodeTime(tsd, ts)
+		dimsLen := make([]byte, encoding.Width32bits)
+		encoding.WriteInt32(dimsLen, len(dims))
+		valsLen := make([]byte, encoding.Width32bits)
+		encoding.WriteInt32(valsLen, len(vals))
+		_, err := w.Write(tsd, dimsLen, dims, valsLen, vals)
+		if err != nil {
+			log.Error(err)
+			if lastErr == nil {
+				lastErr = err
+			}
+		}
+	}
+	return lastErr
 }
 
 func (t *table) processInserts() {

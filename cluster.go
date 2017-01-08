@@ -11,6 +11,7 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/spaolacci/murmur3"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -18,22 +19,31 @@ import (
 
 const (
 	keyIncludeMemStore = "zenodb.includeMemStore"
+
+	defaultStream = "default"
 )
 
 type Follow struct {
-	Stream    string
-	Offset    wal.Offset
-	Partition int
+	Stream        string
+	Offset        wal.Offset
+	Partition     int
+	PartitionKeys []string
 }
 
 type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
 
 func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
+	var w *wal.WAL
 	db.tablesMutex.RLock()
-	w := db.streams[f.Stream]
+	streamsByPartitionKeys := db.streamsByName[f.Stream]
+	if streamsByPartitionKeys != nil {
+		// Always follow the default stream since this is the only one to which
+		// leader writes.
+		w = streamsByPartitionKeys[defaultStream]
+	}
 	db.tablesMutex.RUnlock()
 	if w == nil {
-		return errors.New("Stream '%v' not found", f.Stream)
+		return errors.New("Stream '%v' not found with partition keys '%v'", f.Stream, f.PartitionKeys)
 	}
 
 	// Use murmur hash for good key distribution
@@ -60,13 +70,8 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		dims := bytemap.ByteMap(_dims)
 		// Default to using all dims as the partition data
 		partitionData := dims
-		for _, dim := range db.opts.PartitionBy {
-			candidate := dims.GetBytes(dim)
-			if len(candidate) > 0 {
-				// We found a specific dim, use it for partitioning
-				partitionData = candidate
-				break
-			}
+		if len(f.PartitionKeys) > 0 {
+			partitionData = partitionData.Slice(f.PartitionKeys...)
 		}
 		h.Reset()
 		h.Write(partitionData)
@@ -78,6 +83,13 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 			}
 		}
 	}
+}
+
+func partitionKeysToString(partitionKeys []string) string {
+	if len(partitionKeys) == 0 {
+		return defaultStream
+	}
+	return strings.Join(partitionKeys, "_")
 }
 
 func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {

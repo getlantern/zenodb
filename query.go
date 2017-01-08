@@ -12,7 +12,7 @@ import (
 
 func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
 	opts := &planner.Opts{
-		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) core.RowSource {
+		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) planner.Table {
 			return db.getQueryable(table, includedFields, includeMemStore)
 		},
 		Now:             db.now,
@@ -24,7 +24,6 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onRow, onFlatRow)
 		}
-		opts.PartitionBy = db.opts.PartitionBy
 	}
 	plan, err := planner.Plan(sqlString, opts)
 	if err != nil {
@@ -89,6 +88,10 @@ func (q *queryable) GetAsOf() time.Time {
 
 func (q *queryable) GetUntil() time.Time {
 	return q.until
+}
+
+func (q *queryable) GetPartitionBy() []string {
+	return q.t.PartitionBy
 }
 
 func (q *queryable) String() string {
