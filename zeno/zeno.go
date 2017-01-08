@@ -284,6 +284,7 @@ func main() {
 		Follow:            follow,
 		RegisterRemoteQueryHandler: registerQueryHandler,
 	})
+	db.HandleShutdownSignal()
 
 	if err != nil {
 		log.Fatalf("Unable to open database at %v: %v", *dbdir, err)

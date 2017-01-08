@@ -103,6 +103,7 @@ type DB struct {
 	memory              uint64
 	flushMutex          sync.Mutex
 	remoteQueryHandlers map[int]chan planner.QueryClusterFN
+	closed              bool
 }
 
 // NewDB creates a database using the given options.
@@ -175,6 +176,19 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	go db.trackMemStats()
 
 	return db, err
+}
+
+func (db *DB) Close() {
+	log.Debug("Closing")
+	db.tablesMutex.Lock()
+	for name, streamsByPartitionKeys := range db.streamsByName {
+		for partitionKeys, stream := range streamsByPartitionKeys {
+			log.Debugf("Closing stream %v - %v", name, partitionKeys)
+			stream.Close()
+		}
+		delete(db.streamsByName, name)
+	}
+	db.tablesMutex.Unlock()
 }
 
 func registerAliases(aliasesFile string) {
