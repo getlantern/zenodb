@@ -89,7 +89,7 @@ func partitionKeysToString(partitionKeys []string) string {
 	if len(partitionKeys) == 0 {
 		return defaultStream
 	}
-	return strings.Join(partitionKeys, "_")
+	return strings.Join(partitionKeys, "|")
 }
 
 func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {
