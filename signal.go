@@ -15,7 +15,7 @@ func (db *DB) HandleShutdownSignal() {
 		syscall.SIGQUIT)
 	go func() {
 		s := <-c
-		log.Debugf("Got signal \"%s\", exiting...", s)
+		log.Debugf("Got signal \"%s\", closing db and exiting...", s)
 		db.Close()
 		os.Exit(0)
 	}()
