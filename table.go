@@ -229,8 +229,8 @@ func (t *table) startProcessing(walOffset wal.Offset) error {
 			latest, _, err := w.Latest()
 			if err != nil || len(latest) < wal.OffsetSize {
 				log.Debugf("Unable to obtain latest data from wal, assuming we're at beginning: %v", err)
-				// Start at offset commensurate with max WAL age
-				offset = wal.NewOffsetForTS(t.db.clock.Now().Add(-1 * t.db.opts.MaxWALAge))
+				// Start at beginning
+				offset = nil
 			} else {
 				// Followers store offset as first 16 bytes of data in WAL
 				offset = wal.Offset(latest[:wal.OffsetSize])

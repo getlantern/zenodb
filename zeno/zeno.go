@@ -30,41 +30,41 @@ import (
 var (
 	log = golog.LoggerFor("zeno")
 
-	dbdir             = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
-	schema            = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
-	aliasesFile       = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
-	enablegeo         = flag.Bool("enablegeo", false, "enable geolocation functions")
-	ispformat         = flag.String("ispformat", "ip2location", "ip2location or maxmind")
-	ispdb             = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
-	vtime             = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
-	walSync           = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
-	maxWALAge         = flag.Duration("maxwalage", 336*time.Hour, "Maximum age for WAL files. Files older than this will be deleted. Defaults to 336 hours (2 weeks).")
-	walCompressionAge = flag.Duration("walcompressage", 1*time.Hour, "Age at which to start compressing WAL files with gzip. Defaults to 1 hour.")
-	maxMemory         = flag.Float64("maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
-	addr              = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
-	httpsAddr         = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
-	pprofAddr         = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
-	password          = flag.String("password", "", "if specified, will authenticate clients using this password")
-	pkfile            = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
-	certfile          = flag.String("certfile", "cert.pem", "path to the certificate PEM file")
-	cookieHashKey     = flag.String("cookiehashkey", "", "key to use for HMAC authentication of web auth cookies, should be 64 bytes, defaults to random 64 bytes if not specified")
-	cookieBlockKey    = flag.String("cookieblockkey", "", "key to use for encrypting web auth cookies, should be 32 bytes, defaults to random 32 bytes if not specified")
-	oauthClientID     = flag.String("oauthclientid", "", "id to use for oauth client to connect to GitHub")
-	oauthClientSecret = flag.String("oauthclientsecret", "", "secret id to use for oauth client to connect to GitHub")
-	gitHubOrg         = flag.String("githuborg", "", "the GitHug org against which web users are authenticated")
-	insecure          = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to other zeno servers (don't use this in production!)")
-	passthrough       = flag.Bool("passthrough", false, "set to true to make this node a passthrough that doesn't capture data in table but is capable of feeding and querying other nodes. requires that -partitions to be specified.")
-	capture           = flag.String("capture", "", "if specified, connect to the node at the given address to receive updates, authenticating with value of -password.  requires that you specify which -partition this node handles.")
-	captureOverride   = flag.String("captureoverride", "", "if specified, dial network connection for -capture using this address, but verify TLS connection using the address from -capture")
-	feed              = flag.String("feed", "", "if specified, connect to the nodes at the given comma,delimited addresses to handle queries for them, authenticating with value of -password. requires that you specify which -partition this node handles.")
-	feedOverride      = flag.String("feedoverride", "", "if specified, dial network connection for -feed using this address, but verify TLS connection using the address from -feed")
-	numPartitions     = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
-	partition         = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
-	redisAddr         = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
-	redisCA           = flag.String("redisca", "", "Certificate for redislabs's CA")
-	redisClientPK     = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
-	redisClientCert   = flag.String("redisclientcert", "", "Certificate for authenticating client to redis's stunnel")
-	redisCacheSize    = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HGET operations, defaults to 25,000 per hash")
+	dbdir              = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
+	schema             = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
+	aliasesFile        = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
+	enablegeo          = flag.Bool("enablegeo", false, "enable geolocation functions")
+	ispformat          = flag.String("ispformat", "ip2location", "ip2location or maxmind")
+	ispdb              = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
+	vtime              = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
+	walSync            = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
+	maxWALSize         = flag.Int("maxwalsize", 1024*1024*1024, "Maximum size of WAL segments on disk. Defaults to 1 GB.")
+	walCompressionSize = flag.Int("walcompressionsize", 30*1024*1024, "Size above which to start compressing WAL segments with snappy. Defaults to 30 MB.")
+	maxMemory          = flag.Float64("maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
+	addr               = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
+	httpsAddr          = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
+	pprofAddr          = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
+	password           = flag.String("password", "", "if specified, will authenticate clients using this password")
+	pkfile             = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
+	certfile           = flag.String("certfile", "cert.pem", "path to the certificate PEM file")
+	cookieHashKey      = flag.String("cookiehashkey", "", "key to use for HMAC authentication of web auth cookies, should be 64 bytes, defaults to random 64 bytes if not specified")
+	cookieBlockKey     = flag.String("cookieblockkey", "", "key to use for encrypting web auth cookies, should be 32 bytes, defaults to random 32 bytes if not specified")
+	oauthClientID      = flag.String("oauthclientid", "", "id to use for oauth client to connect to GitHub")
+	oauthClientSecret  = flag.String("oauthclientsecret", "", "secret id to use for oauth client to connect to GitHub")
+	gitHubOrg          = flag.String("githuborg", "", "the GitHug org against which web users are authenticated")
+	insecure           = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to other zeno servers (don't use this in production!)")
+	passthrough        = flag.Bool("passthrough", false, "set to true to make this node a passthrough that doesn't capture data in table but is capable of feeding and querying other nodes. requires that -partitions to be specified.")
+	capture            = flag.String("capture", "", "if specified, connect to the node at the given address to receive updates, authenticating with value of -password.  requires that you specify which -partition this node handles.")
+	captureOverride    = flag.String("captureoverride", "", "if specified, dial network connection for -capture using this address, but verify TLS connection using the address from -capture")
+	feed               = flag.String("feed", "", "if specified, connect to the nodes at the given comma,delimited addresses to handle queries for them, authenticating with value of -password. requires that you specify which -partition this node handles.")
+	feedOverride       = flag.String("feedoverride", "", "if specified, dial network connection for -feed using this address, but verify TLS connection using the address from -feed")
+	numPartitions      = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
+	partition          = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
+	redisAddr          = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
+	redisCA            = flag.String("redisca", "", "Certificate for redislabs's CA")
+	redisClientPK      = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
+	redisClientCert    = flag.String("redisclientcert", "", "Certificate for authenticating client to redis's stunnel")
+	redisCacheSize     = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HGET operations, defaults to 25,000 per hash")
 )
 
 func main() {
@@ -266,22 +266,22 @@ func main() {
 	}
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
-		Dir:               *dbdir,
-		SchemaFile:        *schema,
-		EnableGeo:         *enablegeo,
-		ISPProvider:       ispProvider,
-		AliasesFile:       *aliasesFile,
-		RedisClient:       redisClient,
-		RedisCacheSize:    *redisCacheSize,
-		VirtualTime:       *vtime,
-		WALSyncInterval:   *walSync,
-		MaxWALAge:         *maxWALAge,
-		WALCompressionAge: *walCompressionAge,
-		MaxMemoryRatio:    *maxMemory,
-		Passthrough:       *passthrough,
-		NumPartitions:     *numPartitions,
-		Partition:         *partition,
-		Follow:            follow,
+		Dir:                *dbdir,
+		SchemaFile:         *schema,
+		EnableGeo:          *enablegeo,
+		ISPProvider:        ispProvider,
+		AliasesFile:        *aliasesFile,
+		RedisClient:        redisClient,
+		RedisCacheSize:     *redisCacheSize,
+		VirtualTime:        *vtime,
+		WALSyncInterval:    *walSync,
+		MaxWALSize:         *maxWALSize,
+		WALCompressionSize: *walCompressionSize,
+		MaxMemoryRatio:     *maxMemory,
+		Passthrough:        *passthrough,
+		NumPartitions:      *numPartitions,
+		Partition:          *partition,
+		Follow:             follow,
 		RegisterRemoteQueryHandler: registerQueryHandler,
 	})
 	db.HandleShutdownSignal()

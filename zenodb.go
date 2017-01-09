@@ -67,11 +67,10 @@ type DBOpts struct {
 	// WALSyncInterval governs how frequently to sync the WAL to disk. 0 means
 	// it syncs after every write (which is not great for performance).
 	WALSyncInterval time.Duration
-	// MaxWALAge limits how far back we keep WAL files.
-	MaxWALAge time.Duration
-	// WALCompressionAge sets a cutoff for the age of WAL files that will be
-	// gzipped
-	WALCompressionAge time.Duration
+	// MaxWALSize limits how much WAL data to keep (in bytes)
+	MaxWALSize int
+	// WALCompressionSize specifies the size beyond which to compress WAL segments
+	WALCompressionSize int
 	// MaxMemoryRatio caps the maximum memory of this process. When the system
 	// comes under memory pressure, it will start flushing table memstores.
 	MaxMemoryRatio float64
@@ -120,11 +119,11 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
 	}
-	if opts.MaxWALAge <= 0 {
-		opts.MaxWALAge = 24 * time.Hour
+	if opts.MaxWALSize <= 0 {
+		opts.MaxWALSize = 10 * 1024768 // 10 MB
 	}
-	if opts.WALCompressionAge <= 0 {
-		opts.WALCompressionAge = opts.MaxWALAge / 10
+	if opts.WALCompressionSize <= 0 {
+		opts.WALCompressionSize = opts.MaxWALSize / 10
 	}
 
 	// Create db dir
@@ -287,11 +286,11 @@ func (db *DB) getFieldsOptional(table string) (core.Fields, error) {
 func (db *DB) capWALAge(wal *wal.WAL) {
 	for {
 		time.Sleep(1 * time.Minute)
-		err := wal.TruncateBeforeTime(time.Now().Add(-1 * db.opts.MaxWALAge))
+		err := wal.TruncateToSize(int64(db.opts.MaxWALSize))
 		if err != nil {
 			log.Errorf("Error truncating WAL: %v", err)
 		}
-		err = wal.CompressBeforeTime(time.Now().Add(-1 * db.opts.WALCompressionAge))
+		err = wal.CompressBeforeSize(int64(db.opts.WALCompressionSize))
 		if err != nil {
 			log.Errorf("Error compressing WAL: %v", err)
 		}
