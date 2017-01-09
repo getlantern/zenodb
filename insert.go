@@ -2,6 +2,7 @@ package zenodb
 
 import (
 	"fmt"
+	"hash"
 	"strings"
 	"time"
 
@@ -12,20 +13,10 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 )
 
-func (db *DB) Insert(stream string, ts time.Time, dimsMap map[string]interface{}, vals map[string]float64) error {
-	// Build dims from sorted keys and values so that partitioning is operating on
-	// consistent keys.
-	dimNames := make([]string, 0, len(dimsMap))
-	dimValues := make([]interface{}, 0, len(dimsMap))
-	for name, val := range dimsMap {
-		dimNames = append(dimNames, name)
-		dimValues = append(dimValues, val)
-	}
-	dims := bytemap.FromSortedKeysAndValues(dimNames, dimValues)
-	return db.InsertRaw(stream, ts, dims, bytemap.NewFloat(vals))
+func (db *DB) Insert(stream string, ts time.Time, dims map[string]interface{}, vals map[string]float64) error {
+	return db.InsertRaw(stream, ts, bytemap.New(dims), bytemap.NewFloat(vals))
 }
 
-// Note, this assumes that dims are already sorted by dim name
 func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) error {
 	if db.opts.Follow != nil {
 		return errors.New("Declining to insert data directly to follower")
@@ -33,31 +24,24 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 
 	stream = strings.TrimSpace(strings.ToLower(stream))
 	db.tablesMutex.Lock()
-	// Copy streamsByPartitionKeys
-	_streamsByPartitionKeys := db.streamsByName[stream]
-	streams := make([]*wal.WAL, 0, len(_streamsByPartitionKeys))
-	for _, stream := range _streamsByPartitionKeys {
-		streams = append(streams, stream)
-	}
+	w := db.streams[stream]
 	db.tablesMutex.Unlock()
-	if len(streams) == 0 {
+	if w == nil {
 		return fmt.Errorf("No wal found for stream %v", stream)
 	}
 
 	var lastErr error
-	for _, w := range streams {
-		tsd := make([]byte, encoding.Width64bits)
-		encoding.EncodeTime(tsd, ts)
-		dimsLen := make([]byte, encoding.Width32bits)
-		encoding.WriteInt32(dimsLen, len(dims))
-		valsLen := make([]byte, encoding.Width32bits)
-		encoding.WriteInt32(valsLen, len(vals))
-		_, err := w.Write(tsd, dimsLen, dims, valsLen, vals)
-		if err != nil {
-			log.Error(err)
-			if lastErr == nil {
-				lastErr = err
-			}
+	tsd := make([]byte, encoding.Width64bits)
+	encoding.EncodeTime(tsd, ts)
+	dimsLen := make([]byte, encoding.Width32bits)
+	encoding.WriteInt32(dimsLen, len(dims))
+	valsLen := make([]byte, encoding.Width32bits)
+	encoding.WriteInt32(valsLen, len(vals))
+	_, err := w.Write(tsd, dimsLen, dims, valsLen, vals)
+	if err != nil {
+		log.Error(err)
+		if lastErr == nil {
+			lastErr = err
 		}
 	}
 	return lastErr
@@ -69,6 +53,8 @@ func (t *table) processInserts() {
 	inserted := 0
 	skipped := 0
 	bytesRead := 0
+
+	h := partitionHash()
 	for {
 		data, err := t.wal.Read()
 		if err != nil {
@@ -88,7 +74,7 @@ func (t *table) processInserts() {
 		if ts.Before(t.truncateBefore()) {
 			// Ignore old data
 			skipped++
-		} else if t.insert(ts, data) {
+		} else if t.insert(ts, data, isFollower, h) {
 			inserted++
 		} else {
 			// Did not insert (probably due to WHERE clause)
@@ -107,10 +93,15 @@ func (t *table) processInserts() {
 	}
 }
 
-func (t *table) insert(ts time.Time, data []byte) bool {
+func (t *table) insert(ts time.Time, data []byte, isFollower bool, h hash.Hash32) bool {
 	offset := t.wal.Offset()
 	dimsLen, remain := encoding.ReadInt32(data)
 	dims, remain := encoding.Read(remain, dimsLen)
+	if isFollower && !t.db.inPartition(h, dims, t.PartitionBy, t.db.opts.Partition) {
+		// data not relevant to follower on this table
+		return false
+	}
+
 	valsLen, remain := encoding.ReadInt32(remain)
 	vals, _ := encoding.Read(remain, valsLen)
 	// Split the dims and vals so that holding on to one doesn't force holding on

@@ -191,6 +191,17 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	db.orderedTables = append(db.orderedTables, t)
 
 	if !t.Virtual {
+		partitionKeys := t.PartitionBy
+		sort.Strings(partitionKeys)
+		partitionKeysString := partitionKeysToString(partitionKeys)
+		if t.db.distinctPartitionKeys[partitionKeysString] == nil {
+			distinctPartitionKeys := make(map[string][]string, len(t.db.distinctPartitionKeys))
+			for key, value := range db.distinctPartitionKeys {
+				distinctPartitionKeys[key] = value
+			}
+			distinctPartitionKeys[partitionKeysString] = partitionKeys
+			db.distinctPartitionKeys = distinctPartitionKeys
+		}
 		return t.startProcessing(walOffset)
 	}
 
@@ -198,23 +209,10 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 }
 
 func (t *table) startProcessing(walOffset wal.Offset) error {
-	partitionKeys := t.PartitionBy
-	if t.db.opts.Passthrough {
-		// For passthrough (cluster leader), send everything to a single WAL
-		partitionKeys = nil
-	}
-	sort.Strings(partitionKeys)
-	partitionKeysString := partitionKeysToString(partitionKeys)
-	streamsByPartitionKeys := t.db.streamsByName[t.From]
-	if streamsByPartitionKeys == nil {
-		streamsByPartitionKeys = make(map[string]*wal.WAL)
-		t.db.streamsByName[t.From] = streamsByPartitionKeys
-	}
-
 	var walErr error
-	w := streamsByPartitionKeys[partitionKeysString]
+	w := t.db.streams[t.From]
 	if w == nil {
-		walDir := filepath.Join(t.db.opts.Dir, "_wal", t.From, partitionKeysString)
+		walDir := filepath.Join(t.db.opts.Dir, "_wal", t.From)
 		dirErr := os.MkdirAll(walDir, 0755)
 		if dirErr != nil && !os.IsExist(dirErr) {
 			return dirErr
@@ -224,7 +222,7 @@ func (t *table) startProcessing(walOffset wal.Offset) error {
 			return walErr
 		}
 		go t.db.capWALAge(w)
-		streamsByPartitionKeys[partitionKeysString] = w
+		t.db.streams[t.From] = w
 
 		if t.db.opts.Follow != nil {
 			var offset wal.Offset
@@ -238,7 +236,7 @@ func (t *table) startProcessing(walOffset wal.Offset) error {
 				offset = wal.Offset(latest[:wal.OffsetSize])
 			}
 			log.Debugf("Following stream %v starting at %v", t.From, offset)
-			go t.db.opts.Follow(&Follow{t.From, offset, t.db.opts.Partition, partitionKeys}, func(data []byte, newOffset wal.Offset) error {
+			go t.db.opts.Follow(&Follow{t.From, offset, t.db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
 				_, err := w.Write(newOffset, data)
 				if err != nil {
 					log.Debug(err)

@@ -79,6 +79,7 @@ func doTestCluster(t *testing.T, partitionBy []string) {
 				Dir:            filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
 				SchemaFile:     tmpFile,
 				VirtualTime:    true,
+				NumPartitions:  numPartitions,
 				Partition:      part,
 				MaxMemoryRatio: 0.00001,
 				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {

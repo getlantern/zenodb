@@ -92,18 +92,19 @@ type DBOpts struct {
 
 // DB is a zenodb database.
 type DB struct {
-	opts                *DBOpts
-	clock               vtime.Clock
-	streamsByName       map[string]map[string]*wal.WAL
-	tables              map[string]*table
-	orderedTables       []*table
-	tablesMutex         sync.RWMutex
-	isSorting           bool
-	nextTableToSort     int
-	memory              uint64
-	flushMutex          sync.Mutex
-	remoteQueryHandlers map[int]chan planner.QueryClusterFN
-	closed              bool
+	opts                  *DBOpts
+	clock                 vtime.Clock
+	streams               map[string]*wal.WAL
+	distinctPartitionKeys map[string][]string
+	tables                map[string]*table
+	orderedTables         []*table
+	tablesMutex           sync.RWMutex
+	isSorting             bool
+	nextTableToSort       int
+	memory                uint64
+	flushMutex            sync.Mutex
+	remoteQueryHandlers   map[int]chan planner.QueryClusterFN
+	closed                bool
 }
 
 // NewDB creates a database using the given options.
@@ -113,7 +114,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts:                opts,
 		clock:               vtime.RealClock,
 		tables:              make(map[string]*table),
-		streamsByName:       make(map[string]map[string]*wal.WAL),
+		streams:             make(map[string]*wal.WAL),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 	}
 	if opts.VirtualTime {
@@ -181,12 +182,10 @@ func NewDB(opts *DBOpts) (*DB, error) {
 func (db *DB) Close() {
 	log.Debug("Closing")
 	db.tablesMutex.Lock()
-	for name, streamsByPartitionKeys := range db.streamsByName {
-		for partitionKeys, stream := range streamsByPartitionKeys {
-			log.Debugf("Closing stream %v - %v", name, partitionKeys)
-			stream.Close()
-		}
-		delete(db.streamsByName, name)
+	for name, stream := range db.streams {
+		log.Debugf("Closing stream %v", name)
+		stream.Close()
+		delete(db.streams, name)
 	}
 	db.tablesMutex.Unlock()
 }

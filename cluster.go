@@ -11,6 +11,7 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/spaolacci/murmur3"
+	"hash"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -24,10 +25,9 @@ const (
 )
 
 type Follow struct {
-	Stream        string
-	Offset        wal.Offset
-	Partition     int
-	PartitionKeys []string
+	Stream    string
+	Offset    wal.Offset
+	Partition int
 }
 
 type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
@@ -35,19 +35,14 @@ type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, s
 func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	var w *wal.WAL
 	db.tablesMutex.RLock()
-	streamsByPartitionKeys := db.streamsByName[f.Stream]
-	if streamsByPartitionKeys != nil {
-		// Always follow the default stream since this is the only one to which
-		// leader writes.
-		w = streamsByPartitionKeys[defaultStream]
-	}
+	distinctPartitionKeys := db.distinctPartitionKeys
+	w = db.streams[f.Stream]
 	db.tablesMutex.RUnlock()
 	if w == nil {
-		return errors.New("Stream '%v' not found with partition keys '%v'", f.Stream, f.PartitionKeys)
+		return errors.New("Stream '%v' not found", f.Stream)
 	}
 
-	// Use murmur hash for good key distribution
-	h := murmur3.New32()
+	h := partitionHash()
 
 	r, err := w.NewReader(fmt.Sprintf("follower.%d.%v", f.Partition, f.Stream), f.Offset)
 	if err != nil {
@@ -68,14 +63,17 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		dimsLen, remain := encoding.ReadInt32(remain)
 		_dims, remain := encoding.Read(remain, dimsLen)
 		dims := bytemap.ByteMap(_dims)
-		// Default to using all dims as the partition data
-		partitionData := dims
-		if len(f.PartitionKeys) > 0 {
-			partitionData = partitionData.Slice(f.PartitionKeys...)
+
+		// See if we should include based on any of the combinations of partition
+		// keys.
+		include := false
+		for _, partitionKeys := range distinctPartitionKeys {
+			if db.inPartition(h, dims, partitionKeys, f.Partition) {
+				include = true
+				break
+			}
 		}
-		h.Reset()
-		h.Write(partitionData)
-		if int(h.Sum32())%db.opts.NumPartitions == f.Partition {
+		if include {
 			err = cb(data, r.Offset())
 			if err != nil {
 				log.Debugf("Unable to write to follower: %v", err)
@@ -90,6 +88,25 @@ func partitionKeysToString(partitionKeys []string) string {
 		return defaultStream
 	}
 	return strings.Join(partitionKeys, "|")
+}
+
+func partitionHash() hash.Hash32 {
+	// Use murmur hash for good key distribution
+	return murmur3.New32()
+}
+
+func (db *DB) inPartition(h hash.Hash32, dims bytemap.ByteMap, partitionKeys []string, partition int) bool {
+	h.Reset()
+	if len(partitionKeys) > 0 {
+		// Use specific partition keys
+		for _, partitionKey := range partitionKeys {
+			h.Write(dims.GetBytes(partitionKey))
+		}
+	} else {
+		// Use all dims
+		h.Write(dims)
+	}
+	return int(h.Sum32())%db.opts.NumPartitions == partition
 }
 
 func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {
