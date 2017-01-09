@@ -99,16 +99,11 @@ func (db *DB) inPartition(h hash.Hash32, dims bytemap.ByteMap, partitionKeys []s
 	h.Reset()
 	if len(partitionKeys) > 0 {
 		// Use specific partition keys
-		foundAtLeastOneKey := false
 		for _, partitionKey := range partitionKeys {
 			b := dims.GetBytes(partitionKey)
 			if len(b) > 0 {
-				foundAtLeastOneKey = true
 				h.Write(b)
 			}
-		}
-		if !foundAtLeastOneKey {
-			return false
 		}
 	} else {
 		// Use all dims
