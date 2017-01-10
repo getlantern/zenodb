@@ -48,6 +48,8 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	if err != nil {
 		return errors.New("Unable to open wal reader for %v", f.Stream)
 	}
+	defer r.Close()
+
 	for {
 		data, err := r.Read()
 		if err != nil {
