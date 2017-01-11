@@ -64,17 +64,8 @@ func (t *table) processInserts() {
 			// Ignore empty data
 			continue
 		}
-		if isFollower {
-			// first 16 bytes of data are offset, strip it
-			data = data[wal.OffsetSize:]
-		}
 		bytesRead += len(data)
-		tsd, data := encoding.Read(data, encoding.Width64bits)
-		ts := encoding.TimeFromBytes(tsd)
-		if ts.Before(t.truncateBefore()) {
-			// Ignore old data
-			skipped++
-		} else if t.insert(ts, data, isFollower, h) {
+		if t.insert(data, isFollower, h, t.wal.Offset()) {
 			inserted++
 		} else {
 			// Did not insert (probably due to WHERE clause)
@@ -93,14 +84,21 @@ func (t *table) processInserts() {
 	}
 }
 
-func (t *table) insert(ts time.Time, data []byte, isFollower bool, h hash.Hash32) bool {
-	offset := t.wal.Offset()
+func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.Offset) bool {
+	tsd, data := encoding.Read(data, encoding.Width64bits)
+	ts := encoding.TimeFromBytes(tsd)
+	if ts.Before(t.truncateBefore()) {
+		// Ignore old data
+		return false
+	}
 	dimsLen, remain := encoding.ReadInt32(data)
 	dims, remain := encoding.Read(remain, dimsLen)
 	if isFollower && !t.db.inPartition(h, dims, t.PartitionBy, t.db.opts.Partition) {
+		log.Debug("Data not relevant to partition")
 		// data not relevant to follower on this table
 		return false
 	}
+	log.Debug("Data relevant to partition")
 
 	valsLen, remain := encoding.ReadInt32(remain)
 	vals, _ := encoding.Read(remain, valsLen)

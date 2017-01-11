@@ -5,7 +5,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -69,6 +68,7 @@ type table struct {
 	stats               TableStats
 	statsMutex          sync.RWMutex
 	wal                 *wal.Reader
+	readOffset          wal.Offset
 	highWaterMarkDisk   int64
 	highWaterMarkMemory int64
 	highWaterMarkMx     sync.RWMutex
@@ -179,6 +179,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		if rsErr != nil {
 			return rsErr
 		}
+		t.log.Debugf("Starting at WAL offset %v", walOffset)
 	}
 
 	db.tablesMutex.Lock()
@@ -192,7 +193,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 
 	if !t.Virtual {
 		partitionKeys := t.PartitionBy
-		sort.Strings(partitionKeys)
 		partitionKeysString := partitionKeysToString(partitionKeys)
 		if t.db.distinctPartitionKeys[partitionKeysString] == nil {
 			distinctPartitionKeys := make(map[string][]string, len(t.db.distinctPartitionKeys))
@@ -202,13 +202,28 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 			distinctPartitionKeys[partitionKeysString] = partitionKeys
 			db.distinctPartitionKeys = distinctPartitionKeys
 		}
-		return t.startProcessing(walOffset)
+
+		if t.db.opts.Follow != nil {
+			t.startFollowing(walOffset)
+			return nil
+		}
+		return t.startWALProcessing(walOffset)
 	}
 
 	return nil
 }
 
-func (t *table) startProcessing(walOffset wal.Offset) error {
+func (t *table) startFollowing(walOffset wal.Offset) {
+	newSubscriber := t.db.newStreamSubscriber[t.From]
+	if newSubscriber == nil {
+		newSubscriber = make(chan *tableWithOffset, 100)
+		go t.db.followLeader(t.From, newSubscriber)
+		t.db.newStreamSubscriber[t.From] = newSubscriber
+	}
+	newSubscriber <- &tableWithOffset{t, walOffset}
+}
+
+func (t *table) startWALProcessing(walOffset wal.Offset) error {
 	var walErr error
 	w := t.db.streams[t.From]
 	if w == nil {
@@ -223,27 +238,6 @@ func (t *table) startProcessing(walOffset wal.Offset) error {
 		}
 		go t.db.capWALAge(w)
 		t.db.streams[t.From] = w
-
-		if t.db.opts.Follow != nil {
-			var offset wal.Offset
-			latest, _, err := w.Latest()
-			if err != nil || len(latest) < wal.OffsetSize {
-				log.Debugf("Unable to obtain latest data from wal, assuming we're at beginning: %v", err)
-				// Start at beginning
-				offset = nil
-			} else {
-				// Followers store offset as first 16 bytes of data in WAL
-				offset = wal.Offset(latest[:wal.OffsetSize])
-			}
-			log.Debugf("Following stream %v starting at %v", t.From, offset)
-			go t.db.opts.Follow(&Follow{t.From, offset, t.db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
-				_, err := w.Write(newOffset, data)
-				if err != nil {
-					log.Debug(err)
-				}
-				return err
-			})
-		}
 	}
 
 	if t.db.opts.Passthrough {
