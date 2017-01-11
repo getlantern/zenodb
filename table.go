@@ -203,6 +203,10 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 			db.distinctPartitionKeys = distinctPartitionKeys
 		}
 
+		if !t.db.opts.Passthrough {
+			go t.logHighWaterMark()
+		}
+
 		if t.db.opts.Follow != nil {
 			t.startFollowing(walOffset)
 			return nil
@@ -252,9 +256,6 @@ func (t *table) startWALProcessing(walOffset wal.Offset) error {
 	}
 
 	go t.processWALInserts()
-	if !t.db.opts.Passthrough {
-		go t.logHighWaterMark()
-	}
 	return nil
 }
 
