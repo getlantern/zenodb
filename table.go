@@ -251,7 +251,7 @@ func (t *table) startWALProcessing(walOffset wal.Offset) error {
 		return fmt.Errorf("Unable to obtain WAL reader: %v", walErr)
 	}
 
-	go t.processInserts()
+	go t.processWALInserts()
 	if !t.db.opts.Passthrough {
 		go t.logHighWaterMark()
 	}

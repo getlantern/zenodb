@@ -9,13 +9,16 @@ base:
 
 combined:
   retentionperiod: 1h
+  maxflushlatency: 30s
   view: true
   sql: >
     SELECT *
     FROM base
+    WHERE exclude IS NULL
 
 partitioned:
   retentionperiod: 1h
+  maxflushlatency: 30s
   view: true
   partitionby: [server,path]
   sql: >

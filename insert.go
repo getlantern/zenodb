@@ -47,7 +47,25 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 	return lastErr
 }
 
-func (t *table) processInserts() {
+type walRead struct {
+	data   []byte
+	offset wal.Offset
+}
+
+func (t *table) processWALInserts() {
+	in := make(chan *walRead)
+	go t.processInserts(in)
+
+	for {
+		data, err := t.wal.Read()
+		if err != nil {
+			panic(fmt.Errorf("Unable to read from WAL: %v", err))
+		}
+		in <- &walRead{data, t.wal.Offset()}
+	}
+}
+
+func (t *table) processInserts(in chan *walRead) {
 	isFollower := t.db.opts.Follow != nil
 	start := time.Now()
 	inserted := 0
@@ -55,20 +73,17 @@ func (t *table) processInserts() {
 	bytesRead := 0
 
 	h := partitionHash()
-	for {
-		data, err := t.wal.Read()
-		if err != nil {
-			panic(fmt.Errorf("Unable to read from WAL: %v", err))
-		}
-		if data == nil {
+	for read := range in {
+		if read.data == nil {
 			// Ignore empty data
 			continue
 		}
-		bytesRead += len(data)
-		if t.insert(data, isFollower, h, t.wal.Offset()) {
+		bytesRead += len(read.data)
+		if t.insert(read.data, isFollower, h, read.offset) {
 			inserted++
 		} else {
 			// Did not insert (probably due to WHERE clause)
+			t.skip(read.offset)
 			skipped++
 		}
 		delta := time.Now().Sub(start)
@@ -85,20 +100,18 @@ func (t *table) processInserts() {
 }
 
 func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.Offset) bool {
-	tsd, data := encoding.Read(data, encoding.Width64bits)
+	tsd, remain := encoding.Read(data, encoding.Width64bits)
 	ts := encoding.TimeFromBytes(tsd)
 	if ts.Before(t.truncateBefore()) {
 		// Ignore old data
 		return false
 	}
-	dimsLen, remain := encoding.ReadInt32(data)
+	dimsLen, remain := encoding.ReadInt32(remain)
 	dims, remain := encoding.Read(remain, dimsLen)
 	if isFollower && !t.db.inPartition(h, dims, t.PartitionBy, t.db.opts.Partition) {
-		log.Debug("Data not relevant to partition")
 		// data not relevant to follower on this table
 		return false
 	}
-	log.Debug("Data relevant to partition")
 
 	valsLen, remain := encoding.ReadInt32(remain)
 	vals, _ := encoding.Read(remain, valsLen)
@@ -110,6 +123,11 @@ func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.O
 	copy(dimsBM, dims)
 	copy(valsBM, vals)
 	return t.doInsert(ts, dimsBM, valsBM, offset)
+}
+
+// Skip informs the table of a new offset so that we can store it
+func (t *table) skip(offset wal.Offset) {
+	t.rowStore.insert(&insert{nil, nil, nil, offset})
 }
 
 func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) bool {

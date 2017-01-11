@@ -126,7 +126,6 @@ waitForTables:
 }
 
 func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, cancel chan bool) {
-	log.Debugf("Following %v", stream)
 	for _, table := range tables {
 		log.Debug(table.Name)
 	}
@@ -137,7 +136,14 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 		}
 	}
 
-	h := partitionHash()
+	log.Debugf("Following %v starting at %v", stream, earliestOffset)
+
+	ins := make([]chan *walRead, 0, len(tables))
+	for _, t := range tables {
+		in := make(chan *walRead, 10000)
+		ins = append(ins, in)
+		go t.processInserts(in)
+	}
 
 	db.opts.Follow(&Follow{stream, earliestOffset, db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
 		select {
@@ -147,10 +153,11 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 		default:
 			// Okay to continue
 		}
-		for i, t := range tables {
-			oldOffset := offsets[i]
-			if !oldOffset.After(newOffset) {
-				t.insert(data, true, h, newOffset)
+
+		for i, in := range ins {
+			priorOffset := offsets[i]
+			if !priorOffset.After(newOffset) {
+				in <- &walRead{data, newOffset}
 				offsets[i] = newOffset
 			}
 		}

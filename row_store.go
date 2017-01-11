@@ -32,6 +32,7 @@ const (
 	FileVersion_4      = 4
 	CurrentFileVersion = FileVersion_4
 
+	offsetFilename  = "offset"
 	maxBufferedSize = 100000
 )
 
@@ -70,8 +71,9 @@ type rowStore struct {
 }
 
 type memstore struct {
-	tree   *bytetree.Tree
-	offset wal.Offset
+	tree          *bytetree.Tree
+	offset        wal.Offset
+	offsetChanged bool
 }
 
 func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, error) {
@@ -90,7 +92,21 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 		// files are sorted by name, in our case timestamp, so the last file in the
 		// list is the most recent. That's the one that we want.
 		for i := len(files) - 1; i >= 0; i-- {
+			filename := files[i].Name()
 			existingFileName = filepath.Join(opts.dir, files[i].Name())
+			if filename == offsetFilename {
+				// This is an offset file, just read the offset
+				o, err := ioutil.ReadFile(existingFileName)
+				if err != nil {
+					t.log.Errorf("Unable to read offset: %v", err)
+				} else if len(o) != wal.OffsetSize {
+					t.log.Errorf("Invalid offset found in offset file")
+				} else {
+					walOffset = wal.Offset(o)
+				}
+				continue
+			}
+
 			fileVersion := versionFor(existingFileName)
 			if fileVersion >= FileVersion_4 {
 				// Get WAL offset
@@ -101,8 +117,8 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 				defer file.Close()
 				r := snappy.NewReader(file)
 				// Skip header length
-				walOffset = make(wal.Offset, wal.OffsetSize+4)
-				_, err = io.ReadFull(r, walOffset)
+				newWALOffset := make(wal.Offset, wal.OffsetSize+4)
+				_, err = io.ReadFull(r, newWALOffset)
 				if err != nil {
 					log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
 					rmErr := os.Remove(existingFileName)
@@ -112,7 +128,10 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 					continue
 				}
 				// Skip header length
-				walOffset = walOffset[4:]
+				newWALOffset = newWALOffset[4:]
+				if newWALOffset.After(walOffset) {
+					walOffset = newWALOffset
+				}
 			}
 			t.log.Debugf("Initializing row store from %v", existingFileName)
 			break
@@ -177,7 +196,17 @@ func (rs *rowStore) processInserts() {
 
 	flush := func(allowSort bool) {
 		if ms.tree.Length() == 0 {
-			rs.t.log.Trace("Nothing to flush")
+			rs.t.log.Trace("No data to flush")
+
+			if ms.offsetChanged {
+				rs.t.log.Debug("No new data, but we've advanced through the WAL, record the change")
+				err := rs.writeOffset(ms.offset)
+				if err != nil {
+					rs.t.log.Errorf("Unable to write updated offset: %v", err)
+				}
+				ms.offsetChanged = false
+			}
+
 			// Immediately reset flushTimer
 			flushTimer.Reset(flushInterval)
 			return
@@ -203,10 +232,13 @@ func (rs *rowStore) processInserts() {
 		select {
 		case insert := <-rs.inserts:
 			rs.mx.Lock()
-			ms.tree.Update(insert.key, nil, insert.vals, insert.metadata)
 			ms.offset = insert.offset
+			ms.offsetChanged = true
+			if insert.key != nil {
+				ms.tree.Update(insert.key, nil, insert.vals, insert.metadata)
+				rs.t.updateHighWaterMarkMemory(insert.vals.TimeInt())
+			}
 			rs.mx.Unlock()
-			rs.t.updateHighWaterMarkMemory(insert.vals.TimeInt())
 		case <-flushTimer.C:
 			rs.t.log.Trace("Requesting flush due to flush interval")
 			flush(false)
@@ -408,6 +440,26 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	return flushDuration
 }
 
+func (rs *rowStore) writeOffset(offset wal.Offset) error {
+	out, err := ioutil.TempFile("", "nextoffset")
+	if err != nil {
+		panic(err)
+	}
+	defer out.Close()
+
+	_, err = out.Write(offset)
+	if err != nil {
+		return fmt.Errorf("Unable to write next offset: %v", err)
+	}
+
+	err = out.Close()
+	if err != nil {
+		return fmt.Errorf("Unable to close offset file: %v", err)
+	}
+
+	return os.Rename(out.Name(), filepath.Join(rs.opts.dir, offsetFilename))
+}
+
 func (rs *rowStore) removeOldFiles() {
 	for {
 		time.Sleep(10 * time.Second)
@@ -418,9 +470,19 @@ func (rs *rowStore) removeOldFiles() {
 		// Note - the list of files is sorted by name, which in our case is the
 		// timestamp, so that means they're sorted chronologically. We don't want
 		// to delete the last file in the list because that's the current one.
-		for i := 0; i < len(files)-1; i++ {
-			file := files[i]
-			name := filepath.Join(rs.opts.dir, file.Name())
+		foundLatest := false
+		for i := len(files) - 1; i >= 0; i-- {
+			filename := files[i].Name()
+			if filename == offsetFilename {
+				// Ignore offset file
+				continue
+			}
+			if !foundLatest {
+				foundLatest = true
+				continue
+			}
+			// Okay to delete now
+			name := filepath.Join(rs.opts.dir, filename)
 			rs.t.log.Debugf("Removing old file %v", name)
 			err := os.Remove(name)
 			if err != nil {

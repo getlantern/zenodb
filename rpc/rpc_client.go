@@ -110,8 +110,8 @@ func (c *client) Follow(ctx context.Context, f *zenodb.Follow, opts ...grpc.Call
 		return nil, err
 	}
 
-	point := &Point{}
 	next := func() ([]byte, wal.Offset, error) {
+		point := &Point{}
 		err := stream.RecvMsg(point)
 		if err != nil {
 			return nil, nil, err
