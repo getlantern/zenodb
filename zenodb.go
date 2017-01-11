@@ -83,6 +83,9 @@ type DBOpts struct {
 	NumPartitions int
 	// Partition identies the partition owned by this follower
 	Partition int
+	// MaxFollowAge limits how far back to go when follower pulls data from
+	// leader
+	MaxFollowAge time.Duration
 	// Follow is a function that allows a follower to request following a stream
 	// from a passthrough node.
 	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)

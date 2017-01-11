@@ -60,6 +60,7 @@ var (
 	feedOverride       = flag.String("feedoverride", "", "if specified, dial network connection for -feed using this address, but verify TLS connection using the address from -feed")
 	numPartitions      = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition          = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
+	maxFollowAge       = flag.Duration("maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
 	redisAddr          = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
 	redisCA            = flag.String("redisca", "", "Certificate for redislabs's CA")
 	redisClientPK      = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
@@ -266,22 +267,23 @@ func main() {
 	}
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
-		Dir:                *dbdir,
-		SchemaFile:         *schema,
-		EnableGeo:          *enablegeo,
-		ISPProvider:        ispProvider,
-		AliasesFile:        *aliasesFile,
-		RedisClient:        redisClient,
-		RedisCacheSize:     *redisCacheSize,
-		VirtualTime:        *vtime,
-		WALSyncInterval:    *walSync,
-		MaxWALSize:         *maxWALSize,
-		WALCompressionSize: *walCompressionSize,
-		MaxMemoryRatio:     *maxMemory,
-		Passthrough:        *passthrough,
-		NumPartitions:      *numPartitions,
-		Partition:          *partition,
-		Follow:             follow,
+		Dir:                        *dbdir,
+		SchemaFile:                 *schema,
+		EnableGeo:                  *enablegeo,
+		ISPProvider:                ispProvider,
+		AliasesFile:                *aliasesFile,
+		RedisClient:                redisClient,
+		RedisCacheSize:             *redisCacheSize,
+		VirtualTime:                *vtime,
+		WALSyncInterval:            *walSync,
+		MaxWALSize:                 *maxWALSize,
+		WALCompressionSize:         *walCompressionSize,
+		MaxMemoryRatio:             *maxMemory,
+		Passthrough:                *passthrough,
+		NumPartitions:              *numPartitions,
+		Partition:                  *partition,
+		Follow:                     follow,
+		MaxFollowAge:               *maxFollowAge,
 		RegisterRemoteQueryHandler: registerQueryHandler,
 	})
 	db.HandleShutdownSignal()

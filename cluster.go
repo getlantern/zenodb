@@ -136,6 +136,14 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 		}
 	}
 
+	if db.opts.MaxFollowAge > 0 {
+		earliestAllowedOffset := wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxFollowAge))
+		if earliestAllowedOffset.After(earliestOffset) {
+			log.Debugf("Forcibly limiting following to %v", earliestAllowedOffset)
+			earliestOffset = earliestAllowedOffset
+		}
+	}
+
 	log.Debugf("Following %v starting at %v", stream, earliestOffset)
 
 	ins := make([]chan *walRead, 0, len(tables))
