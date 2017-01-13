@@ -29,10 +29,8 @@ func (h *handler) authenticate(resp http.ResponseWriter, req *http.Request) bool
 	// First check for static auth token
 	if h.Opts.Password != "" {
 		password := req.Header.Get(authheader)
-		log.Debugf("%v =?= %v", password, h.Opts.Password)
 		if password != "" {
 			result := password == h.Opts.Password
-			log.Debugf("Returning %v", result)
 			return result
 		}
 	}

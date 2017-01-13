@@ -37,6 +37,7 @@ type ResultRow struct {
 
 func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 	if !h.authenticate(resp, req) {
+		resp.WriteHeader(http.StatusForbidden)
 		return
 	}
 
