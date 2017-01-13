@@ -26,6 +26,7 @@ type Opts struct {
 	CacheTTL           time.Duration
 	MaxCacheBytes      int
 	MaxCacheEntryBytes int
+	Password           string
 }
 
 type handler struct {

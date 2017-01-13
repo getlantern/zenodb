@@ -317,6 +317,7 @@ func serveHTTP(db *zenodb.DB, hl net.Listener) {
 		GitHubOrg:         *gitHubOrg,
 		HashKey:           *cookieHashKey,
 		BlockKey:          *cookieBlockKey,
+		Password:          *password,
 	})
 	if err != nil {
 		log.Errorf("Unable to configure web: %v", err)
