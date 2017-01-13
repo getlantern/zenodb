@@ -12,6 +12,7 @@ import (
 	"github.com/getlantern/zenodb/planner"
 	"github.com/spaolacci/murmur3"
 	"hash"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -22,6 +23,10 @@ const (
 	keyIncludeMemStore = "zenodb.includeMemStore"
 
 	defaultStream = "default"
+)
+
+var (
+	errCanceled = fmt.Errorf("following canceled")
 )
 
 type Follow struct {
@@ -85,10 +90,96 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	}
 }
 
+type tableWithOffset struct {
+	t *table
+	o wal.Offset
+}
+
+func (db *DB) followLeader(stream string, newSubscriber chan *tableWithOffset) {
+	// Wait a little while for database to initialize
+	timer := time.NewTimer(30 * time.Second)
+	var tables []*table
+	var offsets []wal.Offset
+waitForTables:
+	for {
+		select {
+		case <-timer.C:
+			if len(tables) == 0 {
+				// Wait some more
+				timer.Reset(5 * time.Second)
+			}
+			break waitForTables
+		case subscriber := <-newSubscriber:
+			tables = append(tables, subscriber.t)
+			offsets = append(offsets, subscriber.o)
+			// Got some tables, don't wait as long this time
+			timer.Reset(1 * time.Second)
+		}
+	}
+
+	for {
+		cancel := make(chan bool, 100)
+		go db.doFollowLeader(stream, tables, offsets, cancel)
+		subscriber := <-newSubscriber
+		cancel <- true
+		tables = append(tables, subscriber.t)
+		offsets = append(offsets, subscriber.o)
+	}
+}
+
+func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, cancel chan bool) {
+	for _, table := range tables {
+		log.Debug(table.Name)
+	}
+	var earliestOffset wal.Offset
+	for i, offset := range offsets {
+		if i == 0 || earliestOffset.After(offset) {
+			earliestOffset = offset
+		}
+	}
+
+	if db.opts.MaxFollowAge > 0 {
+		earliestAllowedOffset := wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxFollowAge))
+		if earliestAllowedOffset.After(earliestOffset) {
+			log.Debugf("Forcibly limiting following to %v", earliestAllowedOffset)
+			earliestOffset = earliestAllowedOffset
+		}
+	}
+
+	log.Debugf("Following %v starting at %v", stream, earliestOffset)
+
+	ins := make([]chan *walRead, 0, len(tables))
+	for _, t := range tables {
+		in := make(chan *walRead, 10000)
+		ins = append(ins, in)
+		go t.processInserts(in)
+	}
+
+	db.opts.Follow(&Follow{stream, earliestOffset, db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
+		select {
+		case <-cancel:
+			// Canceled
+			return errCanceled
+		default:
+			// Okay to continue
+		}
+
+		for i, in := range ins {
+			priorOffset := offsets[i]
+			if !priorOffset.After(newOffset) {
+				in <- &walRead{data, newOffset}
+				offsets[i] = newOffset
+			}
+		}
+		return nil
+	})
+}
+
 func partitionKeysToString(partitionKeys []string) string {
 	if len(partitionKeys) == 0 {
 		return defaultStream
 	}
+	sort.Strings(partitionKeys)
 	return strings.Join(partitionKeys, "|")
 }
 

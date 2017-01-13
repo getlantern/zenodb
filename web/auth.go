@@ -11,6 +11,7 @@ import (
 const (
 	authcookie = "authcookie"
 	xsrftoken  = "xsrftoken"
+	authheader = "X-Zeno-Auth-Token"
 
 	randomKeyLength = 32
 )
@@ -25,6 +26,16 @@ type AuthData struct {
 }
 
 func (h *handler) authenticate(resp http.ResponseWriter, req *http.Request) bool {
+	// First check for static auth token
+	if h.Opts.Password != "" {
+		password := req.Header.Get(authheader)
+		if password != "" {
+			result := password == h.Opts.Password
+			return result
+		}
+	}
+
+	// Then check for GitHub credentials
 	cookie, err := req.Cookie(authcookie)
 	if err == nil {
 		ad := &AuthData{}

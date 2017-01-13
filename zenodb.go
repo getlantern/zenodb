@@ -83,6 +83,9 @@ type DBOpts struct {
 	NumPartitions int
 	// Partition identies the partition owned by this follower
 	Partition int
+	// MaxFollowAge limits how far back to go when follower pulls data from
+	// leader
+	MaxFollowAge time.Duration
 	// Follow is a function that allows a follower to request following a stream
 	// from a passthrough node.
 	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
@@ -93,10 +96,11 @@ type DBOpts struct {
 type DB struct {
 	opts                  *DBOpts
 	clock                 vtime.Clock
-	streams               map[string]*wal.WAL
-	distinctPartitionKeys map[string][]string
 	tables                map[string]*table
 	orderedTables         []*table
+	streams               map[string]*wal.WAL
+	newStreamSubscriber   map[string]chan *tableWithOffset
+	distinctPartitionKeys map[string][]string
 	tablesMutex           sync.RWMutex
 	isSorting             bool
 	nextTableToSort       int
@@ -114,6 +118,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		clock:               vtime.RealClock,
 		tables:              make(map[string]*table),
 		streams:             make(map[string]*wal.WAL),
+		newStreamSubscriber: make(map[string]chan *tableWithOffset),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 	}
 	if opts.VirtualTime {
