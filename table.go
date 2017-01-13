@@ -179,6 +179,13 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 		if rsErr != nil {
 			return rsErr
 		}
+
+		offsetByRetentionPeriod := wal.NewOffsetForTS(t.truncateBefore())
+		if offsetByRetentionPeriod.After(walOffset) {
+			// Don't bother looking further back than table's retention period
+			walOffset = offsetByRetentionPeriod
+		}
+
 		t.log.Debugf("Starting at WAL offset %v", walOffset)
 	}
 
