@@ -94,20 +94,19 @@ type DBOpts struct {
 
 // DB is a zenodb database.
 type DB struct {
-	opts                  *DBOpts
-	clock                 vtime.Clock
-	tables                map[string]*table
-	orderedTables         []*table
-	streams               map[string]*wal.WAL
-	newStreamSubscriber   map[string]chan *tableWithOffset
-	distinctPartitionKeys map[string][]string
-	tablesMutex           sync.RWMutex
-	isSorting             bool
-	nextTableToSort       int
-	memory                uint64
-	flushMutex            sync.Mutex
-	remoteQueryHandlers   map[int]chan planner.QueryClusterFN
-	closed                bool
+	opts                *DBOpts
+	clock               vtime.Clock
+	tables              map[string]*table
+	orderedTables       []*table
+	streams             map[string]*wal.WAL
+	newStreamSubscriber map[string]chan *tableWithOffset
+	tablesMutex         sync.RWMutex
+	isSorting           bool
+	nextTableToSort     int
+	memory              uint64
+	flushMutex          sync.Mutex
+	remoteQueryHandlers map[int]chan planner.QueryClusterFN
+	closed              bool
 }
 
 // NewDB creates a database using the given options.
@@ -169,10 +168,6 @@ func NewDB(opts *DBOpts) (*DB, error) {
 
 	if db.opts.RegisterRemoteQueryHandler != nil {
 		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.queryForRemote)
-	}
-
-	if db.opts.Passthrough {
-		// go db.freshenRemoteQueryHandlers()
 	}
 
 	if db.opts.MaxMemoryRatio > 0 {

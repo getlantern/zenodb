@@ -165,7 +165,7 @@ func main() {
 							log.Errorf("Error inserting data for stream %v: %v", f.Stream, insertErr)
 							break
 						}
-						f.Offset = newOffset
+						f.EarliestOffset = newOffset
 						// reset wait time
 						wait = minWait
 					}

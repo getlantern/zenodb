@@ -44,6 +44,9 @@ type TableOpts struct {
 	// RetentionPeriod limits how long data is kept in the table (based on the
 	// timestamp of the data itself).
 	RetentionPeriod time.Duration
+	// Backfill limits how far back to grab data from the WAL when first creating
+	// a table. If 0, backfill is limited only by the RetentionPeriod.
+	Backfill time.Duration
 	// PartitionBy can be used in clustered deployments to decide which
 	// dimensions to use in partitioning data. If unspecified, all dimensions are
 	// used for partitioning.
@@ -186,6 +189,12 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 			walOffset = offsetByRetentionPeriod
 		}
 
+		offsetByBackfillDepth := wal.NewOffsetForTS(t.backfillTo())
+		if offsetByBackfillDepth.After(walOffset) {
+			// Don't bother looking further back than table's backfill depth
+			walOffset = offsetByBackfillDepth
+		}
+
 		t.log.Debugf("Starting at WAL offset %v", walOffset)
 	}
 
@@ -199,17 +208,6 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	db.orderedTables = append(db.orderedTables, t)
 
 	if !t.Virtual {
-		partitionKeys := t.PartitionBy
-		partitionKeysString := partitionKeysToString(partitionKeys)
-		if t.db.distinctPartitionKeys[partitionKeysString] == nil {
-			distinctPartitionKeys := make(map[string][]string, len(t.db.distinctPartitionKeys))
-			for key, value := range db.distinctPartitionKeys {
-				distinctPartitionKeys[key] = value
-			}
-			distinctPartitionKeys[partitionKeysString] = partitionKeys
-			db.distinctPartitionKeys = distinctPartitionKeys
-		}
-
 		if !t.db.opts.Passthrough {
 			go t.logHighWaterMark()
 		}
@@ -281,6 +279,13 @@ func (t *table) getWhere() goexpr.Expr {
 
 func (t *table) truncateBefore() time.Time {
 	return t.db.clock.Now().Add(-1 * t.RetentionPeriod)
+}
+
+func (t *table) backfillTo() time.Time {
+	if t.Backfill == 0 {
+		return time.Time{}
+	}
+	return t.db.clock.Now().Add(-1 * t.Backfill)
 }
 
 func (t *table) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {

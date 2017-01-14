@@ -21,18 +21,27 @@ import (
 
 const (
 	keyIncludeMemStore = "zenodb.includeMemStore"
-
-	defaultStream = "default"
 )
 
 var (
 	errCanceled = fmt.Errorf("following canceled")
 )
 
+type Partition struct {
+	Keys   []string
+	Tables []*PartitionTable
+}
+
+type PartitionTable struct {
+	Name   string
+	Offset wal.Offset
+}
+
 type Follow struct {
-	Stream    string
-	Offset    wal.Offset
-	Partition int
+	Stream          string
+	EarliestOffset  wal.Offset
+	PartitionNumber int
+	Partitions      map[string]*Partition
 }
 
 type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
@@ -40,7 +49,6 @@ type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, s
 func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 	var w *wal.WAL
 	db.tablesMutex.RLock()
-	distinctPartitionKeys := db.distinctPartitionKeys
 	w = db.streams[f.Stream]
 	db.tablesMutex.RUnlock()
 	if w == nil {
@@ -49,7 +57,7 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 
 	h := partitionHash()
 
-	r, err := w.NewReader(fmt.Sprintf("follower.%d.%v", f.Partition, f.Stream), f.Offset)
+	r, err := w.NewReader(fmt.Sprintf("follower.%d.%v", f.PartitionNumber, f.Stream), f.EarliestOffset)
 	if err != nil {
 		return errors.New("Unable to open wal reader for %v", f.Stream)
 	}
@@ -70,18 +78,31 @@ func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
 		dimsLen, remain := encoding.ReadInt32(remain)
 		_dims, remain := encoding.Read(remain, dimsLen)
 		dims := bytemap.ByteMap(_dims)
+		offset := r.Offset()
 
 		// See if we should include based on any of the combinations of partition
 		// keys.
-		include := false
-		for _, partitionKeys := range distinctPartitionKeys {
-			if db.inPartition(h, dims, partitionKeys, f.Partition) {
-				include = true
-				break
+		include := func() bool {
+			for _, partition := range f.Partitions {
+				if !db.inPartition(h, dims, partition.Keys, f.PartitionNumber) {
+					continue
+				}
+				for _, table := range partition.Tables {
+					if table.Offset.After(offset) {
+						continue
+					}
+					where := db.getTable(table.Name).Where
+					if where == nil || where.Eval(dims).(bool) {
+						return true
+					}
+				}
 			}
+
+			return false
 		}
-		if include {
-			err = cb(data, r.Offset())
+
+		if include() {
+			err = cb(data, offset)
 			if err != nil {
 				log.Debugf("Unable to write to follower: %v", err)
 				return err
@@ -100,6 +121,8 @@ func (db *DB) followLeader(stream string, newSubscriber chan *tableWithOffset) {
 	timer := time.NewTimer(30 * time.Second)
 	var tables []*table
 	var offsets []wal.Offset
+	partitions := make(map[string]*Partition)
+
 waitForTables:
 	for {
 		select {
@@ -110,8 +133,22 @@ waitForTables:
 			}
 			break waitForTables
 		case subscriber := <-newSubscriber:
-			tables = append(tables, subscriber.t)
-			offsets = append(offsets, subscriber.o)
+			table := subscriber.t
+			offset := subscriber.o
+			tables = append(tables, table)
+			offsets = append(offsets, offset)
+			partitionKeysString := partitionKeysToString(table.PartitionBy)
+			partition := partitions[partitionKeysString]
+			if partition == nil {
+				partition = &Partition{
+					Keys: table.PartitionBy,
+				}
+				partitions[partitionKeysString] = partition
+			}
+			partition.Tables = append(partition.Tables, &PartitionTable{
+				Name:   table.Name,
+				Offset: offset,
+			})
 			// Got some tables, don't wait as long this time
 			timer.Reset(1 * time.Second)
 		}
@@ -119,7 +156,7 @@ waitForTables:
 
 	for {
 		cancel := make(chan bool, 100)
-		go db.doFollowLeader(stream, tables, offsets, cancel)
+		go db.doFollowLeader(stream, tables, offsets, partitions, cancel)
 		subscriber := <-newSubscriber
 		cancel <- true
 		tables = append(tables, subscriber.t)
@@ -127,10 +164,7 @@ waitForTables:
 	}
 }
 
-func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, cancel chan bool) {
-	for _, table := range tables {
-		log.Debug(table.Name)
-	}
+func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, partitions map[string]*Partition, cancel chan bool) {
 	var earliestOffset wal.Offset
 	for i, offset := range offsets {
 		if i == 0 || earliestOffset.After(offset) {
@@ -155,7 +189,7 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 		go t.processInserts(in)
 	}
 
-	db.opts.Follow(&Follow{stream, earliestOffset, db.opts.Partition}, func(data []byte, newOffset wal.Offset) error {
+	db.opts.Follow(&Follow{stream, earliestOffset, db.opts.Partition, partitions}, func(data []byte, newOffset wal.Offset) error {
 		select {
 		case <-cancel:
 			// Canceled
@@ -177,7 +211,7 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 
 func partitionKeysToString(partitionKeys []string) string {
 	if len(partitionKeys) == 0 {
-		return defaultStream
+		return ""
 	}
 	sort.Strings(partitionKeys)
 	return strings.Join(partitionKeys, "|")
@@ -215,23 +249,6 @@ func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) 
 	db.remoteQueryHandlers[partition] = handlersCh
 	db.tablesMutex.Unlock()
 	handlersCh <- query
-}
-
-// freshenRemoteQueryHandlers periodically drains query handlers and sends noop
-// queries in order to get fresh connections
-func (db *DB) freshenRemoteQueryHandlers() {
-	for {
-		time.Sleep(5 * time.Minute)
-		for i := 0; i < db.opts.NumPartitions; i++ {
-			for {
-				handler := db.remoteQueryHandlerForPartition(i)
-				if handler == nil {
-					break
-				}
-				go handler(context.Background(), "", false, nil, false, nil, nil)
-			}
-		}
-	}
 }
 
 func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryClusterFN {

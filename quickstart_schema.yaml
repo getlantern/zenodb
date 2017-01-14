@@ -24,3 +24,43 @@ partitioned:
   sql: >
     SELECT *
     FROM combined
+
+newish:
+  retentionperiod: 1h
+  backfill:        1s
+  maxflushlatency: 30s
+  view: true
+  partitionby: [server,path]
+  sql: >
+    SELECT *
+    FROM combined
+
+backfilled:
+  retentionperiod: 1h
+  backfill:        30m
+  maxflushlatency: 30s
+  view: true
+  partitionby: [server,path]
+  sql: >
+    SELECT *
+    FROM combined
+
+notbackfilled:
+  retentionperiod: 1h
+  backfill:        1s
+  maxflushlatency: 30s
+  view: true
+  partitionby: [server,path]
+  sql: >
+    SELECT *
+    FROM combined
+
+notbackfilled2:
+  retentionperiod: 1h
+  backfill:        1s
+  maxflushlatency: 30s
+  view: true
+  partitionby: [server,path]
+  sql: >
+    SELECT *
+    FROM combined

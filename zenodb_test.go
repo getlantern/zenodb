@@ -57,7 +57,6 @@ func TestClusterNoPushdown(t *testing.T) {
 
 func doTestCluster(t *testing.T, partitionBy []string) {
 	numPartitions := 1 + rand.Intn(10)
-	numPartitions = 1
 
 	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		leader, err := NewDB(&DBOpts{
