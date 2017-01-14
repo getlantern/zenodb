@@ -7,30 +7,45 @@ import (
 	"github.com/getlantern/goexpr"
 )
 
-// AVG creates an Expr that obtains its value by averaging the values of the
-// given expression or field.
-func AVG(expr interface{}) Expr {
-	return &avg{exprFor(expr)}
+// AVG creates an Expr that obtains its value as the arithmetic mean over the
+// given value.
+func AVG(val interface{}) Expr {
+	return WAVG(val, CONST(1))
+}
+
+// WAVG creates an Expr that obtains its value as the weighted arithmetic mean
+// over the given value weighted by the given weight.
+func WAVG(val interface{}, weight interface{}) Expr {
+	return &avg{exprFor(val), exprFor(weight)}
 }
 
 type avg struct {
-	wrapped Expr
+	value  Expr
+	weight Expr
 }
 
 func (e *avg) Validate() error {
-	return validateWrappedInAggregate(e.wrapped)
+	err := validateWrappedInAggregate(e.value)
+	if err != nil {
+		return err
+	}
+	if e.weight.EncodedWidth() > 0 {
+		return fmt.Errorf("Weight expression %v must be a constant or directly derived from a field", e.weight)
+	}
+	return nil
 }
 
 func (e *avg) EncodedWidth() int {
-	return width64bits*2 + 1 + e.wrapped.EncodedWidth()
+	return width64bits*2 + 1 + e.value.EncodedWidth()
 }
 
 func (e *avg) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
-	count, total, _, more := e.load(b)
-	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
+	count, total, _, remain := e.load(b)
+	remain, value, updated := e.value.Update(remain, params, metadata)
+	remain, weight, _ := e.weight.Update(remain, params, metadata)
 	if updated {
-		count++
-		total += wrappedValue
+		count += weight
+		total += value * weight
 		e.save(b, count, total)
 	}
 	return remain, e.calc(count, total), updated
@@ -108,9 +123,9 @@ func (e *avg) save(b []byte, count float64, total float64) []byte {
 }
 
 func (e *avg) IsConstant() bool {
-	return e.wrapped.IsConstant()
+	return e.value.IsConstant()
 }
 
 func (e *avg) String() string {
-	return fmt.Sprintf("AVG(%v)", e.wrapped)
+	return fmt.Sprintf("AVG(%v)", e.value)
 }

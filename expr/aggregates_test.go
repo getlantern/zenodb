@@ -8,11 +8,11 @@ import (
 )
 
 func TestSUM(t *testing.T) {
-	doTestAggregate(t, SUM(boundedA()), 13.2)
+	doTestAggregate(t, SUM(boundedA()), 15.6)
 }
 
 func TestMIN(t *testing.T) {
-	doTestAggregate(t, MIN(boundedA()), 4.4)
+	doTestAggregate(t, MIN(boundedA()), 2.4)
 }
 
 func TestMAX(t *testing.T) {
@@ -24,7 +24,11 @@ func TestCOUNT(t *testing.T) {
 }
 
 func TestAVG(t *testing.T) {
-	doTestAggregate(t, AVG(boundedA()), 6.6)
+	doTestAggregate(t, AVG(boundedA()), 5.2)
+}
+
+func TestWAVG(t *testing.T) {
+	doTestAggregate(t, WAVG(boundedA(), "b"), 7.52)
 }
 
 func TestSUMConditional(t *testing.T) {
@@ -40,6 +44,8 @@ func TestValidateAggregate(t *testing.T) {
 	assert.Error(t, sum.Validate())
 	avg := AVG(MULT(CONST(1), CONST(2)))
 	assert.Error(t, avg.Validate())
+	wavg := WAVG(FIELD("b"), SUM(FIELD("c")))
+	assert.Error(t, wavg.Validate())
 	ok := SUM(CONST(1))
 	assert.NoError(t, ok.Validate())
 	ok2 := AVG(FIELD("b"))
@@ -63,7 +69,8 @@ func doTestAggregate(t *testing.T, e Expr, expected float64) {
 		"i": true,
 	}
 	params3 := Map{
-		"b": 0.1,
+		"a": 2.4,
+		"b": 0.2,
 	}
 	md3 := goexpr.MapParams{}
 	params4 := Map{

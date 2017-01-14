@@ -45,6 +45,10 @@ var aggregateFuncs = map[string]func(interface{}) expr.Expr{
 	"AVG":   expr.AVG,
 }
 
+var binaryAggregateFuncs = map[string]func(interface{}, interface{}) expr.Expr{
+	"WAVG": expr.WAVG,
+}
+
 var operators = map[string]func(interface{}, interface{}) expr.Expr{
 	"+": expr.ADD,
 	"-": expr.SUB,
@@ -587,23 +591,49 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 			}
 			return expr.BOUNDED(wrapped, min, max), nil
 		}
-		if len(e.Exprs) != 1 {
+		switch len(e.Exprs) {
+		case 1:
+			f, ok := aggregateFuncs[fname]
+			if !ok {
+				return nil, fmt.Errorf("Unknown function '%v'", fname)
+			}
+			log.Tracef("Found function: %v", fname)
+			_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			se, err := q.exprFor(_param.Expr, false)
+			if err != nil {
+				return nil, err
+			}
+			return f(se), nil
+		case 2:
+			f, ok := binaryAggregateFuncs[fname]
+			if !ok {
+				return nil, fmt.Errorf("Unknown function '%v'", fname)
+			}
+			log.Tracef("Found function: %v", fname)
+			_param1, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			_param2, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			se1, err := q.exprFor(_param1.Expr, false)
+			if err != nil {
+				return nil, err
+			}
+			se2, err := q.exprFor(_param2.Expr, false)
+			if err != nil {
+				return nil, err
+			}
+			return f(se1, se2), nil
+		default:
 			return nil, ErrAggregateArity
 		}
-		f, ok := aggregateFuncs[fname]
-		if !ok {
-			return nil, fmt.Errorf("Unknown function '%v'", fname)
-		}
-		log.Tracef("Found function: %v", fname)
-		_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-		if !ok {
-			return nil, ErrWildcardNotAllowed
-		}
-		se, err := q.exprFor(_param.Expr, false)
-		if err != nil {
-			return nil, err
-		}
-		return f(se), nil
+
 	case *sqlparser.ComparisonExpr:
 		_op := string(e.Operator)
 		if log.IsTraceEnabled() {

@@ -32,7 +32,8 @@ SELECT
 	IF(dim = 'test', AVG(myfield)) AS the_avg,
 	*,
 	SUM(BOUNDED(bfield, 0, 100)) AS bounded,
-	5 as cval
+	5 as cval,
+	WAVG(a, b) AS weighted
 FROM Table_A ASOF '-60m' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -78,7 +79,7 @@ LIMIT 100, 10
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	if assert.Len(t, q.Fields, 8) {
+	if assert.Len(t, q.Fields, 9) {
 		field := q.Fields[0]
 		expected := core.NewField("rate", rate).String()
 		actual := field.String()
@@ -124,6 +125,11 @@ LIMIT 100, 10
 
 		field = q.Fields[7]
 		expected = core.NewField("cval", CONST(5)).String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = q.Fields[8]
+		expected = core.NewField("weighted", WAVG("a", "b")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}
