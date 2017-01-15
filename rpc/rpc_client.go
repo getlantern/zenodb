@@ -24,7 +24,15 @@ type ClientOpts struct {
 	Dialer func(string, time.Duration) (net.Conn, error)
 }
 
+type Inserter interface {
+	Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, interface{}))) error
+
+	Close() error
+}
+
 type Client interface {
+	NewInserter(ctx context.Context, stream string, opts ...grpc.CallOption) (Inserter, error)
+
 	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error)
 
 	Follow(ctx context.Context, in *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
@@ -58,6 +66,39 @@ func Dial(addr string, opts *ClientOpts) (Client, error) {
 type client struct {
 	cc       *grpc.ClientConn
 	password string
+}
+
+type inserter struct {
+	clientStream grpc.ClientStream
+	streamName   string
+}
+
+func (c *client) NewInserter(ctx context.Context, streamName string, opts ...grpc.CallOption) (Inserter, error) {
+	clientStream, err := grpc.NewClientStream(ctx, &serviceDesc.Streams[3], c.cc, "/zenodb/insert", opts...)
+	if err != nil {
+		return nil, err
+	}
+
+	return &inserter{
+		clientStream: clientStream,
+		streamName:   streamName,
+	}, nil
+}
+
+func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, interface{}))) error {
+	insert := &Insert{
+		Stream: i.streamName,
+		TS:     ts.UnixNano(),
+		Dims:   bytemap.New(dims),
+		Vals:   bytemap.Build(vals, nil, true),
+	}
+	// Set streamName to "" to prevent sending it unnecessarily in subsequent inserts
+	i.streamName = ""
+	return i.clientStream.SendMsg(insert)
+}
+
+func (i *inserter) Close() error {
+	return i.clientStream.CloseSend()
 }
 
 func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error) {

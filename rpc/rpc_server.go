@@ -2,16 +2,23 @@ package rpc
 
 import (
 	"context"
+	"fmt"
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/encoding"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
+	"io"
 	"net"
+	"time"
 )
 
 type Server interface {
+	Insert(stream grpc.ServerStream) error
+
 	Query(*Query, grpc.ServerStream) error
 
 	Follow(*zenodb.Follow, grpc.ServerStream) error
@@ -36,6 +43,51 @@ func Serve(db *zenodb.DB, l net.Listener, opts *ServerOpts) error {
 type server struct {
 	db       *zenodb.DB
 	password string
+}
+
+func (s *server) Insert(stream grpc.ServerStream) error {
+	// No need to authorize, anyone can insert
+
+	now := time.Now()
+	streamName := ""
+
+	for {
+		insert := &Insert{}
+		err := stream.RecvMsg(insert)
+		if err != nil {
+			if err == io.EOF {
+				// Done
+				return nil
+			}
+			return fmt.Errorf("Error reading insert: %v", err)
+		}
+
+		if streamName == "" {
+			streamName = insert.Stream
+			if streamName == "" {
+				return fmt.Errorf("Please specify a stream")
+			}
+		}
+
+		if len(insert.Dims) == 0 {
+			return fmt.Errorf("Need at least one dim")
+		}
+		if len(insert.Vals) == 0 {
+			return fmt.Errorf("Need at least one val")
+		}
+		var ts time.Time
+		if insert.TS == 0 {
+			ts = now
+		} else {
+			ts = encoding.TimeFromInt(insert.TS)
+		}
+
+		// TODO: make sure we don't barf on invalid bytemaps here
+		insertErr := s.db.InsertRaw(streamName, ts, bytemap.ByteMap(insert.Dims), bytemap.ByteMap(insert.Vals))
+		if insertErr != nil {
+			return fmt.Errorf("Unable to insert: %v", insertErr)
+		}
+	}
 }
 
 func (s *server) Query(q *Query, stream grpc.ServerStream) error {

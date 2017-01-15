@@ -19,6 +19,13 @@ var (
 	msgpackCodec = &MsgPackCodec{}
 )
 
+type Insert struct {
+	Stream string // note, only the first Insert in a batch needs to include the Stream
+	TS     int64
+	Dims   []byte
+	Vals   []byte
+}
+
 type Query struct {
 	SQLString       string
 	IsSubQuery      bool
@@ -65,7 +72,16 @@ var serviceDesc = grpc.ServiceDesc{
 			ServerStreams: true,
 			ClientStreams: true,
 		},
+		{
+			StreamName:    "insert",
+			Handler:       insertHandler,
+			ClientStreams: true,
+		},
 	},
+}
+
+func insertHandler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(Server).Insert(stream)
 }
 
 func queryHandler(srv interface{}, stream grpc.ServerStream) error {

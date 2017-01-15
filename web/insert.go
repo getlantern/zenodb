@@ -52,16 +52,16 @@ func (h *handler) insert(resp http.ResponseWriter, req *http.Request) {
 			badRequest(resp, "Error decoding JSON: %v", err)
 			return
 		}
-		if point.Ts.IsZero() {
-			point.Ts = time.Now()
-		}
-		if point.Dims == nil || len(point.Dims) == 0 {
+		if len(point.Dims) == 0 {
 			badRequest(resp, "Need at least one dim")
 			return
 		}
-		if point.Vals == nil || len(point.Vals) == 0 {
+		if len(point.Vals) == 0 {
 			badRequest(resp, "Need at least one val")
 			return
+		}
+		if point.Ts.IsZero() {
+			point.Ts = time.Now()
 		}
 
 		insertErr := h.db.Insert(stream, point.Ts, point.Dims, point.Vals)
