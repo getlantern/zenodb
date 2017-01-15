@@ -137,11 +137,11 @@ waitForTables:
 			offset := subscriber.o
 			tables = append(tables, table)
 			offsets = append(offsets, offset)
-			partitionKeysString := partitionKeysToString(table.PartitionBy)
+			partitionKeysString, partitionKeys := sortedPartitionKeys(table.PartitionBy)
 			partition := partitions[partitionKeysString]
 			if partition == nil {
 				partition = &Partition{
-					Keys: table.PartitionBy,
+					Keys: partitionKeys,
 				}
 				partitions[partitionKeysString] = partition
 			}
@@ -209,12 +209,12 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 	})
 }
 
-func partitionKeysToString(partitionKeys []string) string {
+func sortedPartitionKeys(partitionKeys []string) (string, []string) {
 	if len(partitionKeys) == 0 {
-		return ""
+		return "", partitionKeys
 	}
 	sort.Strings(partitionKeys)
-	return strings.Join(partitionKeys, "|")
+	return strings.Join(partitionKeys, "|"), partitionKeys
 }
 
 func partitionHash() hash.Hash32 {
