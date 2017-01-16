@@ -28,7 +28,7 @@ type ClientOpts struct {
 type Inserter interface {
 	Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, interface{}))) error
 
-	Close() error
+	Close() (*InsertReport, error)
 }
 
 type Client interface {
@@ -98,21 +98,21 @@ func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(f
 	return i.clientStream.SendMsg(insert)
 }
 
-func (i *inserter) Close() error {
+func (i *inserter) Close() (*InsertReport, error) {
 	err := i.clientStream.SendMsg(&Insert{EndOfInserts: true})
 	if err != nil {
-		return fmt.Errorf("Unable to send closing message: %v", err)
-	}
-	status := ""
-	err = i.clientStream.RecvMsg(&status)
-	if err != nil {
-		return fmt.Errorf("Unable to receive status from server: %v", err)
+		return nil, fmt.Errorf("Unable to send closing message: %v", err)
 	}
 	err = i.clientStream.CloseSend()
 	if err != nil {
-		return fmt.Errorf("Unable to close send: %v", err)
+		return nil, fmt.Errorf("Unable to close send: %v", err)
 	}
-	return nil
+	report := &InsertReport{}
+	err = i.clientStream.RecvMsg(&report)
+	if err != nil {
+		return nil, fmt.Errorf("Error from server: %v", err)
+	}
+	return report, nil
 }
 
 func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error) {

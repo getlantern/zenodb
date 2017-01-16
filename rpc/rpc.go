@@ -27,6 +27,12 @@ type Insert struct {
 	EndOfInserts bool
 }
 
+type InsertReport struct {
+	Received  int
+	Succeeded int
+	Errors    map[int]string
+}
+
 type Query struct {
 	SQLString       string
 	IsSubQuery      bool

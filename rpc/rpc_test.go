@@ -48,20 +48,35 @@ func TestInsert(t *testing.T) {
 	}
 
 	for i := 0; i < 10; i++ {
-		err = inserter.Insert(time.Time{}, map[string]interface{}{"dim": "dimval"}, func(cb func(key string, value interface{})) {
-			cb("val", float64(i))
+		dims := map[string]interface{}{"dim": "dimval"}
+		if i > 1 && i < 7 {
+			dims = nil
+		}
+		err = inserter.Insert(time.Time{}, dims, func(cb func(key string, value interface{})) {
+			if i < 7 {
+				cb("val", float64(i))
+			}
 		})
 		if !assert.NoError(t, err, "Error on iteration %d", i) {
 			return
 		}
 	}
 
-	err = inserter.Close()
+	report, err := inserter.Close()
 	if !assert.NoError(t, err) {
 		return
 	}
 
-	assert.Equal(t, 10, db.NumInserts())
+	assert.Equal(t, 10, report.Received)
+	assert.Equal(t, 2, report.Succeeded)
+	assert.Equal(t, 2, db.NumInserts())
+	for i := 2; i < 10; i++ {
+		if i < 7 {
+			assert.Equal(t, "Need at least one dim", report.Errors[i])
+		} else {
+			assert.Equal(t, "Need at least one val", report.Errors[i])
+		}
+	}
 }
 
 type mockDB struct {

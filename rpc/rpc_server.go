@@ -62,7 +62,13 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 	now := time.Now()
 	streamName := ""
 
+	report := &InsertReport{
+		Errors: make(map[int]string),
+	}
+
+	i := -1
 	for {
+		i++
 		insert := &Insert{}
 		err := stream.RecvMsg(insert)
 		if err != nil {
@@ -70,9 +76,9 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 		}
 		if insert.EndOfInserts {
 			// We're done inserting
-			stream.SendMsg("finished")
-			return nil
+			return stream.SendMsg(report)
 		}
+		report.Received++
 
 		if streamName == "" {
 			streamName = insert.Stream
@@ -82,10 +88,12 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 		}
 
 		if len(insert.Dims) == 0 {
-			return fmt.Errorf("Need at least one dim")
+			report.Errors[i] = fmt.Sprintf("Need at least one dim")
+			continue
 		}
 		if len(insert.Vals) == 0 {
-			return fmt.Errorf("Need at least one val")
+			report.Errors[i] = fmt.Sprintf("Need at least one val")
+			continue
 		}
 		var ts time.Time
 		if insert.TS == 0 {
@@ -97,8 +105,10 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 		// TODO: make sure we don't barf on invalid bytemaps here
 		insertErr := s.db.InsertRaw(streamName, ts, bytemap.ByteMap(insert.Dims), bytemap.ByteMap(insert.Vals))
 		if insertErr != nil {
-			return fmt.Errorf("Unable to insert: %v", insertErr)
+			report.Errors[i] = fmt.Sprintf("Unable to insert: %v", insertErr)
+			continue
 		}
+		report.Succeeded++
 	}
 }
 
