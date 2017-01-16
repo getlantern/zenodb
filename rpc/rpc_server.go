@@ -9,6 +9,7 @@ import (
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/planner"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"io"
@@ -32,7 +33,18 @@ type ServerOpts struct {
 	Password string
 }
 
-func Serve(db *zenodb.DB, l net.Listener, opts *ServerOpts) error {
+// DB is an interface for database-like things (implemented by zenodb.DB).
+type DB interface {
+	InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) error
+
+	Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error)
+
+	Follow(f *zenodb.Follow, cb func([]byte, wal.Offset) error) error
+
+	RegisterQueryHandler(partition int, query planner.QueryClusterFN)
+}
+
+func Serve(db DB, l net.Listener, opts *ServerOpts) error {
 	l = &snappyListener{l}
 	gs := grpc.NewServer(
 		grpc.CustomCodec(msgpackCodec))
@@ -41,7 +53,7 @@ func Serve(db *zenodb.DB, l net.Listener, opts *ServerOpts) error {
 }
 
 type server struct {
-	db       *zenodb.DB
+	db       DB
 	password string
 }
 
@@ -56,7 +68,8 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 		err := stream.RecvMsg(insert)
 		if err != nil {
 			if err == io.EOF {
-				// Done
+				// Successfully finished
+				stream.SendMsg("Success")
 				return nil
 			}
 			return fmt.Errorf("Error reading insert: %v", err)

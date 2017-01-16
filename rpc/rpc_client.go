@@ -98,7 +98,16 @@ func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(f
 }
 
 func (i *inserter) Close() error {
-	return i.clientStream.CloseSend()
+	err := i.clientStream.CloseSend()
+	if err != nil {
+		return err
+	}
+	status := ""
+	err = i.clientStream.RecvMsg(&status)
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error) {
