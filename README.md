@@ -385,6 +385,16 @@ TODO - explain how subqueries work
 Check out the [zenodbdemo](zenodbdemo/zenodbdemo.go) for an example of how to
 embed zenodb.
 
+## Clustering
+
+### Performance timestamps
+
+* Partition on high cardinality fields/combinations that you frequently query
+* Don't partition on low-cardinality fields as these will tend to hotspot one
+  one or another partition and slow down synchronization from the leader.
+* Don't partition on too many different fields/combinations is this will
+  increase amount of data that each follower has to synchronize.
+
 ## Acknowledgements
 
  * [sqlparser](https://github.com/xwb1989/sqlparser) - Go SQL parser
