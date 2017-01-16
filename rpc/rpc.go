@@ -20,10 +20,11 @@ var (
 )
 
 type Insert struct {
-	Stream string // note, only the first Insert in a batch needs to include the Stream
-	TS     int64
-	Dims   []byte
-	Vals   []byte
+	Stream       string // note, only the first Insert in a batch needs to include the Stream
+	TS           int64
+	Dims         []byte
+	Vals         []byte
+	EndOfInserts bool
 }
 
 type Query struct {

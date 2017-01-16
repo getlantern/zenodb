@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"time"
@@ -98,14 +99,18 @@ func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(f
 }
 
 func (i *inserter) Close() error {
-	err := i.clientStream.CloseSend()
+	err := i.clientStream.SendMsg(&Insert{EndOfInserts: true})
 	if err != nil {
-		return err
+		return fmt.Errorf("Unable to send closing message: %v", err)
 	}
 	status := ""
 	err = i.clientStream.RecvMsg(&status)
 	if err != nil {
-		return err
+		return fmt.Errorf("Unable to receive status from server: %v", err)
+	}
+	err = i.clientStream.CloseSend()
+	if err != nil {
+		return fmt.Errorf("Unable to close send: %v", err)
 	}
 	return nil
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/getlantern/zenodb/planner"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"io"
 	"net"
 	"time"
 )
@@ -67,12 +66,12 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 		insert := &Insert{}
 		err := stream.RecvMsg(insert)
 		if err != nil {
-			if err == io.EOF {
-				// Successfully finished
-				stream.SendMsg("Success")
-				return nil
-			}
 			return fmt.Errorf("Error reading insert: %v", err)
+		}
+		if insert.EndOfInserts {
+			// We're done inserting
+			stream.SendMsg("finished")
+			return nil
 		}
 
 		if streamName == "" {
