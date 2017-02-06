@@ -2,7 +2,7 @@ language: go
 go:
 - 1.7.5
 install:
-- mkdir -p $GOPATH/bin && curl https://glide.sh/get | sh
+- cd /tmp && curl -L https://github.com/Masterminds/glide/releases/download/v0.12.3/glide-v0.12.3-linux-amd64.tar.gz -o glide.tar.gz && tar -xf glide.tar.gz && mkdir -p $GOPATH/bin && mv linux-amd64/glide $GOPATH/bin/ && cd -
 - go get golang.org/x/tools/cmd/cover
 - go get -v github.com/axw/gocov/gocov
 - go get -v github.com/mattn/goveralls
