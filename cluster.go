@@ -7,6 +7,7 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
@@ -27,26 +28,7 @@ var (
 	errCanceled = fmt.Errorf("following canceled")
 )
 
-type Partition struct {
-	Keys   []string
-	Tables []*PartitionTable
-}
-
-type PartitionTable struct {
-	Name   string
-	Offset wal.Offset
-}
-
-type Follow struct {
-	Stream          string
-	EarliestOffset  wal.Offset
-	PartitionNumber int
-	Partitions      map[string]*Partition
-}
-
-type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
-
-func (db *DB) Follow(f *Follow, cb func([]byte, wal.Offset) error) error {
+func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) error {
 	var w *wal.WAL
 	db.tablesMutex.RLock()
 	w = db.streams[f.Stream]
@@ -121,7 +103,7 @@ func (db *DB) followLeader(stream string, newSubscriber chan *tableWithOffset) {
 	timer := time.NewTimer(30 * time.Second)
 	var tables []*table
 	var offsets []wal.Offset
-	partitions := make(map[string]*Partition)
+	partitions := make(map[string]*common.Partition)
 
 waitForTables:
 	for {
@@ -140,12 +122,12 @@ waitForTables:
 			partitionKeysString, partitionKeys := sortedPartitionKeys(table.PartitionBy)
 			partition := partitions[partitionKeysString]
 			if partition == nil {
-				partition = &Partition{
+				partition = &common.Partition{
 					Keys: partitionKeys,
 				}
 				partitions[partitionKeysString] = partition
 			}
-			partition.Tables = append(partition.Tables, &PartitionTable{
+			partition.Tables = append(partition.Tables, &common.PartitionTable{
 				Name:   table.Name,
 				Offset: offset,
 			})
@@ -164,7 +146,7 @@ waitForTables:
 	}
 }
 
-func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, partitions map[string]*Partition, cancel chan bool) {
+func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, partitions map[string]*common.Partition, cancel chan bool) {
 	var earliestOffset wal.Offset
 	for i, offset := range offsets {
 		if i == 0 || earliestOffset.After(offset) {
@@ -189,7 +171,7 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 		go t.processInserts(in)
 	}
 
-	db.opts.Follow(&Follow{stream, earliestOffset, db.opts.Partition, partitions}, func(data []byte, newOffset wal.Offset) error {
+	db.opts.Follow(&common.Follow{stream, earliestOffset, db.opts.Partition, partitions}, func(data []byte, newOffset wal.Offset) error {
 		select {
 		case <-cancel:
 			// Canceled

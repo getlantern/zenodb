@@ -18,8 +18,10 @@ import (
 	"github.com/getlantern/tlsdefaults"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/rpc"
+	"github.com/getlantern/zenodb/rpc/server"
 	"github.com/getlantern/zenodb/web"
 	"github.com/gorilla/mux"
 	"github.com/vharitonsky/iniflags"
@@ -110,7 +112,7 @@ func main() {
 	}
 
 	clientSessionCache := tls.NewLRUClientSessionCache(10000)
-	var follow func(f *zenodb.Follow, cb func(data []byte, newOffset wal.Offset) error)
+	var follow func(f *common.Follow, cb func(data []byte, newOffset wal.Offset) error)
 	var registerQueryHandler func(partition int, query planner.QueryClusterFN)
 	if *capture != "" {
 		host, _, _ := net.SplitHostPort(*capture)
@@ -143,7 +145,7 @@ func main() {
 		}
 
 		log.Debugf("Capturing data from %v", *capture)
-		follow = func(f *zenodb.Follow, insert func(data []byte, newOffset wal.Offset) error) {
+		follow = func(f *common.Follow, insert func(data []byte, newOffset wal.Offset) error) {
 			minWait := 1 * time.Second
 			maxWait := 1 * time.Minute
 			wait := minWait
@@ -301,7 +303,7 @@ func main() {
 }
 
 func serveRPC(db *zenodb.DB, l net.Listener) {
-	err := rpc.Serve(db, l, &rpc.ServerOpts{
+	err := rpcserver.Serve(db, l, &rpcserver.Opts{
 		Password: *password,
 	})
 	if err != nil {

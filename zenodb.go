@@ -19,6 +19,7 @@ import (
 	"github.com/getlantern/golog"
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
@@ -88,7 +89,7 @@ type DBOpts struct {
 	MaxFollowAge time.Duration
 	// Follow is a function that allows a follower to request following a stream
 	// from a passthrough node.
-	Follow                     func(f *Follow, cb func(data []byte, newOffset wal.Offset) error)
+	Follow                     func(f *common.Follow, cb func(data []byte, newOffset wal.Offset) error)
 	RegisterRemoteQueryHandler func(partition int, query planner.QueryClusterFN)
 }
 

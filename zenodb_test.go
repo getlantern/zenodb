@@ -12,6 +12,7 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
@@ -81,7 +82,7 @@ func doTestCluster(t *testing.T, partitionBy []string) {
 				NumPartitions:  numPartitions,
 				Partition:      part,
 				MaxMemoryRatio: 0.00001,
-				Follow: func(f *Follow, cb func(data []byte, newOffset wal.Offset) error) {
+				Follow: func(f *common.Follow, cb func(data []byte, newOffset wal.Offset) error) {
 					leader.Follow(f, cb)
 				},
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
