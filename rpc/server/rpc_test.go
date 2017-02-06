@@ -25,10 +25,9 @@ func TestInsert(t *testing.T) {
 
 	db := &mockDB{}
 	go func() {
-		err = Serve(db, l, &Opts{
+		Serve(db, l, &Opts{
 			Password: "password",
 		})
-		assert.NoError(t, err)
 	}()
 	time.Sleep(1 * time.Second)
 
