@@ -1,5 +1,5 @@
-hash: 333282a49301e9e5ce99ad315361d3ca3ea05c71ce985cc5d3b4c4bbd3712d8b
-updated: 2016-12-12T08:27:03.770030888-06:00
+hash: 8eee0dead8f76fef47fc3dba98540f6f13efac2bfaf25d9df9b4eb55448d4b15
+updated: 2017-02-06T06:26:32.24436761-08:00
 imports:
 - name: github.com/chzyer/readline
   version: c914be64f07d9998f52bf0d598ec26d457168c0f
@@ -16,7 +16,7 @@ imports:
 - name: github.com/getlantern/byteexec
   version: 2e21fedeb225921a8dc40321cbd114ffd0a302f3
 - name: github.com/getlantern/bytemap
-  version: ce04d277429812f5e68b4749471df0181996df04
+  version: ab0ac5e9eea2aaafe50159a9d4b0f046cabce133
 - name: github.com/getlantern/context
   version: 624d99b1798d7c5375ea1d3ca4c5b04d58f7c775
 - name: github.com/getlantern/errors
@@ -24,7 +24,7 @@ imports:
 - name: github.com/getlantern/filepersist
   version: c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4
 - name: github.com/getlantern/goexpr
-  version: 30a6b8887b0348a75f4096ac9dd0fd9e21839403
+  version: 004965a39a9276306090906eeff463a5cb5bc997
   subpackages:
   - geo
   - isp
@@ -54,7 +54,7 @@ imports:
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: 4f9fc7636ad0f027ecb5b96a1d160880c34b77c9
+  version: 65cc618aae913a62438160199f5fd6495083182c
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/golang/protobuf
@@ -67,6 +67,8 @@ imports:
   version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/gorilla/mux
   version: 757bef944d0f21880861c2dd9c871ca543023cba
+- name: github.com/gorilla/securecookie
+  version: fa5329f913702981df43dcb2a380bac429c810b5
 - name: github.com/hashicorp/golang-lru
   version: 0a025b7e63adc15a622f29b0b2c4c3848243bbf6
   subpackages:
@@ -81,6 +83,8 @@ imports:
   version: 4e1c5567d7c2dd59fa4c7c83d34c2f3528b025d6
 - name: github.com/oxtoacart/emsort
   version: e467347e335434365584bc76ce22b8d23190da6e
+- name: github.com/retailnext/hllpp
+  version: 38a7bb71b483e855d35010808143beaf05b67f9d
 - name: github.com/rickar/props
   version: c68a002e87c1dca1be6eebaf289dfe56db65c87e
 - name: github.com/spaolacci/murmur3
@@ -153,7 +157,7 @@ imports:
   - internal/pool
   - internal/proto
 - name: gopkg.in/vmihailenco/msgpack.v2
-  version: 94af6ea04d2da6a09d6914ca79b8fb94f3acbba4
+  version: a1382b1ce0c749733b814157c245e02cc1f41076
   subpackages:
   - codes
 testImports:

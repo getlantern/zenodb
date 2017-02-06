@@ -16,6 +16,7 @@ import:
 - package: github.com/getlantern/sqlparser
 - package: github.com/getlantern/vtime
 - package: github.com/getlantern/yaml
+- package: github.com/getlantern/wal
 - package: github.com/golang/snappy
 - package: github.com/gorilla/mux
 - package: github.com/jmcvetta/randutil
