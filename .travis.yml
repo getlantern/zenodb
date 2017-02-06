@@ -1,0 +1,12 @@
+language: go
+go:
+- 1.7.5
+install:
+- curl https://glide.sh/get | sh
+- go get golang.org/x/tools/cmd/cover
+- go get -v github.com/axw/gocov/gocov
+- go get -v github.com/mattn/goveralls
+script:
+- ./test.sh
+# after_success:
+# - GOPATH=`pwd`:$GOPATH $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci
