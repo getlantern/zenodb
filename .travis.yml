@@ -2,8 +2,7 @@ language: go
 go:
 - 1.7.5
 install:
-- mkdir -p $GOPATH/bin
-- curl https://glide.sh/get | sh
+- mkdir -p $GOPATH/bin && curl https://glide.sh/get | sh
 - go get golang.org/x/tools/cmd/cover
 - go get -v github.com/axw/gocov/gocov
 - go get -v github.com/mattn/goveralls
