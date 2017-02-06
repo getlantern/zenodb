@@ -1,4 +1,4 @@
-package rpc
+package rpcserver
 
 import (
 	"context"
@@ -9,9 +9,10 @@ import (
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
-	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
+	"github.com/getlantern/zenodb/rpc"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -24,14 +25,14 @@ func TestInsert(t *testing.T) {
 
 	db := &mockDB{}
 	go func() {
-		err = Serve(db, l, &ServerOpts{
+		err = Serve(db, l, &Opts{
 			Password: "password",
 		})
 		assert.NoError(t, err)
 	}()
 	time.Sleep(1 * time.Second)
 
-	client, err := Dial(l.Addr().String(), &ClientOpts{
+	client, err := rpc.Dial(l.Addr().String(), &rpc.ClientOpts{
 		Password: "password",
 		Dialer: func(addr string, timeout time.Duration) (net.Conn, error) {
 			return net.DialTimeout("tcp", addr, timeout)
@@ -96,7 +97,7 @@ func (db *mockDB) Query(sqlString string, isSubQuery bool, subQueryResults [][]i
 	return nil, nil
 }
 
-func (db *mockDB) Follow(f *zenodb.Follow, cb func([]byte, wal.Offset) error) error {
+func (db *mockDB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) error {
 	return nil
 }
 

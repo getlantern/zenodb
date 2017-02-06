@@ -1,53 +1,49 @@
-package rpc
+package rpcserver
 
 import (
 	"context"
 	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
+	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
+	"github.com/getlantern/zenodb/rpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"net"
 	"time"
 )
 
-type Server interface {
-	Insert(stream grpc.ServerStream) error
+var (
+	log = golog.LoggerFor("zenodb.rpc")
+)
 
-	Query(*Query, grpc.ServerStream) error
-
-	Follow(*zenodb.Follow, grpc.ServerStream) error
-
-	HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.ServerStream) error
-}
-
-type ServerOpts struct {
+type Opts struct {
 	// Password, if specified, is the password that clients must present in order
 	// to access the server.
 	Password string
 }
 
-// DB is an interface for database-like things (implemented by zenodb.DB).
+// DB is an interface for database-like things (implemented by common.DB).
 type DB interface {
 	InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) error
 
 	Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error)
 
-	Follow(f *zenodb.Follow, cb func([]byte, wal.Offset) error) error
+	Follow(f *common.Follow, cb func([]byte, wal.Offset) error) error
 
 	RegisterQueryHandler(partition int, query planner.QueryClusterFN)
 }
 
-func Serve(db DB, l net.Listener, opts *ServerOpts) error {
-	l = &snappyListener{l}
-	gs := grpc.NewServer(
-		grpc.CustomCodec(msgpackCodec))
-	gs.RegisterService(&serviceDesc, &server{db, opts.Password})
+func Serve(db DB, l net.Listener, opts *Opts) error {
+	l = &rpc.SnappyListener{l}
+	gs := grpc.NewServer(grpc.CustomCodec(rpc.Codec))
+	gs.RegisterService(&rpc.ServiceDesc, &server{db, opts.Password})
 	return gs.Serve(l)
 }
 
@@ -62,14 +58,14 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 	now := time.Now()
 	streamName := ""
 
-	report := &InsertReport{
+	report := &rpc.InsertReport{
 		Errors: make(map[int]string),
 	}
 
 	i := -1
 	for {
 		i++
-		insert := &Insert{}
+		insert := &rpc.Insert{}
 		err := stream.RecvMsg(insert)
 		if err != nil {
 			return fmt.Errorf("Error reading insert: %v", err)
@@ -112,7 +108,7 @@ func (s *server) Insert(stream grpc.ServerStream) error {
 	}
 }
 
-func (s *server) Query(q *Query, stream grpc.ServerStream) error {
+func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 	authorizeErr := s.authorize(stream)
 	if authorizeErr != nil {
 		return authorizeErr
@@ -130,7 +126,7 @@ func (s *server) Query(q *Query, stream grpc.ServerStream) error {
 		return err
 	}
 
-	rr := &RemoteQueryResult{}
+	rr := &rpc.RemoteQueryResult{}
 	err = source.Iterate(stream.Context(), func(row *core.FlatRow) (bool, error) {
 		rr.Row = row
 		return true, stream.SendMsg(rr)
@@ -145,7 +141,7 @@ func (s *server) Query(q *Query, stream grpc.ServerStream) error {
 	return stream.SendMsg(rr)
 }
 
-func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
+func (s *server) Follow(f *common.Follow, stream grpc.ServerStream) error {
 	authorizeErr := s.authorize(stream)
 	if authorizeErr != nil {
 		return authorizeErr
@@ -154,12 +150,12 @@ func (s *server) Follow(f *zenodb.Follow, stream grpc.ServerStream) error {
 	log.Debugf("Follower %d joined", f.PartitionNumber)
 	defer log.Debugf("Follower %d left", f.PartitionNumber)
 	return s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
-		return stream.SendMsg(&Point{data, newOffset})
+		return stream.SendMsg(&rpc.Point{data, newOffset})
 	})
 }
 
-func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.ServerStream) error {
-	initialResultCh := make(chan *RemoteQueryResult)
+func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.ServerStream) error {
+	initialResultCh := make(chan *rpc.RemoteQueryResult)
 	initialErrCh := make(chan error)
 	finalErrCh := make(chan error)
 
@@ -173,7 +169,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 	}
 
 	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
-		sendErr := stream.SendMsg(&Query{
+		sendErr := stream.SendMsg(&rpc.Query{
 			SQLString:       sqlString,
 			IsSubQuery:      isSubQuery,
 			SubQueryResults: subQueryResults,
@@ -209,7 +205,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 			}
 
 			// Read next result
-			m = &RemoteQueryResult{}
+			m = &rpc.RemoteQueryResult{}
 			recvErr = stream.RecvMsg(m)
 		}
 
@@ -218,7 +214,7 @@ func (s *server) HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.Server
 	})
 
 	// Block on reading initial result to keep connection open
-	m := &RemoteQueryResult{}
+	m := &rpc.RemoteQueryResult{}
 	err := stream.RecvMsg(m)
 	initialResultCh <- m
 	initialErrCh <- err
@@ -239,7 +235,7 @@ func (s *server) authorize(stream grpc.ServerStream) error {
 	if !ok {
 		return log.Error("No metadata provided, unable to authenticate")
 	}
-	passwords := md[passwordKey]
+	passwords := md[rpc.PasswordKey]
 	for _, password := range passwords {
 		if password == s.password {
 			// authorized

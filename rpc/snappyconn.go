@@ -12,11 +12,11 @@ func snappyDialer(d func(string, time.Duration) (net.Conn, error)) func(addr str
 	}
 }
 
-type snappyListener struct {
+type SnappyListener struct {
 	net.Listener
 }
 
-func (sl *snappyListener) Accept() (net.Conn, error) {
+func (sl *SnappyListener) Accept() (net.Conn, error) {
 	return snappyWrap(sl.Listener.Accept())
 }
 

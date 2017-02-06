@@ -1,6 +1,7 @@
 package rpc
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -9,10 +10,9 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
-	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
-	"golang.org/x/net/context"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 )
@@ -31,18 +31,6 @@ type Inserter interface {
 	Close() (*InsertReport, error)
 }
 
-type Client interface {
-	NewInserter(ctx context.Context, stream string, opts ...grpc.CallOption) (Inserter, error)
-
-	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error)
-
-	Follow(ctx context.Context, in *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
-
-	ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error
-
-	Close() error
-}
-
 func Dial(addr string, opts *ClientOpts) (Client, error) {
 	if opts.Dialer == nil {
 		// Use default dialer
@@ -56,7 +44,7 @@ func Dial(addr string, opts *ClientOpts) (Client, error) {
 	conn, err := grpc.Dial(addr,
 		grpc.WithInsecure(),
 		grpc.WithDialer(opts.Dialer),
-		grpc.WithCodec(msgpackCodec),
+		grpc.WithCodec(Codec),
 		grpc.WithBackoffMaxDelay(1*time.Minute))
 	if err != nil {
 		return nil, err
@@ -75,7 +63,7 @@ type inserter struct {
 }
 
 func (c *client) NewInserter(ctx context.Context, streamName string, opts ...grpc.CallOption) (Inserter, error) {
-	clientStream, err := grpc.NewClientStream(ctx, &serviceDesc.Streams[3], c.cc, "/zenodb/insert", opts...)
+	clientStream, err := grpc.NewClientStream(ctx, &ServiceDesc.Streams[3], c.cc, "/zenodb/insert", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -115,8 +103,8 @@ func (i *inserter) Close() (*InsertReport, error) {
 	return report, nil
 }
 
-func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*zenodb.QueryMetaData, func(onRow core.OnFlatRow) error, error) {
-	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[0], c.cc, "/zenodb/query", opts...)
+func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*common.QueryMetaData, func(onRow core.OnFlatRow) error, error) {
+	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[0], c.cc, "/zenodb/query", opts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -127,7 +115,7 @@ func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bo
 		return nil, nil, err
 	}
 
-	md := &zenodb.QueryMetaData{}
+	md := &common.QueryMetaData{}
 	err = stream.RecvMsg(md)
 	if err != nil {
 		return nil, nil, err
@@ -153,8 +141,8 @@ func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bo
 	return md, iterate, nil
 }
 
-func (c *client) Follow(ctx context.Context, f *zenodb.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error) {
-	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[1], c.cc, "/zenodb/follow", opts...)
+func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error) {
+	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[1], c.cc, "/zenodb/follow", opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +166,7 @@ func (c *client) Follow(ctx context.Context, f *zenodb.Follow, opts ...grpc.Call
 }
 
 func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error {
-	stream, err := grpc.NewClientStream(c.authenticated(ctx), &serviceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)
+	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)
 	if err != nil {
 		return errors.New("Unable to obtain client stream: %v", err)
 	}
@@ -231,6 +219,6 @@ func (c *client) authenticated(ctx context.Context) context.Context {
 	if c.password == "" {
 		return ctx
 	}
-	md := metadata.New(map[string]string{passwordKey: c.password})
+	md := metadata.New(map[string]string{PasswordKey: c.password})
 	return metadata.NewContext(ctx, md)
 }

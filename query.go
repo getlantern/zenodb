@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
@@ -43,16 +44,8 @@ func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fi
 	return &queryable{t, includedFields(t.Fields), asOf, until, includeMemStore}
 }
 
-type QueryMetaData struct {
-	FieldNames []string
-	AsOf       time.Time
-	Until      time.Time
-	Resolution time.Duration
-	Plan       string
-}
-
-func MetaDataFor(source core.FlatRowSource) *QueryMetaData {
-	return &QueryMetaData{
+func MetaDataFor(source core.FlatRowSource) *common.QueryMetaData {
+	return &common.QueryMetaData{
 		FieldNames: source.GetFields().Names(),
 		AsOf:       source.GetAsOf(),
 		Until:      source.GetUntil(),

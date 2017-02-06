@@ -1,22 +1,24 @@
 package rpc
 
 import (
+	"context"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
-	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/planner"
 	"google.golang.org/grpc"
 )
 
 const (
-	passwordKey = "pwd"
+	PasswordKey = "pwd"
 )
 
 var (
 	log = golog.LoggerFor("zenodb.rpc")
 
-	msgpackCodec = &MsgPackCodec{}
+	Codec = &MsgPackCodec{}
 )
 
 type Insert struct {
@@ -58,7 +60,29 @@ type RegisterQueryHandler struct {
 	Partition int
 }
 
-var serviceDesc = grpc.ServiceDesc{
+type Client interface {
+	NewInserter(ctx context.Context, stream string, opts ...grpc.CallOption) (Inserter, error)
+
+	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*common.QueryMetaData, func(onRow core.OnFlatRow) error, error)
+
+	Follow(ctx context.Context, in *common.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
+
+	ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error
+
+	Close() error
+}
+
+type Server interface {
+	Insert(stream grpc.ServerStream) error
+
+	Query(*Query, grpc.ServerStream) error
+
+	Follow(*common.Follow, grpc.ServerStream) error
+
+	HandleRemoteQueries(r *RegisterQueryHandler, stream grpc.ServerStream) error
+}
+
+var ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "zenodb",
 	HandlerType: (*Server)(nil),
 	Methods:     []grpc.MethodDesc{},
@@ -100,7 +124,7 @@ func queryHandler(srv interface{}, stream grpc.ServerStream) error {
 }
 
 func followHandler(srv interface{}, stream grpc.ServerStream) error {
-	f := new(zenodb.Follow)
+	f := new(common.Follow)
 	if err := stream.RecvMsg(f); err != nil {
 		return err
 	}

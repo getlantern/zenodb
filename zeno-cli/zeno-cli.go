@@ -17,7 +17,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/appdir"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/rpc"
@@ -145,7 +145,7 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, cs
 	return dumpPlainText(stdout, sql, md, iterate)
 }
 
-func dumpPlainText(stdout io.Writer, sql string, md *zenodb.QueryMetaData, iterate func(onRow core.OnFlatRow) error) error {
+func dumpPlainText(stdout io.Writer, sql string, md *common.QueryMetaData, iterate func(onRow core.OnFlatRow) error) error {
 	printQueryStats(os.Stderr, md)
 
 	// Read all rows into list and collect unique dimensions
@@ -336,7 +336,7 @@ func dumpPlainText(stdout io.Writer, sql string, md *zenodb.QueryMetaData, itera
 	return nil
 }
 
-func dumpCSV(stdout io.Writer, md *zenodb.QueryMetaData, iterate func(onRow core.OnFlatRow) error) error {
+func dumpCSV(stdout io.Writer, md *common.QueryMetaData, iterate func(onRow core.OnFlatRow) error) error {
 	printQueryStats(os.Stderr, md)
 
 	w := csv.NewWriter(stdout)
@@ -471,7 +471,7 @@ func nilToDash(val interface{}) interface{} {
 	return val
 }
 
-func numFieldsFor(md *zenodb.QueryMetaData) int {
+func numFieldsFor(md *common.QueryMetaData) int {
 	numFields := len(md.FieldNames)
 	// if result.IsCrosstab {
 	// 	for _, populated := range result.PopulatedColumns {
@@ -483,7 +483,7 @@ func numFieldsFor(md *zenodb.QueryMetaData) int {
 	return numFields
 }
 
-func printQueryStats(stderr io.Writer, md *zenodb.QueryMetaData) {
+func printQueryStats(stderr io.Writer, md *common.QueryMetaData) {
 	// TODO: maybe restore additional stats?
 	if !*queryStats {
 		return
