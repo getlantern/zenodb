@@ -28,69 +28,229 @@ var (
 	errCanceled = fmt.Errorf("following canceled")
 )
 
-func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) error {
-	var w *wal.WAL
-	db.tablesMutex.RLock()
-	w = db.streams[f.Stream]
-	db.tablesMutex.RUnlock()
-	if w == nil {
-		return errors.New("Stream '%v' not found", f.Stream)
-	}
+type walEntry struct {
+	stream string
+	data   []byte
+	offset wal.Offset
+}
 
+type followSpec struct {
+	followerID int
+	offset     wal.Offset
+}
+
+type follower struct {
+	common.Follow
+	cb        func(data []byte, offset wal.Offset) error
+	entries   chan *walEntry
+	hasFailed int32
+}
+
+func (f *follower) read() {
+	for entry := range f.entries {
+		if f.failed() {
+			continue
+		}
+		err := f.cb(entry.data, entry.offset)
+		if err != nil {
+			log.Errorf("Error on following for follower %d: %v", f.PartitionNumber, err)
+			f.markFailed()
+		}
+	}
+}
+
+func (f *follower) submit(entry *walEntry) {
+	f.entries <- entry
+}
+
+func (f *follower) markFailed() {
+	atomic.StoreInt32(&f.hasFailed, 1)
+}
+
+func (f *follower) failed() bool {
+	return atomic.LoadInt32(&f.hasFailed) == 1
+}
+
+func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
+	go db.processFollowersOnce.Do(db.processFollowers)
+	fol := &follower{Follow: *f, cb: cb, entries: make(chan *walEntry, 10000)}
+	db.followerJoined <- fol
+	fol.read()
+}
+
+type partitionSpec struct {
+	keys   []string
+	tables map[string]map[int][]*followSpec
+}
+
+func (db *DB) processFollowers() {
+	log.Debug("Starting to process followers")
+
+	nextFollowerID := 0
+	followers := make(map[int]*follower)
+	streams := make(map[string]map[string]*partitionSpec)
+	stopWALReaders := make(map[string]func())
+	walEntries := make(chan *walEntry)
 	h := partitionHash()
-
-	r, err := w.NewReader(fmt.Sprintf("follower.%d.%v", f.PartitionNumber, f.Stream), f.EarliestOffset)
-	if err != nil {
-		return errors.New("Unable to open wal reader for %v", f.Stream)
-	}
-	defer r.Close()
+	includedFollowers := make([]int, 0, len(followers))
 
 	for {
-		data, err := r.Read()
-		if err != nil {
-			log.Debugf("Unable to read from stream '%v': %v", f.Stream, err)
-			continue
-		}
-		if data == nil {
-			// Ignore empty data
-			continue
-		}
-		// Skip timestamp
-		_, remain := encoding.Read(data, encoding.Width64bits)
-		dimsLen, remain := encoding.ReadInt32(remain)
-		_dims, remain := encoding.Read(remain, dimsLen)
-		dims := bytemap.ByteMap(_dims)
-		offset := r.Offset()
+		select {
+		case f := <-db.followerJoined:
+			nextFollowerID++
+			log.Debugf("Follower joined: %d -> %d", nextFollowerID, f.PartitionNumber)
+			followers[nextFollowerID] = f
 
-		// See if we should include based on any of the combinations of partition
-		// keys.
-		include := func() bool {
+			stopWALReader := stopWALReaders[f.Stream]
+			if stopWALReader != nil {
+				stopWALReader()
+			}
+
+			partitions := streams[f.Stream]
+			if partitions == nil {
+				partitions = make(map[string]*partitionSpec)
+				streams[f.Stream] = partitions
+			}
+
 			for _, partition := range f.Partitions {
-				if !db.inPartition(h, dims, partition.Keys, f.PartitionNumber) {
-					continue
+				keys, sortedKeys := sortedPartitionKeys(partition.Keys)
+				ps := partitions[keys]
+				if ps == nil {
+					ps = &partitionSpec{keys: sortedKeys, tables: make(map[string]map[int][]*followSpec)}
+					partitions[keys] = ps
 				}
-				for _, table := range partition.Tables {
-					if table.Offset.After(offset) {
-						continue
+				for _, t := range partition.Tables {
+					table := ps.tables[t.Name]
+					if table == nil {
+						table = make(map[int][]*followSpec)
+						ps.tables[t.Name] = table
 					}
-					where := db.getTable(table.Name).Where
-					if where == nil || where.Eval(dims).(bool) {
-						return true
+					specs := table[f.PartitionNumber]
+					specs = append(specs, &followSpec{followerID: nextFollowerID, offset: t.Offset})
+					table[f.PartitionNumber] = specs
+				}
+			}
+
+			var earliestOffset wal.Offset
+			for _, partition := range partitions {
+				for _, table := range partition.tables {
+					for _, specs := range table {
+						for _, spec := range specs {
+							if earliestOffset == nil || earliestOffset.After(spec.offset) {
+								earliestOffset = spec.offset
+							}
+						}
 					}
 				}
 			}
 
-			return false
-		}
-
-		if include() {
-			err = cb(data, offset)
+			// Start following wal
+			stopWALReader, err := db.followWAL(f.Stream, earliestOffset, walEntries)
 			if err != nil {
-				log.Debugf("Unable to write to follower: %v", err)
-				return err
+				log.Errorf("Unable to start following wal: %v", err)
+				continue
+			}
+			stopWALReaders[f.Stream] = stopWALReader
+
+		case entry := <-walEntries:
+			data := entry.data
+			offset := entry.offset
+			// Skip timestamp
+			_, remain := encoding.Read(data, encoding.Width64bits)
+			dimsLen, remain := encoding.ReadInt32(remain)
+			_dims, remain := encoding.Read(remain, dimsLen)
+			dims := bytemap.ByteMap(_dims)
+
+			partitions := streams[entry.stream]
+
+			includedFollowers = includedFollowers[:0]
+			for _, partition := range partitions {
+				pid := db.partitionFor(h, dims, partition.keys)
+				for tableName, table := range partition.tables {
+					specs := table[pid]
+					if len(specs) == 0 {
+						continue
+					}
+					where := db.getTable(tableName).Where
+					if where != nil && !where.Eval(dims).(bool) {
+						continue
+					}
+					for _, spec := range specs {
+						if offset.After(spec.offset) {
+							includedFollowers = append(includedFollowers, spec.followerID)
+							spec.offset = offset
+						}
+					}
+				}
+			}
+
+			if len(includedFollowers) > 0 {
+				sort.Ints(includedFollowers)
+				lastIncluded := -1
+				for _, included := range includedFollowers {
+					if included == lastIncluded {
+						// ignore duplicates
+						continue
+					}
+					lastIncluded = included
+					f := followers[included]
+					if f.failed() {
+						// ignore failed followers
+						continue
+					}
+					f.submit(entry)
+				}
 			}
 		}
 	}
+}
+
+func (db *DB) followWAL(stream string, offset wal.Offset, entries chan *walEntry) (func(), error) {
+	var w *wal.WAL
+	db.tablesMutex.RLock()
+	w = db.streams[stream]
+	db.tablesMutex.RUnlock()
+	if w == nil {
+		return nil, errors.New("Stream '%v' not found", stream)
+	}
+
+	log.Debugf("Following %v starting at %v", stream, offset)
+	r, err := w.NewReader(fmt.Sprintf("clusterfollower.%v", stream), offset)
+	if err != nil {
+		return nil, errors.New("Unable to open wal reader for %v", stream)
+	}
+
+	stopped := int32(0)
+	finished := make(chan bool)
+	go func() {
+		defer func() {
+			finished <- true
+		}()
+
+		for {
+			data, err := r.Read()
+			if err != nil {
+				if atomic.LoadInt32(&stopped) == 1 {
+					return
+				}
+				log.Debugf("Unable to read from stream '%v': %v", stream, err)
+				continue
+			}
+			if data == nil {
+				// Ignore empty data
+				continue
+			}
+			dataCopy := make([]byte, len(data))
+			copy(dataCopy, data)
+			entries <- &walEntry{stream: stream, data: dataCopy, offset: r.Offset()}
+		}
+	}()
+
+	return func() {
+		atomic.StoreInt32(&stopped, 1)
+		r.Close()
+		<-finished
+	}, nil
 }
 
 type tableWithOffset struct {
@@ -205,6 +365,10 @@ func partitionHash() hash.Hash32 {
 }
 
 func (db *DB) inPartition(h hash.Hash32, dims bytemap.ByteMap, partitionKeys []string, partition int) bool {
+	return db.partitionFor(h, dims, partitionKeys) == partition
+}
+
+func (db *DB) partitionFor(h hash.Hash32, dims bytemap.ByteMap, partitionKeys []string) int {
 	h.Reset()
 	if len(partitionKeys) > 0 {
 		// Use specific partition keys
@@ -218,7 +382,7 @@ func (db *DB) inPartition(h hash.Hash32, dims bytemap.ByteMap, partitionKeys []s
 		// Use all dims
 		h.Write(dims)
 	}
-	return int(h.Sum32())%db.opts.NumPartitions == partition
+	return int(h.Sum32()) % db.opts.NumPartitions
 }
 
 func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {

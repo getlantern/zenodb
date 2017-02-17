@@ -35,7 +35,7 @@ type DB interface {
 
 	Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error)
 
-	Follow(f *common.Follow, cb func([]byte, wal.Offset) error) error
+	Follow(f *common.Follow, cb func([]byte, wal.Offset) error)
 
 	RegisterQueryHandler(partition int, query planner.QueryClusterFN)
 }
@@ -149,9 +149,10 @@ func (s *server) Follow(f *common.Follow, stream grpc.ServerStream) error {
 
 	log.Debugf("Follower %d joined", f.PartitionNumber)
 	defer log.Debugf("Follower %d left", f.PartitionNumber)
-	return s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
+	s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
 		return stream.SendMsg(&rpc.Point{data, newOffset})
 	})
+	return nil
 }
 
 func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.ServerStream) error {

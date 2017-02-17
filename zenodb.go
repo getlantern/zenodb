@@ -95,19 +95,21 @@ type DBOpts struct {
 
 // DB is a zenodb database.
 type DB struct {
-	opts                *DBOpts
-	clock               vtime.Clock
-	tables              map[string]*table
-	orderedTables       []*table
-	streams             map[string]*wal.WAL
-	newStreamSubscriber map[string]chan *tableWithOffset
-	tablesMutex         sync.RWMutex
-	isSorting           bool
-	nextTableToSort     int
-	memory              uint64
-	flushMutex          sync.Mutex
-	remoteQueryHandlers map[int]chan planner.QueryClusterFN
-	closed              bool
+	opts                 *DBOpts
+	clock                vtime.Clock
+	tables               map[string]*table
+	orderedTables        []*table
+	streams              map[string]*wal.WAL
+	newStreamSubscriber  map[string]chan *tableWithOffset
+	tablesMutex          sync.RWMutex
+	isSorting            bool
+	nextTableToSort      int
+	memory               uint64
+	flushMutex           sync.Mutex
+	followerJoined       chan *follower
+	processFollowersOnce sync.Once
+	remoteQueryHandlers  map[int]chan planner.QueryClusterFN
+	closed               bool
 }
 
 // NewDB creates a database using the given options.
@@ -119,6 +121,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		tables:              make(map[string]*table),
 		streams:             make(map[string]*wal.WAL),
 		newStreamSubscriber: make(map[string]chan *tableWithOffset),
+		followerJoined:      make(chan *follower),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 	}
 	if opts.VirtualTime {
