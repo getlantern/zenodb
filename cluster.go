@@ -129,9 +129,13 @@ func (db *DB) processFollowers() {
 				table := ps.tables[t.Name]
 				if table == nil {
 					where := db.getTable(t.Name).Where
+					whereString := ""
+					if where != nil {
+						whereString = strings.ToLower(where.String())
+					}
 					table = &tableSpec{
 						where:       where,
-						whereString: strings.ToLower(where.String()),
+						whereString: whereString,
 						followers:   make(map[int][]*followSpec),
 					}
 					ps.tables[t.Name] = table
