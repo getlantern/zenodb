@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
@@ -90,67 +91,92 @@ func (db *DB) processFollowers() {
 	followers := make(map[int]*follower)
 	streams := make(map[string]map[string]*partitionSpec)
 	stopWALReaders := make(map[string]func())
-	walEntries := make(chan *walEntry)
+	walEntries := make(chan *walEntry, 10000)
 	h := partitionHash()
 	includedFollowers := make([]int, 0, len(followers))
+
+	stats := make([]int, db.opts.NumPartitions)
+	statsInterval := 15 * time.Second
+	statsTicker := time.NewTicker(statsInterval)
+
+	newlyJoinedStreams := make(map[string]bool)
+	onFollowerJoined := func(f *follower) {
+		nextFollowerID++
+		log.Debugf("Follower joined: %d -> %d", nextFollowerID, f.PartitionNumber)
+		followers[nextFollowerID] = f
+
+		partitions := streams[f.Stream]
+		if partitions == nil {
+			partitions = make(map[string]*partitionSpec)
+			streams[f.Stream] = partitions
+		}
+
+		for _, partition := range f.Partitions {
+			keys, sortedKeys := sortedPartitionKeys(partition.Keys)
+			ps := partitions[keys]
+			if ps == nil {
+				ps = &partitionSpec{keys: sortedKeys, tables: make(map[string]map[int][]*followSpec)}
+				partitions[keys] = ps
+			}
+			for _, t := range partition.Tables {
+				table := ps.tables[t.Name]
+				if table == nil {
+					table = make(map[int][]*followSpec)
+					ps.tables[t.Name] = table
+				}
+				specs := table[f.PartitionNumber]
+				specs = append(specs, &followSpec{followerID: nextFollowerID, offset: t.Offset})
+				table[f.PartitionNumber] = specs
+			}
+		}
+
+		newlyJoinedStreams[f.Stream] = true
+	}
 
 	for {
 		select {
 		case f := <-db.followerJoined:
-			nextFollowerID++
-			log.Debugf("Follower joined: %d -> %d", nextFollowerID, f.PartitionNumber)
-			followers[nextFollowerID] = f
-
-			stopWALReader := stopWALReaders[f.Stream]
-			if stopWALReader != nil {
-				stopWALReader()
-			}
-
-			partitions := streams[f.Stream]
-			if partitions == nil {
-				partitions = make(map[string]*partitionSpec)
-				streams[f.Stream] = partitions
-			}
-
-			for _, partition := range f.Partitions {
-				keys, sortedKeys := sortedPartitionKeys(partition.Keys)
-				ps := partitions[keys]
-				if ps == nil {
-					ps = &partitionSpec{keys: sortedKeys, tables: make(map[string]map[int][]*followSpec)}
-					partitions[keys] = ps
-				}
-				for _, t := range partition.Tables {
-					table := ps.tables[t.Name]
-					if table == nil {
-						table = make(map[int][]*followSpec)
-						ps.tables[t.Name] = table
-					}
-					specs := table[f.PartitionNumber]
-					specs = append(specs, &followSpec{followerID: nextFollowerID, offset: t.Offset})
-					table[f.PartitionNumber] = specs
+			// Clear out newlyJoinedStreams
+			newlyJoinedStreams = make(map[string]bool)
+			onFollowerJoined(f)
+			// If more followers are waiting to join, grab them real quick
+		extraFollowersLoop:
+			for {
+				select {
+				case f := <-db.followerJoined:
+					onFollowerJoined(f)
+				default:
+					break extraFollowersLoop
 				}
 			}
 
-			var earliestOffset wal.Offset
-			for _, partition := range partitions {
-				for _, table := range partition.tables {
-					for _, specs := range table {
-						for _, spec := range specs {
-							if earliestOffset == nil || earliestOffset.After(spec.offset) {
-								earliestOffset = spec.offset
+			for stream := range newlyJoinedStreams {
+				var earliestOffset wal.Offset
+				for _, partition := range streams[stream] {
+					for _, table := range partition.tables {
+						for _, specs := range table {
+							for _, spec := range specs {
+								if earliestOffset == nil || earliestOffset.After(spec.offset) {
+									earliestOffset = spec.offset
+								}
 							}
 						}
 					}
 				}
-			}
 
-			// Start following wal
-			stopWALReader, err := db.followWAL(f.Stream, earliestOffset, walEntries)
-			if err != nil {
-				log.Errorf("Unable to start following wal: %v", err)
-				continue
+				stopWALReader := stopWALReaders[stream]
+				if stopWALReader != nil {
+					stopWALReader()
+				}
+
+				// Start following wal
+				stopWALReader, err := db.followWAL(stream, earliestOffset, walEntries)
+				if err != nil {
+					log.Errorf("Unable to start following wal: %v", err)
+					continue
+				}
+				stopWALReaders[stream] = stopWALReader
 			}
-			stopWALReaders[f.Stream] = stopWALReader
 
 		case entry := <-walEntries:
 			data := entry.data
@@ -199,8 +225,15 @@ func (db *DB) processFollowers() {
 						continue
 					}
 					f.submit(entry)
+					stats[f.PartitionNumber]++
 				}
 			}
+
+		case <-statsTicker.C:
+			for partition, count := range stats {
+				log.Debugf("Sent to follower %d: %d / s", partition, humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
+			}
+			stats = make([]int, db.opts.NumPartitions)
 		}
 	}
 }
@@ -221,6 +254,7 @@ func (db *DB) followWAL(stream string, offset wal.Offset, entries chan *walEntry
 	}
 
 	stopped := int32(0)
+	stop := make(chan bool, 1)
 	finished := make(chan bool)
 	go func() {
 		defer func() {
@@ -242,12 +276,18 @@ func (db *DB) followWAL(stream string, offset wal.Offset, entries chan *walEntry
 			}
 			dataCopy := make([]byte, len(data))
 			copy(dataCopy, data)
-			entries <- &walEntry{stream: stream, data: dataCopy, offset: r.Offset()}
+			select {
+			case entries <- &walEntry{stream: stream, data: dataCopy, offset: r.Offset()}:
+				// okay
+			case <-stop:
+				return
+			}
 		}
 	}()
 
 	return func() {
 		atomic.StoreInt32(&stopped, 1)
+		stop <- true
 		r.Close()
 		<-finished
 	}, nil

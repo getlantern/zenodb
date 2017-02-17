@@ -121,7 +121,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		tables:              make(map[string]*table),
 		streams:             make(map[string]*wal.WAL),
 		newStreamSubscriber: make(map[string]chan *tableWithOffset),
-		followerJoined:      make(chan *follower),
+		followerJoined:      make(chan *follower, opts.NumPartitions),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 	}
 	if opts.VirtualTime {
