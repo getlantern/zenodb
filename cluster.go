@@ -7,6 +7,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
@@ -79,9 +80,15 @@ func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
 	fol.read()
 }
 
+type tableSpec struct {
+	where       goexpr.Expr
+	whereString string
+	followers   map[int][]*followSpec
+}
+
 type partitionSpec struct {
 	keys   []string
-	tables map[string]map[int][]*followSpec
+	tables map[string]*tableSpec
 }
 
 func (db *DB) processFollowers() {
@@ -115,18 +122,23 @@ func (db *DB) processFollowers() {
 			keys, sortedKeys := sortedPartitionKeys(partition.Keys)
 			ps := partitions[keys]
 			if ps == nil {
-				ps = &partitionSpec{keys: sortedKeys, tables: make(map[string]map[int][]*followSpec)}
+				ps = &partitionSpec{keys: sortedKeys, tables: make(map[string]*tableSpec)}
 				partitions[keys] = ps
 			}
 			for _, t := range partition.Tables {
 				table := ps.tables[t.Name]
 				if table == nil {
-					table = make(map[int][]*followSpec)
+					where := db.getTable(t.Name).Where
+					table = &tableSpec{
+						where:       where,
+						whereString: strings.ToLower(where.String()),
+						followers:   make(map[int][]*followSpec),
+					}
 					ps.tables[t.Name] = table
 				}
-				specs := table[f.PartitionNumber]
+				specs := table.followers[f.PartitionNumber]
 				specs = append(specs, &followSpec{followerID: nextFollowerID, offset: t.Offset})
-				table[f.PartitionNumber] = specs
+				table.followers[f.PartitionNumber] = specs
 			}
 		}
 
@@ -154,7 +166,7 @@ func (db *DB) processFollowers() {
 				var earliestOffset wal.Offset
 				for _, partition := range streams[stream] {
 					for _, table := range partition.tables {
-						for _, specs := range table {
+						for _, specs := range table.followers {
 							for _, spec := range specs {
 								if earliestOffset == nil || earliestOffset.After(spec.offset) {
 									earliestOffset = spec.offset
@@ -190,15 +202,20 @@ func (db *DB) processFollowers() {
 			partitions := streams[entry.stream]
 
 			includedFollowers = includedFollowers[:0]
+			whereResults := make(map[string]bool, 50)
 			for _, partition := range partitions {
 				pid := db.partitionFor(h, dims, partition.keys)
-				for tableName, table := range partition.tables {
-					specs := table[pid]
+				for _, table := range partition.tables {
+					specs := table.followers[pid]
 					if len(specs) == 0 {
 						continue
 					}
-					where := db.getTable(tableName).Where
-					if where != nil && !where.Eval(dims).(bool) {
+					wherePassed, found := whereResults[table.whereString]
+					if !found {
+						wherePassed = table.where == nil || table.where.Eval(dims).(bool)
+						whereResults[table.whereString] = wherePassed
+					}
+					if !wherePassed {
 						continue
 					}
 					for _, spec := range specs {
