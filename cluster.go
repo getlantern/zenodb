@@ -231,7 +231,7 @@ func (db *DB) processFollowers() {
 
 		case <-statsTicker.C:
 			for partition, count := range stats {
-				log.Debugf("Sent to follower %d: %d / s", partition, humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
+				log.Debugf("Sent to follower %d: %v / s", partition, humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
 			}
 			stats = make([]int, db.opts.NumPartitions)
 		}
