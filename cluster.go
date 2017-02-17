@@ -96,7 +96,7 @@ func (db *DB) processFollowers() {
 	includedFollowers := make([]int, 0, len(followers))
 
 	stats := make([]int, db.opts.NumPartitions)
-	statsInterval := 15 * time.Second
+	statsInterval := 1 * time.Minute
 	statsTicker := time.NewTicker(statsInterval)
 
 	newlyJoinedStreams := make(map[string]bool)
