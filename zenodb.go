@@ -89,7 +89,7 @@ type DBOpts struct {
 	MaxFollowAge time.Duration
 	// Follow is a function that allows a follower to request following a stream
 	// from a passthrough node.
-	Follow                     func(f *common.Follow, cb func(data []byte, newOffset wal.Offset) error)
+	Follow                     func(f func() *common.Follow, cb func(data []byte, newOffset wal.Offset) error)
 	RegisterRemoteQueryHandler func(partition int, query planner.QueryClusterFN)
 }
 

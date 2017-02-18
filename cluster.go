@@ -141,7 +141,11 @@ func (db *DB) processFollowers() {
 					ps.tables[t.Name] = table
 				}
 				specs := table.followers[f.PartitionNumber]
-				specs = append(specs, &followSpec{followerID: nextFollowerID, offset: t.Offset})
+				offset := t.Offset
+				if f.EarliestOffset.After(offset) {
+					offset = f.EarliestOffset
+				}
+				specs = append(specs, &followSpec{followerID: nextFollowerID, offset: offset})
 				table.followers[f.PartitionNumber] = specs
 			}
 		}
@@ -368,23 +372,6 @@ waitForTables:
 }
 
 func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, partitions map[string]*common.Partition, cancel chan bool) {
-	var earliestOffset wal.Offset
-	for i, offset := range offsets {
-		if i == 0 || earliestOffset.After(offset) {
-			earliestOffset = offset
-		}
-	}
-
-	if db.opts.MaxFollowAge > 0 {
-		earliestAllowedOffset := wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxFollowAge))
-		if earliestAllowedOffset.After(earliestOffset) {
-			log.Debugf("Forcibly limiting following to %v", earliestAllowedOffset)
-			earliestOffset = earliestAllowedOffset
-		}
-	}
-
-	log.Debugf("Following %v starting at %v", stream, earliestOffset)
-
 	ins := make([]chan *walRead, 0, len(tables))
 	for _, t := range tables {
 		in := make(chan *walRead, 10000)
@@ -392,7 +379,32 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 		go t.processInserts(in)
 	}
 
-	db.opts.Follow(&common.Follow{stream, earliestOffset, db.opts.Partition, partitions}, func(data []byte, newOffset wal.Offset) error {
+	makeFollow := func() *common.Follow {
+		var earliestOffset wal.Offset
+		for i, offset := range offsets {
+			if i == 0 || earliestOffset.After(offset) {
+				earliestOffset = offset
+			}
+		}
+
+		if db.opts.MaxFollowAge > 0 {
+			earliestAllowedOffset := wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxFollowAge))
+			if earliestAllowedOffset.After(earliestOffset) {
+				log.Debugf("Forcibly limiting following to %v", earliestAllowedOffset)
+				earliestOffset = earliestAllowedOffset
+			}
+		}
+
+		log.Debugf("Following %v starting at %v", stream, earliestOffset)
+		return &common.Follow{
+			Stream:          stream,
+			EarliestOffset:  earliestOffset,
+			PartitionNumber: db.opts.Partition,
+			Partitions:      partitions,
+		}
+	}
+
+	db.opts.Follow(makeFollow, func(data []byte, newOffset wal.Offset) error {
 		select {
 		case <-cancel:
 			// Canceled
@@ -403,7 +415,7 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 
 		for i, in := range ins {
 			priorOffset := offsets[i]
-			if !priorOffset.After(newOffset) {
+			if newOffset.After(priorOffset) {
 				in <- &walRead{data, newOffset}
 				offsets[i] = newOffset
 			}

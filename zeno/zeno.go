@@ -112,7 +112,7 @@ func main() {
 	}
 
 	clientSessionCache := tls.NewLRUClientSessionCache(10000)
-	var follow func(f *common.Follow, cb func(data []byte, newOffset wal.Offset) error)
+	var follow func(f func() *common.Follow, cb func(data []byte, newOffset wal.Offset) error)
 	var registerQueryHandler func(partition int, query planner.QueryClusterFN)
 	if *capture != "" {
 		host, _, _ := net.SplitHostPort(*capture)
@@ -145,12 +145,13 @@ func main() {
 		}
 
 		log.Debugf("Capturing data from %v", *capture)
-		follow = func(f *common.Follow, insert func(data []byte, newOffset wal.Offset) error) {
+		follow = func(ff func() *common.Follow, insert func(data []byte, newOffset wal.Offset) error) {
 			minWait := 1 * time.Second
 			maxWait := 1 * time.Minute
 			wait := minWait
 			for {
 				for {
+					f := ff()
 					followFunc, followErr := client.Follow(context.Background(), f)
 					if followErr != nil {
 						log.Errorf("Error following stream %v: %v", f.Stream, followErr)
