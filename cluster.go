@@ -65,18 +65,12 @@ func (f *follower) submit(entry *walEntry) {
 	if f.failed() {
 		return
 	}
-
-	select {
-	case f.entries <- entry:
-		// okay
-	default:
-		log.Errorf("Buffer for follower %d full, assuming failed", f.PartitionNumber)
-		f.markFailed()
-	}
+	f.entries <- entry
 }
 
 func (f *follower) markFailed() {
 	atomic.StoreInt32(&f.hasFailed, 1)
+	close(f.entries)
 }
 
 func (f *follower) failed() bool {
@@ -85,7 +79,7 @@ func (f *follower) failed() bool {
 
 func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
 	go db.processFollowersOnce.Do(db.processFollowers)
-	fol := &follower{Follow: *f, cb: cb, entries: make(chan *walEntry, 10000)}
+	fol := &follower{Follow: *f, cb: cb, entries: make(chan *walEntry, 100000)} // TODO: make this buffer tunable
 	db.followerJoined <- fol
 	fol.read()
 }
@@ -108,7 +102,7 @@ func (db *DB) processFollowers() {
 	followers := make(map[int]*follower)
 	streams := make(map[string]map[string]*partitionSpec)
 	stopWALReaders := make(map[string]func())
-	walEntries := make(chan *walEntry, 10000)
+	walEntries := make(chan *walEntry, 10000) // TODO make this and all buffers tunable
 	h := partitionHash()
 	includedFollowers := make([]int, 0, len(followers))
 
@@ -269,6 +263,10 @@ func (db *DB) processFollowers() {
 				log.Debugf("Sent to follower %d: %v / s", partition, humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
 			}
 			stats = make([]int, db.opts.NumPartitions)
+
+			for _, f := range followers {
+				log.Debugf("Queued for follower %d: %v", f.PartitionNumber, humanize.Comma(int64(len(f.entries))))
+			}
 		}
 	}
 }
@@ -384,7 +382,7 @@ waitForTables:
 func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, partitions map[string]*common.Partition, cancel chan bool) {
 	ins := make([]chan *walRead, 0, len(tables))
 	for _, t := range tables {
-		in := make(chan *walRead, 10000)
+		in := make(chan *walRead, 10000) // TODO make this tunable
 		ins = append(ins, in)
 		go t.processInserts(in)
 	}
