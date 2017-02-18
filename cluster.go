@@ -62,7 +62,17 @@ func (f *follower) read() {
 }
 
 func (f *follower) submit(entry *walEntry) {
-	f.entries <- entry
+	if f.failed() {
+		return
+	}
+
+	select {
+	case f.entries <- entry:
+		// okay
+	default:
+		log.Errorf("Buffer for follower %d full, assuming failed", f.PartitionNumber)
+		f.markFailed()
+	}
 }
 
 func (f *follower) markFailed() {
