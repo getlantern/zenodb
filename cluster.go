@@ -85,9 +85,11 @@ func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
 }
 
 type tableSpec struct {
-	where       goexpr.Expr
-	whereString string
-	followers   map[int][]*followSpec
+	where          goexpr.Expr
+	whereString    string
+	dims           []string
+	includeAllDims bool
+	followers      map[int][]*followSpec
 }
 
 type partitionSpec struct {
@@ -105,6 +107,7 @@ func (db *DB) processFollowers() {
 	walEntries := make(chan *walEntry, 10000) // TODO make this and all buffers tunable
 	h := partitionHash()
 	includedFollowers := make([]int, 0, len(followers))
+	var includedDims []string
 
 	stats := make([]int, db.opts.NumPartitions)
 	statsInterval := 1 * time.Minute
@@ -135,12 +138,18 @@ func (db *DB) processFollowers() {
 					where := db.getTable(t.Name).Where
 					whereString := ""
 					if where != nil {
-						whereString = strings.ToLower(where.String())
+						whereString = where.String()
 					}
 					table = &tableSpec{
-						where:       where,
-						whereString: whereString,
-						followers:   make(map[int][]*followSpec),
+						where:          where,
+						whereString:    whereString,
+						dims:           t.Dims,
+						includeAllDims: t.IncludeAllDims,
+						followers:      make(map[int][]*followSpec),
+					}
+					if len(table.dims) == 0 {
+						// Backwards compatibility for followers that don't supply dim info
+						table.includeAllDims = true
 					}
 					ps.tables[t.Name] = table
 				}
@@ -206,14 +215,16 @@ func (db *DB) processFollowers() {
 			data := entry.data
 			offset := entry.offset
 			// Skip timestamp
-			_, remain := encoding.Read(data, encoding.Width64bits)
+			remain := data[encoding.Width64bits:]
 			dimsLen, remain := encoding.ReadInt32(remain)
-			_dims, remain := encoding.Read(remain, dimsLen)
+			_dims, _ := encoding.Read(remain, dimsLen)
 			dims := bytemap.ByteMap(_dims)
 
 			partitions := streams[entry.stream]
 
 			includedFollowers = includedFollowers[:0]
+			includedDims = includedDims[:0]
+			includeAllDims := false
 			whereResults := make(map[string]bool, 50)
 			for _, partition := range partitions {
 				pid := db.partitionFor(h, dims, partition.keys)
@@ -231,6 +242,23 @@ func (db *DB) processFollowers() {
 						for _, spec := range specs {
 							if offset.After(spec.offset) {
 								includedFollowers = append(includedFollowers, spec.followerID)
+								if includeAllDims || table.includeAllDims {
+									includeAllDims = true
+								} else {
+									// Table requires specific dims
+									for _, dim := range table.dims {
+										found := false
+										for _, existingDim := range includedDims {
+											if existingDim == dim {
+												found = true
+												break
+											}
+										}
+										if !found {
+											includedDims = append(includedDims, dim)
+										}
+									}
+								}
 							}
 						}
 					}
@@ -244,6 +272,27 @@ func (db *DB) processFollowers() {
 			}
 
 			if len(includedFollowers) > 0 {
+				if !includeAllDims {
+					// Reslice dims to include only the needed ones
+					newDims := dims.Slice(includedDims...)
+					newDimsLen := len(dims)
+					if newDimsLen != dimsLen {
+						// Slicing changed dims, reencode using existing storage
+						startOfDims := encoding.Width64bits + encoding.Width32bits
+						oldStartOfFields := startOfDims + dimsLen
+						newStartOfFields := startOfDims + newDimsLen
+						newLength := len(data) - dimsLen + newDimsLen
+						// Write new dims length
+						encoding.WriteInt32(data[encoding.Width64bits:], newDimsLen)
+						// Write new dims
+						copy(data[startOfDims:], newDims)
+						// Copy fields
+						copy(data[newStartOfFields:], data[oldStartOfFields:])
+						// Truncate and store
+						entry.data = data[:newLength]
+					}
+				}
+
 				sort.Ints(includedFollowers)
 				lastIncluded := -1
 				for _, included := range includedFollowers {
@@ -364,9 +413,30 @@ waitForTables:
 				}
 				partitions[partitionKeysString] = partition
 			}
+
+			var dims []string
+			if !table.GroupByAll {
+				for _, groupBy := range table.GroupBy {
+					groupBy.Expr.WalkParams(func(dim string) {
+						found := false
+						for _, existingDim := range dims {
+							if existingDim == dim {
+								found = true
+								break
+							}
+						}
+						if !found {
+							dims = append(dims, dim)
+						}
+					})
+				}
+			}
+
 			partition.Tables = append(partition.Tables, &common.PartitionTable{
-				Name:   table.Name,
-				Offset: offset,
+				Name:           table.Name,
+				Dims:           dims,
+				IncludeAllDims: table.GroupByAll || len(dims) == 0,
+				Offset:         offset,
 			})
 			// Got some tables, don't wait as long this time
 			timer.Reset(1 * time.Second)
@@ -384,6 +454,7 @@ waitForTables:
 }
 
 func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, partitions map[string]*common.Partition, cancel chan bool) {
+	var offsetMx sync.RWMutex
 	ins := make([]chan *walRead, 0, len(tables))
 	for _, t := range tables {
 		in := make(chan *walRead, 100000) // TODO make this tunable
@@ -392,12 +463,14 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 	}
 
 	makeFollow := func() *common.Follow {
+		offsetMx.RLock()
 		var earliestOffset wal.Offset
 		for i, offset := range offsets {
 			if i == 0 || earliestOffset.After(offset) {
 				earliestOffset = offset
 			}
 		}
+		offsetMx.RUnlock()
 
 		if db.opts.MaxFollowAge > 0 {
 			earliestAllowedOffset := wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxFollowAge))
@@ -429,7 +502,9 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 			priorOffset := offsets[i]
 			if newOffset.After(priorOffset) {
 				in <- &walRead{data, newOffset}
+				offsetMx.Lock()
 				offsets[i] = newOffset
+				offsetMx.Unlock()
 			}
 		}
 		return nil

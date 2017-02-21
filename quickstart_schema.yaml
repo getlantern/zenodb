@@ -16,6 +16,26 @@ combined:
     FROM base
     WHERE exclude IS NULL
 
+by_path:
+  retentionperiod: 1h
+  maxflushlatency: 30s
+  view: true
+  partitionby: [path]
+  sql: >
+    SELECT *
+    FROM combined
+    GROUP BY path
+
+by_path_part_server:
+  retentionperiod: 1h
+  maxflushlatency: 30s
+  view: true
+  partitionby: [server]
+  sql: >
+    SELECT *
+    FROM combined
+    GROUP BY path
+
 partitioned:
   retentionperiod: 1h
   maxflushlatency: 30s

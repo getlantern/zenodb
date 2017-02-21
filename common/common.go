@@ -13,8 +13,10 @@ type Partition struct {
 }
 
 type PartitionTable struct {
-	Name   string
-	Offset wal.Offset
+	Name           string
+	Dims           []string
+	IncludeAllDims bool
+	Offset         wal.Offset
 }
 
 type Follow struct {
