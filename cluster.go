@@ -384,6 +384,7 @@ waitForTables:
 }
 
 func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offset, partitions map[string]*common.Partition, cancel chan bool) {
+	var offsetMx sync.RWMutex
 	ins := make([]chan *walRead, 0, len(tables))
 	for _, t := range tables {
 		in := make(chan *walRead, 100000) // TODO make this tunable
@@ -392,12 +393,14 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 	}
 
 	makeFollow := func() *common.Follow {
+		offsetMx.RLock()
 		var earliestOffset wal.Offset
 		for i, offset := range offsets {
 			if i == 0 || earliestOffset.After(offset) {
 				earliestOffset = offset
 			}
 		}
+		offsetMx.RUnlock()
 
 		if db.opts.MaxFollowAge > 0 {
 			earliestAllowedOffset := wal.NewOffsetForTS(db.clock.Now().Add(-1 * db.opts.MaxFollowAge))
@@ -429,7 +432,9 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 			priorOffset := offsets[i]
 			if newOffset.After(priorOffset) {
 				in <- &walRead{data, newOffset}
+				offsetMx.Lock()
 				offsets[i] = newOffset
+				offsetMx.Unlock()
 			}
 		}
 		return nil
