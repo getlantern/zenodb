@@ -16,6 +16,15 @@ combined:
     FROM base
     WHERE exclude IS NULL
 
+derived:
+  retentionperiod: 1h
+  maxflushlatency: 30s
+  view: true
+  sql: >
+    SELECT requests + load_avg AS rpla
+    FROM combined
+    WHERE exclude IS NULL
+
 partitioned:
   retentionperiod: 1h
   maxflushlatency: 30s

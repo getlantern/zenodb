@@ -7,6 +7,7 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 	"sync/atomic"
 	"time"
@@ -135,6 +136,10 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 			return nil, fmt.Errorf("Query resolution '%v' is not an even multiple of table resolution of '%v'", query.Resolution, source.GetResolution())
 		}
 	}
+
+	// Round asOf and until
+	query.AsOf = encoding.RoundTime(query.AsOf, query.Resolution)
+	query.Until = encoding.RoundTime(query.Until, query.Resolution)
 
 	if query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(opts, query)
