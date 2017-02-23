@@ -311,7 +311,7 @@ func (db *DB) trackMemStats() {
 func (db *DB) updateMemStats() {
 	memstats := &runtime.MemStats{}
 	runtime.ReadMemStats(memstats)
-	atomic.StoreUint64(&db.memory, memstats.HeapInuse)
+	atomic.StoreUint64(&db.memory, memstats.Alloc)
 }
 
 func (db *DB) capMemStoreSize() {
