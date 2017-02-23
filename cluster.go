@@ -132,7 +132,12 @@ func (db *DB) processFollowers() {
 			for _, t := range partition.Tables {
 				table := ps.tables[t.Name]
 				if table == nil {
-					where := db.getTable(t.Name).Where
+					tb := db.getTable(t.Name)
+					if tb == nil {
+						log.Errorf("Table %v not found, not including from WAL", t.Name)
+						continue
+					}
+					where := tb.Where
 					whereString := ""
 					if where != nil {
 						whereString = strings.ToLower(where.String())
