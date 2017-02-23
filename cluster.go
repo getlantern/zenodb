@@ -392,7 +392,7 @@ func (db *DB) doFollowLeader(stream string, tables []*table, offsets []wal.Offse
 	var offsetMx sync.RWMutex
 	ins := make([]chan *walRead, 0, len(tables))
 	for _, t := range tables {
-		in := make(chan *walRead, 100000) // TODO make this tunable
+		in := make(chan *walRead) // blocking channel so that we don't bother reading if we're in the middle of flushing
 		ins = append(ins, in)
 		go t.processInserts(in)
 	}

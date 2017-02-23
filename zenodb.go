@@ -24,6 +24,7 @@ import (
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/rickar/props"
+	"github.com/shirou/gopsutil/process"
 	"gopkg.in/redis.v5"
 )
 
@@ -309,9 +310,20 @@ func (db *DB) trackMemStats() {
 }
 
 func (db *DB) updateMemStats() {
+	p, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		log.Errorf("Unable to get process info: %v", err)
+		return
+	}
+	mi, err := p.MemoryInfo()
+	if err != nil {
+		log.Errorf("Unable to get memory info for process: %v", err)
+		return
+	}
 	memstats := &runtime.MemStats{}
 	runtime.ReadMemStats(memstats)
 	atomic.StoreUint64(&db.memory, memstats.Alloc)
+	log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
 }
 
 func (db *DB) capMemStoreSize() {
