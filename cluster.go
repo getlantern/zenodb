@@ -134,7 +134,7 @@ func (db *DB) processFollowers() {
 				if table == nil {
 					tb := db.getTable(t.Name)
 					if tb == nil {
-						log.Errorf("Table %v not found, not including from WAL", t.Name)
+						log.Errorf("Table %v requested by %d not found, not including from WAL", t.Name, f.PartitionNumber)
 						continue
 					}
 					where := tb.Where
