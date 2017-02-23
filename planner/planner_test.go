@@ -379,8 +379,8 @@ func TestPlans(t *testing.T) {
 							GroupOpts{
 								By:         []GroupBy{groupByY},
 								Fields:     Fields{sql.PointsField, NewField("a", eA), NewField("b", eB), NewField("total", ADD(eA, eB))},
-								AsOf:       encoding.RoundTime(epoch.Add(-5*time.Second), 2*time.Second),
-								Until:      encoding.RoundTime(epoch.Add(-1*time.Second), 2*time.Second),
+								AsOf:       epoch.Add(-5 * time.Second),
+								Until:      epoch.Add(-1 * time.Second),
 								Resolution: 2 * time.Second,
 							}),
 					), NewOrderBy("total", true),
