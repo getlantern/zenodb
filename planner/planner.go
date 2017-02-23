@@ -138,8 +138,8 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 	}
 
 	// Round asOf and until
-	query.AsOf = encoding.RoundTime(query.AsOf, query.Resolution)
-	query.Until = encoding.RoundTime(query.Until, query.Resolution)
+	query.AsOf = encoding.RoundTime(query.AsOf, source.GetResolution())
+	query.Until = encoding.RoundTime(query.Until, source.GetResolution())
 
 	if query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(opts, query)
