@@ -361,12 +361,10 @@ view_a:
 	table.iterate(table.Fields.Names(), true, func(dims bytemap.ByteMap, vals []encoding.Sequence) {
 		log.Debugf("Dims: %v")
 		for i, field := range table.Fields {
-			log.Debugf("%v : %v", field.Name, vals[i].String(field.Expr, table.Resolution))
+			log.Debugf("Table Dump %v : %v", field.Name, vals[i].String(field.Expr, table.Resolution))
 		}
 	})
-	if false {
-		testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, modifyTable)
-	}
+	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, modifyTable)
 }
 
 func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int, modifyTable func(string, func(*table))) {
