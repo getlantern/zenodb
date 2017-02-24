@@ -1,22 +1,22 @@
-hash: 8eee0dead8f76fef47fc3dba98540f6f13efac2bfaf25d9df9b4eb55448d4b15
-updated: 2017-02-06T06:26:32.24436761-08:00
+hash: 21bd82fe4eb8db28aeddbf9623e76debb35218f4c04ab305ef50e2a0d9b9bfaf
+updated: 2017-02-23T21:31:43.709504362-06:00
 imports:
 - name: github.com/chzyer/readline
-  version: c914be64f07d9998f52bf0d598ec26d457168c0f
+  version: f892600c35265c3b2d0c79322107239c1ec9479b
 - name: github.com/cloudfoundry/gosigar
-  version: c32d31af94b0e9d3b2877e49c1a581ad5a793343
+  version: dfaa4d491586af21e1ce06028df3926389a99654
 - name: github.com/davecgh/go-spew
   version: 346938d642f2ec3594ed81d874461961cd0faa76
   subpackages:
   - spew
 - name: github.com/dustin/go-humanize
-  version: ef638b6c2e62b857442c6443dace9366a48c0ee2
+  version: 7a41df006ff9af79a29f0ffa9c5f21fbe6314a2d
 - name: github.com/getlantern/appdir
   version: 659a155d06e8f3dd8b9f79d6147445897499b56b
 - name: github.com/getlantern/byteexec
   version: 2e21fedeb225921a8dc40321cbd114ffd0a302f3
 - name: github.com/getlantern/bytemap
-  version: ab0ac5e9eea2aaafe50159a9d4b0f046cabce133
+  version: 4dd4ecae18588644add452f16e5c5aa41a90bd00
 - name: github.com/getlantern/context
   version: 624d99b1798d7c5375ea1d3ca4c5b04d58f7c775
 - name: github.com/getlantern/errors
@@ -24,7 +24,7 @@ imports:
 - name: github.com/getlantern/filepersist
   version: c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4
 - name: github.com/getlantern/goexpr
-  version: 004965a39a9276306090906eeff463a5cb5bc997
+  version: c91d949be13cfb774cc8b2831c603fbff116cba0
   subpackages:
   - geo
   - isp
@@ -50,23 +50,27 @@ imports:
 - name: github.com/getlantern/stack
   version: 02f928aad224fbccd50d66edd776fc9d1e9f2f2b
 - name: github.com/getlantern/tlsdefaults
-  version: f047fcda194525bddaa2d26da43c1b5400aaed6c
+  version: 55d0dd468a195a4c8cb99ee0c1a2878cb7e72155
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: 65cc618aae913a62438160199f5fd6495083182c
+  version: 94824e5b616c1fbf3f47442aecde31e38f317c3a
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
+- name: github.com/go-ole/go-ole
+  version: de8695c8edbf8236f30d6e1376e20b198a028d42
+  subpackages:
+  - oleutil
 - name: github.com/golang/protobuf
-  version: 8ee79997227bf9b34611aee7946ae64735e6fd93
+  version: 69b215d01a5606c843240eab4937eab3acee6530
   subpackages:
   - proto
 - name: github.com/golang/snappy
-  version: d9eb7a3d35ec988b8585d4a0068e462c27d28380
+  version: 553a641470496b2327abcac10b36396bd98e45c9
 - name: github.com/gorilla/context
   version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/gorilla/mux
-  version: 757bef944d0f21880861c2dd9c871ca543023cba
+  version: 999ef73f5d50979cf6d12afed1726325b63f9570
 - name: github.com/gorilla/securecookie
   version: fa5329f913702981df43dcb2a380bac429c810b5
 - name: github.com/hashicorp/golang-lru
@@ -76,9 +80,9 @@ imports:
 - name: github.com/jmcvetta/randutil
   version: 2bb1b664bcff821e02b2a0644cd29c7e824d54f8
 - name: github.com/oschwald/geoip2-golang
-  version: 496a3cbcb65a3cb54497fe4ae2273319e85160a4
+  version: 706a710ce5129fb81dadba750aa80d53ca7ba2ca
 - name: github.com/oschwald/maxminddb-golang
-  version: 6a69cca899de040a10275a92f5e3af60ef8185b5
+  version: 697da8075d2061aa8ed639346443f5d3e8c80b30
 - name: github.com/oxtoacart/bpool
   version: 4e1c5567d7c2dd59fa4c7c83d34c2f3528b025d6
 - name: github.com/oxtoacart/emsort
@@ -87,12 +91,25 @@ imports:
   version: 38a7bb71b483e855d35010808143beaf05b67f9d
 - name: github.com/rickar/props
   version: c68a002e87c1dca1be6eebaf289dfe56db65c87e
+- name: github.com/shirou/gopsutil
+  version: d371ba1293cb48fedc6850526ea48b3846c54f2c
+  subpackages:
+  - cpu
+  - host
+  - internal/common
+  - mem
+  - net
+  - process
+- name: github.com/shirou/w32
+  version: bb4de0191aa41b5507caa14b0650cdbddcd9280b
 - name: github.com/spaolacci/murmur3
   version: 0d12bf811670bf6a1a63828dfbd003eded177fce
+- name: github.com/StackExchange/wmi
+  version: e542ed97d15e640bdc14b5c12162d59e8fc67324
 - name: github.com/vharitonsky/iniflags
   version: 94db042d45d83a94a8cfc494a6800ce1b5edd5e4
 - name: github.com/Workiva/go-datastructures
-  version: 7d33211b44bea4ed616ca28735c7c186c5273511
+  version: 6e483a429c7b8d45d5487bcad780d0caa3a82146
   subpackages:
   - trie/xfast
   - trie/yfast
@@ -104,7 +121,7 @@ imports:
   - dependency/hack
   - dependency/sqltypes
 - name: golang.org/x/net
-  version: b1a2d6e8c8b5fc8f601ead62536f02a8e1b6217d
+  version: dd2d9a67c97da0afa00d5726e28086007a0acce5
   repo: https://github.com/golang/net
   vcs: git
   subpackages:
@@ -116,14 +133,14 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 478fcf54317e52ab69f40bb4c7a1520288d7f7ea
+  version: e4594059fe4cde2daf423055a596c2cd1e6c9adf
   repo: https://github.com/golang/sys
   vcs: git
   subpackages:
   - unix
   - windows
 - name: google.golang.org/appengine
-  version: ca59ef35f409df61fa4a5f8290ff289b37eccfb8
+  version: 3a452f9e00122ead39586d68ffdb9c6e1326af3c
   subpackages:
   - datastore
   - internal
@@ -134,7 +151,7 @@ imports:
   - internal/modules
   - internal/remote_api
 - name: google.golang.org/grpc
-  version: 8712952b7d646dbbbc6fb73a782174f3115060f3
+  version: 34384f34de585705f1a6783a158d2ec8af29f618
   subpackages:
   - codes
   - credentials
@@ -146,10 +163,8 @@ imports:
   - stats
   - tap
   - transport
-- name: gopkg.in/bsm/ratelimit.v1
-  version: db14e161995a5177acef654cb0dd785e8ee8bc22
 - name: gopkg.in/redis.v5
-  version: 854c88a72c8bb9c09936145aef886b7697d6b995
+  version: c86c141c389296f6b279ccebc75b7594a3f7f1fb
   subpackages:
   - internal
   - internal/consistenthash
@@ -162,7 +177,7 @@ imports:
   - codes
 testImports:
 - name: github.com/kylelemons/godebug
-  version: d99083b96f422f8fd5a93bc02040acec769e178f
+  version: a616ab194758ae0a11290d87ca46ee8c440117b0
   subpackages:
   - diff
   - pretty
@@ -171,6 +186,6 @@ testImports:
   subpackages:
   - difflib
 - name: github.com/stretchr/testify
-  version: 18a02ba4a312f95da08ff4cfc0055750ce50ae9e
+  version: 4d4bfba8f1d1027c4fdbe371823030df51419987
   subpackages:
   - assert
