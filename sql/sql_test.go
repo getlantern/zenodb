@@ -278,6 +278,10 @@ func (e *testexpr) Eval(params goexpr.Params) interface{} {
 	return fmt.Sprintf("test: %v", v)
 }
 
+func (e *testexpr) WalkParams(cb func(string)) {
+	e.val.WalkParams(cb)
+}
+
 func (e *testexpr) WalkOneToOneParams(cb func(string)) {
 	e.val.WalkOneToOneParams(cb)
 }

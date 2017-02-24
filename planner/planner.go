@@ -110,6 +110,10 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		query.Until = now.Add(query.UntilOffset)
 	}
 
+	// Round asOf and until
+	query.AsOf = encoding.RoundTime(query.AsOf, source.GetResolution())
+	query.Until = encoding.RoundTime(query.Until, source.GetResolution())
+
 	asOf := source.GetAsOf()
 	asOfChanged := !query.AsOf.IsZero() && query.AsOf.UnixNano() != source.GetAsOf().UnixNano()
 	if asOfChanged {
@@ -136,10 +140,6 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 			return nil, fmt.Errorf("Query resolution '%v' is not an even multiple of table resolution of '%v'", query.Resolution, source.GetResolution())
 		}
 	}
-
-	// Round asOf and until
-	query.AsOf = encoding.RoundTime(query.AsOf, source.GetResolution())
-	query.Until = encoding.RoundTime(query.Until, source.GetResolution())
 
 	if query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(opts, query)

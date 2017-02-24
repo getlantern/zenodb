@@ -120,6 +120,14 @@ func TestSequenceFull(t *testing.T) {
 			assert.EqualValues(t, 10, val)
 		}
 
+		truncated := merged.Truncate(widthOut, resolutionOut, merged.AsOf(widthOut, resolutionOut).Add(resolutionOut), merged.Until().Add(-1*resolutionOut))
+		assert.Equal(t, 8, truncated.NumPeriods(widthOut))
+		for i := 0; i < 8; i++ {
+			val, found := truncated.ValueAt(i, eOut)
+			assert.True(t, found)
+			assert.EqualValues(t, 10, val)
+		}
+
 		start := merged.Until()
 		end := merged.AsOf(widthOut, resolutionOut)
 		assert.Nil(t, merged.Truncate(widthOut, resolutionOut, start.Add(resolutionOut), start.Add(resolutionOut*2)))

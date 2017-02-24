@@ -134,7 +134,7 @@ func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func
 	}
 	tmpFile.Close()
 
-	resolution := time.Millisecond
+	resolution := time.Second
 
 	partitionClause := ""
 	if len(partitionKeys) > 0 {
@@ -143,7 +143,7 @@ func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func
 	schemaA := fmt.Sprintf(`
 Test_a:
   maxflushlatency: 1ms
-  retentionperiod: 200ms%s
+  retentionperiod: 200s%s
   sql: >
     SELECT
       IF(md = 'glub', SUM(i)) AS i,
@@ -154,7 +154,7 @@ Test_a:
       z
     FROM inbound
     WHERE r = 'A'
-    GROUP BY r, u, b, period(1ms)
+    GROUP BY r, u, b, period(1s)
 `, partitionClause)
 	log.Debug(schemaA)
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
@@ -332,14 +332,35 @@ view_a:
 		})
 	shuffleFields()
 
+	scalingFactor := 5
+	asOf := nextTS.Add(time.Duration(1-scalingFactor) * resolution)
+	until := nextTS.Add(resolution)
+
+	nextTS = now.Add(5 * randAboveRes())
+	advanceClock(nextTS)
+	db.Insert("inbound",
+		nextTS,
+		map[string]interface{}{
+			"r":  "A",
+			"u":  2,
+			"b":  false,
+			"md": "glub",
+		},
+		map[string]float64{
+			"i":  500,
+			"ii": 600,
+			"z":  700,
+		})
+	shuffleFields()
+
 	// Give archiver time to catch up
 	time.Sleep(2 * time.Second)
 
-	testAggregateQuery(t, db, now, epoch, resolution, modifyTable)
+	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, modifyTable)
 }
 
-func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, modifyTable func(string, func(*table))) {
-	scalingFactor := 5
+func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int, modifyTable func(string, func(*table))) {
+	log.Debugf("AsOf: %v  Until: %v", asOf, until)
 
 	sqlString := fmt.Sprintf(`
 SELECT
@@ -356,7 +377,7 @@ WHERE b != true AND r IN (SELECT r FROM test_a)
 GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
-`, time.Duration(1-scalingFactor)*resolution, resolution, resolution*time.Duration(scalingFactor))
+`, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), resolution*time.Duration(scalingFactor))
 
 	var rows []*core.FlatRow
 	source, err := db.Query(sqlString, false, nil, randomlyIncludeMemStore())

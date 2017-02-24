@@ -96,8 +96,7 @@ func (db *mockDB) Query(sqlString string, isSubQuery bool, subQueryResults [][]i
 	return nil, nil
 }
 
-func (db *mockDB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) error {
-	return nil
+func (db *mockDB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
 }
 
 func (db *mockDB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {

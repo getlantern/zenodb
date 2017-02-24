@@ -407,19 +407,19 @@ func (seq Sequence) Truncate(width int, resolution time.Duration, asOf time.Time
 	}
 
 	if !asOf.IsZero() {
-		maxPeriods := int(seq.Until().Sub(asOf) / resolution)
+		maxPeriods := int(result.Until().Sub(asOf) / resolution)
 		if maxPeriods <= 0 {
 			// Entire sequence falls outside of truncation range
 			return nil
 		}
 		maxLength := Width64bits + maxPeriods*width
-		if maxLength >= len(seq) {
-			return seq
+		if maxLength >= len(result) {
+			return result
 		}
-		return seq[:maxLength]
+		return result[:maxLength]
 	}
 
-	return seq
+	return result
 }
 
 // String provides a string representation of this Sequence assuming that it
