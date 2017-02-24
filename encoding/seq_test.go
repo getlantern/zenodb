@@ -11,7 +11,7 @@ import (
 
 var (
 	res            = time.Minute
-	epoch          = time.Date(2015, 1, 1, 1, 2, 3, 4, time.UTC)
+	epoch          = time.Date(2015, 1, 1, 1, 2, 0, 0, time.UTC)
 	truncateBefore = epoch.Add(-1000 * res)
 )
 
