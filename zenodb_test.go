@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
@@ -356,6 +357,13 @@ view_a:
 	// Give archiver time to catch up
 	time.Sleep(2 * time.Second)
 
+	table := db.getTable("test_a")
+	table.iterate(table.Fields.Names(), true, func(dims bytemap.ByteMap, vals []encoding.Sequence) {
+		log.Debugf("Dims: %v")
+		for i, field := range table.Fields {
+			log.Debugf("Table Dump %v : %v", field.Name, vals[i].String(field.Expr, table.Resolution))
+		}
+	})
 	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, modifyTable)
 }
 
