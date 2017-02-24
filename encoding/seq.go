@@ -402,7 +402,7 @@ func (seq Sequence) Truncate(width int, resolution time.Duration, asOf time.Time
 
 	if !until.IsZero() {
 		periodsToRemove := int(oldUntil.Sub(until) / resolution)
-		log.Tracef("Non-zero until, removing %d new periods", periodsToRemove)
+		log.Tracef("Non-zero until of %v, removing %d new periods", until.In(time.UTC), periodsToRemove)
 		if periodsToRemove > 0 {
 			bytesToRemove := periodsToRemove * width
 			if bytesToRemove+Width64bits >= len(seq) {
