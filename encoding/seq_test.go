@@ -78,7 +78,7 @@ func checkUpdatedValues(t *testing.T, e Expr, seq Sequence, expected []float64) 
 }
 
 func TestSequenceFull(t *testing.T) {
-	resolutionOut := 10 * time.Second
+	resolutionOut := 3 * time.Second
 	resolutionIn := 1 * time.Second
 
 	eOut := ADD(SUM(FIELD("a")), SUM(FIELD("b")))
@@ -86,16 +86,17 @@ func TestSequenceFull(t *testing.T) {
 	eB := SUM(FIELD("b"))
 	submergers := eOut.SubMergers([]Expr{eIn, eB})
 
+	inPeriods := int(10 * resolutionOut / time.Second)
 	widthOut := eOut.EncodedWidth()
 	widthIn := eIn.EncodedWidth()
-	seqIn := NewSequence(widthIn, 100)
+	seqIn := NewSequence(widthIn, inPeriods)
 
 	params := FloatParams(1)
-	for i := 0; i < 100; i++ {
+	for i := 0; i < inPeriods; i++ {
 		seqIn.UpdateValueAt(i, eIn, params, nil)
 	}
 
-	asOf := epoch.Add(-100 * resolutionIn)
+	asOf := epoch.Add(-1 * time.Duration(inPeriods) * resolutionIn)
 	until := epoch
 
 	for _, seqOut := range []Sequence{NewSequence(widthOut, 5), nil} {
@@ -107,7 +108,7 @@ func TestSequenceFull(t *testing.T) {
 
 		seqIn.SetUntil(epoch)
 		assert.Equal(t, epoch, seqIn.Until().In(time.UTC))
-		assert.Equal(t, epoch.Add(-100*resolutionIn).In(time.UTC), seqIn.AsOf(widthIn, resolutionIn).In(time.UTC))
+		assert.Equal(t, epoch.Add(-1*time.Duration(inPeriods)*resolutionIn).In(time.UTC), seqIn.AsOf(widthIn, resolutionIn).In(time.UTC))
 
 		merged := seqOut.SubMerge(seqIn, nil, resolutionOut, resolutionIn, eOut, eIn, submergers[0], asOf, until)
 		assert.Equal(t, RoundTime(seqIn.Until().In(time.UTC), resolutionOut), merged.Until().In(time.UTC))
@@ -117,7 +118,7 @@ func TestSequenceFull(t *testing.T) {
 		for i := 0; i < 10; i++ {
 			val, found := merged.ValueAt(i, eOut)
 			assert.True(t, found)
-			assert.EqualValues(t, 10, val)
+			assert.EqualValues(t, 3, val)
 		}
 
 		truncated := merged.Truncate(widthOut, resolutionOut, merged.AsOf(widthOut, resolutionOut).Add(resolutionOut), merged.Until().Add(-1*resolutionOut))
@@ -125,7 +126,7 @@ func TestSequenceFull(t *testing.T) {
 		for i := 0; i < 8; i++ {
 			val, found := truncated.ValueAt(i, eOut)
 			assert.True(t, found)
-			assert.EqualValues(t, 10, val)
+			assert.EqualValues(t, 3, val)
 		}
 
 		start := merged.Until()
