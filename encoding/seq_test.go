@@ -115,15 +115,15 @@ func checkUpdatedValues(t *testing.T, e Expr, seq Sequence, expected []float64) 
 }
 
 func TestSequenceFull(t *testing.T) {
-	resolutionOut := 3 * time.Second
-	resolutionIn := 1 * time.Second
+	resolutionIn := res
+	resolutionOut := 3 * resolutionIn
 
 	eOut := ADD(SUM(FIELD("a")), SUM(FIELD("b")))
 	eIn := SUM(FIELD("a"))
 	eB := SUM(FIELD("b"))
 	submergers := eOut.SubMergers([]Expr{eIn, eB})
 
-	inPeriods := int(10 * resolutionOut / time.Second)
+	inPeriods := int(10 * resolutionOut / resolutionIn)
 	widthOut := eOut.EncodedWidth()
 	widthIn := eIn.EncodedWidth()
 	seqIn := NewSequence(widthIn, inPeriods)

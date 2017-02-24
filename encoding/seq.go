@@ -255,7 +255,6 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	newUntil := RoundTime(otherUntil, otherResolution)
 	if len(result) <= Width64bits {
 		result = NewSequence(width, 1)
-		log.Debugf("Setting until to %v", newUntil)
 		result.SetUntil(newUntil)
 	}
 
