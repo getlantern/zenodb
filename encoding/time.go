@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"math"
 	"time"
 )
 
@@ -32,4 +33,13 @@ func RoundTime(ts time.Time, resolution time.Duration) time.Time {
 		rounded = rounded.Add(1 * resolution)
 	}
 	return rounded
+}
+
+func RoundTimeUntil(ts time.Time, resolution time.Duration, until time.Time) time.Time {
+	if ts.IsZero() || until.IsZero() {
+		return ts
+	}
+	delta := until.Sub(ts)
+	periods := -1 * time.Duration(math.Floor(float64(delta)/float64(resolution)))
+	return until.Add(periods * resolution)
 }
