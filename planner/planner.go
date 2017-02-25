@@ -111,8 +111,8 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 	}
 
 	// Round asOf and until
-	query.AsOf = encoding.RoundTime(query.AsOf, source.GetResolution())
-	query.Until = encoding.RoundTime(query.Until, source.GetResolution())
+	query.AsOf = encoding.RoundTimeUp(query.AsOf, source.GetResolution())
+	query.Until = encoding.RoundTimeUp(query.Until, source.GetResolution())
 
 	asOf := source.GetAsOf()
 	asOfChanged := !query.AsOf.IsZero() && query.AsOf.UnixNano() != source.GetAsOf().UnixNano()

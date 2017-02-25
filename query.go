@@ -39,8 +39,8 @@ func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fi
 	if t == nil {
 		return nil
 	}
-	until := encoding.RoundTime(db.clock.Now(), t.Resolution)
-	asOf := encoding.RoundTime(until.Add(-1*t.RetentionPeriod), t.Resolution)
+	until := encoding.RoundTimeUp(db.clock.Now(), t.Resolution)
+	asOf := encoding.RoundTimeUp(until.Add(-1*t.RetentionPeriod), t.Resolution)
 	return &queryable{t, includedFields(t.Fields), asOf, until, includeMemStore}
 }
 

@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"math"
 	"time"
 )
 
@@ -26,10 +27,42 @@ func TimeFromInt(ts int64) time.Time {
 	return time.Unix(s, ns)
 }
 
-func RoundTime(ts time.Time, resolution time.Duration) time.Time {
+func RoundTimeUp(ts time.Time, resolution time.Duration) time.Time {
 	rounded := ts.Round(resolution)
 	if rounded.Before(ts) {
 		rounded = rounded.Add(1 * resolution)
 	}
 	return rounded
+}
+
+func RoundTimeDown(ts time.Time, resolution time.Duration) time.Time {
+	rounded := ts.Round(resolution)
+	if rounded.After(ts) {
+		rounded = rounded.Add(-1 * resolution)
+	}
+	return rounded
+}
+
+func RoundTimeUntilUp(ts time.Time, resolution time.Duration, until time.Time) time.Time {
+	if ts.IsZero() {
+		return ts
+	}
+	if until.IsZero() {
+		return RoundTimeUp(ts, resolution)
+	}
+	delta := until.Sub(ts)
+	periods := -1 * time.Duration(math.Floor(float64(delta)/float64(resolution)))
+	return until.Add(periods * resolution)
+}
+
+func RoundTimeUntilDown(ts time.Time, resolution time.Duration, until time.Time) time.Time {
+	if ts.IsZero() {
+		return ts
+	}
+	if until.IsZero() {
+		return RoundTimeDown(ts, resolution)
+	}
+	delta := until.Sub(ts)
+	periods := -1 * time.Duration(math.Ceil(float64(delta)/float64(resolution)))
+	return until.Add(periods * resolution)
 }

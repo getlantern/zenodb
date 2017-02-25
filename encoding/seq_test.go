@@ -11,9 +11,46 @@ import (
 
 var (
 	res            = time.Minute
-	epoch          = time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC)
+	epoch          = time.Date(2015, 1, 1, 1, 2, 0, 0, time.UTC)
 	truncateBefore = epoch.Add(-1000 * res)
 )
+
+func TestSequenceOnly(t *testing.T) {
+	length := 5
+	resolution := 11 * time.Minute
+	start := epoch
+	until := start.Add(resolution * time.Duration(length))
+	e := SUM(MULT(FIELD("a"), FIELD("b")))
+	seq := NewSequence(e.EncodedWidth(), length)
+	seq.SetUntil(until)
+	for i := 0; i < length; i++ {
+		delta := time.Duration(i+1)*resolution + randBelow(resolution)
+		ts := start.Add(delta)
+		val := float64(i + 1)
+		seq.UpdateValue(ts, bytemapParams(bytemap.NewFloat(map[string]float64{"a": 1, "b": val})), nil, e, resolution, start)
+		valAtTime, found := seq.ValueAtTime(ts, e, resolution)
+		if assert.True(t, found) {
+			assert.Equal(t, val, valAtTime)
+		}
+	}
+	for i := 0; i < length; i++ {
+		val, found := seq.ValueAt(i, e)
+		if assert.True(t, found, "No value found for %d", i) {
+			assert.Equal(t, float64(length-i), val, "Wrong value found for %d", i)
+		}
+	}
+	for j := 0; j < length; j++ {
+		delta := time.Duration(j)*resolution + randBelow(resolution)
+		ts := start.Add(delta)
+		seq = seq.Truncate(e.EncodedWidth(), resolution, ts, time.Time{})
+		for i := 0; i < length-j; i++ {
+			val, found := seq.ValueAt(i, e)
+			if assert.True(t, found, "No value found for %d on truncating %d", i, j) {
+				assert.Equal(t, float64(length-i), val, "Wrong value found for %d", i)
+			}
+		}
+	}
+}
 
 func TestSequenceUpdate(t *testing.T) {
 	e := SUM(MULT(FIELD("a"), FIELD("b")))
@@ -78,15 +115,15 @@ func checkUpdatedValues(t *testing.T, e Expr, seq Sequence, expected []float64) 
 }
 
 func TestSequenceFull(t *testing.T) {
-	resolutionOut := 3 * time.Second
-	resolutionIn := 1 * time.Second
+	resolutionIn := res
+	resolutionOut := 3 * resolutionIn
 
 	eOut := ADD(SUM(FIELD("a")), SUM(FIELD("b")))
 	eIn := SUM(FIELD("a"))
 	eB := SUM(FIELD("b"))
 	submergers := eOut.SubMergers([]Expr{eIn, eB})
 
-	inPeriods := int(10 * resolutionOut / time.Second)
+	inPeriods := int(10 * resolutionOut / resolutionIn)
 	widthOut := eOut.EncodedWidth()
 	widthIn := eIn.EncodedWidth()
 	seqIn := NewSequence(widthIn, inPeriods)
@@ -111,8 +148,8 @@ func TestSequenceFull(t *testing.T) {
 		assert.Equal(t, epoch.Add(-1*time.Duration(inPeriods)*resolutionIn).In(time.UTC), seqIn.AsOf(widthIn, resolutionIn).In(time.UTC))
 
 		merged := seqOut.SubMerge(seqIn, nil, resolutionOut, resolutionIn, eOut, eIn, submergers[0], asOf, until)
-		assert.Equal(t, RoundTime(seqIn.Until().In(time.UTC), resolutionOut), merged.Until().In(time.UTC))
-		assert.Equal(t, RoundTime(seqIn.AsOf(widthIn, resolutionIn).In(time.UTC), resolutionOut), merged.AsOf(widthOut, resolutionOut).In(time.UTC))
+		assert.Equal(t, seqIn.Until().In(time.UTC), merged.Until().In(time.UTC))
+		assert.Equal(t, seqIn.AsOf(widthIn, resolutionIn).In(time.UTC), merged.AsOf(widthOut, resolutionOut).In(time.UTC))
 
 		assert.Equal(t, 10, merged.NumPeriods(widthOut))
 		for i := 0; i < 10; i++ {
@@ -155,6 +192,46 @@ func TestSequenceConstant(t *testing.T) {
 	assert.EqualValues(t, 5.1, v)
 	v, _ = s.ValueAtTime(time.Time{}, e, 0)
 	assert.EqualValues(t, 5.1, v)
+}
+
+func TestSequenceSubMerge(t *testing.T) {
+	e := SUM(FIELD("a"))
+	params := FloatParams(1)
+	scale := 11
+	inResolution := 1 * time.Minute
+	outResolution := inResolution * time.Duration(scale)
+	outPeriods := 10
+	inPeriods := scale*outPeriods + 2
+	asOf := time.Date(2015, 1, 1, 1, 2, 0, 0, time.UTC)
+	until := asOf.Add(outResolution * time.Duration(outPeriods))
+	expected := NewSequence(e.EncodedWidth(), outPeriods)
+	expected.SetUntil(until)
+	for i := 0; i < outPeriods; i++ {
+		for j := 0; j < scale; j++ {
+			expected.UpdateValueAt(i, e, params, nil)
+		}
+	}
+
+	var result Sequence
+	submerge := e.SubMergers([]Expr{e})[0]
+
+	// Try it with a single big in sequence
+	in := NewSequence(e.EncodedWidth(), inPeriods)
+	in.SetUntil(until.Add(inResolution))
+	for i := 0; i < inPeriods; i++ {
+		in.UpdateValueAt(i, e, params, nil)
+	}
+	result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until)
+	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
+
+	// Try it with a bunch of small sequences
+	result = nil
+	in = NewFloatValue(e, asOf.Add(-1*inResolution), 1)
+	for i := 0; i < inPeriods; i++ {
+		result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until)
+		in.SetUntil(in.Until().Add(inResolution))
+	}
+	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
 }
 
 func randBelow(res time.Duration) time.Duration {

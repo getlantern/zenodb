@@ -96,8 +96,8 @@ func (seq Sequence) ValueAtTime(t time.Time, e expr.Expr, resolution time.Durati
 	if len(seq) == 0 {
 		return 0, false
 	}
-	t = RoundTime(t, resolution)
 	until := seq.Until()
+	t = RoundTimeUntilUp(t, resolution, until)
 	if t.After(until) {
 		return 0, false
 	}
@@ -158,9 +158,9 @@ func (seq Sequence) UpdateValueAtOffset(offset int, e expr.Expr, params expr.Par
 }
 
 // Update unpacks the given TSParams and calls UpdateValue.
-func (seq Sequence) Update(tsp TSParams, metadata goexpr.Params, e expr.Expr, resolution time.Duration, asOf time.Time) Sequence {
+func (seq Sequence) Update(tsp TSParams, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
 	ts, params := tsp.TimeAndParams()
-	return seq.UpdateValue(ts, params, metadata, e, resolution, asOf)
+	return seq.UpdateValue(ts, params, metadata, e, resolution, truncateBefore)
 }
 
 // UpdateValue updates the value at the given time by applying the given params
@@ -174,21 +174,23 @@ func (seq Sequence) Update(tsp TSParams, metadata goexpr.Params, e expr.Expr, re
 // The returned Sequence may reference the same underlying byte array as the
 // updated sequence, or it may be a newly allocated byte array (i.e. if the
 // sequence grew).
-func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexpr.Params, e expr.Expr, resolution time.Duration, asOf time.Time) Sequence {
+func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexpr.Params, e expr.Expr, resolution time.Duration, truncateBefore time.Time) Sequence {
 	width := e.EncodedWidth()
-	ts = RoundTime(ts, resolution)
-	asOf = RoundTime(asOf, resolution)
+	until := seq.Until()
+	ts = RoundTimeUp(ts, resolution)
+	if until.IsZero() {
+		// sequence has no until, use ts
+		until = ts
+	}
+	truncateBefore = RoundTimeUntilUp(truncateBefore, resolution, until)
 
 	if log.IsTraceEnabled() {
-		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.Until().In(time.UTC), params, ts.In(time.UTC), asOf.In(time.UTC))
+		log.Tracef("Updating sequence starting at %v to %v at %v, truncating before %v", seq.Until().In(time.UTC), params, ts.In(time.UTC), truncateBefore.In(time.UTC))
 	}
 
-	if !ts.After(asOf) {
-		log.Trace("New value falls outside of truncation range, just truncate existing sequence")
-		if len(seq) == 0 {
-			return nil
-		}
-		return seq.Truncate(width, resolution, asOf, zeroTime)
+	if !ts.After(truncateBefore) {
+		log.Tracef("New value falls outside of truncation range, just truncate existing sequence to %v", truncateBefore)
+		return seq.Truncate(width, resolution, truncateBefore, zeroTime)
 	}
 
 	sequenceEmpty := len(seq) == 0
@@ -198,9 +200,9 @@ func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexp
 	if !sequenceEmpty {
 		start = seq.Until()
 		gapPeriods = int(ts.Sub(start) / resolution)
-		maxPeriods = int(ts.Sub(asOf) / resolution)
+		maxPeriods = int(ts.Sub(truncateBefore) / resolution)
 	}
-	if sequenceEmpty || start.Before(asOf) || gapPeriods > maxPeriods {
+	if sequenceEmpty || start.Before(truncateBefore) || gapPeriods > maxPeriods {
 		log.Trace("Creating new sequence")
 		out := make(Sequence, Width64bits+width)
 		out.SetUntil(ts)
@@ -248,26 +250,26 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 
 	width := ex.EncodedWidth()
 	result = seq.Truncate(width, resolution, asOf, until)
+	resultUntil := result.Until()
 	otherUntil := other.Until()
-	newUntil := RoundTime(otherUntil, resolution)
+	newUntil := RoundTimeUntilUp(otherUntil, resolution, until)
 	if len(result) <= Width64bits {
 		result = NewSequence(width, 1)
 		result.SetUntil(newUntil)
+	} else {
+		periodsToPrepend := int(newUntil.Sub(resultUntil) / resolution)
+		if periodsToPrepend > 0 {
+			prepended := NewSequence(width, periodsToPrepend)
+			prepended.SetUntil(newUntil)
+			// Append existing data
+			prepended = append(prepended, result[Width64bits:]...)
+			result = prepended
+		}
 	}
-
-	resultUntil := result.Until()
-	periodsToPrepend := int(newUntil.Sub(resultUntil) / resolution)
-	if periodsToPrepend > 0 {
-		prepended := NewSequence(width, periodsToPrepend)
-		prepended.SetUntil(newUntil)
-		// Append existing data
-		prepended = append(prepended, result[Width64bits:]...)
-		result = prepended
-		resultUntil = newUntil
-	}
+	resultUntil = newUntil
 
 	otherAsOf := other.AsOf(otherWidth, otherResolution)
-	newAsOf := RoundTime(otherAsOf, resolution)
+	newAsOf := RoundTimeUntilUp(otherAsOf, resolution, resultUntil)
 	periodsToAppend := int(result.AsOf(width, resolution).Sub(newAsOf) / resolution)
 	if periodsToAppend > 0 {
 		appended := NewSequence(width, result.NumPeriods(width)+periodsToAppend)
@@ -307,7 +309,6 @@ func (seq Sequence) Merge(other Sequence, e expr.Expr, resolution time.Duration,
 		return seq
 	}
 
-	truncateBefore = RoundTime(truncateBefore, resolution)
 	sa := seq
 	sb := other
 	startA := sa.Until()
@@ -316,6 +317,8 @@ func (seq Sequence) Merge(other Sequence, e expr.Expr, resolution time.Duration,
 		// Switch
 		sa, startA, sb, startB = sb, startB, sa, startA
 	}
+
+	truncateBefore = RoundTimeUntilUp(truncateBefore, resolution, startA)
 
 	if startB.Before(truncateBefore) {
 		return sa
@@ -390,9 +393,9 @@ func (seq Sequence) Truncate(width int, resolution time.Duration, asOf time.Time
 		return nil
 	}
 	result = seq
-	asOf = RoundTime(asOf, resolution)
-	until = RoundTime(until, resolution)
 	oldUntil := result.Until()
+	asOf = RoundTimeUntilDown(asOf, resolution, oldUntil)
+	until = RoundTimeUntilDown(until, resolution, oldUntil)
 
 	if !until.IsZero() {
 		periodsToRemove := int(oldUntil.Sub(until) / resolution)

@@ -148,6 +148,7 @@ func TestGroupResolutionOnly(t *testing.T) {
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
 			val, _ := v.ValueAt(p, eTotal)
+			t.Log(val)
 			total += val
 		}
 		// We expect only one row
