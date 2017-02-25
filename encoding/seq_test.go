@@ -194,6 +194,46 @@ func TestSequenceConstant(t *testing.T) {
 	assert.EqualValues(t, 5.1, v)
 }
 
+func TestSequenceSubMerge(t *testing.T) {
+	e := SUM(FIELD("a"))
+	params := FloatParams(1)
+	scale := 11
+	inResolution := 1 * time.Minute
+	outResolution := inResolution * time.Duration(scale)
+	outPeriods := 10
+	inPeriods := scale*outPeriods + 2
+	asOf := time.Date(2015, 1, 1, 1, 2, 0, 0, time.UTC)
+	until := asOf.Add(outResolution * time.Duration(outPeriods))
+	expected := NewSequence(e.EncodedWidth(), outPeriods)
+	expected.SetUntil(until)
+	for i := 0; i < outPeriods; i++ {
+		for j := 0; j < scale; j++ {
+			expected.UpdateValueAt(i, e, params, nil)
+		}
+	}
+
+	var result Sequence
+	submerge := e.SubMergers([]Expr{e})[0]
+
+	// Try it with a single big in sequence
+	in := NewSequence(e.EncodedWidth(), inPeriods)
+	in.SetUntil(until.Add(inResolution))
+	for i := 0; i < inPeriods; i++ {
+		in.UpdateValueAt(i, e, params, nil)
+	}
+	result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until)
+	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
+
+	// Try it with a bunch of small sequences
+	result = nil
+	in = NewFloatValue(e, asOf.Add(-1*inResolution), 1)
+	for i := 0; i < inPeriods; i++ {
+		result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until)
+		in.SetUntil(in.Until().Add(inResolution))
+	}
+	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
+}
+
 func randBelow(res time.Duration) time.Duration {
 	return time.Duration(-1 * rand.Intn(int(res)))
 }

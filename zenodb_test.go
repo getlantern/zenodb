@@ -23,9 +23,9 @@ import (
 	"testing"
 )
 
-func TestRoundTime(t *testing.T) {
+func TestRoundTimeUp(t *testing.T) {
 	ts := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
-	rounded := encoding.RoundTime(ts, time.Second)
+	rounded := encoding.RoundTimeUp(ts, time.Second)
 	expected := time.Date(2015, 5, 6, 7, 8, 10, 0, time.UTC)
 	assert.Equal(t, expected, rounded)
 }
