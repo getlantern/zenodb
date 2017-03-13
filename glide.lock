@@ -1,8 +1,8 @@
 hash: 21bd82fe4eb8db28aeddbf9623e76debb35218f4c04ab305ef50e2a0d9b9bfaf
-updated: 2017-02-24T21:21:03.241742545-06:00
+updated: 2017-03-13T13:40:06.351498306-05:00
 imports:
 - name: github.com/chzyer/readline
-  version: f892600c35265c3b2d0c79322107239c1ec9479b
+  version: 8a1389155f133761e8e73b585f47ed27a78b74d5
 - name: github.com/cloudfoundry/gosigar
   version: dfaa4d491586af21e1ce06028df3926389a99654
 - name: github.com/davecgh/go-spew
@@ -10,7 +10,7 @@ imports:
   subpackages:
   - spew
 - name: github.com/dustin/go-humanize
-  version: 7a41df006ff9af79a29f0ffa9c5f21fbe6314a2d
+  version: 259d2a102b871d17f30e3cd9881a642961a1e486
 - name: github.com/getlantern/appdir
   version: 659a155d06e8f3dd8b9f79d6147445897499b56b
 - name: github.com/getlantern/byteexec
@@ -24,7 +24,7 @@ imports:
 - name: github.com/getlantern/filepersist
   version: c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4
 - name: github.com/getlantern/goexpr
-  version: c91d949be13cfb774cc8b2831c603fbff116cba0
+  version: aa241ecd40bd0bf0c90873cfc7aeca31bc9b6997
   subpackages:
   - geo
   - isp
@@ -62,7 +62,7 @@ imports:
   subpackages:
   - oleutil
 - name: github.com/golang/protobuf
-  version: 69b215d01a5606c843240eab4937eab3acee6530
+  version: c9c7427a2a70d2eb3bafa0ab2dc163e45f143317
   subpackages:
   - proto
 - name: github.com/golang/snappy
@@ -70,7 +70,7 @@ imports:
 - name: github.com/gorilla/context
   version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/gorilla/mux
-  version: 999ef73f5d50979cf6d12afed1726325b63f9570
+  version: 599cba5e7b6137d46ddf58fb1765f5d928e69604
 - name: github.com/gorilla/securecookie
   version: e59506cc896acb7f7bf732d4fdf5e25f7ccd8983
 - name: github.com/hashicorp/golang-lru
@@ -92,7 +92,7 @@ imports:
 - name: github.com/rickar/props
   version: c68a002e87c1dca1be6eebaf289dfe56db65c87e
 - name: github.com/shirou/gopsutil
-  version: d371ba1293cb48fedc6850526ea48b3846c54f2c
+  version: d4c8874c1901eea436d4b8df4f67a32a56a1b950
   subpackages:
   - cpu
   - host
@@ -105,11 +105,11 @@ imports:
 - name: github.com/spaolacci/murmur3
   version: 0d12bf811670bf6a1a63828dfbd003eded177fce
 - name: github.com/StackExchange/wmi
-  version: e542ed97d15e640bdc14b5c12162d59e8fc67324
+  version: 9f32b5905fd6ce7384093f9d048437e79f7b4d85
 - name: github.com/vharitonsky/iniflags
   version: 94db042d45d83a94a8cfc494a6800ce1b5edd5e4
 - name: github.com/Workiva/go-datastructures
-  version: 6e483a429c7b8d45d5487bcad780d0caa3a82146
+  version: dd1dc71ac92298310606ac77d9519ddf1c6e2500
   subpackages:
   - trie/xfast
   - trie/yfast
@@ -121,7 +121,7 @@ imports:
   - dependency/hack
   - dependency/sqltypes
 - name: golang.org/x/net
-  version: 10c134ea0df15f7e34d789338c7a2d76cc7a3ab9
+  version: a6577fac2d73be281a500b310739095313165611
   repo: https://github.com/golang/net
   vcs: git
   subpackages:
@@ -133,14 +133,14 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: e4594059fe4cde2daf423055a596c2cd1e6c9adf
+  version: 99f16d856c9836c42d24e7ab64ea72916925fa97
   repo: https://github.com/golang/sys
   vcs: git
   subpackages:
   - unix
   - windows
 - name: google.golang.org/appengine
-  version: 3a452f9e00122ead39586d68ffdb9c6e1326af3c
+  version: b79c28f0197795b4050bfcd7c4c2209136c594b1
   subpackages:
   - datastore
   - internal
@@ -151,12 +151,13 @@ imports:
   - internal/modules
   - internal/remote_api
 - name: google.golang.org/grpc
-  version: 34384f34de585705f1a6783a158d2ec8af29f618
+  version: 0713829b980f4ddd276689a36235c5fcc82a21bf
   subpackages:
   - codes
   - credentials
   - grpclog
   - internal
+  - keepalive
   - metadata
   - naming
   - peer
@@ -164,7 +165,7 @@ imports:
   - tap
   - transport
 - name: gopkg.in/redis.v5
-  version: cbad034630445e15fbcaa7e9904064dd67bce69b
+  version: a16aeec10ff407b1e7be6dd35797ccf5426ef0f0
   subpackages:
   - internal
   - internal/consistenthash

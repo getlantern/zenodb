@@ -78,6 +78,7 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 	"ISP":          isp.ISP,
 	"ORG":          isp.ORG,
 	"ASN":          isp.ASN,
+	"ASNAME":       isp.ASName,
 	"LEN":          goexpr.Len,
 }
 

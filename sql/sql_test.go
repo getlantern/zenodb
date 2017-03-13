@@ -51,6 +51,7 @@ GROUP BY
 	ISP(ip) AS isp,
 	ORG(ip) AS org,
 	ASN(ip) AS asn,
+	ASNAME(ip) AS asn_name,
 	CITY(ip) AS city,
 	REGION(ip) AS state,
 	REGION_CITY(ip) AS city_state,
@@ -135,11 +136,13 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 14) {
+	if assert.Len(t, q.GroupBy, 15) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("asn_name", isp.ASName(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("city", geo.CITY(goexpr.Param("ip"))), q.GroupBy[idx])
 		idx++
