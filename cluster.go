@@ -181,7 +181,15 @@ func (db *DB) processFollowers() {
 					}
 					partitionsCopy[partitionKey] = partitionCopy
 					for tableName, table := range partition.tables {
-						partitionCopy.tables[tableName] = table
+						tableCopy := &tableSpec{
+							where:       table.where,
+							whereString: table.whereString,
+							followers:   make(map[int][]*followSpec, len(table.followers)),
+						}
+						partitionCopy.tables[tableName] = tableCopy
+						for key, specs := range table.followers {
+							tableCopy.followers[key] = specs
+						}
 					}
 				}
 			}
