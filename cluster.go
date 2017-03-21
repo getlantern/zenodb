@@ -169,6 +169,24 @@ func (db *DB) processFollowers() {
 	for {
 		select {
 		case f := <-db.followerJoined:
+			// Make a copy of streams to avoid modifying old ones
+			streamsCopy := make(map[string]map[string]*partitionSpec, len(streams))
+			for stream, partitions := range streams {
+				partitionsCopy := make(map[string]*partitionSpec, len(partitions))
+				streamsCopy[stream] = partitionsCopy
+				for partitionKey, partition := range partitions {
+					partitionCopy := &partitionSpec{
+						keys:   partition.keys,
+						tables: make(map[string]*tableSpec, len(partition.tables)),
+					}
+					partitionsCopy[partitionKey] = partitionCopy
+					for tableName, table := range partition.tables {
+						partitionCopy.tables[tableName] = table
+					}
+				}
+			}
+			streams = streamsCopy
+
 			// Clear out newlyJoinedStreams
 			newlyJoinedStreams = make(map[string]bool)
 			onFollowerJoined(f)
