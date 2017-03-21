@@ -163,7 +163,8 @@ func (db *DB) processFollowers() {
 		newlyJoinedStreams[f.Stream] = true
 	}
 
-	enqueueEntry, results := db.startParallelEntryProcessing()
+	var requests chan *partitionRequest
+	var results chan *partitionsResult
 
 	for {
 		select {
@@ -210,9 +211,14 @@ func (db *DB) processFollowers() {
 				stopWALReaders[stream] = stopWALReader
 			}
 
+			if requests != nil {
+				close(requests)
+			}
+			requests, results = db.startParallelEntryProcessing()
+
 		case entry := <-walEntries:
 			partitions := streams[entry.stream]
-			enqueueEntry(partitions, entry)
+			requests <- &partitionRequest{partitions, entry}
 
 		case result := <-results:
 			entry := result.entry
@@ -300,7 +306,7 @@ func (r partitionsResultsByOffset) Less(i, j int) bool {
 	return r[j].entry.offset.After(r[i].entry.offset)
 }
 
-func (db *DB) startParallelEntryProcessing() (func(partitions map[string]*partitionSpec, entry *walEntry), chan *partitionsResult) {
+func (db *DB) startParallelEntryProcessing() (chan *partitionRequest, chan *partitionsResult) {
 	// Use up to 1/3 of our CPU capacity for doing this processing
 	parallelism := int(math.Ceil(float64(runtime.NumCPU()) / 3))
 	log.Debugf("Using %d CPUs to process entries for followers", parallelism)
@@ -318,9 +324,7 @@ func (db *DB) startParallelEntryProcessing() (func(partitions map[string]*partit
 	}
 	go db.reducePartitionRequests(parallelism, processed, out, queued, drained)
 
-	return func(partitions map[string]*partitionSpec, entry *walEntry) {
-		requests <- &partitionRequest{partitions, entry}
-	}, out
+	return requests, out
 }
 
 func (db *DB) enqueuePartitionRequests(parallelism int, requests chan *partitionRequest, in chan *partitionRequest, queued chan int, drained chan bool) {
