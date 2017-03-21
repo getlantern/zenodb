@@ -15,6 +15,8 @@ import (
 	"github.com/getlantern/zenodb/planner"
 	"github.com/spaolacci/murmur3"
 	"hash"
+	"math"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -161,7 +163,7 @@ func (db *DB) processFollowers() {
 		newlyJoinedStreams[f.Stream] = true
 	}
 
-	evalEntry := db.makeEvalEntry()
+	enqueueEntry, results := db.startParallelEntryProcessing()
 
 	for {
 		select {
@@ -210,12 +212,16 @@ func (db *DB) processFollowers() {
 
 		case entry := <-walEntries:
 			partitions := streams[entry.stream]
+			enqueueEntry(partitions, entry)
+
+		case result := <-results:
+			entry := result.entry
+			partitions := streams[entry.stream]
 			offset := entry.offset
-			result := evalEntry(partitions, entry)
 
 			includedFollowers = includedFollowers[:0]
 			for partitionKeys, partition := range partitions {
-				pr := result[partitionKeys]
+				pr := result.partitions[partitionKeys]
 				pid := pr.pid
 				for tableName, table := range partition.tables {
 					specs := table.followers[pid]
@@ -271,15 +277,87 @@ func (db *DB) processFollowers() {
 	}
 }
 
+type partitionRequest struct {
+	partitions map[string]*partitionSpec
+	entry      *walEntry
+}
+
+type partitionsResult struct {
+	entry      *walEntry
+	partitions map[string]*partitionResult
+}
+
 type partitionResult struct {
 	pid         int
 	wherePassed map[string]bool
 }
 
-func (db *DB) makeEvalEntry() func(partitions map[string]*partitionSpec, entry *walEntry) map[string]*partitionResult {
+type partitionsResultsByOffset []*partitionsResult
+
+func (r partitionsResultsByOffset) Len() int      { return len(r) }
+func (r partitionsResultsByOffset) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
+func (r partitionsResultsByOffset) Less(i, j int) bool {
+	return r[j].entry.offset.After(r[i].entry.offset)
+}
+
+func (db *DB) startParallelEntryProcessing() (func(partitions map[string]*partitionSpec, entry *walEntry), chan *partitionsResult) {
+	// Use up to 1/3 of our CPU capacity for doing this processing
+	parallelism := int(math.Ceil(float64(runtime.NumCPU()) / 3))
+	log.Debugf("Using %d CPUs to process entries for followers", parallelism)
+
+	requests := make(chan *partitionRequest)
+	in := make(chan *partitionRequest, parallelism)
+	processed := make(chan *partitionsResult, parallelism)
+	out := make(chan *partitionsResult)
+	queued := make(chan int)
+	drained := make(chan bool)
+
+	go db.enqueuePartitionRequests(parallelism, requests, in, queued, drained)
+	for i := 0; i < parallelism; i++ {
+		go db.mapPartitionRequests(in, processed)
+	}
+	go db.reducePartitionRequests(parallelism, processed, out, queued, drained)
+
+	return func(partitions map[string]*partitionSpec, entry *walEntry) {
+		requests <- &partitionRequest{partitions, entry}
+	}, out
+}
+
+func (db *DB) enqueuePartitionRequests(parallelism int, requests chan *partitionRequest, in chan *partitionRequest, queued chan int, drained chan bool) {
+	q := 0
+	enqueue := func() {
+		if q > 0 {
+			queued <- q
+			<-drained
+			q = 0
+		}
+	}
+
+	for req := range requests {
+		if q == parallelism {
+			enqueue()
+		}
+		select {
+		case in <- req:
+			q++
+		default:
+			enqueue()
+		}
+	}
+	enqueue()
+	close(in)
+	close(queued)
+}
+
+func (db *DB) mapPartitionRequests(in chan *partitionRequest, processed chan *partitionsResult) {
 	h := partitionHash()
-	return func(partitions map[string]*partitionSpec, entry *walEntry) map[string]*partitionResult {
-		result := make(map[string]*partitionResult)
+	for req := range in {
+		partitions := req.partitions
+		entry := req.entry
+		result := &partitionsResult{
+			entry:      entry,
+			partitions: make(map[string]*partitionResult),
+		}
 
 		data := entry.data
 		// Skip timestamp
@@ -293,7 +371,7 @@ func (db *DB) makeEvalEntry() func(partitions map[string]*partitionSpec, entry *
 		for partitionKeys, partition := range partitions {
 			pid := db.partitionFor(h, dims, partition.keys)
 			pr := &partitionResult{pid: pid, wherePassed: make(map[string]bool, len(partition.tables))}
-			result[partitionKeys] = pr
+			result.partitions[partitionKeys] = pr
 			for tableName, table := range partition.tables {
 				specs := table.followers[pid]
 				if len(specs) == 0 {
@@ -308,8 +386,24 @@ func (db *DB) makeEvalEntry() func(partitions map[string]*partitionSpec, entry *
 			}
 		}
 
-		return result
+		processed <- result
 	}
+}
+
+func (db *DB) reducePartitionRequests(parallelism int, processed chan *partitionsResult, out chan *partitionsResult, queued chan int, drained chan bool) {
+	buf := make(partitionsResultsByOffset, 0, parallelism)
+	for numQueued := range queued {
+		for q := 0; q < numQueued; q++ {
+			buf = append(buf, <-processed)
+		}
+		sort.Sort(buf)
+		for _, res := range buf {
+			out <- res
+		}
+		buf = buf[:0]
+		drained <- true
+	}
+	close(out)
 }
 
 func (db *DB) followWAL(stream string, offset wal.Offset, entries chan *walEntry) (func(), error) {
