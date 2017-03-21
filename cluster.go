@@ -330,24 +330,24 @@ func (db *DB) startParallelEntryProcessing() (chan *partitionRequest, chan *part
 	log.Debugf("Using %d CPUs to process entries for followers", parallelism)
 
 	requests := make(chan *partitionRequest)
-	in := make(chan *partitionRequest, parallelism*db.opts.NumPartitions)
-	processed := make(chan *partitionsResult, parallelism*db.opts.NumPartitions)
-	out := make(chan *partitionsResult)
+	in := make(chan *partitionRequest, parallelism*db.opts.NumPartitions*10)
+	mapped := make(chan *partitionsResult, parallelism*db.opts.NumPartitions*10)
+	results := make(chan *partitionsResult, parallelism*db.opts.NumPartitions*10)
 	queued := make(chan int)
 	drained := make(chan bool)
 
 	go db.enqueuePartitionRequests(parallelism, requests, in, queued, drained)
 	for i := 0; i < parallelism; i++ {
-		go db.mapPartitionRequests(in, processed)
+		go db.mapPartitionRequests(in, mapped)
 	}
-	go db.reducePartitionRequests(parallelism, processed, out, queued, drained)
+	go db.reducePartitionRequests(parallelism, mapped, results, queued, drained)
 
-	return requests, out
+	return requests, results
 }
 
 func (db *DB) enqueuePartitionRequests(parallelism int, requests chan *partitionRequest, in chan *partitionRequest, queued chan int, drained chan bool) {
 	q := 0
-	enqueue := func() {
+	markQueued := func() {
 		if q > 0 {
 			queued <- q
 			<-drained
@@ -355,23 +355,31 @@ func (db *DB) enqueuePartitionRequests(parallelism int, requests chan *partition
 		}
 	}
 
-	for req := range requests {
-		if q == parallelism {
-			enqueue()
-		}
+requestsLoop:
+	for {
 		select {
-		case in <- req:
-			q++
+		case req, more := <-requests:
+			if req != nil {
+				in <- req
+				q++
+				if q == parallelism {
+					markQueued()
+				}
+			}
+			if !more {
+				break requestsLoop
+			}
 		default:
-			enqueue()
+			markQueued()
+			time.Sleep(1 * time.Second)
 		}
 	}
-	enqueue()
+	markQueued()
 	close(in)
 	close(queued)
 }
 
-func (db *DB) mapPartitionRequests(in chan *partitionRequest, processed chan *partitionsResult) {
+func (db *DB) mapPartitionRequests(in chan *partitionRequest, mapped chan *partitionsResult) {
 	h := partitionHash()
 	for req := range in {
 		partitions := req.partitions
@@ -408,24 +416,26 @@ func (db *DB) mapPartitionRequests(in chan *partitionRequest, processed chan *pa
 			}
 		}
 
-		processed <- result
+		mapped <- result
 	}
 }
 
-func (db *DB) reducePartitionRequests(parallelism int, processed chan *partitionsResult, out chan *partitionsResult, queued chan int, drained chan bool) {
+func (db *DB) reducePartitionRequests(parallelism int, mapped chan *partitionsResult, results chan *partitionsResult, queued chan int, drained chan bool) {
 	buf := make(partitionsResultsByOffset, 0, parallelism)
 	for numQueued := range queued {
+		buf = buf[:0]
+		log.Debugf("Num queued: %d", numQueued)
 		for q := 0; q < numQueued; q++ {
-			buf = append(buf, <-processed)
+			buf = append(buf, <-mapped)
 		}
+		log.Debug("Read queued")
 		sort.Sort(buf)
 		for _, res := range buf {
-			out <- res
+			results <- res
 		}
-		buf = buf[:0]
 		drained <- true
 	}
-	close(out)
+	close(results)
 }
 
 func (db *DB) followWAL(stream string, offset wal.Offset, entries chan *walEntry) (func(), error) {

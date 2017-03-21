@@ -354,8 +354,8 @@ view_a:
 		})
 	shuffleFields()
 
-	// Give archiver time to catch up
-	time.Sleep(2 * time.Second)
+	// Give processing time to catch up
+	time.Sleep(10 * time.Second)
 
 	table := db.getTable("test_a")
 	table.iterate(table.Fields.Names(), true, func(dims bytemap.ByteMap, vals []encoding.Sequence) {
