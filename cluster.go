@@ -306,8 +306,8 @@ func (db *DB) startParallelEntryProcessing() (func(partitions map[string]*partit
 	log.Debugf("Using %d CPUs to process entries for followers", parallelism)
 
 	requests := make(chan *partitionRequest)
-	in := make(chan *partitionRequest, parallelism)
-	processed := make(chan *partitionsResult, parallelism)
+	in := make(chan *partitionRequest, parallelism*db.opts.NumPartitions)
+	processed := make(chan *partitionsResult, parallelism*db.opts.NumPartitions)
 	out := make(chan *partitionsResult)
 	queued := make(chan int)
 	drained := make(chan bool)
