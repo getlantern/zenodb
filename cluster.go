@@ -15,7 +15,6 @@ import (
 	"github.com/getlantern/zenodb/planner"
 	"github.com/spaolacci/murmur3"
 	"hash"
-	"math"
 	"runtime"
 	"sort"
 	"strings"
@@ -104,7 +103,6 @@ func (db *DB) processFollowers() {
 	followers := make(map[int]*follower)
 	streams := make(map[string]map[string]*partitionSpec)
 	stopWALReaders := make(map[string]func())
-	walEntries := make(chan *walEntry, 10000) // TODO make this and all buffers tunable
 	includedFollowers := make([]int, 0, len(followers))
 
 	stats := make([]int, db.opts.NumPartitions)
@@ -195,6 +193,9 @@ func (db *DB) processFollowers() {
 			}
 			streams = streamsCopy
 
+			oldRequests := requests
+			requests, results = db.startParallelEntryProcessing()
+
 			// Clear out newlyJoinedStreams
 			newlyJoinedStreams = make(map[string]bool)
 			onFollowerJoined(f)
@@ -229,22 +230,17 @@ func (db *DB) processFollowers() {
 				}
 
 				// Start following wal
-				stopWALReader, err := db.followWAL(stream, earliestOffset, walEntries)
+				stopWALReader, err := db.followWAL(stream, earliestOffset, streams[stream], requests)
 				if err != nil {
 					log.Errorf("Unable to start following wal: %v", err)
 					continue
 				}
 				stopWALReaders[stream] = stopWALReader
-			}
 
-			if requests != nil {
-				close(requests)
+				if oldRequests != nil {
+					close(oldRequests)
+				}
 			}
-			requests, results = db.startParallelEntryProcessing()
-
-		case entry := <-walEntries:
-			partitions := streams[entry.stream]
-			requests <- &partitionRequest{partitions, entry}
 
 		case result := <-results:
 			entry := result.entry
@@ -333,11 +329,14 @@ func (r partitionsResultsByOffset) Less(i, j int) bool {
 }
 
 func (db *DB) startParallelEntryProcessing() (chan *partitionRequest, chan *partitionsResult) {
-	// Use up to 1/3 of our CPU capacity for doing this processing
-	parallelism := int(math.Ceil(float64(runtime.NumCPU()) / 3))
+	// Use up to all of our CPU capacity - 1 for doing this processing
+	parallelism := runtime.NumCPU() - 1
+	if parallelism < 1 {
+		parallelism = 1
+	}
 	log.Debugf("Using %d CPUs to process entries for followers", parallelism)
 
-	requests := make(chan *partitionRequest)
+	requests := make(chan *partitionRequest, parallelism*db.opts.NumPartitions*10) // TODO: make this tunable
 	in := make(chan *partitionRequest, parallelism*db.opts.NumPartitions*10)
 	mapped := make(chan *partitionsResult, parallelism*db.opts.NumPartitions*10)
 	results := make(chan *partitionsResult, parallelism*db.opts.NumPartitions*10)
@@ -432,11 +431,9 @@ func (db *DB) reducePartitionRequests(parallelism int, mapped chan *partitionsRe
 	buf := make(partitionsResultsByOffset, 0, parallelism)
 	for numQueued := range queued {
 		buf = buf[:0]
-		log.Debugf("Num queued: %d", numQueued)
 		for q := 0; q < numQueued; q++ {
 			buf = append(buf, <-mapped)
 		}
-		log.Debug("Read queued")
 		sort.Sort(buf)
 		for _, res := range buf {
 			results <- res
@@ -446,7 +443,7 @@ func (db *DB) reducePartitionRequests(parallelism int, mapped chan *partitionsRe
 	close(results)
 }
 
-func (db *DB) followWAL(stream string, offset wal.Offset, entries chan *walEntry) (func(), error) {
+func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]*partitionSpec, requests chan *partitionRequest) (func(), error) {
 	var w *wal.WAL
 	db.tablesMutex.RLock()
 	w = db.streams[stream]
@@ -485,7 +482,7 @@ func (db *DB) followWAL(stream string, offset wal.Offset, entries chan *walEntry
 			dataCopy := make([]byte, len(data))
 			copy(dataCopy, data)
 			select {
-			case entries <- &walEntry{stream: stream, data: dataCopy, offset: r.Offset()}:
+			case requests <- &partitionRequest{partitions, &walEntry{stream: stream, data: dataCopy, offset: r.Offset()}}:
 				// okay
 			case <-stop:
 				return
