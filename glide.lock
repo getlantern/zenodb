@@ -1,12 +1,12 @@
 hash: 21bd82fe4eb8db28aeddbf9623e76debb35218f4c04ab305ef50e2a0d9b9bfaf
-updated: 2017-03-13T13:40:06.351498306-05:00
+updated: 2017-03-14T23:03:35.298972043-05:00
 imports:
 - name: github.com/chzyer/readline
-  version: 8a1389155f133761e8e73b585f47ed27a78b74d5
+  version: 41eea22f717c616615e1e59aa06cf831f9901f35
 - name: github.com/cloudfoundry/gosigar
   version: dfaa4d491586af21e1ce06028df3926389a99654
 - name: github.com/davecgh/go-spew
-  version: 346938d642f2ec3594ed81d874461961cd0faa76
+  version: 04cdfd42973bb9c8589fd6a731800cf222fde1a9
   subpackages:
   - spew
 - name: github.com/dustin/go-humanize
@@ -24,7 +24,7 @@ imports:
 - name: github.com/getlantern/filepersist
   version: c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4
 - name: github.com/getlantern/goexpr
-  version: aa241ecd40bd0bf0c90873cfc7aeca31bc9b6997
+  version: d6b8955ca03d23c95e2954f9a9211e9284454d0f
   subpackages:
   - geo
   - isp
@@ -54,7 +54,7 @@ imports:
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal
-  version: 94824e5b616c1fbf3f47442aecde31e38f317c3a
+  version: b17dbdbead93a94e64755a23855663cd8ff194d5
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/go-ole/go-ole
@@ -80,7 +80,7 @@ imports:
 - name: github.com/jmcvetta/randutil
   version: 2bb1b664bcff821e02b2a0644cd29c7e824d54f8
 - name: github.com/oschwald/geoip2-golang
-  version: 706a710ce5129fb81dadba750aa80d53ca7ba2ca
+  version: 0fd242da7906550802871efe101abfdb1cc550a8
 - name: github.com/oschwald/maxminddb-golang
   version: 697da8075d2061aa8ed639346443f5d3e8c80b30
 - name: github.com/oxtoacart/bpool
@@ -92,7 +92,7 @@ imports:
 - name: github.com/rickar/props
   version: c68a002e87c1dca1be6eebaf289dfe56db65c87e
 - name: github.com/shirou/gopsutil
-  version: d4c8874c1901eea436d4b8df4f67a32a56a1b950
+  version: d8bc9ca755fb1de49d8008b1c7d651f32e7225d1
   subpackages:
   - cpu
   - host
@@ -151,7 +151,7 @@ imports:
   - internal/modules
   - internal/remote_api
 - name: google.golang.org/grpc
-  version: 0713829b980f4ddd276689a36235c5fcc82a21bf
+  version: cdee119ee21e61eef7093a41ba148fa83585e143
   subpackages:
   - codes
   - credentials
@@ -173,7 +173,7 @@ imports:
   - internal/pool
   - internal/proto
 - name: gopkg.in/vmihailenco/msgpack.v2
-  version: a1382b1ce0c749733b814157c245e02cc1f41076
+  version: f784471e11a864303cc098fe5c48af8e79628f3e
   subpackages:
   - codes
 testImports:

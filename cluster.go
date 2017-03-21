@@ -103,7 +103,6 @@ func (db *DB) processFollowers() {
 	streams := make(map[string]map[string]*partitionSpec)
 	stopWALReaders := make(map[string]func())
 	walEntries := make(chan *walEntry, 10000) // TODO make this and all buffers tunable
-	h := partitionHash()
 	includedFollowers := make([]int, 0, len(followers))
 
 	stats := make([]int, db.opts.NumPartitions)
@@ -162,6 +161,8 @@ func (db *DB) processFollowers() {
 		newlyJoinedStreams[f.Stream] = true
 	}
 
+	evalEntry := db.makeEvalEntry()
+
 	for {
 		select {
 		case f := <-db.followerJoined:
@@ -208,30 +209,20 @@ func (db *DB) processFollowers() {
 			}
 
 		case entry := <-walEntries:
-			data := entry.data
-			offset := entry.offset
-			// Skip timestamp
-			_, remain := encoding.Read(data, encoding.Width64bits)
-			dimsLen, remain := encoding.ReadInt32(remain)
-			_dims, remain := encoding.Read(remain, dimsLen)
-			dims := bytemap.ByteMap(_dims)
-
 			partitions := streams[entry.stream]
+			offset := entry.offset
+			result := evalEntry(partitions, entry)
 
 			includedFollowers = includedFollowers[:0]
-			whereResults := make(map[string]bool, 50)
-			for _, partition := range partitions {
-				pid := db.partitionFor(h, dims, partition.keys)
-				for _, table := range partition.tables {
+			for partitionKeys, partition := range partitions {
+				pr := result[partitionKeys]
+				pid := pr.pid
+				for tableName, table := range partition.tables {
 					specs := table.followers[pid]
 					if len(specs) == 0 {
 						continue
 					}
-					wherePassed, found := whereResults[table.whereString]
-					if !found {
-						wherePassed = table.where == nil || table.where.Eval(dims).(bool)
-						whereResults[table.whereString] = wherePassed
-					}
+					wherePassed := pr.wherePassed[tableName]
 					if wherePassed {
 						for _, spec := range specs {
 							if offset.After(spec.offset) {
@@ -277,6 +268,47 @@ func (db *DB) processFollowers() {
 				log.Debugf("Queued for follower %d: %v", f.PartitionNumber, humanize.Comma(int64(len(f.entries))))
 			}
 		}
+	}
+}
+
+type partitionResult struct {
+	pid         int
+	wherePassed map[string]bool
+}
+
+func (db *DB) makeEvalEntry() func(partitions map[string]*partitionSpec, entry *walEntry) map[string]*partitionResult {
+	h := partitionHash()
+	return func(partitions map[string]*partitionSpec, entry *walEntry) map[string]*partitionResult {
+		result := make(map[string]*partitionResult)
+
+		data := entry.data
+		// Skip timestamp
+		_, remain := encoding.Read(data, encoding.Width64bits)
+		dimsLen, remain := encoding.ReadInt32(remain)
+		_dims, _ := encoding.Read(remain, dimsLen)
+		dims := bytemap.ByteMap(_dims)
+
+		whereResults := make(map[string]bool, 50)
+
+		for partitionKeys, partition := range partitions {
+			pid := db.partitionFor(h, dims, partition.keys)
+			pr := &partitionResult{pid: pid, wherePassed: make(map[string]bool, len(partition.tables))}
+			result[partitionKeys] = pr
+			for tableName, table := range partition.tables {
+				specs := table.followers[pid]
+				if len(specs) == 0 {
+					continue
+				}
+				wherePassed, found := whereResults[table.whereString]
+				if !found {
+					wherePassed = table.where == nil || table.where.Eval(dims).(bool)
+					whereResults[table.whereString] = wherePassed
+				}
+				pr.wherePassed[tableName] = wherePassed
+			}
+		}
+
+		return result
 	}
 }
 
