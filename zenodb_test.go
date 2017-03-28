@@ -394,8 +394,9 @@ ORDER BY u DESC
 	}
 
 	var fields core.Fields
-	err = source.Iterate(context.Background(), func(inFields core.Fields) {
+	err = source.Iterate(context.Background(), func(inFields core.Fields) error {
 		fields = inFields
+		return nil
 	}, func(row *core.FlatRow) (bool, error) {
 		rows = append(rows, row)
 		return true, nil

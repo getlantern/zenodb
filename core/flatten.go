@@ -19,10 +19,10 @@ func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRo
 	var fields Fields
 	var numFields int
 
-	return f.source.Iterate(ctx, func(inFields Fields) {
+	return f.source.Iterate(ctx, func(inFields Fields) error {
 		fields = inFields
 		numFields = len(inFields)
-		onFields(inFields)
+		return onFields(inFields)
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var until time.Time
 		var asOf time.Time

@@ -107,7 +107,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 	outFields := g.Fields
 	var inFields Fields
 
-	err := g.source.Iterate(ctx, func(fields Fields) {
+	err := g.source.Iterate(ctx, func(fields Fields) error {
 		inFields = fields
 		// Lazily initialize bytetree
 		if len(outFields) == 0 {
@@ -122,7 +122,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 			g.GetAsOf(),
 			g.GetUntil(),
 		)
-		onFields(outFields)
+		return onFields(outFields)
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		metadata := key
 		key = sliceKey(key)

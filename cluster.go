@@ -706,6 +706,18 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		defer cancel()
 	}
 
+	var firstFields int64
+	oneTimeOnFields := func(fields core.Fields) error {
+		// Only pass onFields from first partition to respond, assuming that all
+		// partitions will return the same thing.
+		// TODO: if we ever push-down crosstab processing, we'll need to combine the
+		// fields from all partitions, since they'll differ
+		if atomic.CompareAndSwapInt64(&firstFields, 0, 1) {
+			return onFields(fields)
+		}
+		return nil
+	}
+
 	for i := 0; i < numPartitions; i++ {
 		partition := i
 		_resultsForPartition := int64(0)
@@ -748,7 +760,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 				}
 
-				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, onFields, newOnRow, newOnFlatRow)
+				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, oneTimeOnFields, newOnRow, newOnFlatRow)
 				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue

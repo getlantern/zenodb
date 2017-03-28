@@ -35,7 +35,7 @@ func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 	var inFields, outFields Fields
 	var numIn, numOut int
 
-	return f.source.Iterate(ctx, func(fields Fields) {
+	return f.source.Iterate(ctx, func(fields Fields) error {
 		inFields = fields
 		outFields = f.fields
 		if len(outFields) == 0 {
@@ -44,7 +44,7 @@ func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 		}
 		numIn = len(inFields)
 		numOut = len(outFields)
-		onFields(outFields)
+		return onFields(outFields)
 	}, func(row *FlatRow) (bool, error) {
 		ts := encoding.TimeFromInt(row.TS)
 		outRow := make(Vals, numOut)

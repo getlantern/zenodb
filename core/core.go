@@ -85,10 +85,11 @@ type Source interface {
 	String() string
 }
 
-type OnFields func(fields Fields)
+type OnFields func(fields Fields) error
 
 // FieldsIgnored is a placeholder for an OnFields that does nothing.
-func FieldsIgnored(fields Fields) {
+func FieldsIgnored(fields Fields) error {
+	return nil
 }
 
 type OnRow func(key bytemap.ByteMap, vals Vals) (bool, error)

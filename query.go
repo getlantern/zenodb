@@ -87,7 +87,10 @@ func (q *queryable) String() string {
 
 func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
 	// We report all fields from the table
-	onFields(q.t.Fields)
+	err := onFields(q.t.Fields)
+	if err != nil {
+		return err
+	}
 
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).

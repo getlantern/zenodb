@@ -435,8 +435,9 @@ LIMIT 1
 
 	verify := func(plan FlatRowSource) {
 		var rows []*FlatRow
-		plan.Iterate(context.Background(), func(fields Fields) {
+		plan.Iterate(context.Background(), func(fields Fields) error {
 			verifyNoHaving(t, fields, plan, sqlString)
+			return nil
 		}, func(row *FlatRow) (bool, error) {
 			rows = append(rows, row)
 			return true, nil
