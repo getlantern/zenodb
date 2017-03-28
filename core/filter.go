@@ -20,8 +20,8 @@ type rowFilter struct {
 	Label   string
 }
 
-func (f *rowFilter) Iterate(ctx context.Context, onRow OnRow) error {
-	return f.source.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+func (f *rowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	return f.source.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var err error
 		key, vals, err = f.Include(ctx, key, vals)
 		if err != nil {
@@ -52,8 +52,8 @@ type flatRowFilter struct {
 	Label   string
 }
 
-func (f *flatRowFilter) Iterate(ctx context.Context, onRow OnFlatRow) error {
-	return f.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
+func (f *flatRowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+	return f.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
 		var err error
 		row, err = f.Include(ctx, row)
 		if err != nil {

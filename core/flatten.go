@@ -14,12 +14,16 @@ type flatten struct {
 	rowTransform
 }
 
-func (f *flatten) Iterate(ctx context.Context, onRow OnFlatRow) error {
-	fields := f.GetFields()
-	numFields := len(fields)
+func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
 	resolution := f.GetResolution()
+	var fields Fields
+	var numFields int
 
-	return f.source.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	return f.source.Iterate(ctx, func(inFields Fields) {
+		fields = inFields
+		numFields = len(inFields)
+		onFields(inFields)
+	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var until time.Time
 		var asOf time.Time
 		// Figure out total time range

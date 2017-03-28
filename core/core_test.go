@@ -40,7 +40,7 @@ func TestRowFilter(t *testing.T) {
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := f.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := f.Iterate(context.Background(), FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		a, _ := vals[0].ValueAt(0, eA)
 		b, _ := vals[1].ValueAt(0, eB)
 		atomic.AddInt64(&totalA, int64(a))
@@ -65,7 +65,7 @@ func TestFlatRowFilter(t *testing.T) {
 	totalA := int64(0)
 	totalB := int64(0)
 
-	err := f.Iterate(context.Background(), func(row *FlatRow) (bool, error) {
+	err := f.Iterate(context.Background(), FieldsIgnored, func(row *FlatRow) (bool, error) {
 		a := row.Values[0]
 		b := row.Values[1]
 		atomic.AddInt64(&totalA, int64(a))
@@ -89,7 +89,7 @@ func TestDeadline(t *testing.T) {
 
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(50*time.Millisecond))
 	defer cancel()
-	err := f.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := f.Iterate(ctx, FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		atomic.AddInt64(&rowsSeen, 1)
 		return true, nil
 	})
@@ -114,7 +114,7 @@ func TestGroupSingle(t *testing.T) {
 	})
 
 	totalByX := make(map[int]float64, 0)
-	err := gx.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := gx.Iterate(context.Background(), FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		total := float64(0)
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
@@ -144,7 +144,7 @@ func TestGroupResolutionOnly(t *testing.T) {
 	})
 
 	total := float64(0)
-	err := gx.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := gx.Iterate(context.Background(), FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
 			val, _ := v.ValueAt(p, eTotal)
@@ -181,7 +181,7 @@ func TestGroupNone(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	err := gx.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := gx.Iterate(ctx, FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		dims := fmt.Sprintf("%d.%d", key.Get("x"), key.Get("y"))
 		val, _ := vals[0].ValueAt(0, eTotal)
 		expectedVal := expectedValues[dims]
@@ -215,7 +215,7 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	var expectedTS time.Time
 	var expectedA float64
 	var expectedB float64
-	err := l.Iterate(context.Background(), func(row *FlatRow) (bool, error) {
+	err := l.Iterate(context.Background(), FieldsIgnored, func(row *FlatRow) (bool, error) {
 		expectedTS, expectedTSs = expectedTSs[0], expectedTSs[1:]
 		expectedA, expectedAs = expectedAs[0], expectedAs[1:]
 		expectedB, expectedBs = expectedBs[0], expectedBs[1:]
@@ -273,7 +273,7 @@ func doTestUnflattened(t *testing.T, u RowSource, ex Expr) {
 		expectedRows = append(expectedRows, expectedRow)
 	}
 
-	err := u.Iterate(context.Background(), func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	err := u.Iterate(context.Background(), FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		row := &testRow{key, vals}
 		for i, expected := range expectedRows {
 			if row.equals(expected) {
@@ -290,7 +290,7 @@ func doTestUnflattened(t *testing.T, u RowSource, ex Expr) {
 
 type testSource struct{}
 
-func (s *testSource) GetFields() Fields {
+func (s *testSource) getFields() Fields {
 	return Fields{NewField("a", eA), NewField("b", eB)}
 }
 
@@ -357,7 +357,8 @@ type goodSource struct {
 	testSource
 }
 
-func (s *goodSource) Iterate(ctx context.Context, onRow OnRow) error {
+func (s *goodSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	onFields(s.getFields())
 	deadline, hasDeadline := ctx.Deadline()
 	hitDeadline := func() bool {
 		return hasDeadline && time.Now().After(deadline)
@@ -393,7 +394,7 @@ type errorSource struct {
 	testSource
 }
 
-func (s *errorSource) Iterate(ctx context.Context, onRow OnRow) error {
+func (s *errorSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
 	return errTest
 }
 
@@ -405,12 +406,12 @@ type totalingSource struct {
 	goodSource
 }
 
-func (s *totalingSource) GetFields() Fields {
+func (s *totalingSource) getFields() Fields {
 	return Fields{totalField}
 }
 
-func (s *totalingSource) Iterate(ctx context.Context, onRow OnRow) error {
-	return s.goodSource.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+func (s *totalingSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	return s.goodSource.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		a, _ := vals[0].ValueAt(0, eA)
 		b, _ := vals[0].ValueAt(0, eB)
 		val := encoding.NewValue(totalField.Expr, vals[0].Until(), Map{"a": a, "b": b}, key)

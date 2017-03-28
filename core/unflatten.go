@@ -23,7 +23,7 @@ func UnflattenOptimized(source FlatRowSource) RowSource {
 			return rs
 		}
 	}
-	return Unflatten(source, source.GetFields()...)
+	return Unflatten(source)
 }
 
 type unflatten struct {
@@ -31,14 +31,23 @@ type unflatten struct {
 	fields Fields
 }
 
-func (f *unflatten) Iterate(ctx context.Context, onRow OnRow) error {
-	inFields := f.source.GetFields()
-	numIn := len(inFields)
-	numFields := len(f.fields)
+func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	var inFields, outFields Fields
+	var numIn, numOut int
 
-	return f.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
+	return f.source.Iterate(ctx, func(fields Fields) {
+		inFields = fields
+		outFields = f.fields
+		if len(outFields) == 0 {
+			// default to inFields
+			outFields = inFields
+		}
+		numIn = len(inFields)
+		numOut = len(outFields)
+		onFields(outFields)
+	}, func(row *FlatRow) (bool, error) {
 		ts := encoding.TimeFromInt(row.TS)
-		outRow := make(Vals, numFields)
+		outRow := make(Vals, numOut)
 		params := expr.Map(make(map[string]float64, numIn))
 		for i, field := range inFields {
 			name := field.Name
@@ -48,17 +57,16 @@ func (f *unflatten) Iterate(ctx context.Context, onRow OnRow) error {
 			}
 			params[name] = row.Values[i]
 		}
-		for i, field := range f.fields {
+		for i, field := range outFields {
 			outRow[i] = encoding.NewValue(field.Expr, ts, params, row.Key)
 		}
 		return onRow(row.Key, outRow)
 	})
 }
 
-func (f *unflatten) GetFields() Fields {
-	return f.fields
-}
-
 func (f *unflatten) String() string {
+	if len(f.fields) == 0 {
+		return "unflatten all"
+	}
 	return fmt.Sprintf("unflatten to %v", f.fields)
 }

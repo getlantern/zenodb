@@ -49,13 +49,6 @@ type group struct {
 	GroupOpts
 }
 
-func (g *group) GetFields() Fields {
-	if len(g.Fields) == 0 {
-		return g.source.GetFields()
-	}
-	return g.Fields
-}
-
 func (g *group) GetGroupBy() []GroupBy {
 	return g.GroupOpts.By
 }
@@ -88,16 +81,7 @@ func (g *group) GetUntil() time.Time {
 	return g.Until
 }
 
-func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
-	bt := bytetree.New(
-		g.GetFields().Exprs(),
-		g.source.GetFields().Exprs(),
-		g.GetResolution(),
-		g.source.GetResolution(),
-		g.GetAsOf(),
-		g.GetUntil(),
-	)
-
+func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(g.By) == 0 {
 		// Wildcard, select all and track all unique dims
@@ -119,7 +103,27 @@ func (g *group) Iterate(ctx context.Context, onRow OnRow) error {
 		}
 	}
 
-	err := g.source.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	var bt *bytetree.Tree
+	outFields := g.Fields
+	var inFields Fields
+
+	err := g.source.Iterate(ctx, func(fields Fields) {
+		inFields = fields
+		// Lazily initialize bytetree
+		if len(outFields) == 0 {
+			// default to input fields
+			outFields = inFields
+		}
+		bt = bytetree.New(
+			outFields.Exprs(),
+			inFields.Exprs(),
+			g.GetResolution(),
+			g.source.GetResolution(),
+			g.GetAsOf(),
+			g.GetUntil(),
+		)
+		onFields(outFields)
+	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		metadata := key
 		key = sliceKey(key)
 		bt.Update(key, vals, nil, metadata)

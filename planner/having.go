@@ -25,14 +25,11 @@ type havingFilter struct {
 	base core.FlatRowSource
 }
 
-func (f *havingFilter) Iterate(ctx context.Context, onRow core.OnFlatRow) error {
-	return f.base.Iterate(ctx, onRow)
-}
-
-func (f *havingFilter) GetFields() core.Fields {
-	// Remove the trailing "_having" field
-	fields := f.base.GetFields()
-	return fields[:len(fields)-1]
+func (f *havingFilter) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnFlatRow) error {
+	return f.base.Iterate(ctx, func(fields core.Fields) {
+		// Remove the trailing "_having" field
+		onFields(fields[:len(fields)-1])
+	}, onRow)
 }
 
 func (f *havingFilter) GetGroupBy() []core.GroupBy {

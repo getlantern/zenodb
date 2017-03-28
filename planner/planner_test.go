@@ -406,20 +406,18 @@ func TestPlans(t *testing.T) {
 		plan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
 			assert.Equal(t, FormatSource(expected[i]()), FormatSource(plan), fmt.Sprintf("Non-clustered: %v: %v", descriptions[i], sqlString))
-			verifyNoHaving(t, plan, sqlString)
 		}
 
 		opts.QueryCluster = queryCluster
 		clusterPlan, err := Plan(sqlString, opts)
 		if assert.NoError(t, err) {
 			assert.Equal(t, FormatSource(expectedCluster[i]()), FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], sqlString))
-			verifyNoHaving(t, plan, sqlString)
 		}
 	}
 }
 
-func verifyNoHaving(t *testing.T, plan Source, sqlString string) {
-	for _, field := range plan.GetFields().Names() {
+func verifyNoHaving(t *testing.T, fields Fields, plan Source, sqlString string) {
+	for _, field := range fields.Names() {
 		if !assert.NotEqual(t, "_having", field, sqlString) {
 			log.Debug(FormatSource(plan))
 		}
@@ -437,7 +435,9 @@ LIMIT 1
 
 	verify := func(plan FlatRowSource) {
 		var rows []*FlatRow
-		plan.Iterate(context.Background(), func(row *FlatRow) (bool, error) {
+		plan.Iterate(context.Background(), func(fields Fields) {
+			verifyNoHaving(t, fields, plan, sqlString)
+		}, func(row *FlatRow) (bool, error) {
 			rows = append(rows, row)
 			return true, nil
 		})
@@ -479,7 +479,7 @@ func defaultOpts() *Opts {
 	}
 }
 
-func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow OnRow, onFlatRow OnFlatRow) error {
+func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields OnFields, onRow OnRow, onFlatRow OnFlatRow) error {
 	parts := partitions(1)
 	for _, part := range parts {
 		opts := defaultOpts()
@@ -495,9 +495,9 @@ func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQue
 			return err
 		}
 		if unflat {
-			return UnflattenOptimized(plan).Iterate(ctx, onRow)
+			return UnflattenOptimized(plan).Iterate(ctx, onFields, onRow)
 		} else {
-			err = plan.Iterate(ctx, onFlatRow)
+			err = plan.Iterate(ctx, onFields, onFlatRow)
 			if err != nil {
 				return err
 			}
@@ -517,10 +517,6 @@ func partitions(num int) []*partition {
 type testTable struct {
 	name   string
 	fields Fields
-}
-
-func (t *testTable) GetFields() Fields {
-	return t.fields
 }
 
 func (t *testTable) GetGroupBy() []GroupBy {
@@ -543,7 +539,9 @@ func (t *testTable) GetPartitionBy() []string {
 	return []string{"x", "y"}
 }
 
-func (t *testTable) Iterate(ctx context.Context, onRow OnRow) error {
+func (t *testTable) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	onFields(t.fields)
+
 	onRow(makeRow(epoch.Add(-9*resolution), 1, 0, 10, 0))
 	onRow(makeRow(epoch.Add(-8*resolution), 0, 3, 0, 20))
 
@@ -588,8 +586,8 @@ type partition struct {
 	numPartitions int
 }
 
-func (t *partition) Iterate(ctx context.Context, onRow OnRow) error {
-	return t.testTable.Iterate(ctx, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+func (t *partition) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	return t.testTable.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		x := key.Get("x")
 		y := key.Get("y")
 		if x != nil {

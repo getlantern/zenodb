@@ -59,7 +59,7 @@ func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) ([]
 					mx.Unlock()
 					return true, nil
 				}
-				err := sqPlan.Iterate(ctx, onRow)
+				err := sqPlan.Iterate(ctx, core.FieldsIgnored, onRow)
 
 				dims := make([]interface{}, 0, len(uniques))
 				if err == nil || err == core.ErrDeadlineExceeded {

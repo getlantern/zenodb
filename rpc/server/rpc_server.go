@@ -120,7 +120,7 @@ func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 	}
 
 	// Send query metadata
-	md := zenodb.MetaDataFor(source)
+	md := zenodb.MetaDataFor(source, fields)
 	err = stream.SendMsg(md)
 	if err != nil {
 		return err
