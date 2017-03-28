@@ -230,6 +230,27 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	}
 }
 
+func TestFlattenAndCrosstab(t *testing.T) {
+	g := Group(&goodSource{}, GroupOpts{
+		By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("_crosstab", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")))},
+		Fields: Fields{NewField("a", eA), NewField("b", eB), NewField("c", CONST(10))},
+	})
+	f := Flatten(g)
+	ct := Crosstab(f)
+	err := ct.Iterate(context.Background(), func(fields Fields) error {
+		t.Log(fields)
+		return nil
+	}, func(row *FlatRow) (bool, error) {
+		t.Log(row.Key.AsMap())
+		t.Log(row.Values)
+		return true, nil
+	})
+
+	if !assert.NoError(t, err) {
+		t.Log(FormatSource(f))
+	}
+}
+
 func TestUnflattenTransform(t *testing.T) {
 	avgTotal := ADD(AVG("a"), AVG("b"))
 	f := Flatten(&goodSource{})

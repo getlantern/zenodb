@@ -29,7 +29,7 @@ var (
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
 	ErrIFArity            = errors.New("The IF function requires two parameters, like IF(dim = 1, SUM(b))")
-	ErrCROSSTABArity      = fmt.Errorf("CROSSTAB allows only one argument")
+	ErrCROSSTABArity      = fmt.Errorf("CROSSTAB requires at least one argument")
 	ErrAggregateArity     = errors.New("Aggregate functions take only one parameter, like SUM(b)")
 	ErrBoundedArity       = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
 	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
@@ -93,7 +93,14 @@ var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexp
 
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CONCAT": goexpr.Concat,
-	"ANY":    goexpr.Any,
+	"CROSSTAB": func(exprs ...goexpr.Expr) goexpr.Expr {
+		// Crosstab expressions are concatenated using underscore
+		allExprs := make([]goexpr.Expr, 1, len(exprs)+1)
+		allExprs[0] = goexpr.Constant("_")
+		allExprs = append(allExprs, exprs...)
+		return goexpr.Concat(allExprs...)
+	},
+	"ANY": goexpr.Any,
 }
 
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {
@@ -417,14 +424,10 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			isCrosstab := ok && strings.EqualFold("CROSSTAB", string(fn.Name))
 			if isCrosstab {
 				log.Trace("Detected crosstab in group by")
-				if len(fn.Exprs) != 1 {
+				if len(fn.Exprs) < 1 {
 					return ErrCROSSTABArity
 				}
-				_subEx, ok := fn.Exprs[0].(*sqlparser.NonStarExpr)
-				if !ok {
-					return ErrWildcardNotAllowed
-				}
-				nestedEx = _subEx.Expr
+				nestedEx = fn
 			} else {
 				log.Trace("Dimension specified in group by")
 				nestedEx = nse.Expr
@@ -433,22 +436,24 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			if err != nil {
 				return err
 			}
+			var name string
 			if isCrosstab {
 				q.Crosstab = ex
+				name = "_crosstab"
 			} else {
-				name := string(nse.As)
-				if len(name) == 0 {
-					cname, ok := nestedEx.(*sqlparser.ColName)
-					if ok {
-						name = string(cname.Name)
-					}
-				}
-				if len(name) == 0 {
-					return fmt.Errorf("Expression %v needs to be named via an AS", nodeToString(nse))
-				}
-				groupBy[name] = core.NewGroupBy(name, ex)
-				groupByNames = append(groupByNames, name)
+				name = string(nse.As)
 			}
+			if len(name) == 0 {
+				cname, ok := nestedEx.(*sqlparser.ColName)
+				if ok {
+					name = string(cname.Name)
+				}
+			}
+			if len(name) == 0 {
+				return fmt.Errorf("Expression %v needs to be named via an AS", nodeToString(nse))
+			}
+			groupBy[name] = core.NewGroupBy(name, ex)
+			groupByNames = append(groupByNames, name)
 		}
 	}
 

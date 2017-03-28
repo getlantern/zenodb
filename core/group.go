@@ -8,6 +8,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/encoding"
+	"sort"
 	"time"
 )
 
@@ -25,6 +26,14 @@ func NewGroupBy(name string, ex goexpr.Expr) GroupBy {
 	}
 }
 
+type sortedGroupBys []GroupBy
+
+func (gbs sortedGroupBys) Len() int      { return len(gbs) }
+func (gbs sortedGroupBys) Swap(i, j int) { gbs[i], gbs[j] = gbs[j], gbs[i] }
+func (gbs sortedGroupBys) Less(i, j int) bool {
+	return gbs[i].Name < gbs[j].Name
+}
+
 func (g GroupBy) String() string {
 	return fmt.Sprintf("%v (%v)", g.Name, g.Expr)
 }
@@ -38,6 +47,7 @@ type GroupOpts struct {
 }
 
 func Group(source RowSource, opts GroupOpts) RowSource {
+	sort.Sort(sortedGroupBys(opts.By))
 	return &group{
 		rowTransform{source},
 		opts,

@@ -64,8 +64,6 @@ type FlatRow struct {
 	Key bytemap.ByteMap
 	// Values for each field
 	Values []float64
-	// For crosstab queries, this contains the total value for each field
-	Totals []float64
 	fields Fields
 }
 

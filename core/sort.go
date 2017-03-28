@@ -58,10 +58,12 @@ func (s *sorter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow
 	rows := orderedRows{
 		orderBy: s.by,
 	}
+
 	err := s.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
 		rows.rows = append(rows.rows, row)
 		return proceed()
 	})
+
 	if err != ErrDeadlineExceeded {
 		deadline, hasDeadline := ctx.Deadline()
 		sort.Sort(rows)
