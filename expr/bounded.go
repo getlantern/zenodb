@@ -2,7 +2,9 @@ package expr
 
 import (
 	"fmt"
+
 	"github.com/getlantern/goexpr"
+	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 // BOUNDED bounds the given expression to min <= val <= max. Any values that
@@ -65,4 +67,15 @@ func (e *bounded) IsConstant() bool {
 
 func (e *bounded) String() string {
 	return fmt.Sprintf("BOUNDED(%v, %v, %v)", e.wrapped, e.min, e.max)
+}
+
+var _ msgpack.CustomEncoder = (*bounded)(nil)
+var _ msgpack.CustomDecoder = (*bounded)(nil)
+
+func (e *bounded) EncodeMsgpack(enc *msgpack.Encoder) error {
+	return enc.Encode(e.wrapped, e.min, e.max)
+}
+
+func (e *bounded) DecodeMsgpack(dec *msgpack.Decoder) error {
+	return dec.Decode(&e.wrapped, &e.min, &e.max)
 }

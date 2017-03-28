@@ -44,6 +44,7 @@ func TestValidateBinary(t *testing.T) {
 }
 
 func doTestCalc(t *testing.T, e Expr, expected float64) {
+	e = msgpacked(t, e)
 	params := Map{
 		"a": 8.8,
 		"b": 4.4,

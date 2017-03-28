@@ -6,19 +6,41 @@ import (
 	"reflect"
 
 	"github.com/getlantern/goexpr"
+	"gopkg.in/vmihailenco/msgpack.v2"
 )
+
+var aggregates = make(map[string]func(wrapped interface{}) *aggregate)
+
+func aggregateFor(name string, wrapped interface{}) *aggregate {
+	ctor, found := aggregates[name]
+	if !found {
+		return nil
+	}
+	return ctor(wrapped)
+}
+
+func registerAggregate(name string, update updateFN, merge updateFN) {
+	aggregates[name] = func(wrapped interface{}) *aggregate {
+		return &aggregate{
+			Name:    name,
+			Wrapped: exprFor(wrapped),
+			update:  update,
+			merge:   merge,
+		}
+	}
+}
 
 type updateFN func(wasSet bool, current float64, next float64) float64
 
 type aggregate struct {
-	name    string
-	wrapped Expr
-	_update updateFN
-	_merge  updateFN
+	Name    string
+	Wrapped Expr
+	update  updateFN
+	merge   updateFN
 }
 
 func (e *aggregate) Validate() error {
-	return validateWrappedInAggregate(e.wrapped)
+	return validateWrappedInAggregate(e.Wrapped)
 }
 
 func validateWrappedInAggregate(wrapped Expr) error {
@@ -33,14 +55,14 @@ func validateWrappedInAggregate(wrapped Expr) error {
 }
 
 func (e *aggregate) EncodedWidth() int {
-	return 1 + width64bits + e.wrapped.EncodedWidth()
+	return 1 + width64bits + e.Wrapped.EncodedWidth()
 }
 
 func (e *aggregate) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	value, wasSet, more := e.load(b)
-	remain, wrappedValue, updated := e.wrapped.Update(more, params, metadata)
+	remain, wrappedValue, updated := e.Wrapped.Update(more, params, metadata)
 	if updated {
-		value = e._update(wasSet, value, wrappedValue)
+		value = e.update(wasSet, value, wrappedValue)
 		e.save(b, value)
 	}
 	return remain, value, updated
@@ -60,7 +82,7 @@ func (e *aggregate) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte)
 	} else {
 		if yWasSet {
 			// Update valueX from valueY
-			valueX = e._merge(true, valueX, valueY)
+			valueX = e.merge(true, valueX, valueY)
 		}
 		b = e.save(b, valueX)
 	}
@@ -102,9 +124,26 @@ func (e *aggregate) save(b []byte, value float64) []byte {
 }
 
 func (e *aggregate) IsConstant() bool {
-	return e.wrapped.IsConstant()
+	return e.Wrapped.IsConstant()
 }
 
 func (e *aggregate) String() string {
-	return fmt.Sprintf("%v(%v)", e.name, e.wrapped)
+	return fmt.Sprintf("%v(%v)", e.Name, e.Wrapped)
+}
+
+func (e *aggregate) DecodeMsgpack(dec *msgpack.Decoder) error {
+	m := make(map[string]interface{})
+	err := dec.Decode(&m)
+	if err != nil {
+		return err
+	}
+	e2 := aggregateFor(m["Name"].(string), m["Wrapped"].(Expr))
+	if e2 == nil {
+		return fmt.Errorf("Unknown aggregate %v", m["Name"])
+	}
+	e.Name = e2.Name
+	e.Wrapped = e2.Wrapped
+	e.update = e2.update
+	e.merge = e2.merge
+	return nil
 }

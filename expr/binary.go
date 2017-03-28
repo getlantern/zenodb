@@ -5,21 +5,43 @@ import (
 	"reflect"
 
 	"github.com/getlantern/goexpr"
+	"gopkg.in/vmihailenco/msgpack.v2"
 )
+
+var binaryExprs = make(map[string]func(left interface{}, right interface{}) *binaryExpr)
+
+func binaryExprFor(op string, left interface{}, right interface{}) *binaryExpr {
+	ctor, found := binaryExprs[op]
+	if !found {
+		return nil
+	}
+	return ctor(left, right)
+}
+
+func registerBinaryExpr(op string, calc calcFN) {
+	binaryExprs[op] = func(left interface{}, right interface{}) *binaryExpr {
+		return &binaryExpr{
+			Op:    op,
+			Left:  exprFor(left),
+			Right: exprFor(right),
+			calc:  calc,
+		}
+	}
+}
 
 type calcFN func(left float64, right float64) float64
 
 type binaryExpr struct {
-	op    string
-	left  Expr
-	right Expr
+	Op    string
+	Left  Expr
+	Right Expr
 	calc  calcFN
 }
 
 func (e *binaryExpr) Validate() error {
-	err := validateWrappedInBinary(e.left)
+	err := validateWrappedInBinary(e.Left)
 	if err == nil {
-		err = validateWrappedInBinary(e.right)
+		err = validateWrappedInBinary(e.Right)
 	}
 	return err
 }
@@ -39,19 +61,19 @@ func validateWrappedInBinary(wrapped Expr) error {
 }
 
 func (e *binaryExpr) EncodedWidth() int {
-	return e.left.EncodedWidth() + e.right.EncodedWidth()
+	return e.Left.EncodedWidth() + e.Right.EncodedWidth()
 }
 
 func (e *binaryExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
-	remain, leftValue, updatedLeft := e.left.Update(b, params, metadata)
-	remain, rightValue, updatedRight := e.right.Update(remain, params, metadata)
+	remain, leftValue, updatedLeft := e.Left.Update(b, params, metadata)
+	remain, rightValue, updatedRight := e.Right.Update(remain, params, metadata)
 	updated := updatedLeft || updatedRight
 	return remain, e.calc(leftValue, rightValue), updated
 }
 
 func (e *binaryExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
-	remainB, remainX, remainY := e.left.Merge(b, x, y)
-	return e.right.Merge(remainB, remainX, remainY)
+	remainB, remainX, remainY := e.Left.Merge(b, x, y)
+	return e.Right.Merge(remainB, remainX, remainY)
 }
 
 func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
@@ -65,10 +87,10 @@ func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
 	}
 
 	// None of sub expressions match top level, build combined ones
-	left := e.left.SubMergers(subs)
-	right := e.right.SubMergers(subs)
+	left := e.Left.SubMergers(subs)
+	right := e.Right.SubMergers(subs)
 	for i := range subs {
-		result[i] = combinedSubMerge(left[i], e.left.EncodedWidth(), right[i])
+		result[i] = combinedSubMerge(left[i], e.Left.EncodedWidth(), right[i])
 	}
 
 	return result
@@ -98,8 +120,8 @@ func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
 }
 
 func (e *binaryExpr) Get(b []byte) (float64, bool, []byte) {
-	valueLeft, leftWasSet, remain := e.left.Get(b)
-	valueRight, rightWasSet, remain := e.right.Get(remain)
+	valueLeft, leftWasSet, remain := e.Left.Get(b)
+	valueRight, rightWasSet, remain := e.Right.Get(remain)
 	if !leftWasSet && !rightWasSet {
 		return 0, false, remain
 	}
@@ -107,9 +129,26 @@ func (e *binaryExpr) Get(b []byte) (float64, bool, []byte) {
 }
 
 func (e *binaryExpr) IsConstant() bool {
-	return e.left.IsConstant() && e.right.IsConstant()
+	return e.Left.IsConstant() && e.Right.IsConstant()
 }
 
 func (e *binaryExpr) String() string {
-	return fmt.Sprintf("(%v %v %v)", e.left, e.op, e.right)
+	return fmt.Sprintf("(%v %v %v)", e.Left, e.Op, e.Right)
+}
+
+func (e *binaryExpr) DecodeMsgpack(dec *msgpack.Decoder) error {
+	m := make(map[string]interface{})
+	err := dec.Decode(&m)
+	if err != nil {
+		return err
+	}
+	e2 := binaryExprFor(m["Op"].(string), m["Left"].(Expr), m["Right"].(Expr))
+	if e2 == nil {
+		return fmt.Errorf("Unknown binary expression %v", m["Op"])
+	}
+	e.Op = e2.Op
+	e.Left = e2.Left
+	e.Right = e2.Right
+	e.calc = e2.calc
+	return nil
 }

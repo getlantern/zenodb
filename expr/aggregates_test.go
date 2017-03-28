@@ -57,6 +57,7 @@ func boundedA() Expr {
 }
 
 func doTestAggregate(t *testing.T, e Expr, expected float64) {
+	e = msgpacked(t, e)
 	params1 := Map{
 		"a": 4.4,
 	}

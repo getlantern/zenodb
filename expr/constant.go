@@ -12,7 +12,7 @@ func CONST(value float64) Expr {
 }
 
 type constant struct {
-	value float64
+	Value float64
 }
 
 func (e *constant) Validate() error {
@@ -24,7 +24,7 @@ func (e *constant) EncodedWidth() int {
 }
 
 func (e *constant) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
-	return b, e.value, false
+	return b, e.Value, false
 }
 
 func (e *constant) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
@@ -36,7 +36,7 @@ func (e *constant) SubMergers(subs []Expr) []SubMerge {
 }
 
 func (e *constant) Get(b []byte) (float64, bool, []byte) {
-	return e.value, true, b
+	return e.Value, true, b
 }
 
 func (e *constant) IsConstant() bool {
@@ -44,5 +44,5 @@ func (e *constant) IsConstant() bool {
 }
 
 func (e *constant) String() string {
-	return fmt.Sprintf("%f", e.value)
+	return fmt.Sprintf("%f", e.Value)
 }

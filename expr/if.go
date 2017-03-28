@@ -2,13 +2,14 @@ package expr
 
 import (
 	"fmt"
+
 	"github.com/getlantern/goexpr"
 )
 
 type ifExpr struct {
-	cond         goexpr.Expr
-	wrapped      Expr
-	encodedWidth int
+	Cond    goexpr.Expr
+	Wrapped Expr
+	Width   int
 }
 
 func IF(cond goexpr.Expr, wrapped interface{}) (Expr, error) {
@@ -17,23 +18,23 @@ func IF(cond goexpr.Expr, wrapped interface{}) (Expr, error) {
 }
 
 func (e *ifExpr) Validate() error {
-	return e.wrapped.Validate()
+	return e.Wrapped.Validate()
 }
 
 func (e *ifExpr) EncodedWidth() int {
-	return e.encodedWidth
+	return e.Width
 }
 
 func (e *ifExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	if e.include(metadata) {
-		return e.wrapped.Update(b, params, metadata)
+		return e.Wrapped.Update(b, params, metadata)
 	}
-	value, _, remain := e.wrapped.Get(b)
+	value, _, remain := e.Wrapped.Get(b)
 	return remain, value, false
 }
 
 func (e *ifExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
-	return e.wrapped.Merge(b, x, y)
+	return e.Wrapped.Merge(b, x, y)
 }
 
 func (e *ifExpr) SubMergers(subs []Expr) []SubMerge {
@@ -50,7 +51,7 @@ func (e *ifExpr) SubMergers(subs []Expr) []SubMerge {
 		return sms
 	}
 
-	sms = e.wrapped.SubMergers(subs)
+	sms = e.Wrapped.SubMergers(subs)
 	for i, sm := range sms {
 		sms[i] = e.condSubMerger(sm)
 	}
@@ -69,25 +70,25 @@ func (e *ifExpr) condSubMerger(wrapped SubMerge) SubMerge {
 }
 
 func (e *ifExpr) subMerge(data []byte, other []byte, metadata goexpr.Params) {
-	e.wrapped.Merge(data, data, other)
+	e.Wrapped.Merge(data, data, other)
 }
 
 func (e *ifExpr) include(metadata goexpr.Params) bool {
-	if metadata == nil || e.cond == nil {
+	if metadata == nil || e.Cond == nil {
 		return true
 	}
-	val := e.cond.Eval(metadata)
+	val := e.Cond.Eval(metadata)
 	return val != nil && val.(bool)
 }
 
 func (e *ifExpr) Get(b []byte) (float64, bool, []byte) {
-	return e.wrapped.Get(b)
+	return e.Wrapped.Get(b)
 }
 
 func (e *ifExpr) IsConstant() bool {
-	return e.wrapped.IsConstant()
+	return e.Wrapped.IsConstant()
 }
 
 func (e *ifExpr) String() string {
-	return fmt.Sprintf("IF(%v, %v)", e.cond, e.wrapped)
+	return fmt.Sprintf("IF(%v, %v)", e.Cond, e.Wrapped)
 }

@@ -9,7 +9,7 @@ func TestField(t *testing.T) {
 	params := Map{
 		"a": 4.4,
 	}
-	f := FIELD("a")
+	f := msgpacked(t, FIELD("a"))
 	b := make([]byte, f.EncodedWidth())
 	_, val, _ := f.Update(b, params, nil)
 	assert.EqualValues(t, 4.4, val)

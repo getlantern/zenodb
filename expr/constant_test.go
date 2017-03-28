@@ -5,7 +5,7 @@ import (
 )
 
 func TestConstant(t *testing.T) {
-	e := CONST(5.5)
+	e := msgpacked(t, CONST(5.5))
 	params := Map{
 		"a": 8.8,
 		"b": 4.4,

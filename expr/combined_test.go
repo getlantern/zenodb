@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/getlantern/goexpr"
+	"github.com/stretchr/testify/assert"
+	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 func TestCombined(t *testing.T) {
@@ -11,7 +13,7 @@ func TestCombined(t *testing.T) {
 	avgB := AVG("b")
 	mult := MULT(avgA, avgB)
 	count := COUNT("b")
-	e := DIV(mult, count)
+	e := msgpacked(t, DIV(mult, count))
 	params1 := Map{
 		"a": 2,
 		"b": 10,
@@ -69,4 +71,17 @@ func TestCombined(t *testing.T) {
 	}
 	val, _, _ = e.Get(be)
 	assertFloatEquals(t, 7.33333333, val)
+}
+
+func msgpacked(t *testing.T, e Expr) Expr {
+	b, err := msgpack.Marshal(e)
+	if !assert.NoError(t, err) {
+		return e
+	}
+	var e2 interface{}
+	err = msgpack.Unmarshal(b, &e2)
+	if !assert.NoError(t, err) {
+		return e
+	}
+	return e2.(Expr)
 }

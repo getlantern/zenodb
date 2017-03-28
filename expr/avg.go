@@ -20,29 +20,29 @@ func WAVG(val interface{}, weight interface{}) Expr {
 }
 
 type avg struct {
-	value  Expr
-	weight Expr
+	Value  Expr
+	Weight Expr
 }
 
 func (e *avg) Validate() error {
-	err := validateWrappedInAggregate(e.value)
+	err := validateWrappedInAggregate(e.Value)
 	if err != nil {
 		return err
 	}
-	if e.weight.EncodedWidth() > 0 {
-		return fmt.Errorf("Weight expression %v must be a constant or directly derived from a field", e.weight)
+	if e.Weight.EncodedWidth() > 0 {
+		return fmt.Errorf("Weight expression %v must be a constant or directly derived from a field", e.Weight)
 	}
 	return nil
 }
 
 func (e *avg) EncodedWidth() int {
-	return width64bits*2 + 1 + e.value.EncodedWidth()
+	return width64bits*2 + 1 + e.Value.EncodedWidth()
 }
 
 func (e *avg) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	count, total, _, remain := e.load(b)
-	remain, value, updated := e.value.Update(remain, params, metadata)
-	remain, weight, _ := e.weight.Update(remain, params, metadata)
+	remain, value, updated := e.Value.Update(remain, params, metadata)
+	remain, weight, _ := e.Weight.Update(remain, params, metadata)
 	if updated {
 		count += weight
 		total += value * weight
@@ -123,9 +123,9 @@ func (e *avg) save(b []byte, count float64, total float64) []byte {
 }
 
 func (e *avg) IsConstant() bool {
-	return e.value.IsConstant()
+	return e.Value.IsConstant()
 }
 
 func (e *avg) String() string {
-	return fmt.Sprintf("AVG(%v)", e.value)
+	return fmt.Sprintf("AVG(%v)", e.Value)
 }

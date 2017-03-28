@@ -11,7 +11,7 @@ func IsField(e Expr) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return f.name, true
+	return f.Name, true
 }
 
 // FIELD creates an Expr that obtains its value from a named field.
@@ -25,7 +25,7 @@ type fieldAccumulator struct {
 }
 
 type field struct {
-	name string
+	Name string
 }
 
 func (e *field) Validate() error {
@@ -37,7 +37,7 @@ func (e *field) EncodedWidth() int {
 }
 
 func (e *field) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
-	val, ok := params.Get(e.name)
+	val, ok := params.Get(e.Name)
 	return b, val, ok
 }
 
@@ -58,5 +58,5 @@ func (e *field) IsConstant() bool {
 }
 
 func (e *field) String() string {
-	return e.name
+	return e.Name
 }
