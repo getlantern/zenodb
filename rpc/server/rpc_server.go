@@ -119,15 +119,12 @@ func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 		return err
 	}
 
-	// Send query metadata
-	md := zenodb.MetaDataFor(source)
-	err = stream.SendMsg(md)
-	if err != nil {
-		return err
-	}
-
 	rr := &rpc.RemoteQueryResult{}
-	err = source.Iterate(stream.Context(), func(row *core.FlatRow) (bool, error) {
+	err = source.Iterate(stream.Context(), func(fields core.Fields) error {
+		// Send query metadata
+		md := zenodb.MetaDataFor(source, fields)
+		return stream.SendMsg(md)
+	}, func(row *core.FlatRow) (bool, error) {
 		rr.Row = row
 		return true, stream.SendMsg(rr)
 	})
@@ -169,7 +166,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		}
 	}
 
-	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 		sendErr := stream.SendMsg(&rpc.Query{
 			SQLString:       sqlString,
 			IsSubQuery:      isSubQuery,
@@ -189,6 +186,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 
 		var finalErr error
 
+		first := true
 		for {
 			// Process current result
 			if recvErr != nil {
@@ -196,13 +194,21 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 				finalErr = errors.New("Unable to receive result: %v", recvErr)
 				break
 			}
-			if m.EndOfResults {
-				break
-			}
-			if unflat {
-				onRow(m.Key, m.Vals)
+
+			if first {
+				// First message contains only fields information
+				onFields(m.Fields)
+				first = false
 			} else {
-				onFlatRow(m.Row)
+				// Subsequent messages contain data
+				if m.EndOfResults {
+					break
+				}
+				if unflat {
+					onRow(m.Key, m.Vals)
+				} else {
+					onFlatRow(m.Row)
+				}
 			}
 
 			// Read next result

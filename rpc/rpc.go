@@ -49,6 +49,7 @@ type Point struct {
 }
 
 type RemoteQueryResult struct {
+	Fields       core.Fields
 	Key          bytemap.ByteMap
 	Vals         core.Vals
 	Row          *core.FlatRow

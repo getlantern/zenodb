@@ -28,11 +28,6 @@ func TestNEQ(t *testing.T) {
 	doTestCond(t, NEQ(SUM("b"), SUM("b")), false)
 }
 
-func TestFUZZY_EQ(t *testing.T) {
-	doTestCond(t, FUZZY_EQ(SUM("a"), SUM("b"), .0001), false)
-	doTestCond(t, FUZZY_EQ(SUM("a"), SUM("b"), .001), true)
-}
-
 func TestGTE(t *testing.T) {
 	doTestCond(t, GTE(SUM("a"), SUM("b")), true)
 	doTestCond(t, GTE(SUM("b"), SUM("a")), false)
@@ -56,6 +51,7 @@ func TestOR(t *testing.T) {
 }
 
 func doTestCond(t *testing.T, e Expr, expected bool) {
+	e = msgpacked(t, e)
 	params := Map{
 		"a": 1.001,
 		"b": 1.0,

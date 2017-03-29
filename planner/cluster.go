@@ -6,6 +6,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -14,7 +15,11 @@ const (
 	backtick = "`"
 )
 
-type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error
+var (
+	replaceCrosstab = regexp.MustCompile(`(?i)CROSSTAB\s*\(([^\)]+)\)`)
+)
+
+type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error
 
 type clusterSource struct {
 	opts          *Opts
@@ -22,7 +27,7 @@ type clusterSource struct {
 	planAsIfLocal core.Source
 }
 
-func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	var subQueryResults [][]interface{}
 	if cs.query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(cs.opts, cs.query)
@@ -37,11 +42,7 @@ func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onRow core.
 		}
 	}
 
-	return cs.opts.QueryCluster(ctx, cs.query.SQL, cs.opts.IsSubQuery, subQueryResults, unflat, onRow, onFlatRow)
-}
-
-func (cs *clusterSource) GetFields() core.Fields {
-	return cs.planAsIfLocal.GetFields()
+	return cs.opts.QueryCluster(ctx, cs.query.SQL, cs.opts.IsSubQuery, subQueryResults, unflat, onFields, onRow, onFlatRow)
 }
 
 func (cs *clusterSource) GetGroupBy() []core.GroupBy {
@@ -64,8 +65,8 @@ type clusterRowSource struct {
 	clusterSource
 }
 
-func (cs *clusterRowSource) Iterate(ctx context.Context, onRow core.OnRow) error {
-	return cs.doIterate(ctx, true, onRow, nil)
+func (cs *clusterRowSource) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
+	return cs.doIterate(ctx, true, onFields, onRow, nil)
 }
 
 func (cs *clusterRowSource) String() string {
@@ -76,9 +77,13 @@ type clusterFlatRowSource struct {
 	clusterSource
 }
 
-func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onFlatRow core.OnFlatRow) error {
-	fields := cs.GetFields()
-	return cs.doIterate(ctx, false, nil, func(row *core.FlatRow) (bool, error) {
+func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onFields core.OnFields, onFlatRow core.OnFlatRow) error {
+	var fields core.Fields
+
+	return cs.doIterate(ctx, false, func(inFields core.Fields) error {
+		fields = inFields
+		return onFields(fields)
+	}, nil, func(row *core.FlatRow) (bool, error) {
 		row.SetFields(fields)
 		return onFlatRow(row)
 	})
@@ -98,9 +103,13 @@ func (cs *clusterFlatRowSource) String() string {
 // further processing, which is much slower than pushdown processing for queries
 // that aggregate heavily.
 func pushdownAllowed(opts *Opts, query *sql.Query) bool {
+	if query.Crosstab != nil {
+		return false
+	}
+
 	if query.FromSubQuery != nil {
-		if len(query.FromSubQuery.OrderBy) > 0 || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
-			// If subquery contains order by, limit or offset, we can't push down
+		if len(query.FromSubQuery.OrderBy) > 0 || query.Crosstab != nil || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
+			// If subquery contains order by, crosstab, limit or offset, we can't push down
 			return false
 		}
 	}
@@ -187,6 +196,9 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		sqlString = sqlString[:indexOfLimit]
 	}
 
+	// Replace CROSSTAB with explicit CONCAT
+	sqlString = replaceCrosstab.ReplaceAllString(sqlString, "CONCAT('_', $1) AS _crosstab")
+
 	pail, err := planAsIfLocal(opts, sqlString)
 	if err != nil {
 		return nil, err
@@ -218,6 +230,9 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	var flat core.FlatRowSource = core.Flatten(addGroupBy(source, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
+	}
+	if query.Crosstab != nil {
+		flat = core.Crosstab(flat)
 	}
 
 	return addOrderLimitOffset(flat, query), nil

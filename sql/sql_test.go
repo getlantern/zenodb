@@ -47,7 +47,7 @@ WHERE
 	RAND() < 0.5
 GROUP BY
 	dim_a,
-	CROSSTAB(dim_b),
+	CROSSTAB(dim_b, dim_ct),
 	ISP(ip) AS isp,
 	ORG(ip) AS org,
 	ASN(ip) AS asn,
@@ -136,8 +136,10 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 15) {
+	if assert.Len(t, q.GroupBy, 16) {
 		idx := 0
+		assert.Equal(t, core.NewGroupBy("_crosstab", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("dim_b"), goexpr.Param("dim_ct"))).String(), q.GroupBy[idx].String())
+		idx++
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
@@ -171,7 +173,7 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[idx])
 	}
 	assert.False(t, q.GroupByAll)
-	assert.Equal(t, goexpr.Param("dim_b"), q.Crosstab)
+	assert.Equal(t, goexpr.Concat(goexpr.Constant("_"), goexpr.Param("dim_b"), goexpr.Param("dim_ct")), q.Crosstab)
 	assert.Equal(t, -60*time.Minute, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
 	if assert.Len(t, q.OrderBy, 3) {
@@ -202,7 +204,7 @@ LIMIT 100, 10
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
 	assert.EqualValues(t, []string{"_points", "a", "b", "bfield", "c", "h", "knownfield", "myfield", "oknownfield", "rate", "x"}, q.IncludedFields)
-	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "dim_l", "dim_m", "dim_n", "dim_o", "dim_p", "dim_q", "ip", "part_a", "part_b"}, q.IncludedDims)
+	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_ct", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "dim_l", "dim_m", "dim_n", "dim_o", "dim_p", "dim_q", "ip", "part_a", "part_b"}, q.IncludedDims)
 }
 
 func TestFromSubQuery(t *testing.T) {

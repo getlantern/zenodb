@@ -106,12 +106,8 @@ func (h *handler) doQuery(sqlString string) (*QueryResult, error) {
 		}
 	}
 
-	fields := rs.GetFields()
-	fieldCardinalities := make([]*hllpp.HLLPP, 0, len(fields))
-	for _, field := range fields {
-		result.Fields = append(result.Fields, field.Name)
-		fieldCardinalities = append(fieldCardinalities, hllpp.New())
-	}
+	var fields core.Fields
+	var fieldCardinalities []*hllpp.HLLPP
 	dimCardinalities := make(map[string]*hllpp.HLLPP)
 	tsCardinality := hllpp.New()
 	cbytes := make([]byte, 8)
@@ -119,7 +115,14 @@ func (h *handler) doQuery(sqlString string) (*QueryResult, error) {
 	var mx sync.Mutex
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
-	rs.Iterate(ctx, func(row *core.FlatRow) (bool, error) {
+	rs.Iterate(ctx, func(inFields core.Fields) error {
+		fields = inFields
+		for _, field := range fields {
+			result.Fields = append(result.Fields, field.Name)
+			fieldCardinalities = append(fieldCardinalities, hllpp.New())
+		}
+		return nil
+	}, func(row *core.FlatRow) (bool, error) {
 		mx.Lock()
 		key := make(map[string]interface{}, 10)
 		row.Key.Iterate(true, true, func(dim string, value interface{}, valueBytes []byte) bool {

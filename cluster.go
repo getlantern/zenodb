@@ -675,19 +675,19 @@ func shouldIncludeMemStore(ctx context.Context) bool {
 	return include != nil && include.(bool)
 }
 
-func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	source, err := db.Query(sqlString, isSubQuery, subQueryResults, shouldIncludeMemStore(ctx))
 	if err != nil {
 		return err
 	}
 	if unflat {
-		return core.UnflattenOptimized(source).Iterate(ctx, onRow)
+		return core.UnflattenOptimized(source).Iterate(ctx, onFields, onRow)
 	} else {
-		return source.Iterate(ctx, onFlatRow)
+		return source.Iterate(ctx, onFields, onFlatRow)
 	}
 }
 
-func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	ctx = withIncludeMemStore(ctx, includeMemStore)
 	numPartitions := db.opts.NumPartitions
 	results := make(chan *remoteResult, numPartitions)
@@ -704,6 +704,18 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		var cancel context.CancelFunc
 		subCtx, cancel = context.WithDeadline(subCtx, now.Add(timeout/2))
 		defer cancel()
+	}
+
+	var firstFields int64
+	oneTimeOnFields := func(fields core.Fields) error {
+		// Only pass onFields from first partition to respond, assuming that all
+		// partitions will return the same thing.
+		// TODO: if we ever push-down crosstab processing, we'll need to combine the
+		// fields from all partitions, since they'll differ
+		if atomic.CompareAndSwapInt64(&firstFields, 0, 1) {
+			return onFields(fields)
+		}
+		return nil
 	}
 
 	for i := 0; i < numPartitions; i++ {
@@ -748,7 +760,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 				}
 
-				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, newOnRow, newOnFlatRow)
+				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, oneTimeOnFields, newOnRow, newOnFlatRow)
 				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue

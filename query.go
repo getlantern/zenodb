@@ -2,7 +2,6 @@ package zenodb
 
 import (
 	"context"
-	"fmt"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
@@ -22,8 +21,8 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 		SubQueryResults: subQueryResults,
 	}
 	if db.opts.Passthrough {
-		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
-			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onRow, onFlatRow)
+		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onFields, onRow, onFlatRow)
 		}
 	}
 	plan, err := planner.Plan(sqlString, opts)
@@ -44,9 +43,9 @@ func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fi
 	return &queryable{t, includedFields(t.Fields), asOf, until, includeMemStore}
 }
 
-func MetaDataFor(source core.FlatRowSource) *common.QueryMetaData {
+func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMetaData {
 	return &common.QueryMetaData{
-		FieldNames: source.GetFields().Names(),
+		FieldNames: fields.Names(),
 		AsOf:       source.GetAsOf(),
 		Until:      source.GetUntil(),
 		Resolution: source.GetResolution(),
@@ -60,11 +59,6 @@ type queryable struct {
 	asOf            time.Time
 	until           time.Time
 	includeMemStore bool
-}
-
-func (q *queryable) GetFields() core.Fields {
-	// We report all fields from the table
-	return q.t.Fields
 }
 
 func (q *queryable) GetGroupBy() []core.GroupBy {
@@ -88,10 +82,16 @@ func (q *queryable) GetPartitionBy() []string {
 }
 
 func (q *queryable) String() string {
-	return fmt.Sprintf("%v (%v)", q.t.Name, q.GetFields().Names())
+	return q.t.Name
 }
 
-func (q *queryable) Iterate(ctx context.Context, onRow core.OnRow) error {
+func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
+	// We report all fields from the table
+	err := onFields(q.t.Fields)
+	if err != nil {
+		return err
+	}
+
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
 	return q.t.iterate(q.fields.Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {

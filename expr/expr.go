@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/getlantern/goexpr"
+	"gopkg.in/vmihailenco/msgpack.v2"
 )
 
 const (
@@ -28,6 +29,16 @@ var (
 	avgType       = reflect.TypeOf((*avg)(nil))
 	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
 )
+
+func init() {
+	msgpack.RegisterExt(50, &field{})
+	msgpack.RegisterExt(51, &constant{})
+	msgpack.RegisterExt(52, &bounded{})
+	msgpack.RegisterExt(53, &aggregate{})
+	msgpack.RegisterExt(54, &ifExpr{})
+	msgpack.RegisterExt(55, &avg{})
+	msgpack.RegisterExt(56, &binaryExpr{})
+}
 
 // Params is an interface for data structures that can contain named values.
 type Params interface {

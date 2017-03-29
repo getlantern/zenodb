@@ -18,10 +18,10 @@ type offset struct {
 	offset int
 }
 
-func (o *offset) Iterate(ctx context.Context, onRow OnFlatRow) error {
+func (o *offset) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
 	idx := int64(0)
 
-	return o.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
+	return o.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
 		newIdx := atomic.AddInt64(&idx, 1)
 		oldIdx := int(newIdx - 1)
 		// TODO: allow stopping iteration here

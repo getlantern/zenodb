@@ -186,6 +186,9 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query pl
 		return nil
 	}
 
+	onFields := func(fields core.Fields) error {
+		return stream.SendMsg(&RemoteQueryResult{Fields: fields})
+	}
 	var onRow core.OnRow
 	var onFlatRow core.OnFlatRow
 
@@ -201,7 +204,7 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query pl
 		}
 	}
 
-	queryErr := query(stream.Context(), q.SQLString, q.IsSubQuery, q.SubQueryResults, q.Unflat, onRow, onFlatRow)
+	queryErr := query(stream.Context(), q.SQLString, q.IsSubQuery, q.SubQueryResults, q.Unflat, onFields, onRow, onFlatRow)
 	result := &RemoteQueryResult{EndOfResults: true}
 	if queryErr != nil && queryErr != io.EOF {
 		result.Error = queryErr.Error()

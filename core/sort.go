@@ -54,14 +54,16 @@ type sorter struct {
 	by []OrderBy
 }
 
-func (s *sorter) Iterate(ctx context.Context, onRow OnFlatRow) error {
+func (s *sorter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
 	rows := orderedRows{
 		orderBy: s.by,
 	}
-	err := s.source.Iterate(ctx, func(row *FlatRow) (bool, error) {
+
+	err := s.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
 		rows.rows = append(rows.rows, row)
 		return proceed()
 	})
+
 	if err != ErrDeadlineExceeded {
 		deadline, hasDeadline := ctx.Deadline()
 		sort.Sort(rows)

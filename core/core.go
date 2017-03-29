@@ -64,8 +64,6 @@ type FlatRow struct {
 	Key bytemap.ByteMap
 	// Values for each field
 	Values []float64
-	// For crosstab queries, this contains the total value for each field
-	Totals []float64
 	fields Fields
 }
 
@@ -74,8 +72,6 @@ func (row *FlatRow) SetFields(fields Fields) {
 }
 
 type Source interface {
-	GetFields() Fields
-
 	GetGroupBy() []GroupBy
 
 	GetResolution() time.Duration
@@ -87,18 +83,25 @@ type Source interface {
 	String() string
 }
 
+type OnFields func(fields Fields) error
+
+// FieldsIgnored is a placeholder for an OnFields that does nothing.
+func FieldsIgnored(fields Fields) error {
+	return nil
+}
+
 type OnRow func(key bytemap.ByteMap, vals Vals) (bool, error)
 
 type RowSource interface {
 	Source
-	Iterate(ctx context.Context, onRow OnRow) error
+	Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error
 }
 
 type OnFlatRow func(flatRow *FlatRow) (bool, error)
 
 type FlatRowSource interface {
 	Source
-	Iterate(ctx context.Context, onRow OnFlatRow) error
+	Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error
 }
 
 type Transform interface {
@@ -107,10 +110,6 @@ type Transform interface {
 
 type rowTransform struct {
 	source RowSource
-}
-
-func (t *rowTransform) GetFields() Fields {
-	return t.source.GetFields()
 }
 
 func (t *rowTransform) GetGroupBy() []GroupBy {
@@ -135,10 +134,6 @@ func (t *rowTransform) GetSource() Source {
 
 type flatRowTransform struct {
 	source FlatRowSource
-}
-
-func (t *flatRowTransform) GetFields() Fields {
-	return t.source.GetFields()
 }
 
 func (t *flatRowTransform) GetGroupBy() []GroupBy {

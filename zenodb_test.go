@@ -89,10 +89,10 @@ func doTestCluster(t *testing.T, partitionBy []string) {
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
 					var register func()
 					register = func() {
-						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 							// Re-register when finished
 							defer register()
-							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onRow, onFlatRow)
+							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, onRow, onFlatRow)
 						})
 					}
 
@@ -392,7 +392,12 @@ ORDER BY u DESC
 	if !assert.NoError(t, err, "Unable to plan SQL query") {
 		return
 	}
-	err = source.Iterate(context.Background(), func(row *core.FlatRow) (bool, error) {
+
+	var fields core.Fields
+	err = source.Iterate(context.Background(), func(inFields core.Fields) error {
+		fields = inFields
+		return nil
+	}, func(row *core.FlatRow) (bool, error) {
 		rows = append(rows, row)
 		return true, nil
 	})
@@ -400,7 +405,7 @@ ORDER BY u DESC
 		return
 	}
 
-	md := MetaDataFor(source)
+	md := MetaDataFor(source, fields)
 	log.Debugf("%v -> %v", md.AsOf, md.Until)
 	log.Debug(spew.Sdump(rows))
 	if !assert.Len(t, rows, 2, "Wrong number of rows, perhaps HAVING isn't working") {
