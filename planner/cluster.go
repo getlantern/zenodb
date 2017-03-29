@@ -6,12 +6,17 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
+	"regexp"
 	"strings"
 	"time"
 )
 
 const (
 	backtick = "`"
+)
+
+var (
+	replaceCrosstab = regexp.MustCompile(`(?i)CROSSTAB\s*\(([^\)]+)\)`)
 )
 
 type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error
@@ -190,6 +195,9 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	} else if indexOfLimit > 0 {
 		sqlString = sqlString[:indexOfLimit]
 	}
+
+	// Replace CROSSTAB with explicit CONCAT
+	sqlString = replaceCrosstab.ReplaceAllString(sqlString, "CONCAT('_', $1) AS _crosstab")
 
 	pail, err := planAsIfLocal(opts, sqlString)
 	if err != nil {

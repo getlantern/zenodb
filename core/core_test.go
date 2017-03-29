@@ -275,6 +275,11 @@ func TestFlattenAndCrosstab(t *testing.T) {
 			TS:     1420070396000000000,
 			Values: []float64{0, 0, 0, 0, 60, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 70},
 		},
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
+			TS:     1420070392000000000,
+			Values: []float64{0, 0, 0, 20, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 30},
+		},
 	}
 
 	g := Group(&goodSource{}, GroupOpts{

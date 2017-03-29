@@ -181,7 +181,7 @@ func TestPlans(t *testing.T) {
 
 	nonPushdownScenario("HAVING clause with complete group by and CROSSTAB, pushdown not allowed",
 		"SELECT * FROM TableA GROUP BY y, x, CROSSTAB(ct1, ct2) HAVING a+b > 0",
-		"select * from TableA group by y, x, crosstab(ct1, ct2)",
+		"select * from TableA group by y, x, concat('_', ct1, ct2) as _crosstab",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				By:     []GroupBy{groupByX, groupByY, NewGroupBy("_crosstab", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Param("ct2")))},

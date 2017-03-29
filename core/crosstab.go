@@ -79,12 +79,14 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 		var priorCT string
 		var currentRow *FlatRow
 		var total float64
+		rowNeedsSubmission := false
+
 		for _, row := range inRows {
 			if hasDeadline && time.Now().After(deadline) {
 				return ErrDeadlineExceeded
 			}
 
-			newRow := !bytes.Equal(row.key, priorKey) || priorTS > row.row.TS
+			newRow := currentRow == nil || !bytes.Equal(row.key, priorKey) || priorTS > row.row.TS
 			newCT := row.ct != priorCT
 			if newRow || newCT {
 				if currentRow != nil {
@@ -94,7 +96,7 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 			}
 
 			if newRow {
-				if currentRow != nil {
+				if rowNeedsSubmission {
 					more, onRowErr := onRow(currentRow)
 					if onRowErr != nil {
 						return onRowErr
@@ -116,6 +118,13 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 				currentRow.Values[fieldIdx] = value
 				total += value
 			}
+			rowNeedsSubmission = true
+		}
+
+		if rowNeedsSubmission {
+			currentRow.Values[numFields-1] = total
+			_, onRowErr := onRow(currentRow)
+			return onRowErr
 		}
 	}
 
