@@ -237,50 +237,47 @@ func TestFlattenAndCrosstab(t *testing.T) {
 		expectedFields = append(expectedFields, NewField(i+"_b", eB))
 		expectedFields = append(expectedFields, NewField(i+"_c", CONST(10)))
 	}
-	expectedFields = append(expectedFields, NewField("total_a", eA))
-	expectedFields = append(expectedFields, NewField("total_b", eB))
-	expectedFields = append(expectedFields, NewField("total_c", CONST(10)))
 
 	expectedRows := []*FlatRow{
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
 			TS:     1420070399000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 90, 0, 10, 90, 0, 10},
+			Values: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 90, 0, 10},
 		},
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
 			TS:     1420070397000000000,
-			Values: []float64{70, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 70, 0, 10},
+			Values: []float64{70, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
 			TS:     1420070395000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 50, 0, 10, 0, 0, 0, 50, 0, 10},
+			Values: []float64{0, 0, 0, 0, 0, 0, 50, 0, 10, 0, 0, 0},
 		},
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
 			TS:     1420070391000000000,
-			Values: []float64{10, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 0, 10},
+			Values: []float64{10, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
 			TS:     1420070400000000000,
-			Values: []float64{0, 0, 0, 0, 100, 10, 0, 0, 0, 0, 0, 0, 0, 100, 10},
+			Values: []float64{0, 0, 0, 0, 100, 10, 0, 0, 0, 0, 0, 0},
 		},
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
 			TS:     1420070398000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 80, 10, 0, 0, 0, 0, 80, 10},
+			Values: []float64{0, 0, 0, 0, 0, 0, 0, 80, 10, 0, 0, 0},
 		},
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
 			TS:     1420070396000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 10, 0, 60, 10},
+			Values: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 10},
 		},
 		&FlatRow{
 			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
 			TS:     1420070392000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 20, 10, 0, 0, 0, 0, 20, 10},
+			Values: []float64{0, 0, 0, 0, 0, 0, 0, 20, 10, 0, 0, 0},
 		},
 	}
 

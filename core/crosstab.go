@@ -48,7 +48,7 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 			cts = append(cts, ct)
 		}
 		sort.Strings(cts)
-		outFields := make(Fields, 0, (numCTs+1)*numInFields)
+		outFields := make(Fields, 0, numCTs*numInFields)
 		ctis := make(map[string]int, 1000)
 		for cti, ct := range cts {
 			ctis[ct] = cti
@@ -56,9 +56,6 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 			for _, field := range inFields {
 				outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", ct, field.Name), field.Expr))
 			}
-		}
-		for _, field := range inFields {
-			outFields = append(outFields, NewField(fmt.Sprintf("total_%v", field.Name), field.Expr))
 		}
 
 		// Let caller know about fields
@@ -101,9 +98,7 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 			cti := ctis[row.ct]
 			for i, value := range row.row.Values {
 				fieldIdx := cti*numInFields + i
-				totalIdx := numCTs*numInFields + i
 				currentRow.Values[fieldIdx] = value
-				currentRow.Values[totalIdx] += value
 			}
 			rowNeedsSubmission = true
 			priorKey = row.key
