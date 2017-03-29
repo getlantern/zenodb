@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/zenodb/expr"
 )
 
 func Crosstab(source FlatRowSource) FlatRowSource {
@@ -38,6 +37,7 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 		return proceed()
 	})
 
+	numInFields := len(inFields)
 	if err != ErrDeadlineExceeded {
 		deadline, hasDeadline := ctx.Deadline()
 
@@ -48,21 +48,17 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 			cts = append(cts, ct)
 		}
 		sort.Strings(cts)
-		outFields := make(Fields, 0, len(cts)*(len(inFields)+1))
+		outFields := make(Fields, 0, (numCTs+1)*numInFields)
 		ctis := make(map[string]int, 1000)
 		for cti, ct := range cts {
 			ctis[ct] = cti
 			ct = strings.Replace(ct, " ", "_", -1)
-			var totalExpr expr.Expr
-			for i, field := range inFields {
+			for _, field := range inFields {
 				outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", ct, field.Name), field.Expr))
-				if i == 0 {
-					totalExpr = field.Expr
-				} else {
-					totalExpr = expr.ADD(totalExpr, field.Expr)
-				}
 			}
-			outFields = append(outFields, NewField(fmt.Sprintf("%v_total", ct), totalExpr))
+		}
+		for _, field := range inFields {
+			outFields = append(outFields, NewField(fmt.Sprintf("total_%v", field.Name), field.Expr))
 		}
 
 		// Let caller know about fields
@@ -76,9 +72,7 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 		numFields := len(outFields)
 		var priorKey bytemap.ByteMap
 		var priorTS int64
-		var priorCT string
 		var currentRow *FlatRow
-		var total float64
 		rowNeedsSubmission := false
 
 		for _, row := range inRows {
@@ -87,14 +81,6 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 			}
 
 			newRow := currentRow == nil || !bytes.Equal(row.key, priorKey) || priorTS > row.row.TS
-			newCT := row.ct != priorCT
-			if newRow || newCT {
-				if currentRow != nil {
-					currentRow.Values[numFields-1] = total
-					total = 0
-				}
-			}
-
 			if newRow {
 				if rowNeedsSubmission {
 					more, onRowErr := onRow(currentRow)
@@ -114,15 +100,15 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 			}
 			cti := ctis[row.ct]
 			for i, value := range row.row.Values {
-				fieldIdx := cti + i
+				fieldIdx := cti*numInFields + i
+				totalIdx := numCTs*numInFields + i
 				currentRow.Values[fieldIdx] = value
-				total += value
+				currentRow.Values[totalIdx] += value
 			}
 			rowNeedsSubmission = true
 		}
 
 		if rowNeedsSubmission {
-			currentRow.Values[numFields-1] = total
 			_, onRowErr := onRow(currentRow)
 			return onRowErr
 		}
