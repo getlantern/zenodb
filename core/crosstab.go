@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/getlantern/bytemap"
@@ -51,6 +52,7 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 		ctis := make(map[string]int, 1000)
 		for cti, ct := range cts {
 			ctis[ct] = cti
+			ct = strings.Replace(ct, " ", "_", -1)
 			var totalExpr expr.Expr
 			for i, field := range inFields {
 				outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", ct, field.Name), field.Expr))

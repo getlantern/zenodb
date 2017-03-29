@@ -29,7 +29,8 @@ var (
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
 	ErrIFArity            = errors.New("The IF function requires two parameters, like IF(dim = 1, SUM(b))")
-	ErrCROSSTABArity      = fmt.Errorf("CROSSTAB requires at least one argument")
+	ErrCROSSTABArity      = errors.New("CROSSTAB requires at least one argument")
+	ErrCROSSTABUnique     = errors.New("Only one CROSSTAB statement allowed per query")
 	ErrAggregateArity     = errors.New("Aggregate functions take only one parameter, like SUM(b)")
 	ErrBoundedArity       = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
 	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
@@ -426,6 +427,9 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 				log.Trace("Detected crosstab in group by")
 				if len(fn.Exprs) < 1 {
 					return ErrCROSSTABArity
+				}
+				if q.Crosstab != nil {
+					return ErrCROSSTABUnique
 				}
 				nestedEx = fn
 			} else {

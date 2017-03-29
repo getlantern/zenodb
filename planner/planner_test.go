@@ -179,6 +179,23 @@ func TestPlans(t *testing.T) {
 					})), "a+b > 0", nil)
 		})
 
+	nonPushdownScenario("HAVING clause with complete group by and CROSSTAB, pushdown not allowed",
+		"SELECT * FROM TableA GROUP BY y, x, CROSSTAB(ct1, ct2) HAVING a+b > 0",
+		"select * from TableA group by y, x, crosstab(ct1, ct2)",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				By:     []GroupBy{groupByX, groupByY, NewGroupBy("_crosstab", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Param("ct2")))},
+				Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
+			})
+		},
+		func(source RowSource) Source {
+			return Crosstab(FlatRowFilter(Flatten(source), "a+b > 0", nil))
+		},
+		GroupOpts{
+			By:     []GroupBy{groupByX, groupByY, NewGroupBy("_crosstab", goexpr.Param("_crosstab"))},
+			Fields: Fields{sql.PointsField, fieldA, fieldB, fieldHaving},
+		})
+
 	avgTotal := NewField("total", ADD(AVG("a"), AVG("b")))
 	pushdownScenario("HAVING clause with complete group by and subselect, pushdown allowed",
 		"SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, x) HAVING a+b > 0",

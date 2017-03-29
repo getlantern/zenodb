@@ -173,6 +173,10 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		flat = addHaving(flat, query)
 	}
 
+	if query.Crosstab != nil {
+		flat = core.Crosstab(flat)
+	}
+
 	return addOrderLimitOffset(flat, query), nil
 }
 

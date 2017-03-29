@@ -98,9 +98,13 @@ func (cs *clusterFlatRowSource) String() string {
 // further processing, which is much slower than pushdown processing for queries
 // that aggregate heavily.
 func pushdownAllowed(opts *Opts, query *sql.Query) bool {
+	if query.Crosstab != nil {
+		return false
+	}
+
 	if query.FromSubQuery != nil {
-		if len(query.FromSubQuery.OrderBy) > 0 || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
-			// If subquery contains order by, limit or offset, we can't push down
+		if len(query.FromSubQuery.OrderBy) > 0 || query.Crosstab != nil || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
+			// If subquery contains order by, crosstab, limit or offset, we can't push down
 			return false
 		}
 	}
@@ -218,6 +222,9 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	var flat core.FlatRowSource = core.Flatten(addGroupBy(source, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
+	}
+	if query.Crosstab != nil {
+		flat = core.Crosstab(flat)
 	}
 
 	return addOrderLimitOffset(flat, query), nil
