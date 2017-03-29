@@ -42,7 +42,7 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 
 		numCTs := len(uniqueCTs)
 		// Build crosstab fields
-		cts := make([]string, numCTs)
+		cts := make([]string, 0, numCTs)
 		for ct := range uniqueCTs {
 			cts = append(cts, ct)
 		}

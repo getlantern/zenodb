@@ -231,6 +231,52 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 }
 
 func TestFlattenAndCrosstab(t *testing.T) {
+	expectedFields := Fields{}
+	for _, i := range []string{"1", "2", "3", "5"} {
+		expectedFields = append(expectedFields, NewField(i+"_a", eA))
+		expectedFields = append(expectedFields, NewField(i+"_b", eB))
+		expectedFields = append(expectedFields, NewField(i+"_c", CONST(10)))
+		expectedFields = append(expectedFields, NewField(i+"_total", ADD(ADD(eA, eB), CONST(10))))
+	}
+
+	expectedRows := []*FlatRow{
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
+			TS:     1420070399000000000,
+			Values: []float64{0, 0, 0, 90, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 100},
+		},
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
+			TS:     1420070397000000000,
+			Values: []float64{70, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 80},
+		},
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
+			TS:     1420070395000000000,
+			Values: []float64{0, 0, 50, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60},
+		},
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
+			TS:     1420070391000000000,
+			Values: []float64{10, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 20},
+		},
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
+			TS:     1420070400000000000,
+			Values: []float64{0, 0, 100, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 110},
+		},
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
+			TS:     1420070398000000000,
+			Values: []float64{0, 0, 0, 80, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 90},
+		},
+		&FlatRow{
+			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
+			TS:     1420070396000000000,
+			Values: []float64{0, 0, 0, 0, 60, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 70},
+		},
+	}
+
 	g := Group(&goodSource{}, GroupOpts{
 		By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("_crosstab", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")))},
 		Fields: Fields{NewField("a", eA), NewField("b", eB), NewField("c", CONST(10))},
@@ -238,11 +284,18 @@ func TestFlattenAndCrosstab(t *testing.T) {
 	f := Flatten(g)
 	ct := Crosstab(f)
 	err := ct.Iterate(context.Background(), func(fields Fields) error {
-		t.Log(fields)
+		if assert.Equal(t, len(expectedFields), len(fields)) {
+			for i, expected := range expectedFields {
+				assert.Equal(t, expected.String(), fields[i].String())
+			}
+		}
 		return nil
 	}, func(row *FlatRow) (bool, error) {
-		t.Log(row.Key.AsMap())
-		t.Log(row.Values)
+		expectedRow := expectedRows[0]
+		expectedRows = expectedRows[1:]
+		assert.Equal(t, expectedRow.TS, row.TS)
+		assert.EqualValues(t, expectedRow.Key, row.Key)
+		assert.EqualValues(t, expectedRow.Values, row.Values)
 		return true, nil
 	})
 
