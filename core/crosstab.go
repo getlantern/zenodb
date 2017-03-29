@@ -106,6 +106,8 @@ func (c *crosstabber) Iterate(ctx context.Context, onFields OnFields, onRow OnFl
 				currentRow.Values[totalIdx] += value
 			}
 			rowNeedsSubmission = true
+			priorKey = row.key
+			priorTS = row.row.TS
 		}
 
 		if rowNeedsSubmission {
