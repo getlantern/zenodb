@@ -227,13 +227,15 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 			return onFieldsErr
 		}
 
-		walkErr = bt.Walk(0, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
-			more, iterErr := onRow(key, data)
-			if iterErr == nil && hasDeadline && time.Now().After(deadline) {
-				iterErr = ErrDeadlineExceeded
-			}
-			return more, true, iterErr
-		})
+		if bt != nil {
+			walkErr = bt.Walk(0, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
+				more, iterErr := onRow(key, data)
+				if iterErr == nil && hasDeadline && time.Now().After(deadline) {
+					iterErr = ErrDeadlineExceeded
+				}
+				return more, true, iterErr
+			})
+		}
 	}
 
 	if walkErr != nil {

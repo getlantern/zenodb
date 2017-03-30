@@ -89,17 +89,24 @@ func (sfs StaticFieldSource) String() string {
 	return fmt.Sprint(Fields(sfs))
 }
 
-// CombinedFieldSource is a FieldSource that combines multiple FieldSources
+// CombinedFieldSource is a FieldSource that combines multiple FieldSources and
+// ensures that a field is not repeated.
 type CombinedFieldSource []FieldSource
 
 func (cfs CombinedFieldSource) Get(known Fields) (Fields, error) {
 	var combined Fields
+	names := make(map[string]bool)
 	for _, source := range cfs {
 		fields, err := source.Get(known)
 		if err != nil {
 			return nil, err
 		}
-		combined = append(combined, fields...)
+		for _, field := range fields {
+			if !names[field.Name] {
+				combined = append(combined, field)
+				names[field.Name] = true
+			}
+		}
 	}
 	return combined, nil
 }

@@ -32,10 +32,10 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 	return plan, nil
 }
 
-func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) core.Fields, includeMemStore bool) (*queryable, error) {
+func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) (core.Fields, error), includeMemStore bool) (*queryable, error) {
 	t := db.getTable(table)
 	if t == nil {
-		return nil
+		return nil, nil
 	}
 	until := encoding.RoundTimeUp(db.clock.Now(), t.Resolution)
 	asOf := encoding.RoundTimeUp(until.Add(-1*t.RetentionPeriod), t.Resolution)
@@ -43,7 +43,7 @@ func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fi
 	if err != nil {
 		return nil, err
 	}
-	return &queryable{t, included, asOf, until, includeMemStore}
+	return &queryable{t, included, asOf, until, includeMemStore}, nil
 }
 
 func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMetaData {

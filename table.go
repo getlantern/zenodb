@@ -64,6 +64,7 @@ type TableOpts struct {
 type table struct {
 	*TableOpts
 	sql.Query
+	Fields              core.Fields
 	db                  *DB
 	rowStore            *rowStore
 	log                 golog.Logger
@@ -79,11 +80,15 @@ type table struct {
 
 // CreateTable creates a table based on the given opts.
 func (db *DB) CreateTable(opts *TableOpts) error {
-	q, err := sql.Parse(opts.SQL, nil)
+	q, err := sql.Parse(opts.SQL)
 	if err != nil {
 		return err
 	}
-	return db.doCreateTable(opts, q)
+	fields, err := q.Fields.Get(nil)
+	if err != nil {
+		return err
+	}
+	return db.doCreateTable(opts, q, fields)
 }
 
 // CreateView creates a view based on the given opts.
@@ -98,7 +103,7 @@ func (db *DB) CreateView(opts *TableOpts) error {
 	if t == nil {
 		return fmt.Errorf("Table '%v' not found", table)
 	}
-	q, err := sql.Parse(opts.SQL, db.getFieldsOptional)
+	q, err := sql.Parse(opts.SQL)
 	if err != nil {
 		return err
 	}
@@ -133,10 +138,15 @@ func (db *DB) CreateView(opts *TableOpts) error {
 		}
 	}
 
-	return db.doCreateTable(opts, q)
+	fields, err := q.Fields.Get(t.Fields)
+	if err != nil {
+		return err
+	}
+
+	return db.doCreateTable(opts, q, fields)
 }
 
-func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
+func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query, fields core.Fields) error {
 	if !opts.Virtual {
 		if opts.RetentionPeriod <= 0 {
 			return errors.New("Please specify a positive RetentionPeriod")
@@ -152,19 +162,19 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query) error {
 	opts.Name = strings.ToLower(opts.Name)
 
 	// prepend a magic _points field
-	newFields := make([]core.Field, 0, len(q.Fields)+1)
+	newFields := make([]core.Field, 0, len(fields)+1)
 	newFields = append(newFields, sql.PointsField)
-	for _, field := range q.Fields {
+	for _, field := range fields {
 		// Don't add _points twice
 		if field.Name != "_points" {
 			newFields = append(newFields, field)
 		}
 	}
-	q.Fields = newFields
 
 	t := &table{
 		TableOpts: opts,
 		Query:     *q,
+		Fields:    newFields,
 		db:        db,
 		log:       golog.LoggerFor("zenodb." + opts.Name),
 	}
