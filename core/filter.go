@@ -6,7 +6,7 @@ import (
 	"github.com/getlantern/bytemap"
 )
 
-func RowFilter(source RowSource, label string, include func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error)) RowSource {
+func RowFilter(source RowSource, label string, include func(ctx context.Context, key bytemap.ByteMap, fields Fields, vals Vals) (bytemap.ByteMap, Vals, error)) RowSource {
 	return &rowFilter{
 		rowTransform{source},
 		include,
@@ -16,14 +16,18 @@ func RowFilter(source RowSource, label string, include func(ctx context.Context,
 
 type rowFilter struct {
 	rowTransform
-	Include func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error)
+	Include func(ctx context.Context, key bytemap.ByteMap, fields Fields, vals Vals) (bytemap.ByteMap, Vals, error)
 	Label   string
 }
 
 func (f *rowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
-	return f.source.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	var fields Fields
+	return f.source.Iterate(ctx, func(inFields Fields) error {
+		fields = inFields
+		return onFields(inFields)
+	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var err error
-		key, vals, err = f.Include(ctx, key, vals)
+		key, vals, err = f.Include(ctx, key, fields, vals)
 		if err != nil {
 			return false, err
 		}
@@ -38,7 +42,7 @@ func (f *rowFilter) String() string {
 	return fmt.Sprintf("rowFilter %v", f.Label)
 }
 
-func FlatRowFilter(source FlatRowSource, label string, include func(ctx context.Context, row *FlatRow) (*FlatRow, error)) FlatRowSource {
+func FlatRowFilter(source FlatRowSource, label string, include func(ctx context.Context, row *FlatRow, fields Fields) (*FlatRow, error)) FlatRowSource {
 	return &flatRowFilter{
 		flatRowTransform{source},
 		include,
@@ -48,14 +52,18 @@ func FlatRowFilter(source FlatRowSource, label string, include func(ctx context.
 
 type flatRowFilter struct {
 	flatRowTransform
-	Include func(ctx context.Context, row *FlatRow) (*FlatRow, error)
+	Include func(ctx context.Context, row *FlatRow, fields Fields) (*FlatRow, error)
 	Label   string
 }
 
 func (f *flatRowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
-	return f.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
+	var fields Fields
+	return f.source.Iterate(ctx, func(inFields Fields) error {
+		fields = inFields
+		return onFields(inFields)
+	}, func(row *FlatRow) (bool, error) {
 		var err error
-		row, err = f.Include(ctx, row)
+		row, err = f.Include(ctx, row, fields)
 		if err != nil {
 			return false, err
 		}

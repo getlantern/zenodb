@@ -29,7 +29,7 @@ var (
 )
 
 func TestRowFilter(t *testing.T) {
-	f := RowFilter(&goodSource{}, "test", func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
+	f := RowFilter(&goodSource{}, "test", func(ctx context.Context, key bytemap.ByteMap, fields Fields, vals Vals) (bytemap.ByteMap, Vals, error) {
 		x := key.Get("x")
 		if x != nil && x.(int)%2 == 0 {
 			return key, vals, nil
@@ -54,7 +54,7 @@ func TestRowFilter(t *testing.T) {
 }
 
 func TestFlatRowFilter(t *testing.T) {
-	f := FlatRowFilter(Flatten(&goodSource{}), "test", func(ctx context.Context, row *FlatRow) (*FlatRow, error) {
+	f := FlatRowFilter(Flatten(&goodSource{}), "test", func(ctx context.Context, row *FlatRow, fields Fields) (*FlatRow, error) {
 		x := row.Key.Get("x")
 		if x != nil && x.(int)%2 == 0 {
 			return row, nil
@@ -79,7 +79,7 @@ func TestFlatRowFilter(t *testing.T) {
 }
 
 func TestDeadline(t *testing.T) {
-	f := RowFilter(&goodSource{}, "deadline", func(ctx context.Context, key bytemap.ByteMap, vals Vals) (bytemap.ByteMap, Vals, error) {
+	f := RowFilter(&goodSource{}, "deadline", func(ctx context.Context, key bytemap.ByteMap, fields Fields, vals Vals) (bytemap.ByteMap, Vals, error) {
 		// Slow things down by sleeping for a bit
 		time.Sleep(100 * time.Millisecond)
 		return key, vals, nil
@@ -102,7 +102,7 @@ func TestGroupSingle(t *testing.T) {
 	eTotal := ADD(eA, eB)
 	gx := Group(&goodSource{}, GroupOpts{
 		By: []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
-		Fields: Fields{
+		Fields: StaticFieldSource{
 			Field{
 				Name: "total",
 				Expr: eTotal,
@@ -114,7 +114,15 @@ func TestGroupSingle(t *testing.T) {
 	})
 
 	totalByX := make(map[int]float64, 0)
-	err := gx.Iterate(context.Background(), FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+	var fields Fields
+	err := gx.Iterate(context.Background(), func(inFields Fields) error {
+		fields = inFields
+		return nil
+	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		t.Log(key.AsMap())
+		for i, field := range fields {
+			t.Log(vals[i].String(field.Expr, resolution*2))
+		}
 		total := float64(0)
 		v := vals[0]
 		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
@@ -130,11 +138,98 @@ func TestGroupSingle(t *testing.T) {
 	assert.EqualValues(t, 140, totalByX[2])
 }
 
+func TestGroupCrosstabSingle(t *testing.T) {
+	eAdd := ADD(eA, eB)
+	addField := Field{
+		Name: "add",
+		Expr: eAdd,
+	}
+
+	expectedFields := Fields{}
+	for _, i := range []string{"1", "2", "3", "5"} {
+		cond, err := goexpr.Binary("=", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")), goexpr.Constant(i))
+		if !assert.NoError(t, err) {
+			return
+		}
+		ifex, err := IF(cond, eAdd)
+		if !assert.NoError(t, err) {
+			return
+		}
+		expectedFields = append(expectedFields, NewField(i+"_add", ifex))
+	}
+	expectedFields = append(expectedFields, NewField("total_add", eAdd))
+
+	expectedKeys := []bytemap.ByteMap{
+		bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
+		bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
+	}
+
+	expectedRows := [][][]float64{
+		[][]float64{
+			[]float64{70, 0},
+			[]float64{0, 0},
+			[]float64{0, 50},
+			[]float64{0, 0},
+			[]float64{70, 50},
+		},
+		[][]float64{
+			[]float64{0, 0},
+			[]float64{0, 0},
+			[]float64{80, 0},
+			[]float64{0, 60},
+			[]float64{80, 60},
+		},
+	}
+
+	gx := Group(&goodSource{}, GroupOpts{
+		By:         []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
+		Crosstab:   goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")),
+		Fields:     StaticFieldSource{addField},
+		Resolution: resolution * 2,
+		AsOf:       asOf.Add(2 * resolution),
+		Until:      until.Add(-2 * resolution),
+	})
+
+	var fields Fields
+	err := gx.Iterate(context.Background(), func(inFields Fields) error {
+		fields = inFields
+		if assert.Equal(t, len(expectedFields), len(fields)) {
+			for i, expected := range expectedFields {
+				assert.Equal(t, expected.String(), fields[i].String())
+			}
+		}
+		return nil
+	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		expectedKey := expectedKeys[0]
+		expectedKeys = expectedKeys[1:]
+		expectedRow := expectedRows[0]
+		expectedRows = expectedRows[1:]
+		assert.EqualValues(t, expectedKey, key)
+		if assert.Equal(t, len(expectedRow), len(vals)) {
+			for i, expected := range expectedRow {
+				val := vals[i]
+				field := fields[i]
+				if assert.Equal(t, len(expected), val.NumPeriods(field.Expr.EncodedWidth())) {
+					for j, f := range expected {
+						actual, _ := val.ValueAt(j, field.Expr)
+						assert.Equal(t, f, actual)
+					}
+				}
+			}
+		}
+		return true, nil
+	})
+
+	if !assert.NoError(t, err) {
+		t.Log(FormatSource(gx))
+	}
+}
+
 func TestGroupResolutionOnly(t *testing.T) {
 	eTotal := ADD(eA, eB)
 	gx := Group(&goodSource{}, GroupOpts{
 		By: []GroupBy{NewGroupBy("_", goexpr.Constant("_"))},
-		Fields: Fields{
+		Fields: StaticFieldSource{
 			Field{
 				Name: "total",
 				Expr: eTotal,
@@ -162,7 +257,7 @@ func TestGroupResolutionOnly(t *testing.T) {
 func TestGroupNone(t *testing.T) {
 	eTotal := ADD(eA, eB)
 	gx := Group(&goodSource{}, GroupOpts{
-		Fields: Fields{
+		Fields: StaticFieldSource{
 			Field{
 				Name: "total",
 				Expr: eTotal,
@@ -198,7 +293,7 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	// TODO: add test that tests flattening of rows that contain multiple periods
 	// worth of values
 	g := Group(&goodSource{}, GroupOpts{
-		Fields: Fields{NewField("a", eA), NewField("b", eB), NewField("c", CONST(10))},
+		Fields: StaticFieldSource{NewField("a", eA), NewField("b", eB), NewField("c", CONST(10))},
 	})
 	f := Flatten(g)
 	s := Sort(f, NewOrderBy("b", true), NewOrderBy("a", false))
@@ -230,88 +325,10 @@ func TestFlattenSortOffsetAndLimit(t *testing.T) {
 	}
 }
 
-func TestFlattenAndCrosstab(t *testing.T) {
-	expectedFields := Fields{}
-	for _, i := range []string{"1", "2", "3", "5"} {
-		expectedFields = append(expectedFields, NewField(i+"_a", eA))
-		expectedFields = append(expectedFields, NewField(i+"_b", eB))
-		expectedFields = append(expectedFields, NewField(i+"_c", CONST(10)))
-	}
-
-	expectedRows := []*FlatRow{
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
-			TS:     1420070399000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 90, 0, 10},
-		},
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
-			TS:     1420070397000000000,
-			Values: []float64{70, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		},
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
-			TS:     1420070395000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 50, 0, 10, 0, 0, 0},
-		},
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
-			TS:     1420070391000000000,
-			Values: []float64{10, 0, 10, 0, 0, 0, 0, 0, 0, 0, 0, 0},
-		},
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
-			TS:     1420070400000000000,
-			Values: []float64{0, 0, 0, 0, 100, 10, 0, 0, 0, 0, 0, 0},
-		},
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
-			TS:     1420070398000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 80, 10, 0, 0, 0},
-		},
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
-			TS:     1420070396000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 60, 10},
-		},
-		&FlatRow{
-			Key:    bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
-			TS:     1420070392000000000,
-			Values: []float64{0, 0, 0, 0, 0, 0, 0, 20, 10, 0, 0, 0},
-		},
-	}
-
-	g := Group(&goodSource{}, GroupOpts{
-		By:     []GroupBy{NewGroupBy("x", goexpr.Param("x")), NewGroupBy("_crosstab", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")))},
-		Fields: Fields{NewField("a", eA), NewField("b", eB), NewField("c", CONST(10))},
-	})
-	f := Flatten(g)
-	ct := Crosstab(f)
-	err := ct.Iterate(context.Background(), func(fields Fields) error {
-		if assert.Equal(t, len(expectedFields), len(fields)) {
-			for i, expected := range expectedFields {
-				assert.Equal(t, expected.String(), fields[i].String())
-			}
-		}
-		return nil
-	}, func(row *FlatRow) (bool, error) {
-		expectedRow := expectedRows[0]
-		expectedRows = expectedRows[1:]
-		assert.Equal(t, expectedRow.TS, row.TS)
-		assert.EqualValues(t, expectedRow.Key, row.Key)
-		assert.EqualValues(t, expectedRow.Values, row.Values)
-		return true, nil
-	})
-
-	if !assert.NoError(t, err) {
-		t.Log(FormatSource(f))
-	}
-}
-
 func TestUnflattenTransform(t *testing.T) {
 	avgTotal := ADD(AVG("a"), AVG("b"))
 	f := Flatten(&goodSource{})
-	u := Unflatten(f, NewField("total", avgTotal))
+	u := Unflatten(f, StaticFieldSource{NewField("total", avgTotal)})
 	doTestUnflattened(t, u, avgTotal)
 }
 

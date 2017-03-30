@@ -20,7 +20,6 @@ import (
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
-	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/rickar/props"
@@ -270,22 +269,6 @@ func (db *DB) getTable(table string) *table {
 
 func (db *DB) now(table string) time.Time {
 	return db.clock.Now()
-}
-
-func (db *DB) getFields(table string) (core.Fields, error) {
-	t := db.getTable(table)
-	if t == nil {
-		return nil, fmt.Errorf("Table '%v' not found", table)
-	}
-	return t.Fields, nil
-}
-
-func (db *DB) getFieldsOptional(table string) (core.Fields, error) {
-	t := db.getTable(table)
-	if t == nil {
-		return nil, nil
-	}
-	return t.Fields, nil
 }
 
 func (db *DB) capWALAge(wal *wal.WAL) {

@@ -23,16 +23,15 @@ type Table interface {
 }
 
 type Opts struct {
-	GetTable        func(table string, includedFields func(tableFields core.Fields) core.Fields) Table
+	GetTable        func(table string, includedFields func(tableFields core.Fields) (core.Fields, error)) (Table, error)
 	Now             func(table string) time.Time
-	FieldSource     sql.FieldSource
 	IsSubQuery      bool
 	SubQueryResults [][]interface{}
 	QueryCluster    QueryClusterFN
 }
 
 func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
-	query, err := sql.Parse(sqlString, opts.FieldSource)
+	query, err := sql.Parse(sqlString)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +39,10 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	fixupSubQuery(query, opts)
 
 	if opts.QueryCluster != nil {
-		allowPushdown := pushdownAllowed(opts, query)
+		allowPushdown, err := pushdownAllowed(opts, query)
+		if err != nil {
+			return nil, err
+		}
 		if allowPushdown {
 			return planClusterPushdown(opts, query)
 		}
@@ -61,19 +63,24 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		if err != nil {
 			return nil, err
 		}
-		source = core.Unflatten(subSource, query.Fields...)
+		source = core.Unflatten(subSource, query.Fields)
 	} else {
-		source = opts.GetTable(query.From, func(tableFields core.Fields) core.Fields {
+		var sourceErr error
+		source, sourceErr = opts.GetTable(query.From, func(tableFields core.Fields) (core.Fields, error) {
 			if query.HasSelectAll {
 				// For SELECT *, include all table fields
-				return tableFields
+				return tableFields, nil
 			}
 
 			tableExprs := tableFields.Exprs()
 
 			// Otherwise, figure out minimum set of fields needed by query
 			includedFields := make([]bool, len(tableFields))
-			for _, field := range query.Fields {
+			fields, err := query.Fields.Get(tableFields)
+			if err != nil {
+				return nil, err
+			}
+			for _, field := range fields {
 				sms := field.Expr.SubMergers(tableExprs)
 				for i, sm := range sms {
 					if sm != nil {
@@ -83,7 +90,11 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 			}
 
 			if query.Having != nil {
-				sms := query.Having.SubMergers(tableExprs)
+				having, err := query.Having.Get(append(tableFields, fields...))
+				if err != nil {
+					return nil, err
+				}
+				sms := having.SubMergers(tableExprs)
 				for i, sm := range sms {
 					if sm != nil {
 						includedFields[i] = true
@@ -91,15 +102,19 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 				}
 			}
 
-			fields := make(core.Fields, 0, len(tableFields))
+			result := make(core.Fields, 0, len(tableFields))
 			for i, included := range includedFields {
 				if included {
-					fields = append(fields, tableFields[i])
+					result = append(result, tableFields[i])
 				}
 			}
 
-			return fields
+			return result, nil
 		})
+
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
 	}
 
 	now := opts.Now(query.From)
@@ -148,7 +163,7 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		}
 
 		hasRunSubqueries := int32(0)
-		source = core.RowFilter(source, query.WhereSQL, func(ctx context.Context, key bytemap.ByteMap, vals core.Vals) (bytemap.ByteMap, core.Vals, error) {
+		source = core.RowFilter(source, query.WhereSQL, func(ctx context.Context, key bytemap.ByteMap, fields core.Fields, vals core.Vals) (bytemap.ByteMap, core.Vals, error) {
 			if atomic.CompareAndSwapInt32(&hasRunSubqueries, 0, 1) {
 				_, err := runSubQueries(ctx)
 				if err != nil && err != core.ErrDeadlineExceeded {
@@ -173,37 +188,26 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		flat = addHaving(flat, query)
 	}
 
-	if query.Crosstab != nil {
-		flat = core.Crosstab(flat)
-	}
-
 	return addOrderLimitOffset(flat, query), nil
 }
 
 func fixupSubQuery(query *sql.Query, opts *Opts) {
 	if opts.IsSubQuery {
 		// Change field to _points field
-		query.Fields[0] = sql.PointsField
+		query.Fields = core.StaticFieldSource{sql.PointsField}
 	}
 }
 
 func needsGroupBy(query *sql.Query) bool {
-	return !query.GroupByAll || query.HasSpecificFields || query.Having != nil
+	return !query.GroupByAll || query.HasSpecificFields || query.Having != nil || query.Crosstab != nil
 }
 
 func addGroupBy(source core.RowSource, query *sql.Query) core.RowSource {
-	// Need to do a group by
-	fields := query.Fields
-	if query.Having != nil {
-		// Add having to fields
-		fields = make(core.Fields, 0, len(query.Fields))
-		fields = append(fields, query.Fields...)
-		fields = append(fields, core.NewField("_having", query.Having))
-	}
-
 	return core.Group(source, core.GroupOpts{
 		By:         query.GroupBy,
-		Fields:     fields,
+		Crosstab:   query.Crosstab,
+		Having:     query.Having,
+		Fields:     query.Fields,
 		Resolution: query.Resolution,
 		AsOf:       query.AsOf,
 		Until:      query.Until,

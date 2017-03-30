@@ -102,15 +102,15 @@ func (cs *clusterFlatRowSource) String() string {
 // is not allowed, the entire subquery result set is returned to the leader for
 // further processing, which is much slower than pushdown processing for queries
 // that aggregate heavily.
-func pushdownAllowed(opts *Opts, query *sql.Query) bool {
+func pushdownAllowed(opts *Opts, query *sql.Query) (bool, error) {
 	if query.Crosstab != nil {
-		return false
+		return false, nil
 	}
 
 	if query.FromSubQuery != nil {
 		if len(query.FromSubQuery.OrderBy) > 0 || query.Crosstab != nil || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
 			// If subquery contains order by, crosstab, limit or offset, we can't push down
-			return false
+			return false, nil
 		}
 	}
 
@@ -127,9 +127,12 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 			break
 		}
 		if current.FromSubQuery == nil {
-			t := opts.GetTable(current.From, func(fields core.Fields) core.Fields {
-				return fields
+			t, err := opts.GetTable(current.From, func(tableFields core.Fields) (core.Fields, error) {
+				return tableFields, nil
 			})
+			if err != nil {
+				return false, err
+			}
 			for _, groupBy := range t.GetGroupBy() {
 				groupBy.Expr.WalkOneToOneParams(func(param string) {
 					params[param] = true
@@ -141,9 +144,12 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 	var partitionBy []string
 	for current := query; current != nil; current = current.FromSubQuery {
 		if current.FromSubQuery == nil {
-			t := opts.GetTable(current.From, func(fields core.Fields) core.Fields {
-				return fields
+			t, err := opts.GetTable(current.From, func(tableFields core.Fields) (core.Fields, error) {
+				return tableFields, nil
 			})
+			if err != nil {
+				return false, err
+			}
 			partitionBy = t.GetPartitionBy()
 			break
 		}
@@ -151,17 +157,20 @@ func pushdownAllowed(opts *Opts, query *sql.Query) bool {
 
 	if len(partitionBy) == 0 {
 		// Table not partitioned, can't push down
-		return false
+		return false, nil
 	}
 
 	for _, partitionKey := range partitionBy {
 		if !params[partitionKey] {
 			// Partition key not represented, can't push down
-			return false
+			return false, nil
 		}
 	}
 
-	return query.FromSubQuery == nil || pushdownAllowed(opts, query.FromSubQuery)
+	if query.FromSubQuery == nil {
+		return true, nil
+	}
+	return pushdownAllowed(opts, query.FromSubQuery)
 }
 
 func planClusterPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
@@ -196,15 +205,18 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		sqlString = sqlString[:indexOfLimit]
 	}
 
-	// Replace CROSSTAB with explicit CONCAT
-	sqlString = replaceCrosstab.ReplaceAllString(sqlString, "CONCAT('_', $1) AS _crosstab")
+	if query.Crosstab != nil {
+		// Replace CROSSTAB with explicit CONCAT
+		sqlString = replaceCrosstab.ReplaceAllString(sqlString, "CONCAT('_', $1) AS _crosstab")
+		query.Crosstab = core.ClusterCrosstab
+	}
 
 	pail, err := planAsIfLocal(opts, sqlString)
 	if err != nil {
 		return nil, err
 	}
 
-	clusterQuery, parseErr := sql.Parse(sqlString, opts.FieldSource)
+	clusterQuery, parseErr := sql.Parse(sqlString)
 	if parseErr != nil {
 		return nil, parseErr
 	}
@@ -226,13 +238,12 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	if query.Resolution > pail.GetResolution() {
 		query.Resolution = pail.GetResolution()
 	}
+	// Pass through fields since the remote query already has the correct ones
+	query.Fields = core.PassthroughFieldSource
 	query.GroupBy = flattenedGroupBys
-	var flat core.FlatRowSource = core.Flatten(addGroupBy(source, query))
+	flat := core.Flatten(addGroupBy(source, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
-	}
-	if query.Crosstab != nil {
-		flat = core.Crosstab(flat)
 	}
 
 	return addOrderLimitOffset(flat, query), nil
@@ -243,7 +254,7 @@ func planAsIfLocal(opts *Opts, sqlString string) (core.FlatRowSource, error) {
 	*unclusteredOpts = *opts
 	unclusteredOpts.QueryCluster = nil
 
-	query, parseErr := sql.Parse(sqlString, opts.FieldSource)
+	query, parseErr := sql.Parse(sqlString)
 	if parseErr != nil {
 		return nil, parseErr
 	}
