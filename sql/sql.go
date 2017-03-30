@@ -144,7 +144,7 @@ func (sq *SubQuery) Values() []goexpr.Expr {
 type Query struct {
 	SQL string
 	// Fields are the fields from the SELECT clause in the order they appear.
-	Fields            core.Fields
+	Fields            core.FieldSource
 	HasSelectAll      bool
 	HasSpecificFields bool
 	// From is the Table from the FROM clause
@@ -163,27 +163,11 @@ type Query struct {
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
 	Crosstab  goexpr.Expr
-	Having    expr.Expr
+	Having    core.ExprSource
 	HavingSQL string
 	OrderBy   []core.OrderBy
 	Offset    int
 	Limit     int
-	// IncludedFields are the names of all knownFields included in this query.
-	IncludedFields []string
-	includedFields map[string]bool
-	// IncludedDims are the names of all the dimensions needed by this query
-	IncludedDims []string
-	includedDims map[string]bool
-	fieldSource  FieldSource
-	knownFields  core.Fields
-	fieldsMap    map[string]core.Field
-}
-
-// FieldSource is a function that returns the known fields for a given table.
-type FieldSource func(table string) (core.Fields, error)
-
-func noopFieldSource(table string) (core.Fields, error) {
-	return core.Fields{}, nil
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -196,48 +180,28 @@ func TableFor(sql string) (string, error) {
 	return strings.ToLower(nodeToString(stmt.From[0])), nil
 }
 
-// Parse parses a SQL statement and returns a corresponding *Query object. If
-// a FieldSource is supplied, existing fields will be referenced based on it.
-func Parse(sql string, fieldSource FieldSource) (*Query, error) {
+// Parse parses a SQL statement and returns a corresponding *Query object.
+func Parse(sql string) (*Query, error) {
 	parsed, err := sqlparser.Parse(sql)
 	if err != nil {
 		return nil, err
 	}
-	return parse(parsed.(*sqlparser.Select), fieldSource)
+	return parse(parsed.(*sqlparser.Select))
 }
 
-func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
-	if fieldSource == nil {
-		fieldSource = noopFieldSource
-	}
+func parse(stmt *sqlparser.Select) (*Query, error) {
 	q := &Query{
-		SQL:            nodeToString(stmt),
-		fieldsMap:      make(map[string]core.Field),
-		fieldSource:    fieldSource,
-		includedFields: make(map[string]bool),
-		includedDims:   make(map[string]bool),
+		SQL: nodeToString(stmt),
 	}
-	// Always include "_points"
-	q.includedFields[PointsField.Name] = true
-	err := q.applyFrom(stmt, fieldSource)
+	err := q.applyFrom(stmt)
 	if err != nil {
 		return nil, err
 	}
-	if q.FromSubQuery != nil {
-		q.knownFields = q.FromSubQuery.Fields
-	} else {
-		q.knownFields, err = fieldSource(q.From)
-		if err != nil {
-			return nil, err
-		}
-	}
-	for _, field := range q.knownFields {
-		q.fieldsMap[field.Name] = field
-	}
+	q.checkForFields(stmt)
 	if len(stmt.SelectExprs) > 0 {
-		err = q.applySelect(stmt)
-		if err != nil {
-			return nil, err
+		q.Fields = &selectClause{
+			stmt:    stmt,
+			fielded: fielded{sql: nodeToString(stmt.SelectExprs)},
 		}
 	}
 	if stmt.Where != nil {
@@ -256,9 +220,11 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = q.applyHaving(stmt)
-	if err != nil {
-		return nil, err
+	if stmt.Having != nil {
+		q.Having = &havingClause{
+			stmt:    stmt,
+			fielded: fielded{sql: nodeToString(stmt.Having.Expr)},
+		}
 	}
 	err = q.applyOrderBy(stmt)
 	if err != nil {
@@ -268,66 +234,102 @@ func parse(stmt *sqlparser.Select, fieldSource FieldSource) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	q.processInclusions()
 	return q, nil
 }
 
-func (q *Query) applySelect(stmt *sqlparser.Select) error {
+func (q *Query) checkForFields(stmt *sqlparser.Select) {
 	for _, _e := range stmt.SelectExprs {
+		if nodeToString(_e) == "_" {
+			// Ignore underscore
+			continue
+		}
+		switch _e.(type) {
+		case *sqlparser.StarExpr:
+			q.HasSelectAll = true
+		case *sqlparser.NonStarExpr:
+			q.HasSpecificFields = true
+		}
+	}
+}
+
+type fielded struct {
+	fieldsMap map[string]core.Field
+	sql       string
+}
+
+func (f *fielded) init(known core.Fields) {
+	f.fieldsMap = make(map[string]core.Field)
+	for _, field := range known {
+		f.fieldsMap[field.Name] = field
+	}
+}
+
+func (f *fielded) String() string {
+	return f.sql
+}
+
+type selectClause struct {
+	stmt *sqlparser.Select
+	fielded
+}
+
+func (s *selectClause) Get(known core.Fields) (core.Fields, error) {
+	s.init(known)
+
+	var fields core.Fields
+	for _, _e := range s.stmt.SelectExprs {
 		if nodeToString(_e) == "_" {
 			// Ignore underscore
 			continue
 		}
 		switch e := _e.(type) {
 		case *sqlparser.StarExpr:
-			q.HasSelectAll = true
-			for _, field := range q.knownFields {
-				q.addField(field)
-				q.includedFields[field.Name] = true
+			for _, field := range known {
+				fields = s.addField(fields, field)
 			}
 		case *sqlparser.NonStarExpr:
-			q.HasSpecificFields = true
 			if len(e.As) == 0 {
 				col, isColName := e.Expr.(*sqlparser.ColName)
 				if !isColName {
-					return ErrSelectNoName
+					return nil, ErrSelectNoName
 				}
 				e.As = col.Name
 			}
-			_fe, err := q.exprFor(e.Expr, true)
+			_fe, err := s.exprFor(e.Expr, true)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			fe, ok := _fe.(expr.Expr)
 			if !ok {
-				return fmt.Errorf("Not an Expr: %v", _fe)
+				return nil, fmt.Errorf("Not an Expr: %v", _fe)
 			}
 			err = fe.Validate()
 			if err != nil {
-				return fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
+				return nil, fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
 			}
-			q.addField(core.NewField(strings.ToLower(string(e.As)), fe.(expr.Expr)))
+			fields = s.addField(fields, core.NewField(strings.ToLower(string(e.As)), fe.(expr.Expr)))
 		}
 	}
 
-	return nil
+	return fields, nil
 }
 
-func (q *Query) addField(field core.Field) {
+func (s *selectClause) addField(fields core.Fields, field core.Field) core.Fields {
 	fieldAlreadySelected := false
-	for _, existingField := range q.Fields {
+	for _, existingField := range fields {
 		if existingField.Name == field.Name {
 			fieldAlreadySelected = true
 			break
 		}
 	}
 	if !fieldAlreadySelected {
-		q.Fields = append(q.Fields, field)
-		q.fieldsMap[field.Name] = field
+		fields = append(fields, field)
+		s.fieldsMap[field.Name] = field
 	}
+	return fields
 }
 
-func (q *Query) applyFrom(stmt *sqlparser.Select, fieldSource FieldSource) error {
+func (q *Query) applyFrom(stmt *sqlparser.Select) error {
 	q.FromSQL = nodeToString(stmt.From)
 	switch f := stmt.From[0].(type) {
 	case *sqlparser.AliasedTableExpr:
@@ -336,7 +338,7 @@ func (q *Query) applyFrom(stmt *sqlparser.Select, fieldSource FieldSource) error
 			subSQL := nodeToString(stmt.From[0])
 			subSQL = subSQL[1:]
 			subSQL = subSQL[:len(subSQL)-1]
-			subQuery, err := Parse(subSQL, fieldSource)
+			subQuery, err := Parse(subSQL)
 			if err != nil {
 				return fmt.Errorf("Unable to parse subquery: %v", err)
 			}
@@ -355,7 +357,7 @@ func (q *Query) applyFrom(stmt *sqlparser.Select, fieldSource FieldSource) error
 }
 
 func (q *Query) applyWhere(stmt *sqlparser.Select) error {
-	where, err := q.goExprFor(stmt.Where.Expr)
+	where, err := goExprFor(stmt.Where.Expr)
 	if err != nil {
 		return err
 	}
@@ -436,28 +438,26 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 				log.Trace("Dimension specified in group by")
 				nestedEx = nse.Expr
 			}
-			ex, err := q.goExprFor(nestedEx)
+			ex, err := goExprFor(nestedEx)
 			if err != nil {
 				return err
 			}
-			var name string
 			if isCrosstab {
 				q.Crosstab = ex
-				name = "_crosstab"
 			} else {
-				name = string(nse.As)
-			}
-			if len(name) == 0 {
-				cname, ok := nestedEx.(*sqlparser.ColName)
-				if ok {
-					name = string(cname.Name)
+				name := string(nse.As)
+				if len(name) == 0 {
+					cname, ok := nestedEx.(*sqlparser.ColName)
+					if ok {
+						name = string(cname.Name)
+					}
 				}
+				if len(name) == 0 {
+					return fmt.Errorf("Expression %v needs to be named via an AS", nodeToString(nse))
+				}
+				groupBy[name] = core.NewGroupBy(name, ex)
+				groupByNames = append(groupByNames, name)
 			}
-			if len(name) == 0 {
-				return fmt.Errorf("Expression %v needs to be named via an AS", nodeToString(nse))
-			}
-			groupBy[name] = core.NewGroupBy(name, ex)
-			groupByNames = append(groupByNames, name)
 		}
 	}
 
@@ -473,31 +473,26 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 	return nil
 }
 
-func (q *Query) applyHaving(stmt *sqlparser.Select) error {
-	if stmt.Having != nil {
-		filter, _ := q.exprFor(stmt.Having.Expr, true)
-		log.Tracef("Applying having: %v", filter)
-		q.Having = filter.(expr.Expr)
-		err := q.Having.Validate()
-		if err != nil {
-			return fmt.Errorf("Invalid expression for HAVING clause: %v", err)
-		}
-		q.HavingSQL = nodeToString(stmt.Having.Expr)
+type havingClause struct {
+	stmt *sqlparser.Select
+	fielded
+}
+
+func (h *havingClause) Get(known core.Fields) (expr.Expr, error) {
+	h.init(known)
+	filter, _ := h.exprFor(h.stmt.Having.Expr, true)
+	log.Tracef("Applying having: %v", filter)
+	having := filter.(expr.Expr)
+	err := having.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("Invalid expression for HAVING clause: %v", err)
 	}
-	return nil
+	return having, nil
 }
 
 func (q *Query) applyOrderBy(stmt *sqlparser.Select) error {
 	for _, _e := range stmt.OrderBy {
 		field := nodeToString(_e.Expr)
-		// If we're selecting a known field from the table, add it to the select
-		// clause.
-		for _, known := range q.knownFields {
-			if field == known.Name {
-				q.addField(known)
-				break
-			}
-		}
 		desc := strings.EqualFold("desc", _e.Direction)
 		q.OrderBy = append(q.OrderBy, core.NewOrderBy(field, desc))
 	}
@@ -528,20 +523,19 @@ func (q *Query) applyLimit(stmt *sqlparser.Select) error {
 	return nil
 }
 
-func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, error) {
+func (f *fielded) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, error) {
 	if log.IsTraceEnabled() {
 		log.Tracef("Parsing expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
 	switch e := _e.(type) {
 	case *sqlparser.ColName:
 		name := strings.ToLower(string(e.Name))
-		q.includedFields[name] = true
 		// Default to a sum over the field
 		ex := expr.FIELD(name)
 		if !defaultToSum {
 			return ex, nil
 		}
-		f, found := q.fieldsMap[name]
+		f, found := f.fieldsMap[name]
 		if found {
 			// Use existing expression referenced by this name
 			return f.Expr, nil
@@ -561,11 +555,11 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 			if !ok {
 				return nil, ErrWildcardNotAllowed
 			}
-			valueEx, valueErr := q.exprFor(_valueEx.Expr, true)
+			valueEx, valueErr := f.exprFor(_valueEx.Expr, true)
 			if valueErr != nil {
 				return nil, valueErr
 			}
-			boolEx, boolErr := q.goExprFor(condEx.Expr)
+			boolEx, boolErr := goExprFor(condEx.Expr)
 			if boolErr != nil {
 				return nil, boolErr
 			}
@@ -587,7 +581,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 			if !ok {
 				return nil, ErrWildcardNotAllowed
 			}
-			wrapped, err := q.exprFor(param0.Expr, defaultToSum)
+			wrapped, err := f.exprFor(param0.Expr, defaultToSum)
 			if err != nil {
 				return nil, err
 			}
@@ -603,7 +597,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		}
 		switch len(e.Exprs) {
 		case 1:
-			f, ok := aggregateFuncs[fname]
+			fn, ok := aggregateFuncs[fname]
 			if !ok {
 				return nil, fmt.Errorf("Unknown function '%v'", fname)
 			}
@@ -612,13 +606,13 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 			if !ok {
 				return nil, ErrWildcardNotAllowed
 			}
-			se, err := q.exprFor(_param.Expr, false)
+			se, err := f.exprFor(_param.Expr, false)
 			if err != nil {
 				return nil, err
 			}
-			return f(se), nil
+			return fn(se), nil
 		case 2:
-			f, ok := binaryAggregateFuncs[fname]
+			fn, ok := binaryAggregateFuncs[fname]
 			if !ok {
 				return nil, fmt.Errorf("Unknown function '%v'", fname)
 			}
@@ -631,15 +625,15 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 			if !ok {
 				return nil, ErrWildcardNotAllowed
 			}
-			se1, err := q.exprFor(_param1.Expr, false)
+			se1, err := f.exprFor(_param1.Expr, false)
 			if err != nil {
 				return nil, err
 			}
-			se2, err := q.exprFor(_param2.Expr, false)
+			se2, err := f.exprFor(_param2.Expr, false)
 			if err != nil {
 				return nil, err
 			}
-			return f(se1, se2), nil
+			return fn(se1, se2), nil
 		default:
 			return nil, ErrAggregateArity
 		}
@@ -653,11 +647,11 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		if !ok {
 			return nil, fmt.Errorf("Unknown condition %v", _op)
 		}
-		left, err := q.exprFor(e.Left, true)
+		left, err := f.exprFor(e.Left, true)
 		if err != nil {
 			return nil, err
 		}
-		right, err := q.exprFor(e.Right, true)
+		right, err := f.exprFor(e.Right, true)
 		if err != nil {
 			return nil, err
 		}
@@ -671,11 +665,11 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		if !ok {
 			return nil, fmt.Errorf("Unknown operator %v", _op)
 		}
-		left, err := q.exprFor(e.Left, true)
+		left, err := f.exprFor(e.Left, true)
 		if err != nil {
 			return nil, err
 		}
-		right, err := q.exprFor(e.Right, true)
+		right, err := f.exprFor(e.Right, true)
 		if err != nil {
 			return nil, err
 		}
@@ -684,23 +678,23 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 		// For some reason addition comes through as a single element ValTuple, just
 		// extract the first expression and continue.
 		log.Tracef("Returning wrapped expression for ValTuple: %s", _e)
-		return q.exprFor(e[0], defaultToSum)
+		return f.exprFor(e[0], defaultToSum)
 	case *sqlparser.AndExpr:
-		left, err := q.exprFor(e.Left, true)
+		left, err := f.exprFor(e.Left, true)
 		if err != nil {
 			return "", err
 		}
-		right, err := q.exprFor(e.Right, true)
+		right, err := f.exprFor(e.Right, true)
 		if err != nil {
 			return "", err
 		}
 		return expr.AND(left, right), nil
 	case *sqlparser.OrExpr:
-		left, err := q.exprFor(e.Left, true)
+		left, err := f.exprFor(e.Left, true)
 		if err != nil {
 			return "", err
 		}
-		right, err := q.exprFor(e.Right, true)
+		right, err := f.exprFor(e.Right, true)
 		if err != nil {
 			return "", err
 		}
@@ -708,7 +702,7 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 	case *sqlparser.ParenBoolExpr:
 		// TODO: make sure that we don't need to worry about parens in our
 		// expression tree
-		return q.exprFor(e.Expr, defaultToSum)
+		return f.exprFor(e.Expr, defaultToSum)
 	case sqlparser.NumVal:
 		fl, _ := strconv.ParseFloat(nodeToString(_e), 64)
 		return expr.CONST(fl), nil
@@ -719,42 +713,42 @@ func (q *Query) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, erro
 	}
 }
 
-func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
+func goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	if log.IsTraceEnabled() {
 		log.Tracef("Parsing goexpr of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
 	switch e := _e.(type) {
 	case *sqlparser.AndExpr:
-		left, err := q.goExprFor(e.Left)
+		left, err := goExprFor(e.Left)
 		if err != nil {
 			return nil, err
 		}
-		right, err := q.goExprFor(e.Right)
+		right, err := goExprFor(e.Right)
 		if err != nil {
 			return nil, err
 		}
 		return goexpr.Binary("AND", left, right)
 	case *sqlparser.OrExpr:
-		left, err := q.goExprFor(e.Left)
+		left, err := goExprFor(e.Left)
 		if err != nil {
 			return nil, err
 		}
-		right, err := q.goExprFor(e.Right)
+		right, err := goExprFor(e.Right)
 		if err != nil {
 			return nil, err
 		}
 		return goexpr.Binary("OR", left, right)
 	case *sqlparser.ParenBoolExpr:
-		return q.goExprFor(e.Expr)
+		return goExprFor(e.Expr)
 	case *sqlparser.NotExpr:
-		wrapped, err := q.goExprFor(e.Expr)
+		wrapped, err := goExprFor(e.Expr)
 		if err != nil {
 			return nil, err
 		}
 		return goexpr.Not(wrapped), nil
 	case *sqlparser.ComparisonExpr:
 		op := strings.ToUpper(e.Operator)
-		left, err := q.goExprFor(e.Left)
+		left, err := goExprFor(e.Left)
 		if err != nil {
 			return nil, err
 		}
@@ -764,7 +758,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			case sqlparser.ValTuple:
 				list := make(goexpr.ArrayList, 0, len(_right))
 				for _, ve := range _right {
-					valE, valErr := q.goExprFor(ve)
+					valE, valErr := goExprFor(ve)
 					if valErr != nil {
 						return nil, valErr
 					}
@@ -776,20 +770,24 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				if !ok {
 					return nil, fmt.Errorf("Subquery requires a SELECT statement")
 				}
-				_sq, parseErr := parse(stmt, q.fieldSource)
+				_sq, parseErr := parse(stmt)
 				if parseErr != nil {
 					return nil, fmt.Errorf("In subquery %v: %v", nodeToString(stmt), parseErr)
 				}
-				if len(_sq.Fields) != 1 {
+				fields, fieldsErr := _sq.Fields.Get(nil)
+				if fieldsErr != nil {
+					return nil, fieldsErr
+				}
+				if len(fields) != 1 {
 					return nil, fmt.Errorf("Subqueries must select at exactly 1 dimension")
 				}
-				right = &SubQuery{Dim: _sq.Fields[0].Name, SQL: nodeToString(stmt)}
+				right = &SubQuery{Dim: fields[0].Name, SQL: nodeToString(stmt)}
 			default:
 				return nil, fmt.Errorf("IN requires a list of values on the right hand side, not %v %v", reflect.TypeOf(e.Right), nodeToString(e.Right))
 			}
 			return goexpr.In(left, right), nil
 		}
-		right, err := q.goExprFor(e.Right)
+		right, err := goExprFor(e.Right)
 		if err != nil {
 			return nil, err
 		}
@@ -800,7 +798,6 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		if err == nil {
 			return goexpr.Constant(bl), nil
 		}
-		q.includedDims[colName] = true
 		return goexpr.Param(colName), nil
 	case sqlparser.StrVal:
 		return goexpr.Constant(string(e)), nil
@@ -818,7 +815,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		fname := strings.ToUpper(string(e.Name))
 		alias, foundAlias := aliases[fname]
 		if foundAlias {
-			return q.applyAlias(e, alias)
+			return applyAlias(e, alias)
 		}
 		numParams := len(e.Exprs)
 		nfn, found := nullaryGoExpr[fname]
@@ -830,7 +827,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			if numParams != 1 {
 				return nil, fmt.Errorf("Function %v requires 1 parameter, not %d", fname, numParams)
 			}
-			p0, err := q.paramGoExpr(e, 0)
+			p0, err := paramGoExpr(e, 0)
 			if err != nil {
 				return nil, err
 			}
@@ -841,11 +838,11 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			if numParams != 2 {
 				return nil, fmt.Errorf("Function %v requires 2 parameters, not %d", fname, numParams)
 			}
-			p0, err := q.paramGoExpr(e, 0)
+			p0, err := paramGoExpr(e, 0)
 			if err != nil {
 				return nil, err
 			}
-			p1, err := q.paramGoExpr(e, 1)
+			p1, err := paramGoExpr(e, 1)
 			if err != nil {
 				return nil, err
 			}
@@ -856,15 +853,15 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 			if numParams != 3 {
 				return nil, fmt.Errorf("Function %v requires 3 parameters, not %d", fname, numParams)
 			}
-			p0, err := q.paramGoExpr(e, 0)
+			p0, err := paramGoExpr(e, 0)
 			if err != nil {
 				return nil, err
 			}
-			p1, err := q.paramGoExpr(e, 1)
+			p1, err := paramGoExpr(e, 1)
 			if err != nil {
 				return nil, err
 			}
-			p2, err := q.paramGoExpr(e, 2)
+			p2, err := paramGoExpr(e, 2)
 			if err != nil {
 				return nil, err
 			}
@@ -874,7 +871,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		if found {
 			params := make([]goexpr.Expr, 0, numParams)
 			for i := 0; i < numParams; i++ {
-				param, err := q.paramGoExpr(e, i)
+				param, err := paramGoExpr(e, i)
 				if err != nil {
 					return nil, err
 				}
@@ -884,7 +881,7 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		}
 		return nil, fmt.Errorf("Unknown function %v", fname)
 	case *sqlparser.NullCheck:
-		wrapped, err := q.goExprFor(e.Expr)
+		wrapped, err := goExprFor(e.Expr)
 		if err != nil {
 			return nil, err
 		}
@@ -898,44 +895,26 @@ func (q *Query) goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	}
 }
 
-func (q *Query) paramGoExpr(e *sqlparser.FuncExpr, idx int) (goexpr.Expr, error) {
+func paramGoExpr(e *sqlparser.FuncExpr, idx int) (goexpr.Expr, error) {
 	nse, ok := e.Exprs[idx].(*sqlparser.NonStarExpr)
 	if !ok {
 		return nil, ErrWildcardNotAllowed
 	}
-	return q.goExprFor(nse.Expr)
+	return goExprFor(nse.Expr)
 }
 
-func (q *Query) applyAlias(e *sqlparser.FuncExpr, alias string) (goexpr.Expr, error) {
+func applyAlias(e *sqlparser.FuncExpr, alias string) (goexpr.Expr, error) {
 	parameterStrings := make([]interface{}, 0, len(e.Exprs))
 	for _, pe := range e.Exprs {
 		parameterStrings = append(parameterStrings, nodeToString(pe))
 	}
 	template := fmt.Sprintf("SELECT phcol FROM phtable GROUP BY %v AS phgb", alias)
 	queryPlaceholder := fmt.Sprintf(template, parameterStrings...)
-	qp, err := Parse(queryPlaceholder, nil)
+	qp, err := Parse(queryPlaceholder)
 	if err != nil {
 		return nil, fmt.Errorf("Unable to parse query placeholder for applying alias: %v", err)
 	}
-	// Copy over included dims
-	for dim := range qp.includedDims {
-		q.includedDims[dim] = true
-	}
 	return qp.GroupBy[0].Expr, nil
-}
-
-func (q *Query) processInclusions() {
-	q.IncludedFields = make([]string, 0, len(q.includedFields))
-	for field := range q.includedFields {
-		q.IncludedFields = append(q.IncludedFields, field)
-	}
-	sort.Strings(q.IncludedFields)
-
-	q.IncludedDims = make([]string, 0, len(q.includedDims))
-	for dim := range q.includedDims {
-		q.IncludedDims = append(q.IncludedDims, dim)
-	}
-	sort.Strings(q.IncludedDims)
 }
 
 func nodeToString(node sqlparser.SQLNode) string {
@@ -951,18 +930,4 @@ func stringToTimeOrDuration(str string) (time.Time, time.Duration, error) {
 	}
 	d, err := time.ParseDuration(strings.ToLower(str))
 	return t, d, err
-}
-
-func (query *Query) AddPointsIfNecessary() {
-	// Add _points hidden field if necessary
-	foundPoints := false
-	for _, field := range query.Fields {
-		if field.String() == PointsField.String() {
-			foundPoints = true
-			break
-		}
-	}
-	if !foundPoints {
-		query.Fields = append(query.Fields, PointsField)
-	}
 }

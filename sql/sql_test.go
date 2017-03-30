@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSQL(t *testing.T) {
+func TestSQLPlain(t *testing.T) {
 	RegisterUnaryDIMFunction("TEST", func(val goexpr.Expr) goexpr.Expr {
 		return &testexpr{val}
 	})
@@ -66,37 +66,36 @@ GROUP BY
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
 LIMIT 100, 10
-`, func(table string) (core.Fields, error) {
-		if table == "table_a" {
-			return core.Fields{knownField, oKnownField, xKnownField}, nil
-		}
-		if table == "subtable" {
-			return core.Fields{}, nil
-		}
-		return nil, fmt.Errorf("Unknown table %v", table)
-	})
+`)
+
+	tableFields := core.Fields{knownField, oKnownField, xKnownField}
 	if !assert.NoError(t, err) {
 		return
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	if assert.Len(t, q.Fields, 9) {
-		field := q.Fields[0]
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted", q.Fields.String())
+	fields, err := q.Fields.Get(tableFields)
+	if !assert.NoError(t, err) {
+		return
+	}
+	if assert.Len(t, fields, 9) {
+		field := fields[0]
 		expected := core.NewField("rate", rate).String()
 		actual := field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[1]
+		field = fields[1]
 		expected = core.NewField("myfield", myfield).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[2]
+		field = fields[2]
 		expected = knownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[3]
+		field = fields[3]
 		cond, err := goexpr.Binary("==", goexpr.Param("dim"), goexpr.Constant("test"))
 		if !assert.NoError(t, err) {
 			return
@@ -109,37 +108,35 @@ LIMIT 100, 10
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[4]
+		field = fields[4]
 		expected = oKnownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[5]
+		field = fields[5]
 		expected = xKnownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[6]
+		field = fields[6]
 		expected = core.NewField("bounded", SUM(BOUNDED("bfield", 0, 100))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[7]
+		field = fields[7]
 		expected = core.NewField("cval", CONST(5)).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[8]
+		field = fields[8]
 		expected = core.NewField("weighted", WAVG("a", "b")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 16) {
+	if assert.Len(t, q.GroupBy, 15) {
 		idx := 0
-		assert.Equal(t, core.NewGroupBy("_crosstab", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("dim_b"), goexpr.Param("dim_ct"))).String(), q.GroupBy[idx].String())
-		idx++
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
@@ -198,25 +195,24 @@ LIMIT 100, 10
 	if assert.Len(t, subQueries, 1) {
 		assert.Equal(t, "select subdim as subdim from subtable where subdim > 20", subQueries[0].SQL)
 	}
+	assert.Equal(t, "rate > 15 and h < 2", q.Having.String())
 	expectedHaving := AND(GT(rate, 15), LT(SUM("h"), 2)).String()
-	actualHaving := q.Having.String()
+	allFields := append(tableFields, fields...)
+	having, err := q.Having.Get(allFields)
+	if !assert.NoError(t, err) {
+		return
+	}
+	actualHaving := having.String()
 	assert.Equal(t, expectedHaving, actualHaving)
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
-	assert.EqualValues(t, []string{"_points", "a", "b", "bfield", "c", "h", "knownfield", "myfield", "oknownfield", "rate", "x"}, q.IncludedFields)
-	assert.EqualValues(t, []string{"dim", "dim_a", "dim_b", "dim_c", "dim_ct", "dim_d", "dim_e", "dim_f", "dim_g", "dim_h", "dim_i", "dim_j", "dim_k", "dim_l", "dim_m", "dim_n", "dim_o", "dim_p", "dim_q", "ip", "part_a", "part_b"}, q.IncludedDims)
 }
 
 func TestFromSubQuery(t *testing.T) {
 	field := core.NewField("field", MAX("field"))
-	fieldSource := func(table string) (core.Fields, error) {
-		if table != "the_table" {
-			return nil, fmt.Errorf("Table %v not found", table)
-		}
-		return core.Fields{field}, nil
-	}
+	name := core.NewField("name", SUM("name"))
 	subSQL := "SELECT name, * FROM the_table ASOF '-2h' UNTIL '-1h' GROUP BY CONCAT(',', A, B) AS A, period('5s') HAVING stuff > 5"
-	subQuery, err := Parse(subSQL, fieldSource)
+	subQuery, err := Parse(subSQL)
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -226,7 +222,7 @@ func TestFromSubQuery(t *testing.T) {
 SELECT AVG(field) AS the_avg, *
 FROM (%s)
 GROUP BY A, period('10s')
-`, subSQL), fieldSource)
+`, subSQL))
 	if !assert.NoError(t, err) {
 		return
 	}
@@ -238,18 +234,23 @@ GROUP BY A, period('10s')
 	assert.Equal(t, -2*time.Hour, q.AsOfOffset)
 	assert.Equal(t, -1*time.Hour, q.UntilOffset)
 	assert.Empty(t, pretty.Compare(q.FromSubQuery, subQuery))
-	if assert.Len(t, q.Fields, 3) {
-		field := q.Fields[0]
+	assert.Equal(t, "avg(field) as the_avg, *", q.Fields.String())
+	fields, err := q.Fields.Get(core.Fields{name, field})
+	if !assert.NoError(t, err) {
+		return
+	}
+	if assert.Len(t, fields, 3) {
+		field := fields[0]
 		expected := core.NewField("the_avg", AVG("field")).String()
 		actual := field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[1]
+		field = fields[1]
 		expected = core.NewField("name", SUM("name")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = q.Fields[2]
+		field = fields[2]
 		expected = core.NewField("field", MAX("field")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
@@ -264,13 +265,15 @@ func TestSQLDefaults(t *testing.T) {
 	q, err := Parse(`
 SELECT _
 FROM Table_A
-`, func(table string) (core.Fields, error) {
-		return core.Fields{}, nil
-	})
+`)
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Empty(t, q.Fields)
+	fields, err := q.Fields.Get(nil)
+	if !assert.NoError(t, err) {
+		return
+	}
+	assert.Empty(t, fields)
 	assert.True(t, q.GroupByAll)
 }
 
