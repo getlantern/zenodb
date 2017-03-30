@@ -57,7 +57,7 @@ func validateWrappedInBinary(wrapped Expr) error {
 	if typeOfWrapped == binaryType {
 		return wrapped.Validate()
 	}
-	return fmt.Errorf("Binary expression must wrap only aggregate, if and constant expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v", typeOfWrapped)
+	return fmt.Errorf("Binary expression must wrap only aggregate, if and constant expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v of type %v", wrapped, typeOfWrapped)
 }
 
 func (e *binaryExpr) EncodedWidth() int {

@@ -28,7 +28,7 @@ func TestSQLPlain(t *testing.T) {
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
 	myfield,
-	knownfield,
+	` + "`knownfield`" + `,
 	IF(dim = 'test', AVG(myfield)) AS the_avg,
 	*,
 	SUM(BOUNDED(bfield, 0, 100)) AS bounded,

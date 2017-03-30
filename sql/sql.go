@@ -183,7 +183,7 @@ func TableFor(sql string) (string, error) {
 func Parse(sql string) (*Query, error) {
 	parsed, err := sqlparser.Parse(sql)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Error parsing %v: %v", sql, err)
 	}
 	return parse(parsed.(*sqlparser.Select))
 }

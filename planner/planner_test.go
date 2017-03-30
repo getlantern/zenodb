@@ -155,14 +155,16 @@ func TestPlans(t *testing.T) {
 		"select * from TableA",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
-				Fields: textFieldSource("* && a+b > 0 as _having"),
+				Fields: textFieldSource("*"),
+				Having: textExprSource("a+b > 0"),
 			})
 		},
 		func(source RowSource) Source {
 			return FlatRowFilter(Flatten(source), "a+b > 0", nil)
 		},
 		GroupOpts{
-			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough"),
+			Having: textExprSource("a+b > 0"),
 		})
 
 	nonPushdownScenario("HAVING clause with single group by, pushdown not allowed",
@@ -171,7 +173,8 @@ func TestPlans(t *testing.T) {
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				By:     []GroupBy{groupByX},
-				Fields: textFieldSource("* && a+b > 0 as _having"),
+				Fields: textFieldSource("*"),
+				Having: textExprSource("a+b > 0"),
 			})
 		},
 		func(source RowSource) Source {
@@ -179,7 +182,8 @@ func TestPlans(t *testing.T) {
 		},
 		GroupOpts{
 			By:     []GroupBy{groupByX},
-			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough"),
+			Having: textExprSource("a+b > 0"),
 		})
 
 	pushdownScenario("HAVING clause with complete group by, pushdown allowed",
@@ -189,7 +193,8 @@ func TestPlans(t *testing.T) {
 			return FlatRowFilter(
 				Flatten(
 					Group(source, GroupOpts{
-						Fields: textFieldSource("* && a+b > 0 as _having"),
+						Fields: textFieldSource("*"),
+						Having: textExprSource("a+b > 0"),
 						By:     []GroupBy{groupByX, groupByY},
 					})), "a+b > 0", nil)
 		})
@@ -201,7 +206,8 @@ func TestPlans(t *testing.T) {
 			return Group(source, GroupOpts{
 				By:       []GroupBy{groupByX, groupByY},
 				Crosstab: goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Param("ct2")),
-				Fields:   textFieldSource("* && a+b > 0 as _having"),
+				Fields:   textFieldSource("*"),
+				Having:   textExprSource("a+b > 0"),
 			})
 		},
 		func(source RowSource) Source {
@@ -210,7 +216,8 @@ func TestPlans(t *testing.T) {
 		GroupOpts{
 			By:       []GroupBy{groupByX, groupByY},
 			Crosstab: goexpr.Param("_crosstab"),
-			Fields:   textFieldSource("passthrough && a+b > 0 as _having"),
+			Fields:   textFieldSource("passthrough"),
+			Having:   textExprSource("a+b > 0"),
 		})
 
 	pushdownScenario("HAVING clause with complete group by and subselect, pushdown allowed",
@@ -229,7 +236,8 @@ func TestPlans(t *testing.T) {
 							),
 							textFieldSource("avg(a)+avg(b) as total")),
 						GroupOpts{
-							Fields: textFieldSource("avg(a)+avg(b) as total && a+b > 0 as _having"),
+							Fields: textFieldSource("avg(a)+avg(b) as total"),
+							Having: textExprSource("a+b > 0"),
 						},
 					),
 				), "a+b > 0", nil)
@@ -276,7 +284,8 @@ func TestPlans(t *testing.T) {
 							),
 							textFieldSource("avg(a)+avg(b) as total")),
 						GroupOpts{
-							Fields: textFieldSource("avg(a)+avg(b) as total && a+b > 0 as _having"),
+							Fields: textFieldSource("avg(a)+avg(b) as total"),
+							Having: textExprSource("a+b > 0"),
 							By:     []GroupBy{groupByY},
 						},
 					),
@@ -293,7 +302,8 @@ func TestPlans(t *testing.T) {
 					Group(
 						Unflatten(t, textFieldSource("avg(a)+avg(b) as total")),
 						GroupOpts{
-							Fields: textFieldSource("avg(a)+avg(b) as total && a+b > 0 as _having"),
+							Fields: textFieldSource("avg(a)+avg(b) as total"),
+							Having: textExprSource("a+b > 0"),
 							By:     []GroupBy{groupByY},
 						},
 					),
@@ -305,7 +315,8 @@ func TestPlans(t *testing.T) {
 		"select * from TableA group by y",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
-				Fields: textFieldSource("* && a+b > 0 as _having"),
+				Fields: textFieldSource("*"),
+				Having: textExprSource("a+b > 0"),
 				By:     []GroupBy{groupByY},
 			})
 		},
@@ -313,7 +324,8 @@ func TestPlans(t *testing.T) {
 			return FlatRowFilter(Flatten(source), "a+b > 0", nil)
 		},
 		GroupOpts{
-			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough"),
+			Having: textExprSource("a+b > 0"),
 			By:     []GroupBy{groupByY},
 		})
 
@@ -322,7 +334,8 @@ func TestPlans(t *testing.T) {
 		"select * from TableA group by concat(',', z, 'thing') as zplus",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
-				Fields: textFieldSource("* && a+b > 0 as _having"),
+				Fields: textFieldSource("*"),
+				Having: textExprSource("a+b > 0"),
 				By:     []GroupBy{NewGroupBy("zplus", goexpr.Concat(goexpr.Constant(","), goexpr.Param("z"), goexpr.Constant("thing")))},
 			})
 		},
@@ -330,7 +343,8 @@ func TestPlans(t *testing.T) {
 			return FlatRowFilter(Flatten(source), "a+b > 0", nil)
 		},
 		GroupOpts{
-			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough"),
+			Having: textExprSource("a+b > 0"),
 			By:     []GroupBy{NewGroupBy("zplus", goexpr.Param("zplus"))},
 		})
 
@@ -641,4 +655,14 @@ func (tfs textFieldSource) Get(known Fields) (Fields, error) {
 
 func (tfs textFieldSource) String() string {
 	return string(tfs)
+}
+
+type textExprSource string
+
+func (tes textExprSource) Get(known Fields) (Expr, error) {
+	return nil, nil
+}
+
+func (tes textExprSource) String() string {
+	return string(tes)
 }

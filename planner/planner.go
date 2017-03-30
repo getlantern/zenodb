@@ -203,17 +203,11 @@ func needsGroupBy(query *sql.Query) bool {
 }
 
 func addGroupBy(source core.RowSource, query *sql.Query) core.RowSource {
-	// Need to do a group by
-	fields := query.Fields
-	if query.Having != nil {
-		// Add having to fields
-		fields = core.CombinedFieldSource{query.Fields, core.ExprFieldSource{Name: "_having", Expr: query.Having}}
-	}
-
 	return core.Group(source, core.GroupOpts{
 		By:         query.GroupBy,
 		Crosstab:   query.Crosstab,
-		Fields:     fields,
+		Having:     query.Having,
+		Fields:     query.Fields,
 		Resolution: query.Resolution,
 		AsOf:       query.AsOf,
 		Until:      query.Until,
