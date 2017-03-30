@@ -162,12 +162,11 @@ type Query struct {
 	GroupBy    []core.GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab  goexpr.Expr
-	Having    core.ExprSource
-	HavingSQL string
-	OrderBy   []core.OrderBy
-	Offset    int
-	Limit     int
+	Crosstab goexpr.Expr
+	Having   core.ExprSource
+	OrderBy  []core.OrderBy
+	Offset   int
+	Limit    int
 }
 
 // TableFor returns the table in the FROM clause of this query

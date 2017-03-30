@@ -8,8 +8,8 @@ import (
 )
 
 func addHaving(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {
-	havingIdx := len(query.Fields)
-	base := core.FlatRowFilter(flat, query.HavingSQL, func(ctx context.Context, row *core.FlatRow) (*core.FlatRow, error) {
+	base := core.FlatRowFilter(flat, query.Having.String(), func(ctx context.Context, row *core.FlatRow, fields core.Fields) (*core.FlatRow, error) {
+		havingIdx := len(fields) - 1
 		include := row.Values[havingIdx]
 		if include == 1 {
 			// Removing having field

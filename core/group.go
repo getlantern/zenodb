@@ -8,8 +8,15 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/expr"
 	"sort"
 	"time"
+)
+
+var (
+	// ClusterCrosstab is the crosstab expression for crosstabs that come from an
+	// contained Group By (i.e. from a cluster follower)
+	ClusterCrosstab = goexpr.Param("_crosstab")
 )
 
 // GroupBy is a named goexpr.Expr.
@@ -38,9 +45,15 @@ func (g GroupBy) String() string {
 	return fmt.Sprintf("%v (%v)", g.Name, g.Expr)
 }
 
+type keyedVals struct {
+	key  bytemap.ByteMap
+	vals Vals
+}
+
 type GroupOpts struct {
 	By         []GroupBy
-	Fields     Fields
+	Crosstab   goexpr.Expr
+	Fields     FieldSource
 	Resolution time.Duration
 	AsOf       time.Time
 	Until      time.Time
@@ -94,9 +107,17 @@ func (g *group) GetUntil() time.Time {
 func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(g.By) == 0 {
-		// Wildcard, select all and track all unique dims
-		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-			return key
+		if g.Crosstab != nil && g.Crosstab.String() == ClusterCrosstab.String() {
+			// Remove cluster crosstab expression
+			sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+				_, nonCrosstab := key.Split("_crosstab")
+				return nonCrosstab
+			}
+		} else {
+			// Wildcard, select all and track all unique dims
+			sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+				return key
+			}
 		}
 	} else {
 		sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
@@ -114,35 +135,98 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 	}
 
 	var bt *bytetree.Tree
-	outFields := g.Fields
+	var ctabs map[string]interface{}
+	var kvs []*keyedVals
 	var inFields Fields
+	var outFields Fields
+	if g.Fields == nil {
+		g.Fields = PassthroughFieldSource
+	}
 
-	err := g.source.Iterate(ctx, func(fields Fields) error {
-		inFields = fields
+	updateTree := func(key bytemap.ByteMap, vals Vals) {
 		// Lazily initialize bytetree
-		if len(outFields) == 0 {
-			// default to input fields
-			outFields = inFields
+		if bt == nil {
+			bt = bytetree.New(
+				outFields.Exprs(),
+				inFields.Exprs(),
+				g.GetResolution(),
+				g.source.GetResolution(),
+				g.GetAsOf(),
+				g.GetUntil(),
+			)
 		}
-		bt = bytetree.New(
-			outFields.Exprs(),
-			inFields.Exprs(),
-			g.GetResolution(),
-			g.source.GetResolution(),
-			g.GetAsOf(),
-			g.GetUntil(),
-		)
-		return onFields(outFields)
-	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		metadata := key
 		key = sliceKey(key)
 		bt.Update(key, vals, nil, metadata)
+	}
+
+	err := g.source.Iterate(ctx, func(fields Fields) error {
+		inFields = fields
+		var err error
+		outFields, err = g.Fields.Get(inFields)
+		if err != nil {
+			return err
+		}
+		return nil
+	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		if g.Crosstab != nil {
+			if ctabs == nil {
+				ctabs = make(map[string]interface{})
+			}
+			ctab := g.Crosstab.Eval(key).(string)
+			ctabs[ctab] = nil
+			kvs = append(kvs, &keyedVals{key, vals})
+		} else {
+			updateTree(key, vals)
+		}
 		return proceed()
 	})
 
 	var walkErr error
 	if err != ErrDeadlineExceeded {
 		deadline, hasDeadline := ctx.Deadline()
+
+		if g.Crosstab != nil {
+			origOutFields := outFields
+			sortedCtabs := make([]string, 0, len(ctabs))
+			for ctab := range ctabs {
+				sortedCtabs = append(sortedCtabs, ctab)
+			}
+			sort.Strings(sortedCtabs)
+			outFields = make([]Field, 0, (len(sortedCtabs)+1)*len(origOutFields))
+			for _, ctab := range sortedCtabs {
+				if hasDeadline && time.Now().After(deadline) {
+					return ErrDeadlineExceeded
+				}
+				for _, outField := range origOutFields {
+					cond, condErr := goexpr.Binary("=", g.Crosstab, goexpr.Constant(ctab))
+					if condErr != nil {
+						return condErr
+					}
+					ifex, ifexErr := expr.IF(cond, outField.Expr)
+					if ifexErr != nil {
+						return ifexErr
+					}
+					outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", ctab, outField.Name), ifex))
+				}
+			}
+			for _, outField := range origOutFields {
+				outFields = append(outFields, NewField(fmt.Sprintf("total_%v", outField.Name), outField.Expr))
+			}
+
+			for _, kv := range kvs {
+				if hasDeadline && time.Now().After(deadline) {
+					return ErrDeadlineExceeded
+				}
+				updateTree(kv.key, kv.vals)
+			}
+		}
+
+		onFieldsErr := onFields(outFields)
+		if onFieldsErr != nil {
+			return onFieldsErr
+		}
+
 		walkErr = bt.Walk(0, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
 			more, iterErr := onRow(key, data)
 			if iterErr == nil && hasDeadline && time.Now().After(deadline) {
@@ -165,7 +249,10 @@ func (g *group) String() string {
 	if len(g.By) > 0 {
 		result.WriteString(fmt.Sprintf("\n       by: %v", g.By))
 	}
-	if len(g.Fields) > 0 {
+	if g.Crosstab != nil {
+		result.WriteString(fmt.Sprintf("\n       crosstab: %v", g.Crosstab))
+	}
+	if g.Fields != nil {
 		result.WriteString(fmt.Sprintf("\n       fields: %v", g.Fields))
 	}
 	if g.Resolution > 0 {

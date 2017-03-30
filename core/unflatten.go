@@ -7,7 +7,7 @@ import (
 	"github.com/getlantern/zenodb/expr"
 )
 
-func Unflatten(source FlatRowSource, fields ...Field) RowSource {
+func Unflatten(source FlatRowSource, fields FieldSource) RowSource {
 	return &unflatten{
 		flatRowTransform{source},
 		fields,
@@ -23,12 +23,12 @@ func UnflattenOptimized(source FlatRowSource) RowSource {
 			return rs
 		}
 	}
-	return Unflatten(source)
+	return Unflatten(source, PassthroughFieldSource)
 }
 
 type unflatten struct {
 	flatRowTransform
-	fields Fields
+	fields FieldSource
 }
 
 func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
@@ -37,7 +37,11 @@ func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 
 	return f.source.Iterate(ctx, func(fields Fields) error {
 		inFields = fields
-		outFields = f.fields
+		var err error
+		outFields, err = f.fields.Get(inFields)
+		if err != nil {
+			return err
+		}
 		if len(outFields) == 0 {
 			// default to inFields
 			outFields = inFields
@@ -65,7 +69,7 @@ func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 }
 
 func (f *unflatten) String() string {
-	if len(f.fields) == 0 {
+	if f.fields == PassthroughFieldSource {
 		return "unflatten all"
 	}
 	return fmt.Sprintf("unflatten to %v", f.fields)

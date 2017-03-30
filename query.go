@@ -12,11 +12,10 @@ import (
 
 func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
 	opts := &planner.Opts{
-		GetTable: func(table string, includedFields func(tableFields core.Fields) core.Fields) planner.Table {
+		GetTable: func(table string, includedFields func(tableFields core.Fields) (core.Fields, error)) (planner.Table, error) {
 			return db.getQueryable(table, includedFields, includeMemStore)
 		},
 		Now:             db.now,
-		FieldSource:     db.getFields,
 		IsSubQuery:      isSubQuery,
 		SubQueryResults: subQueryResults,
 	}
@@ -33,14 +32,18 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 	return plan, nil
 }
 
-func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) core.Fields, includeMemStore bool) *queryable {
+func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) core.Fields, includeMemStore bool) (*queryable, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil
 	}
 	until := encoding.RoundTimeUp(db.clock.Now(), t.Resolution)
 	asOf := encoding.RoundTimeUp(until.Add(-1*t.RetentionPeriod), t.Resolution)
-	return &queryable{t, includedFields(t.Fields), asOf, until, includeMemStore}
+	included, err := includedFields(t.Fields)
+	if err != nil {
+		return nil, err
+	}
+	return &queryable{t, included, asOf, until, includeMemStore}
 }
 
 func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMetaData {

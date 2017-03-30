@@ -7,6 +7,7 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
+	"strings"
 	"sync"
 	"time"
 )
@@ -55,6 +56,86 @@ func (fields Fields) Exprs() []expr.Expr {
 		exprs = append(exprs, field.Expr)
 	}
 	return exprs
+}
+
+// FieldSource is a source of Fields based on some known Fields.
+type FieldSource interface {
+	Get(known Fields) (Fields, error)
+
+	String() string
+}
+
+// PassthroughFieldSource simply passes through the known Fields.
+var PassthroughFieldSource FieldSource = passthroughFieldSource{}
+
+type passthroughFieldSource struct{}
+
+func (pfs passthroughFieldSource) Get(known Fields) (Fields, error) {
+	return known, nil
+}
+
+func (pfs passthroughFieldSource) String() string {
+	return "passthrough"
+}
+
+// StaticFieldSource is a FieldSource that always returns the same Fields.
+type StaticFieldSource Fields
+
+func (sfs StaticFieldSource) Get(known Fields) (Fields, error) {
+	return Fields(sfs), nil
+}
+
+func (sfs StaticFieldSource) String() string {
+	return fmt.Sprint(Fields(sfs))
+}
+
+// CombinedFieldSource is a FieldSource that combines multiple FieldSources
+type CombinedFieldSource []FieldSource
+
+func (cfs CombinedFieldSource) Get(known Fields) (Fields, error) {
+	var combined Fields
+	for _, source := range cfs {
+		fields, err := source.Get(known)
+		if err != nil {
+			return nil, err
+		}
+		combined = append(combined, fields...)
+	}
+	return combined, nil
+}
+
+func (cfs CombinedFieldSource) String() string {
+	combined := make([]string, 0, len(cfs))
+	for _, source := range cfs {
+		combined = append(combined, source.String())
+	}
+	return strings.Join(combined, " && ")
+}
+
+// ExprFieldSource turns an ExprSource into a FieldSource with a single named
+// field.
+type ExprFieldSource struct {
+	Name string
+	Expr ExprSource
+}
+
+func (efs ExprFieldSource) Get(known Fields) (Fields, error) {
+	ex, err := efs.Expr.Get(known)
+	if err != nil {
+		return nil, err
+	}
+	return Fields{NewField(efs.Name, ex)}, nil
+}
+
+func (efs ExprFieldSource) String() string {
+	return fmt.Sprintf("%v as %v", efs.Expr, efs.Name)
+}
+
+// ExprSource is a source of an expression based on some known Fields.
+type ExprSource interface {
+	Get(known Fields) (expr.Expr, error)
+
+	String() string
 }
 
 type Vals []encoding.Sequence
