@@ -238,8 +238,10 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	if query.Resolution > pail.GetResolution() {
 		query.Resolution = pail.GetResolution()
 	}
+	// Pass through fields since the remote query already has the correct ones
+	query.Fields = core.PassthroughFieldSource
 	query.GroupBy = flattenedGroupBys
-	var flat core.FlatRowSource = core.Flatten(addGroupBy(source, query))
+	flat := core.Flatten(addGroupBy(source, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
 	}

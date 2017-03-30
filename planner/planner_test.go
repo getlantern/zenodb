@@ -84,7 +84,7 @@ func TestPlans(t *testing.T) {
 		noop,
 		flatten,
 		GroupOpts{
-			Fields: textFieldSource("*"),
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("WHERE clause",
@@ -95,7 +95,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields: textFieldSource("*"),
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("WHERE with subquery",
@@ -106,7 +106,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields: textFieldSource("*"),
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("LIMIT and OFFSET",
@@ -117,7 +117,7 @@ func TestPlans(t *testing.T) {
 			return Limit(Offset(Flatten(source), 2), 5)
 		},
 		GroupOpts{
-			Fields: textFieldSource("*"),
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("Calculated field",
@@ -130,7 +130,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields: textFieldSource("*, a+b as total"),
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("CROSSTAB, pushdown not allowed",
@@ -146,7 +146,7 @@ func TestPlans(t *testing.T) {
 			return Flatten(source)
 		},
 		GroupOpts{
-			Fields:   textFieldSource("*"),
+			Fields:   textFieldSource("passthrough"),
 			Crosstab: goexpr.Param("_crosstab"),
 		})
 
@@ -162,7 +162,7 @@ func TestPlans(t *testing.T) {
 			return FlatRowFilter(Flatten(source), "a+b > 0", nil)
 		},
 		GroupOpts{
-			Fields: textFieldSource("* && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
 		})
 
 	nonPushdownScenario("HAVING clause with single group by, pushdown not allowed",
@@ -179,7 +179,7 @@ func TestPlans(t *testing.T) {
 		},
 		GroupOpts{
 			By:     []GroupBy{groupByX},
-			Fields: textFieldSource("* && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
 		})
 
 	pushdownScenario("HAVING clause with complete group by, pushdown allowed",
@@ -210,7 +210,7 @@ func TestPlans(t *testing.T) {
 		GroupOpts{
 			By:       []GroupBy{groupByX, groupByY},
 			Crosstab: goexpr.Param("_crosstab"),
-			Fields:   textFieldSource("* && a+b > 0 as _having"),
+			Fields:   textFieldSource("passthrough && a+b > 0 as _having"),
 		})
 
 	pushdownScenario("HAVING clause with complete group by and subselect, pushdown allowed",
@@ -313,7 +313,7 @@ func TestPlans(t *testing.T) {
 			return FlatRowFilter(Flatten(source), "a+b > 0", nil)
 		},
 		GroupOpts{
-			Fields: textFieldSource("* && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
 			By:     []GroupBy{groupByY},
 		})
 
@@ -330,7 +330,7 @@ func TestPlans(t *testing.T) {
 			return FlatRowFilter(Flatten(source), "a+b > 0", nil)
 		},
 		GroupOpts{
-			Fields: textFieldSource("* && a+b > 0 as _having"),
+			Fields: textFieldSource("passthrough && a+b > 0 as _having"),
 			By:     []GroupBy{NewGroupBy("zplus", goexpr.Param("zplus"))},
 		})
 
@@ -345,7 +345,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields: textFieldSource("*"),
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("ASOF UNTIL",
@@ -360,7 +360,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields: textFieldSource("*"),
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("Change Resolution",
@@ -374,7 +374,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields:     textFieldSource("*"),
+			Fields:     textFieldSource("passthrough"),
 			Resolution: 2 * time.Second,
 		})
 
@@ -391,7 +391,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields:     textFieldSource("*"),
+			Fields:     textFieldSource("passthrough"),
 			Resolution: 1 * time.Second,
 		})
 
@@ -420,7 +420,7 @@ func TestPlans(t *testing.T) {
 			},
 		}
 		return Limit(Offset(Sort(Flatten(Group(t, GroupOpts{
-			Fields:     textFieldSource("*, a+b as total"),
+			Fields:     textFieldSource("passthrough"),
 			By:         []GroupBy{groupByY},
 			Resolution: 2 * time.Second,
 		})), NewOrderBy("total", true)), 2), 5)
