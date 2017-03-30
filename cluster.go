@@ -706,15 +706,15 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		defer cancel()
 	}
 
-	var firstFields int64
+	var onFieldsOnce sync.Once
 	oneTimeOnFields := func(fields core.Fields) error {
 		// Only pass onFields from first partition to respond, assuming that all
 		// partitions will return the same thing.
 		// TODO: if we ever push-down crosstab processing, we'll need to combine the
 		// fields from all partitions, since they'll differ
-		if atomic.CompareAndSwapInt64(&firstFields, 0, 1) {
-			return onFields(fields)
-		}
+		onFieldsOnce.Do(func() {
+			onFields(fields)
+		})
 		return nil
 	}
 
