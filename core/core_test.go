@@ -139,44 +139,90 @@ func TestGroupSingle(t *testing.T) {
 }
 
 func TestGroupCrosstabSingle(t *testing.T) {
-	eTotal := ADD(eA, eB)
-	gx := Group(&goodSource{}, GroupOpts{
-		By:       []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
-		Crosstab: goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")),
-		Fields: StaticFieldSource{
-			Field{
-				Name: "total",
-				Expr: eTotal,
-			},
+	eAdd := ADD(eA, eB)
+	addField := Field{
+		Name: "add",
+		Expr: eAdd,
+	}
+
+	expectedFields := Fields{}
+	for _, i := range []string{"1", "2", "3", "5"} {
+		cond, err := goexpr.Binary("=", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")), goexpr.Constant(i))
+		if !assert.NoError(t, err) {
+			return
+		}
+		ifex, err := IF(cond, eAdd)
+		if !assert.NoError(t, err) {
+			return
+		}
+		expectedFields = append(expectedFields, NewField(i+"_add", ifex))
+	}
+	expectedFields = append(expectedFields, NewField("total_add", eAdd))
+
+	expectedKeys := []bytemap.ByteMap{
+		bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{1}),
+		bytemap.FromSortedKeysAndValues([]string{"x"}, []interface{}{2}),
+	}
+
+	expectedRows := [][][]float64{
+		[][]float64{
+			[]float64{70, 0},
+			[]float64{0, 0},
+			[]float64{0, 50},
+			[]float64{0, 0},
+			[]float64{70, 50},
 		},
+		[][]float64{
+			[]float64{0, 0},
+			[]float64{0, 0},
+			[]float64{80, 0},
+			[]float64{0, 60},
+			[]float64{80, 60},
+		},
+	}
+
+	gx := Group(&goodSource{}, GroupOpts{
+		By:         []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
+		Crosstab:   goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")),
+		Fields:     StaticFieldSource{addField},
 		Resolution: resolution * 2,
 		AsOf:       asOf.Add(2 * resolution),
 		Until:      until.Add(-2 * resolution),
 	})
 
-	totalByX := make(map[int]float64, 0)
 	var fields Fields
 	err := gx.Iterate(context.Background(), func(inFields Fields) error {
 		fields = inFields
+		if assert.Equal(t, len(expectedFields), len(fields)) {
+			for i, expected := range expectedFields {
+				assert.Equal(t, expected.String(), fields[i].String())
+			}
+		}
 		return nil
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
-		t.Log(key.AsMap())
-		for i, field := range fields {
-			t.Log(vals[i].String(field.Expr, resolution*2))
+		expectedKey := expectedKeys[0]
+		expectedKeys = expectedKeys[1:]
+		expectedRow := expectedRows[0]
+		expectedRows = expectedRows[1:]
+		assert.EqualValues(t, expectedKey, key)
+		if assert.Equal(t, len(expectedRow), len(vals)) {
+			for i, expected := range expectedRow {
+				val := vals[i]
+				field := fields[i]
+				if assert.Equal(t, len(expected), val.NumPeriods(field.Expr.EncodedWidth())) {
+					for j, f := range expected {
+						actual, _ := val.ValueAt(j, field.Expr)
+						assert.Equal(t, f, actual)
+					}
+				}
+			}
 		}
-		total := float64(0)
-		v := vals[0]
-		for p := 0; p < v.NumPeriods(eTotal.EncodedWidth()); p++ {
-			val, _ := v.ValueAt(p, eTotal)
-			total += val
-		}
-		totalByX[key.Get("x").(int)] = total
 		return true, nil
 	})
 
-	assert.NoError(t, err)
-	assert.EqualValues(t, 120, totalByX[1])
-	assert.EqualValues(t, 140, totalByX[2])
+	if !assert.NoError(t, err) {
+		t.Log(FormatSource(gx))
+	}
 }
 
 func TestGroupResolutionOnly(t *testing.T) {
