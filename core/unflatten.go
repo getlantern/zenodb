@@ -55,10 +55,6 @@ func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 		params := expr.Map(make(map[string]float64, numIn))
 		for i, field := range inFields {
 			name := field.Name
-			if name == "_points" {
-				// Hack for _points magic field
-				name = "_point"
-			}
 			params[name] = row.Values[i]
 		}
 		for i, field := range outFields {

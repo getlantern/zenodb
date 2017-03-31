@@ -163,7 +163,6 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 
 	addHaving := func() error {
 		if g.Having != nil {
-			fmt.Printf("building having %v from %v\n", g.Having, outFields)
 			having, err := g.Having.Get(outFields)
 			if err != nil {
 				return err

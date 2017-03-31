@@ -2,8 +2,10 @@ package core
 
 import (
 	"context"
-	"github.com/getlantern/bytemap"
 	"time"
+
+	"github.com/getlantern/bytemap"
+	"github.com/getlantern/zenodb/expr"
 )
 
 func Flatten(source RowSource) FlatRowSource {
@@ -22,7 +24,12 @@ func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRo
 	return f.source.Iterate(ctx, func(inFields Fields) error {
 		fields = inFields
 		numFields = len(inFields)
-		return onFields(inFields)
+		// Transform to flattened version of fields
+		outFields := make(Fields, 0, len(inFields))
+		for _, field := range inFields {
+			outFields = append(outFields, NewField(field.Name, expr.SUM(expr.FIELD(field.Name))))
+		}
+		return onFields(outFields)
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var until time.Time
 		var asOf time.Time
