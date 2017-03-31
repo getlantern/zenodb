@@ -10,6 +10,7 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -225,7 +226,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 					if ifexErr != nil {
 						return ifexErr
 					}
-					outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", ctab, outField.Name), ifex))
+					outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", strings.ToLower(ctab), outField.Name), ifex))
 				}
 			}
 			for _, outField := range origOutFields {
