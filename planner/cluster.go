@@ -6,17 +6,12 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
-	"regexp"
 	"strings"
 	"time"
 )
 
 const (
 	backtick = "`"
-)
-
-var (
-	replaceCrosstab = regexp.MustCompile(`(?i)CROSSTAB\s*\(([^\)]+)\)`)
 )
 
 type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error
@@ -207,7 +202,7 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 
 	if query.Crosstab != nil {
 		// Replace CROSSTAB with explicit CONCAT
-		sqlString = replaceCrosstab.ReplaceAllString(sqlString, "CONCAT('_', $1) AS _crosstab")
+		sqlString = replaceCrosstab(sqlString)
 		query.Crosstab = core.ClusterCrosstab
 	}
 
@@ -260,4 +255,38 @@ func planAsIfLocal(opts *Opts, sqlString string) (core.FlatRowSource, error) {
 	}
 
 	return planLocal(query, unclusteredOpts)
+}
+
+func replaceCrosstab(sql string) string {
+	idx := strings.Index(strings.ToUpper(sql), "CROSSTAB")
+	if idx < 0 {
+		return sql
+	}
+	out := make([]byte, idx)
+	copy(out, []byte(sql)[:idx])
+	out = append(out, []byte("CONCAT('_', ")...)
+	idx += len("CROSSTAB(")
+	level := 1
+parseLoop:
+	for ; idx < len(sql); idx++ {
+		c := sql[idx]
+		switch c {
+		case '(':
+			level++
+			out = append(out, c)
+			fmt.Printf("Descend at %v\n", string(out))
+		case ')':
+			level--
+			out = append(out, c)
+			fmt.Printf("Ascend at %v\n", string(out))
+			if level == 0 {
+				break parseLoop
+			}
+		default:
+			out = append(out, c)
+		}
+	}
+	out = append(out, []byte(" AS _crosstab")...)
+	out = append(out, []byte(sql)[idx+1:]...)
+	return string(out)
 }

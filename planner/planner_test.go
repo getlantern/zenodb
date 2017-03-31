@@ -134,12 +134,12 @@ func TestPlans(t *testing.T) {
 		})
 
 	nonPushdownScenario("CROSSTAB, pushdown not allowed",
-		"SELECT * FROM TableA GROUP BY CROSSTAB(ct1, ct2)",
-		"select * from TableA group by concat('_', ct1, ct2) as _crosstab",
+		"SELECT * FROM TableA GROUP BY CROSSTAB(ct1, CONCAT('|', ct2))",
+		"select * from TableA group by concat('_', ct1, concat('|', ct2)) as _crosstab",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				Fields:   textFieldSource("*"),
-				Crosstab: goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Param("ct2")),
+				Crosstab: goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Concat(goexpr.Constant("|"), goexpr.Param("ct2"))),
 			})
 		},
 		func(source RowSource) Source {
