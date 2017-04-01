@@ -33,7 +33,7 @@ var indexHTML = []byte(`
 
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/page.js/1.7.1/page.min.js"></script>
 
-  <style type="text/css" media="screen">
+  <style type="text/css">
     #sql {
       width: 100%;
       height: 200px;
