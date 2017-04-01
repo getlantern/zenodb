@@ -99,14 +99,10 @@ var indexHTML = []byte(`
 			display: none;
 		}
 
-		#autoplot-instructions.shown {
-			display: block;
-		}
-
-		@media print {
-	    #autoplot-instructions.shown {
-		    display: none;
-	 	  }
+		@media not print {
+		  #autoplot-instructions.shown {
+				display: block;
+			}
 		}
   </style>
 </head>
