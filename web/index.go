@@ -95,10 +95,18 @@ var indexHTML = []byte(`
         }
     }
 
+		#autoplot-instructions {
+			display: none;
+		}
+
+		#autoplot-instructions.shown {
+			display: block;
+		}
+
 		@media print {
-		   #autoplot-instructions {
-			     display: none;
-		 	 }
+	    #autoplot-instructions.shown {
+		    display: none;
+	 	  }
 		}
   </style>
 </head>
@@ -118,7 +126,7 @@ var indexHTML = []byte(`
       {{/if}}
     </div>
 
-    <div id="autoplot-instructions" class="defaultHide" style="margin: 10px; {{#if plottingNotSupported}}display: block;{{/if}}">
+    <div id="autoplot-instructions" class="{{#if plottingNotSupported}}shown{{/if}}" style="margin: 10px;">
       <h3>Autoplotting Not Supported for this Query</h3>
       <p>Zeno currently supports three types of auto-plot:</p>
 
