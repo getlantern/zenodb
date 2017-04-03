@@ -5,6 +5,14 @@ aggregated analytical SQL queries on dimensional data.  It was developed to
 replace [influxdb](https://github.com/influxdata/influxdb/) as a repository for
 client and server metrics at [Lantern](https://www.getlantern.org).
 
+## Building the Docs
+
+```
+pip install sphinx sphinx-autobuild sphinxcontrib-golangdomain sphinxcontrib-inlinesyntaxhighlight
+cd docs
+make html
+```
+
 ## Current Features
 
  * No limits on the number of dimensions

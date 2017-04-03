@@ -1,0 +1,365 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    
+    <title>ZenoDB User Guide &mdash; zenodb 1.0 documentation</title>
+    
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    
+    <script type="text/javascript">
+      var DOCUMENTATION_OPTIONS = {
+        URL_ROOT:    './',
+        VERSION:     '1.0',
+        COLLAPSE_INDEX: false,
+        FILE_SUFFIX: '.html',
+        HAS_SOURCE:  true
+      };
+    </script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <link rel="top" title="zenodb 1.0 documentation" href="#" />
+   
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head>
+  <body role="document">  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          <div class="body" role="main">
+            
+  <div class="section" id="zenodb-user-guide">
+<h1>ZenoDB User Guide<a class="headerlink" href="#zenodb-user-guide" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="what-is-zenodb">
+<h2>What is ZenoDB<a class="headerlink" href="#what-is-zenodb" title="Permalink to this headline">¶</a></h2>
+<p>ZenoDB is a semi-dynamically typed, embeddable, clusterable OLAP time-series
+database that supports correlation of heterogeneous data and which uses SQL as
+its query language. It includes a command-line client as well as a built-in web
+reporting UI.</p>
+<p>The Lantern project uses ZenoDB for monitoring its server infrastructure as well
+as the health of client applications.</p>
+<div class="section" id="time-series">
+<h3>Time-Series<a class="headerlink" href="#time-series" title="Permalink to this headline">¶</a></h3>
+<p>ZenoDB stores time-series data, which means data that includes a timestamp.</p>
+<div class="admonition tip">
+<p class="first admonition-title">Tip</p>
+<p class="last">The raw data in a time-series is called <em>points</em>.</p>
+</div>
+</div>
+<div class="section" id="olap">
+<h3>OLAP<a class="headerlink" href="#olap" title="Permalink to this headline">¶</a></h3>
+<p>ZenoDB is an <a class="reference external" href="https://en.wikipedia.org/wiki/Online_analytical_processing">OLAP</a>
+database optimized for aggregating, drilling down and slicing and dicing multi-
+dimensional data, of which time happens to be one dimension. ZenoDB accomplishes
+this by storing data in pre-aggregated form and performing further aggregation
+at query time.</p>
+<p>Just like a traditional OLAP database, ZenoDB stores measures categorized by
+associated dimensions.</p>
+<div class="admonition tip">
+<p class="first admonition-title">Tip</p>
+<p class="last">In ZenoDB, measures are called <em>values</em>. All values are 64-bit floating point
+numbers.</p>
+</div>
+</div>
+<div class="section" id="semi-dynamically-typed">
+<h3>Semi-dynamically Typed<a class="headerlink" href="#semi-dynamically-typed" title="Permalink to this headline">¶</a></h3>
+<p>Dimensions in ZenoDB are dynamically typed. Points submitted to ZenoDB can
+include an arbitrary number of dimensions.</p>
+<dl class="docutils">
+<dt>Dimensions can be any of the following types:</dt>
+<dd><ul class="first last simple">
+<li>nil (a.k.a. null)</li>
+<li>bool</li>
+<li>string</li>
+<li>byte</li>
+<li>uint16</li>
+<li>uint32</li>
+<li>uint64</li>
+<li>uint (platform-dependent precision)</li>
+<li>int8</li>
+<li>int16</li>
+<li>int32</li>
+<li>int64</li>
+<li>int (platform-dependent precision)</li>
+<li>float32</li>
+<li>float64</li>
+<li>timestamp</li>
+</ul>
+</dd>
+</dl>
+<p>Example dimensions might be a server IP address, a web path, or an HTTP status
+code.</p>
+<p>Values are always of type float64. Example values might be a response time or a
+server load average.</p>
+<p>In order to reduce storage requirements, speed up query processing and simplify
+query writing, values in tables are statically specified as <em>fields</em> that
+describe how the values are to be aggregated and otherwise transformed from
+the raw values received as part of a time-series.</p>
+<p>The supported aggregation functions are:</p>
+<blockquote>
+<div><ul class="simple">
+<li>SUM (default) - simply totals the given value across all points</li>
+<li>AVG - the arithmatic mean of the value across all points.</li>
+<li>MIN - the minimum of a value across all points.</li>
+<li>MAX - the maximum of a value across all points.</li>
+</ul>
+</div></blockquote>
+<div class="admonition note">
+<p class="first admonition-title">Note</p>
+<p class="last">All aggregation functions ignore points that do not contain the specified
+value.</p>
+</div>
+<p>Other transformations include arithmetic, logical and comparison functions.
+Example fields might be:</p>
+<blockquote>
+<div><ul class="simple">
+<li><code class="code sql docutils literal"><span class="keyword"><span class="pre">AVG</span></span><span class="punctuation"><span class="pre">(</span></span><span class="name"><span class="pre">response_time_millis</span></span> <span class="operator"><span class="pre">/</span></span> <span class="literal number integer"><span class="pre">1000</span></span><span class="punctuation"><span class="pre">)</span></span> <span class="keyword"><span class="pre">AS</span></span> <span class="name"><span class="pre">response_time_seconds</span></span></code></li>
+<li><code class="code sql docutils literal"><span class="keyword"><span class="pre">SUM</span></span><span class="punctuation"><span class="pre">(</span></span><span class="name"><span class="pre">status_code</span></span> <span class="operator"><span class="pre">&gt;=</span></span> <span class="literal number integer"><span class="pre">200</span></span> <span class="keyword"><span class="pre">AND</span></span> <span class="name"><span class="pre">status_code</span></span> <span class="operator"><span class="pre">&lt;=</span></span> <span class="literal number integer"><span class="pre">299</span></span><span class="punctuation"><span class="pre">)</span></span> <span class="keyword"><span class="pre">AS</span></span> <span class="name"><span class="pre">success_count</span></span></code></li>
+<li><code class="code docutils literal"><span class="pre">import</span> <span class="pre">stuff</span> <span class="pre">as</span> <span class="pre">thing</span></code></li>
+</ul>
+</div></blockquote>
+<p>Here is a code sample:: sql</p>
+<blockquote>
+<div>SELECT * FROM thing WHERE dude = 5</div></blockquote>
+</div>
+<div class="section" id="correlation-of-heterogenous-data">
+<h3>Correlation of Heterogenous Data<a class="headerlink" href="#correlation-of-heterogenous-data" title="Permalink to this headline">¶</a></h3>
+<p>Since dimensions in ZenoDB are dynamically typed, it is possible and easy to
+include different kinds of data in the same time series and allow that data to
+be correlated, for example</p>
+</div>
+<div class="section" id="embeddable">
+<h3>Embeddable<a class="headerlink" href="#embeddable" title="Permalink to this headline">¶</a></h3>
+<p>ZenoDB can run standalone or be imbedded in another application using its Go
+language API.</p>
+</div>
+<div class="section" id="clusterable">
+<h3>Clusterable<a class="headerlink" href="#clusterable" title="Permalink to this headline">¶</a></h3>
+<p>ZenoDB processing involves three main activities:</p>
+<ul>
+<li><p class="first">Ingestion - consume streams of time-series data</p>
+</li>
+<li><dl class="first docutils">
+<dt>Storage - persist the pre-aggregated data to disk and load said data at query</dt>
+<dd><p class="first last">time.</p>
+</dd>
+</dl>
+</li>
+<li><p class="first">Querying - slice and dice the stored data.</p>
+</li>
+</ul>
+<p>Storage can be distributed to multiple nodes (followers).</p>
+<p>Multiple nodes can be set up for query processing.</p>
+<p>Currently, all ingestion happens on a single node.</p>
+</div>
+</div>
+<div class="section" id="example">
+<h2>Example<a class="headerlink" href="#example" title="Permalink to this headline">¶</a></h2>
+<p>Here are some specific points of a time-series. In a real-world scenario, this
+wouldn&#8217;t be enough data to draw any statistically significant conclusions, but
+it&#8217;s a useful example for understanding how ZenoDB works.</p>
+<div class="admonition tip">
+<p class="first admonition-title">Tip</p>
+<p class="last">In the ZenoDB documentation, dimensions are flagged with a <strong>(d)</strong> to
+distinguish them from values.</p>
+</div>
+<table border="1" class="docutils">
+<colgroup>
+<col width="26%" />
+<col width="17%" />
+<col width="10%" />
+<col width="19%" />
+<col width="17%" />
+<col width="10%" />
+</colgroup>
+<thead valign="bottom">
+<tr class="row-odd"><th class="head">time (d)</th>
+<th class="head">server (d)</th>
+<th class="head">path (d)</th>
+<th class="head">status_code (d)</th>
+<th class="head">response_time</th>
+<th class="head">load_avg</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr class="row-even"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.23</td>
+<td>/login</td>
+<td>200</td>
+<td>10</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>2017-04-01T16:00:01Z</td>
+<td>56.234.163.23</td>
+<td>/login</td>
+<td>200</td>
+<td>30</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.23</td>
+<td>/login</td>
+<td>403</td>
+<td>400</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.24</td>
+<td>/login</td>
+<td>200</td>
+<td>1000</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>2017-04-01T16:00:01Z</td>
+<td>56.234.163.24</td>
+<td>/login</td>
+<td>200</td>
+<td>2000</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.24</td>
+<td>/login</td>
+<td>403</td>
+<td>450</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.23</td>
+<td>/welcome</td>
+<td>200</td>
+<td>50</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>2017-04-01T16:00:01Z</td>
+<td>56.234.163.23</td>
+<td>/welcome</td>
+<td>200</td>
+<td>100</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.23</td>
+<td>/welcome</td>
+<td>500</td>
+<td>10</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.24</td>
+<td>/welcome</td>
+<td>200</td>
+<td>60</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>2017-04-01T16:00:01Z</td>
+<td>56.234.163.24</td>
+<td>/welcome</td>
+<td>200</td>
+<td>120</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-odd"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.24</td>
+<td>/welcome</td>
+<td>500</td>
+<td>20</td>
+<td>&nbsp;</td>
+</tr>
+<tr class="row-even"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.23</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>0.15</td>
+</tr>
+<tr class="row-odd"><td>2017-04-01T16:00:00Z</td>
+<td>56.234.163.24</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>&nbsp;</td>
+<td>2.25</td>
+</tr>
+</tbody>
+</table>
+</div>
+</div>
+
+
+          </div>
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+  <h3><a href="#">Table Of Contents</a></h3>
+  <ul>
+<li><a class="reference internal" href="#">ZenoDB User Guide</a><ul>
+<li><a class="reference internal" href="#what-is-zenodb">What is ZenoDB</a><ul>
+<li><a class="reference internal" href="#time-series">Time-Series</a></li>
+<li><a class="reference internal" href="#olap">OLAP</a></li>
+<li><a class="reference internal" href="#semi-dynamically-typed">Semi-dynamically Typed</a></li>
+<li><a class="reference internal" href="#correlation-of-heterogenous-data">Correlation of Heterogenous Data</a></li>
+<li><a class="reference internal" href="#embeddable">Embeddable</a></li>
+<li><a class="reference internal" href="#clusterable">Clusterable</a></li>
+</ul>
+</li>
+<li><a class="reference internal" href="#example">Example</a></li>
+</ul>
+</li>
+</ul>
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="#">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+  <div role="note" aria-label="source link">
+    <h3>This Page</h3>
+    <ul class="this-page-menu">
+      <li><a href="_sources/index.txt"
+            rel="nofollow">Show Source</a></li>
+    </ul>
+   </div>
+<div id="searchbox" style="display: none" role="search">
+  <h3>Quick search</h3>
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" />
+      <input type="submit" value="Go" />
+      <input type="hidden" name="check_keywords" value="yes" />
+      <input type="hidden" name="area" value="default" />
+    </form>
+    <p class="searchtip" style="font-size: 90%">
+    Enter search terms or a module, class or function name.
+    </p>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2017, Ox Cart.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 1.3.5</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.7</a>
+      
+      |
+      <a href="_sources/index.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
