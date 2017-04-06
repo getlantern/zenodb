@@ -2,12 +2,14 @@ package zenodb
 
 import (
 	"context"
+	"fmt"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
-	"time"
 )
 
 func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
@@ -35,7 +37,7 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) (core.Fields, error), includeMemStore bool) (*queryable, error) {
 	t := db.getTable(table)
 	if t == nil {
-		return nil, nil
+		return nil, fmt.Errorf("Table %v not found", table)
 	}
 	until := encoding.RoundTimeUp(db.clock.Now(), t.Resolution)
 	asOf := encoding.RoundTimeUp(until.Add(-1*t.RetentionPeriod), t.Resolution)

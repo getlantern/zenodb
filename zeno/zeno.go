@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	_ "net/http/pprof"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -321,6 +322,7 @@ func serveHTTP(db *zenodb.DB, hl net.Listener) {
 		HashKey:           *cookieHashKey,
 		BlockKey:          *cookieBlockKey,
 		Password:          *password,
+		CacheDir:          filepath.Join(*dbdir, "_webcache"),
 	})
 	if err != nil {
 		log.Errorf("Unable to configure web: %v", err)

@@ -1,136 +1,188 @@
 package web
 
 import (
-	"sync"
+	"os"
+	"path/filepath"
 	"time"
+
+	"github.com/boltdb/bolt"
+	"github.com/getlantern/errors"
+	"github.com/getlantern/uuid"
+	"github.com/getlantern/zenodb/encoding"
+)
+
+const (
+	statusPending = 0
+	statusSuccess = 1
+	statusError   = 2
+
+	widthPermalink = 16
+	idxStatus      = 0
+	idxPermalink   = 1
+	idxTime        = idxPermalink + widthPermalink
+	idxData        = idxTime + encoding.WidthTime
+)
+
+var (
+	cacheBucket     = []byte("cache")
+	permalinkBucket = []byte("permalink")
 )
 
 type cache struct {
-	ttl          time.Duration
-	maxSize      int
-	size         int
-	oldest       *cacheEntry
-	newest       *cacheEntry
-	entriesBySQL map[string]*cacheEntry
-	mx           sync.RWMutex
+	db   *bolt.DB
+	ttl  time.Duration
+	size int
 }
 
-type cacheEntry struct {
-	prior      *cacheEntry
-	next       *cacheEntry
-	sql        string
-	data       []byte
-	expiration time.Time
+type cacheEntry []byte
+
+func (c *cache) newCacheEntry() cacheEntry {
+	ce := make([]byte, widthPermalink+encoding.WidthTime+1)
+	permalink := uuid.NewRandom()
+	copy(ce[idxPermalink:], permalink)
+	encoding.EncodeTime(ce[idxTime:], time.Now().Add(c.ttl))
+	return ce
 }
 
-func newCache(ttl time.Duration, maxSize int) *cache {
+func (ce cacheEntry) permalink() string {
+	return uuid.UUID(ce.permalinkBytes()).String()
+}
+
+func (ce cacheEntry) permalinkBytes() []byte {
+	return ce[idxPermalink : idxPermalink+widthPermalink]
+}
+
+func (ce cacheEntry) expired() bool {
+	return encoding.TimeFromBytes(ce[idxTime:]).Before(time.Now())
+}
+
+func (ce cacheEntry) status() byte {
+	return ce[idxStatus]
+}
+
+func (ce cacheEntry) pending() {
+	ce[idxStatus] = statusPending
+}
+
+func (ce cacheEntry) data() []byte {
+	return ce[idxData:]
+}
+
+func (ce cacheEntry) error() []byte {
+	return ce.data()
+}
+
+func (ce cacheEntry) succeed(data []byte) cacheEntry {
+	return ce.update(statusSuccess, data)
+}
+
+func (ce cacheEntry) fail(err error) cacheEntry {
+	return ce.update(statusError, []byte(err.Error()))
+}
+
+func (ce cacheEntry) update(status byte, data []byte) cacheEntry {
+	result := make(cacheEntry, 0, 1+widthPermalink+encoding.WidthTime+len(data))
+	result = append(result, status) // mark as succeeded
+	result = append(result, ce[idxPermalink:idxTime]...)
+	result = append(result, ce[idxTime:idxData]...)
+	result = append(result, data...)
+	return result
+}
+
+func newCache(cacheDir string, ttl time.Duration) (*cache, error) {
+	err := os.MkdirAll(cacheDir, 0700)
+	if err != nil {
+		return nil, errors.New("Unable to create cacheDir at %v: %v", cacheDir, err)
+	}
+
+	db, err := bolt.Open(filepath.Join(cacheDir, "webcache.db"), 0600, nil)
+	if err != nil {
+		return nil, errors.New("Unable to open cache database: %v", err)
+	}
+
+	err = db.Update(func(tx *bolt.Tx) error {
+		_, bucketErr := tx.CreateBucketIfNotExists(cacheBucket)
+		if bucketErr != nil {
+			return bucketErr
+		}
+		_, bucketErr = tx.CreateBucketIfNotExists(permalinkBucket)
+		return bucketErr
+	})
+	if err != nil {
+		return nil, errors.New("Unable to initialize cache database: %v", err)
+	}
+
 	return &cache{
-		ttl:          ttl,
-		maxSize:      maxSize,
-		entriesBySQL: make(map[string]*cacheEntry),
-	}
+		db:  db,
+		ttl: ttl,
+	}, nil
 }
 
-func (c *cache) get(sql string) []byte {
-	c.mx.RLock()
-	defer c.mx.RUnlock()
-
-	entry := c.entriesBySQL[sql]
-	if entry == nil {
+func (c *cache) getOrBegin(sql string) (ce cacheEntry, created bool, err error) {
+	key := []byte(sql)
+	err = c.db.Update(func(tx *bolt.Tx) error {
+		cb := tx.Bucket(cacheBucket)
+		pb := tx.Bucket(permalinkBucket)
+		ce = cacheEntry(cb.Get(key))
+		expired := ce != nil && ce.expired()
+		if ce == nil || expired {
+			created = true
+			if expired {
+				ce = nil
+				err = cb.Delete(key)
+				if err != nil {
+					return err
+				}
+			}
+			ce = c.newCacheEntry()
+			cb.Put(key, ce)
+			pb.Put(ce.permalinkBytes(), ce)
+			return nil
+		}
 		return nil
-	}
-	if entry.expiration.Before(time.Now()) {
+	})
+	return
+}
+
+func (c *cache) begin(sql string) (ce cacheEntry, err error) {
+	key := []byte(sql)
+	err = c.db.Update(func(tx *bolt.Tx) error {
+		cb := tx.Bucket(cacheBucket)
+		pb := tx.Bucket(permalinkBucket)
+		ce = c.newCacheEntry()
+		cb.Put(key, ce)
+		pb.Put(ce.permalinkBytes(), ce)
 		return nil
-	}
-	return entry.data
+	})
+	return
 }
 
-func (c *cache) put(sql string, data []byte) {
-	c.mx.Lock()
-	defer c.mx.Unlock()
-
-	dataSize := len(data)
-	if dataSize > c.maxSize {
-		// Can't cache
-		return
-	}
-
-	entry := c.entriesBySQL[sql]
-	entryWasNewest := false
-	if entry != nil {
-		// Update existing entry
-		if entry.isOldest() {
-			c.oldest = entry.next
-			if entry.next != nil {
-				entry.next.prior = nil
-			}
-		} else if entry.isNewest() {
-			entryWasNewest = true
-		} else {
-			entry.prior.next = entry.next
-			entry.next.prior = entry.prior
-		}
-		entry.next = nil
-	} else {
-		entry = &cacheEntry{sql: sql}
-		c.entriesBySQL[sql] = entry
-		c.size += dataSize
-	}
-	entry.data = data
-	entry.expiration = time.Now().Add(c.ttl)
-
-	if !entryWasNewest {
-		entry.prior = c.newest
-		if c.newest != nil {
-			c.newest.next = entry
-		}
-		c.newest = entry
-	}
-	if entry.isOldest() {
-		c.oldest = entry
-	}
-
-	// Purge all expired data
-	now := time.Now()
-	current := c.oldest
-	for ; current != nil; current = current.next {
-		if current.expiration.Before(now) {
-			c.removeEntry(current)
-			if current.isOldest() {
-				c.oldest = current.next
-			}
-			if current.isNewest() {
-				c.newest = current.prior
-			}
-		}
-	}
-
-	// Purge oldest data to stay below maxSize
-	for c.size > c.maxSize {
-		c.removeEntry(c.oldest)
-		c.oldest = c.oldest.next
-		if c.oldest == nil {
-			// Oldest is also newest, remove
-			c.newest = nil
-		}
-	}
+func (c *cache) getByPermalink(permalink string) (ce cacheEntry, err error) {
+	key := uuid.Parse(permalink)
+	err = c.db.View(func(tx *bolt.Tx) error {
+		pb := tx.Bucket(permalinkBucket)
+		ce = cacheEntry(pb.Get(key))
+		return nil
+	})
+	return
 }
 
-func (c *cache) removeEntry(entry *cacheEntry) {
-	delete(c.entriesBySQL, entry.sql)
-	c.size -= len(entry.data)
-	if entry.next != nil {
-		entry.next.prior = entry.prior
-	}
-	if entry.prior != nil {
-		entry.prior.next = entry.next
-	}
+func (c *cache) put(sql string, ce cacheEntry) error {
+	key := []byte(sql)
+
+	return c.db.Update(func(tx *bolt.Tx) error {
+		cb := tx.Bucket(cacheBucket)
+		pb := tx.Bucket(permalinkBucket)
+		pb.Put(ce.permalinkBytes(), ce)
+		if ce.expired() {
+			cb.Delete(key)
+			return errors.New("Finished entry after expiration")
+		}
+		cb.Put(key, ce)
+		return nil
+	})
 }
 
-func (e *cacheEntry) isOldest() bool {
-	return e.prior == nil
-}
-
-func (e *cacheEntry) isNewest() bool {
-	return e.next == nil
+func (c *cache) Close() error {
+	return c.db.Close()
 }

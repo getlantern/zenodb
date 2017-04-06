@@ -18,15 +18,14 @@ var (
 )
 
 type Opts struct {
-	OAuthClientID      string
-	OAuthClientSecret  string
-	GitHubOrg          string
-	HashKey            string
-	BlockKey           string
-	CacheTTL           time.Duration
-	MaxCacheBytes      int
-	MaxCacheEntryBytes int
-	Password           string
+	OAuthClientID     string
+	OAuthClientSecret string
+	GitHubOrg         string
+	HashKey           string
+	BlockKey          string
+	CacheDir          string
+	CacheTTL          time.Duration
+	Password          string
 }
 
 type handler struct {
@@ -47,16 +46,12 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 		return errors.New("Unable to start web server, no GitHubOrg specified")
 	}
 
+	if opts.CacheDir == "" {
+		return errors.New("Unable to start web server, no CacheDir specified")
+	}
+
 	if opts.CacheTTL == 0 {
 		opts.CacheTTL = 1 * time.Hour
-	}
-
-	if opts.MaxCacheBytes <= 0 {
-		opts.MaxCacheBytes = 100 * 1024 * 1204
-	}
-
-	if opts.MaxCacheEntryBytes <= 0 {
-		opts.MaxCacheEntryBytes = opts.MaxCacheBytes / 20
 	}
 
 	hashKey := []byte(opts.HashKey)
@@ -80,19 +75,27 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 		}
 	}
 
+	cache, err := newCache(opts.CacheDir, opts.CacheTTL)
+	if err != nil {
+		return err
+	}
+
 	h := &handler{
 		Opts:   *opts,
 		db:     db,
 		sc:     securecookie.New(hashKey, blockKey),
 		client: &http.Client{},
-		cache:  newCache(opts.CacheTTL, opts.MaxCacheBytes),
+		cache:  cache,
 	}
 
 	router.StrictSlash(true)
 	router.HandleFunc("/insert/{stream}", h.insert)
 	router.HandleFunc("/oauth/code", h.oauthCode)
+	router.PathPrefix("/async").HandlerFunc(h.asyncQuery)
 	router.PathPrefix("/run").HandlerFunc(h.runQuery)
+	router.PathPrefix("/cached/{permalink}").HandlerFunc(h.cachedQuery)
 	router.PathPrefix("/favicon").Handler(http.NotFoundHandler())
+	router.PathPrefix("/report/{permalink}").HandlerFunc(h.index)
 	router.PathPrefix("/").HandlerFunc(h.index)
 
 	return nil
