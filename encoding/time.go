@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+const (
+	WidthTime = Width64bits
+)
+
 var (
 	zeroTime = time.Time{}
 )

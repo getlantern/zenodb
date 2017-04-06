@@ -47,6 +47,10 @@ var indexHTML = []byte(`
       text-align: left;
     }
 
+		h3 span {
+			font-size: 14px;
+		}
+
     h4 {
       margin-top: 20px;
     }
@@ -109,20 +113,20 @@ var indexHTML = []byte(`
 <body style="padding: 0px 10px 10px 10px;">
   <div id='container'></div>
   <script id='template' type='text/ractive'>
-    <h3>ZenoDB | SQL Query</h3>
+    <h3>ZenoDB | SQL Query {{#if result.Permalink}}<span><a href="/report/{{ result.Permalink }}">report permalink</a></span>{{/if}}</h3>
 
-    <div id="sql">{{ sql }}</div>
+		<div id="sql">{{ sql }}</div>
 
-    <div style="margin-top: 10px;">
-      <button type="button" class="btn btn-default" aria-label="Left Align" on-click="run" {{#if running}}disabled{{/if}}>
+	  <div style="margin-top: 10px;">
+		  <button type="button" class="btn btn-default" aria-label="Left Align" on-click="run" {{#if running}}disabled{{/if}}>
         <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
       </button>
-      {{#if !running}}
-        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{ result.Rows.length}}{{else}}No{{/if}} results as of {{ date }}</span>{{/if}}
+		  {{#if !running}}
+        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{result.Rows.length}}{{else}}No{{/if}} results as of {{ date }}</span>{{/if}}
       {{/if}}
     </div>
 
-    <div id="autoplot-instructions" class="{{#if plottingNotSupported}}shown{{/if}}" style="margin: 10px;">
+	  <div id="autoplot-instructions" class="{{#if plottingNotSupported}}shown{{/if}}" style="margin: 10px;">
       <h3>Autoplotting Not Supported for this Query</h3>
       <p>Zeno currently supports three types of auto-plot:</p>
 
@@ -216,12 +220,14 @@ ORDER BY server</code></pre>
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/seedrandom/2.4.2/seedrandom.min.js"></script>
 
   <script type="text/javascript">
-    // Set up two-way data binding with ractive
+		var isReport = location.pathname.startsWith("/report");
+
+		// Set up two-way data binding with ractive
     var ractive = new Ractive({el: '#container', template: '#template', data: {
-      "sql": "",
+			"sql": "",
       "running": false,
       "result": null,
-      "error": null,
+			"error": null,
       "formatTS": formatTS,
       "date": null,
       "showTimeSeriesChart": false,
@@ -232,11 +238,11 @@ ORDER BY server</code></pre>
     });
 
     // Set up ace editor
-    var editor = ace.edit("sql");
+	  var editor = ace.edit("sql");
     editor.setTheme("ace/theme/monokai");
     editor.getSession().setMode("ace/mode/mysql");
 
-    var sqlInitialized = false;
+    var sqlInitialized = isReport;
     // Handle routing
     function handlePage(context, next) {
       if (!sqlInitialized) {
@@ -255,35 +261,47 @@ ORDER BY server</code></pre>
     });
 
     // Periodically check editor value and update link
-    setInterval(function() {
+		setInterval(function() {
       var sql = editor.getValue();
       if (sql) {
         page('/query?' + encodeURIComponent(sql));
       }
     }, 1000);
 
-    function runQuery(allowCaching) {
-      ractive.set("running", true);
+		function runQuery(allowCaching, waitTime) {
+			ractive.set("running", true);
       ractive.set("result", null);
-      ractive.set("error", null);
+			ractive.set("error", null);
       ractive.set("showTimeSeriesChart", false);
       ractive.set("showOtherChart", false);
       ractive.set("plottingNotSupported", false);
 
-      var query = editor.getValue();
-      console.log("Running query", query);
       var xhr = new XMLHttpRequest();
-      xhr.open('GET', '/run?' + encodeURIComponent(query), true);
+			var url;
+			if (isReport) {
+				console.log("Loading cached report");
+				url = '/cached/' + location.pathname.substring(8);
+			} else {
+				var query = editor.getValue();
+	      console.log("Running query", query);
+	      url = '/async?' + encodeURIComponent(query);
+			}
+			xhr.open('GET', url, true);
       if (!allowCaching) {
         xhr.setRequestHeader("Cache-Control", "no-cache");
       }
 
       xhr.onreadystatechange = function(e) {
-        if (this.readyState == 4) {
-          if (this.status == 200) {
+				if (this.readyState == 4) {
+					console.log(this, e)
+					if (this.status == 200) {
             var result = JSON.parse(this.responseText);
             ractive.set("date", formatTS(result.TS));
             ractive.set("result", result);
+						if (isReport) {
+							isReport = false;
+							editor.setValue(result.SQL);
+						}
 
             if (result.Rows) {
               plot(result);
@@ -291,9 +309,9 @@ ORDER BY server</code></pre>
           } else {
             ractive.set("error", this.status + " - " + this.responseText);
           }
-        }
 
-        ractive.set("running", false);
+					ractive.set("running", false);
+        }
       };
 
       xhr.send();
@@ -457,6 +475,10 @@ ORDER BY server</code></pre>
       }
       return color;
     }
+
+		if (isReport) {
+			runQuery(true);
+		}
   </script>
 </body>
 </html>
