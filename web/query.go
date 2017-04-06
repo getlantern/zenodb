@@ -87,7 +87,6 @@ func (h *handler) cachedQuery(resp http.ResponseWriter, req *http.Request) {
 	}
 
 	permalink := mux.Vars(req)["permalink"]
-	log.Debugf("permalink: '%v'", permalink)
 	ce, err := h.cache.getByPermalink(permalink)
 	if ce == nil {
 		http.NotFound(resp, req)
@@ -137,7 +136,6 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 		var created bool
 		ce, created, err = h.cache.getOrBegin(sqlString)
 		if err != nil || !created {
-			log.Debug("Returning immediately")
 			return
 		}
 		if ce.status() != statusPending {
