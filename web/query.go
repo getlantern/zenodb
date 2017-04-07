@@ -19,6 +19,10 @@ import (
 
 const (
 	nanosPerMilli = 1000000
+
+	pauseTime    = 250 * time.Millisecond
+	shortTimeout = 15 * time.Second
+	longTimeout  = 1000 * time.Hour
 )
 
 type QueryResult struct {
@@ -40,44 +44,11 @@ type ResultRow struct {
 }
 
 func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
-	if !h.authenticate(resp, req) {
-		resp.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
-
-	for {
-		ce, err := h.query(req, sqlString)
-		if err != nil {
-			resp.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprint(resp, err.Error())
-			return
-		}
-		switch ce.status() {
-		case statusSuccess:
-			h.respondSuccess(resp, req, ce)
-			return
-		case statusError:
-			h.respondError(resp, req, ce)
-			return
-		case statusPending:
-			// Wait and then continue
-			time.Sleep(1 * time.Second)
-		}
-	}
+	h.sqlQuery(resp, req, longTimeout)
 }
 
 func (h *handler) asyncQuery(resp http.ResponseWriter, req *http.Request) {
-	if !h.authenticate(resp, req) {
-		resp.WriteHeader(http.StatusForbidden)
-		return
-	}
-
-	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
-
-	ce, err := h.query(req, sqlString)
-	h.respondWithCacheEntry(resp, req, ce, err, 0)
+	h.sqlQuery(resp, req, shortTimeout)
 }
 
 func (h *handler) cachedQuery(resp http.ResponseWriter, req *http.Request) {
@@ -92,25 +63,50 @@ func (h *handler) cachedQuery(resp http.ResponseWriter, req *http.Request) {
 		http.NotFound(resp, req)
 		return
 	}
-	h.respondWithCacheEntry(resp, req, ce, err, 1*time.Second)
+	h.respondWithCacheEntry(resp, req, ce, err, shortTimeout)
 }
 
-func (h *handler) respondWithCacheEntry(resp http.ResponseWriter, req *http.Request, ce cacheEntry, err error, waitTime time.Duration) {
-	if err != nil {
-		resp.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(resp, err.Error())
+func (h *handler) sqlQuery(resp http.ResponseWriter, req *http.Request, timeout time.Duration) {
+	if !h.authenticate(resp, req) {
+		resp.WriteHeader(http.StatusForbidden)
 		return
 	}
-	switch ce.status() {
-	case statusSuccess:
-		h.respondSuccess(resp, req, ce)
-	case statusError:
-		h.respondError(resp, req, ce)
-	case statusPending:
-		// Wait a little bit
-		time.Sleep(waitTime)
-		// Let the client know that we're still working on it
-		http.Redirect(resp, req, fmt.Sprintf("/cached/%v", ce.permalink()), http.StatusFound)
+
+	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
+
+	ce, err := h.query(req, sqlString)
+	h.respondWithCacheEntry(resp, req, ce, err, timeout)
+}
+
+func (h *handler) respondWithCacheEntry(resp http.ResponseWriter, req *http.Request, ce cacheEntry, err error, timeout time.Duration) {
+	limit := int(timeout / pauseTime)
+	for i := 0; i <= limit; i++ {
+		last := i == limit
+		if err != nil {
+			log.Error(err)
+			resp.WriteHeader(http.StatusInternalServerError)
+			fmt.Fprint(resp, err.Error())
+			return
+		}
+		switch ce.status() {
+		case statusSuccess:
+			h.respondSuccess(resp, req, ce)
+			return
+		case statusError:
+			h.respondError(resp, req, ce)
+			return
+		case statusPending:
+			if last {
+				// Let the client know that we're still working on it
+				resp.WriteHeader(http.StatusAccepted)
+				fmt.Fprintf(resp, "/cached/%v", ce.permalink())
+				return
+			}
+			// Pause a little bit and try again
+			time.Sleep(pauseTime)
+			ce, err = h.cache.getByPermalink(ce.permalink())
+			continue
+		}
 	}
 }
 
