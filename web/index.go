@@ -113,63 +113,65 @@ var indexHTML = []byte(`
 <body style="padding: 0px 10px 10px 10px;">
   <div id='container'></div>
   <script id='template' type='text/ractive'>
-    <h3>ZenoDB | SQL Query {{#if result.Permalink}}<span><a href="/report/{{ result.Permalink }}">report permalink</a></span>{{/if}}</h3>
+		<div class="{{#if inIframe}}hide{{/if}}">
+	    <h3>ZenoDB | SQL Query {{#if result.Permalink}}<span><a href="/report/{{ result.Permalink }}">report permalink</a></span>{{/if}}</h3>
 
-		<div id="sql">{{ sql }}</div>
+			<div id="sql">{{ sql }}</div>
 
-	  <div style="margin-top: 10px;">
-		  <button type="button" class="btn btn-default" aria-label="Left Align" on-click="run" {{#if running}}disabled{{/if}}>
-        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
-      </button>
-		  {{#if !running}}
-        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{result.Rows.length}}{{else}}No{{/if}} results as of {{ date }}</span>{{/if}}
-      {{/if}}
-    </div>
+		  <div style="margin-top: 10px;">
+			  <button type="button" class="btn btn-default" aria-label="Left Align" on-click="run" {{#if running}}disabled{{/if}}>
+	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
+	      </button>
+			  {{#if !running}}
+	        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{result.Rows.length}}{{else}}No{{/if}} results as of {{ date }}</span>{{/if}}
+	      {{/if}}
+	    </div>
 
-	  <div id="autoplot-instructions" class="{{#if plottingNotSupported}}shown{{/if}}" style="margin: 10px;">
-      <h3>Autoplotting Not Supported for this Query</h3>
-      <p>Zeno currently supports three types of auto-plot:</p>
+		  <div id="autoplot-instructions" class="{{#if plottingNotSupported}}shown{{/if}}" style="margin: 10px;">
+	      <h3>Autoplotting Not Supported for this Query</h3>
+	      <p>Zeno currently supports three types of auto-plot:</p>
 
-      <h4>1. Time Series</h4>
-      <ul>
-        <li>Supports arbitrary number of fields</li>
-        <li>Works only when grouping by 0 dimensions</li>
-        <li>Must include more than 1 _time</li>
-      </ul>
+	      <h4>1. Time Series</h4>
+	      <ul>
+	        <li>Supports arbitrary number of fields</li>
+	        <li>Works only when grouping by 0 dimensions</li>
+	        <li>Must include more than 1 _time</li>
+	      </ul>
 
-      <h5>Example</h5>
-      <pre><code>SELECT requests, load_avg, _points
-FROM combined
-GROUP BY _
-ORDER BY _time</code></pre>
+	      <h5>Example</h5>
+	      <pre><code>SELECT requests, load_avg, _points
+	FROM combined
+	GROUP BY _
+	ORDER BY _time</code></pre>
 
-      <h4>2. Bubble Chart</h4>
-      <ul>
-        <li>Works when selecting 2 or 3 fields</li>
-        <li>If 3rd field specified, it is used to size the bubbles, otherwise the bubbles are all equally sized</li>
-        <li>Works only when grouping by 1 dimension</li>
-        <li>Must not include multiple time periods</li>
-      </ul>
+	      <h4>2. Bubble Chart</h4>
+	      <ul>
+	        <li>Works when selecting 2 or 3 fields</li>
+	        <li>If 3rd field specified, it is used to size the bubbles, otherwise the bubbles are all equally sized</li>
+	        <li>Works only when grouping by 1 dimension</li>
+	        <li>Must not include multiple time periods</li>
+	      </ul>
 
-      <h5>Example</h5>
-      <pre><code>SELECT requests, load_avg, _points
-FROM combined
-GROUP BY server, period(24h)
-ORDER BY server</code></pre>
+	      <h5>Example</h5>
+	      <pre><code>SELECT requests, load_avg, _points
+	FROM combined
+	GROUP BY server, period(24h)
+	ORDER BY server</code></pre>
 
-      <h4>3. Bar Chart</h4>
-      <ul>
-        <li>Supports arbitrary number of fields other than 2 or 3 (see Bubble Chart above)</li>
-        <li>Works only when grouping by 1 dimension</li>
-        <li>Must not include multiple time periods</li>
-      </ul>
+	      <h4>3. Bar Chart</h4>
+	      <ul>
+	        <li>Supports arbitrary number of fields other than 2 or 3 (see Bubble Chart above)</li>
+	        <li>Works only when grouping by 1 dimension</li>
+	        <li>Must not include multiple time periods</li>
+	      </ul>
 
-      <h5>Example</h5>
-      <pre><code>SELECT _points
-FROM combined
-GROUP BY server, period(24h)
-ORDER BY server</code></pre>
-    </div>
+	      <h5>Example</h5>
+	      <pre><code>SELECT _points
+	FROM combined
+	GROUP BY server, period(24h)
+	ORDER BY server</code></pre>
+	    </div>
+		</div>
 
     {{#if result && result.Rows}}
       <div id="chartDiv" class="defaultHide" style="margin-top: 20px; width: 100%; {{#if showTimeSeriesChart}}display: block;{{/if}}"></div>
@@ -232,6 +234,7 @@ ORDER BY server</code></pre>
       "date": null,
       "showTimeSeriesChart": false,
       "showOtherChart": false,
+			"inIframe": false,
     }});
     ractive.on("run", function() {
       runQuery(false)
@@ -478,6 +481,10 @@ ORDER BY server</code></pre>
 
 		if (isReport) {
 			runQuery(true);
+		}
+
+		if (window.self !== window.top) {
+			ractive.set("inIframe", true);
 		}
   </script>
 </body>

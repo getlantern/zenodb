@@ -89,6 +89,15 @@ func (ce cacheEntry) update(status byte, data []byte) cacheEntry {
 	return result
 }
 
+func (ce cacheEntry) copy() cacheEntry {
+	if ce == nil {
+		return nil
+	}
+	result := make(cacheEntry, len(ce))
+	copy(result, ce)
+	return result
+}
+
 func newCache(cacheDir string, ttl time.Duration) (*cache, error) {
 	err := os.MkdirAll(cacheDir, 0700)
 	if err != nil {
@@ -123,7 +132,7 @@ func (c *cache) getOrBegin(sql string) (ce cacheEntry, created bool, err error) 
 	err = c.db.Update(func(tx *bolt.Tx) error {
 		cb := tx.Bucket(cacheBucket)
 		pb := tx.Bucket(permalinkBucket)
-		ce = cacheEntry(cb.Get(key))
+		ce = cacheEntry(cb.Get(key)).copy()
 		expired := ce != nil && ce.expired()
 		if ce == nil || expired {
 			created = true
@@ -161,7 +170,7 @@ func (c *cache) getByPermalink(permalink string) (ce cacheEntry, err error) {
 	key := uuid.Parse(permalink)
 	err = c.db.View(func(tx *bolt.Tx) error {
 		pb := tx.Bucket(permalinkBucket)
-		ce = cacheEntry(pb.Get(key))
+		ce = cacheEntry(pb.Get(key)).copy()
 		return nil
 	})
 	return

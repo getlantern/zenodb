@@ -155,12 +155,15 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 		} else {
 			resultBytes, err := json.Marshal(result)
 			if err != nil {
-				ce = ce.fail(fmt.Errorf("Unable to marshal result: %v", err))
+				err = fmt.Errorf("Unable to marshal result: %v", err)
+				log.Error(err)
+				ce = ce.fail(err)
 			} else {
 				ce = ce.succeed(resultBytes)
 			}
 		}
 		h.cache.put(sqlString, ce)
+		log.Debugf("Cached results for %v", sqlString)
 	}()
 
 	return
