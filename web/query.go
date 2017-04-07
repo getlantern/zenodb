@@ -21,7 +21,7 @@ const (
 	nanosPerMilli = 1000000
 
 	pauseTime    = 250 * time.Millisecond
-	shortTimeout = 15 * time.Second
+	shortTimeout = 5 * time.Second
 	longTimeout  = 1000 * time.Hour
 )
 
@@ -80,8 +80,7 @@ func (h *handler) sqlQuery(resp http.ResponseWriter, req *http.Request, timeout 
 
 func (h *handler) respondWithCacheEntry(resp http.ResponseWriter, req *http.Request, ce cacheEntry, err error, timeout time.Duration) {
 	limit := int(timeout / pauseTime)
-	for i := 0; i <= limit; i++ {
-		last := i == limit
+	for i := 0; i < limit; i++ {
 		if err != nil {
 			log.Error(err)
 			resp.WriteHeader(http.StatusInternalServerError)
@@ -96,18 +95,14 @@ func (h *handler) respondWithCacheEntry(resp http.ResponseWriter, req *http.Requ
 			h.respondError(resp, req, ce)
 			return
 		case statusPending:
-			if last {
-				// Let the client know that we're still working on it
-				resp.WriteHeader(http.StatusAccepted)
-				fmt.Fprintf(resp, "/cached/%v", ce.permalink())
-				return
-			}
 			// Pause a little bit and try again
 			time.Sleep(pauseTime)
 			ce, err = h.cache.getByPermalink(ce.permalink())
-			continue
 		}
 	}
+	// Let the client know that we're still working on it
+	resp.WriteHeader(http.StatusAccepted)
+	fmt.Fprintf(resp, "/cached/%v", ce.permalink())
 }
 
 func (h *handler) respondSuccess(resp http.ResponseWriter, req *http.Request, ce cacheEntry) {
