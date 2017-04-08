@@ -156,7 +156,7 @@ LIMIT 100, 10
 		idx++
 		assert.Equal(t, core.NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
 		idx++
-		assert.Equal(t, core.NewGroupBy("joinedp", goexpr.OConcat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
+		assert.Equal(t, core.NewGroupBy("joinedp", goexpr.PConcat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
