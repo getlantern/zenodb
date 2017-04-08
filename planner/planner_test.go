@@ -243,6 +243,33 @@ func TestPlans(t *testing.T) {
 				), "a+b > 0", nil)
 		})
 
+	groupByLenXInner := NewGroupBy("len_x", goexpr.Len(goexpr.Param("x")))
+	groupByLenXOuter := NewGroupBy("len_x", goexpr.Param("len_x"))
+
+	pushdownScenario("HAVING clause with complete group by and subselect using derived dimension, pushdown allowed",
+		"SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, LEN(x) AS len_x) GROUP BY y, len_x HAVING a+b > 0",
+		"select avg(a)+avg(b) as total from (select * from TableA group by y, len(x) as len_x) group by y, len_x having a+b > 0",
+		func(source RowSource) Source {
+			return FlatRowFilter(
+				Flatten(
+					Group(
+						Unflatten(
+							Flatten(
+								Group(source, GroupOpts{
+									Fields: textFieldSource("*"),
+									By:     []GroupBy{groupByLenXInner, groupByY},
+								}),
+							),
+							textFieldSource("avg(a)+avg(b) as total")),
+						GroupOpts{
+							Fields: textFieldSource("avg(a)+avg(b) as total"),
+							Having: textExprSource("a+b > 0"),
+							By:     []GroupBy{groupByLenXOuter, groupByY},
+						},
+					),
+				), "a+b > 0", nil)
+		})
+
 	// nonPushdownScenario("HAVING clause with contiguous group by in subselect but discontiguous group by in main select, pushdown of subquery allowed",
 	// 	"SELECT AVG(a) + AVG(b) AS total FROM (SELECT * FROM TableA GROUP BY y, CONCAT(',', x, 'thing') AS xplus) GROUP BY y, xplus HAVING a+b > 0",
 	// 	"select * from TableA group by y, concat(',', x, 'thing') as xplus",

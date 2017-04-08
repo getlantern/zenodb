@@ -57,6 +57,7 @@ GROUP BY
 	REGION_CITY(ip) AS city_state,
 	COUNTRY_CODE(ip) AS country,
 	CONCAT('|', part_a, part_b) AS joined,
+	PCONCAT('|', part_a, part_b) AS joinedp,
 	TEST(dim_k) AS test_dim_k,
 	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
 	SPLIT(dim_o, ',', 2) AS spl,
@@ -135,7 +136,7 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 15) {
+	if assert.Len(t, q.GroupBy, 16) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -154,6 +155,8 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("joinedp", goexpr.OConcat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++

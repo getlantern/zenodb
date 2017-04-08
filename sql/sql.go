@@ -93,7 +93,8 @@ var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexp
 }
 
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
-	"CONCAT": goexpr.Concat,
+	"CONCAT":  goexpr.Concat,
+	"PCONCAT": goexpr.OConcat,
 	"CROSSTAB": func(exprs ...goexpr.Expr) goexpr.Expr {
 		// Crosstab expressions are concatenated using underscore
 		allExprs := make([]goexpr.Expr, 1, len(exprs)+1)

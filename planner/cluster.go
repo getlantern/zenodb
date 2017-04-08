@@ -99,73 +99,70 @@ func (cs *clusterFlatRowSource) String() string {
 // that aggregate heavily.
 func pushdownAllowed(opts *Opts, query *sql.Query) (bool, error) {
 	if query.Crosstab != nil {
+		log.Debug("Pushdown not allowed because query contains crosstab")
 		return false, nil
 	}
 
 	if query.FromSubQuery != nil {
-		if len(query.FromSubQuery.OrderBy) > 0 || query.Crosstab != nil || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
+		if len(query.FromSubQuery.OrderBy) > 0 || query.FromSubQuery.Crosstab != nil || query.FromSubQuery.Limit > 0 || query.FromSubQuery.Offset > 0 {
 			// If subquery contains order by, crosstab, limit or offset, we can't push down
+			log.Debugf("Pushdown not allowed because subquery contains disallowed clause: %v", query.FromSubQuery.SQL)
 			return false, nil
 		}
 	}
 
-	params := make(map[string]bool)
+	parentGroupByAll := true
+	parentGroupParams := make(map[string]bool)
 	for current := query; current != nil; current = current.FromSubQuery {
-		if len(current.GroupBy) > 0 {
+		if current.FromSubQuery == nil {
+			// we've reached the bottom
+			t, err := opts.GetTable(current.From, func(tableFields core.Fields) (core.Fields, error) {
+				return tableFields, nil
+			})
+			if err != nil {
+				log.Debugf("Unexpected error checking if pushdown allowed: %v", err)
+				return false, err
+			}
+			partitionBy := t.GetPartitionBy()
+			if len(partitionBy) == 0 {
+				// Table not partitioned, can't push down
+				log.Debug("Pushdown not allowed because table is not partitioned")
+				return false, nil
+			}
+			groupParams := make(map[string]bool)
 			for _, groupBy := range current.GroupBy {
 				groupBy.Expr.WalkOneToOneParams(func(param string) {
-					params[param] = true
+					if parentGroupByAll || parentGroupParams[groupBy.Name] {
+						groupParams[param] = true
+					}
 				})
 			}
+			for _, partitionKey := range partitionBy {
+				if !groupParams[partitionKey] {
+					log.Debugf("Pushdown not allowed because partition key %v is not represented in group by params %v", partitionKey, groupParams)
+					// Partition key not represented, can't push down
+					return false, nil
+				}
+			}
+			log.Debugf("Pushdown allowed")
+			return true, nil
 		}
+
 		if !current.GroupByAll {
-			break
-		}
-		if current.FromSubQuery == nil {
-			t, err := opts.GetTable(current.From, func(tableFields core.Fields) (core.Fields, error) {
-				return tableFields, nil
-			})
-			if err != nil {
-				return false, err
-			}
-			for _, groupBy := range t.GetGroupBy() {
+			groupParams := make(map[string]bool)
+			for _, groupBy := range current.GroupBy {
 				groupBy.Expr.WalkOneToOneParams(func(param string) {
-					params[param] = true
+					if parentGroupByAll || parentGroupParams[groupBy.Name] {
+						groupParams[param] = true
+					}
 				})
 			}
+			parentGroupByAll = false
+			parentGroupParams = groupParams
 		}
 	}
 
-	var partitionBy []string
-	for current := query; current != nil; current = current.FromSubQuery {
-		if current.FromSubQuery == nil {
-			t, err := opts.GetTable(current.From, func(tableFields core.Fields) (core.Fields, error) {
-				return tableFields, nil
-			})
-			if err != nil {
-				return false, err
-			}
-			partitionBy = t.GetPartitionBy()
-			break
-		}
-	}
-
-	if len(partitionBy) == 0 {
-		// Table not partitioned, can't push down
-		return false, nil
-	}
-
-	for _, partitionKey := range partitionBy {
-		if !params[partitionKey] {
-			// Partition key not represented, can't push down
-			return false, nil
-		}
-	}
-
-	if query.FromSubQuery == nil {
-		return true, nil
-	}
-	return pushdownAllowed(opts, query.FromSubQuery)
+	return false, fmt.Errorf("Should never reach this branch of pushdownAllowed")
 }
 
 func planClusterPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
