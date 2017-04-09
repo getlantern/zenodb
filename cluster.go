@@ -745,12 +745,14 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		resultsByPartition[partition] = resultsForPartition
 		go func() {
 			for {
+				elapsed := mtime.Stopwatch()
 				query := db.remoteQueryHandlerForPartition(partition)
 				if query == nil {
 					log.Errorf("No query handler for partition %d, ignoring", partition)
 					results <- &remoteResult{
 						partition: partition,
 						totalRows: 0,
+						elapsed:   elapsed(),
 						err:       nil,
 					}
 					break
@@ -807,6 +809,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				results <- &remoteResult{
 					partition: partition,
 					totalRows: int(atomic.LoadInt64(resultsForPartition)),
+					elapsed:   elapsed(),
 					err:       err,
 				}
 				break
@@ -825,7 +828,6 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	hasFields := false
 	resultCount := 0
 	for pendingPartitions := numPartitions; pendingPartitions > 0; {
-		start := time.Now()
 		select {
 		case result := <-results:
 			// first handle fields
@@ -876,8 +878,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				log.Errorf("Error from partition %d: %v", result.partition, result.err)
 				fail(result.err)
 			}
-			delta := time.Now().Sub(start)
-			log.Debugf("%d/%d got %d results from partition %d in %v", resultCount, db.opts.NumPartitions, result.totalRows, result.partition, delta)
+			log.Debugf("%d/%d got %d results from partition %d in %v", resultCount, db.opts.NumPartitions, result.totalRows, result.partition, result.elapsed)
 			delete(resultsByPartition, result.partition)
 		case <-timeout.C:
 			fail(core.ErrDeadlineExceeded)
@@ -906,5 +907,6 @@ type remoteResult struct {
 	vals      core.Vals
 	flatRow   *core.FlatRow
 	totalRows int
+	elapsed   time.Duration
 	err       error
 }

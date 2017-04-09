@@ -28,7 +28,10 @@ type havingFilter struct {
 func (f *havingFilter) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnFlatRow) error {
 	return f.base.Iterate(ctx, func(fields core.Fields) error {
 		// Remove the trailing "_having" field
-		return onFields(fields[:len(fields)-1])
+		if len(fields) > 0 {
+			fields = fields[:len(fields)-1]
+		}
+		return onFields(fields)
 	}, onRow)
 }
 
