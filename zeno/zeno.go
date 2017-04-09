@@ -8,6 +8,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -229,8 +230,8 @@ func main() {
 
 			for i := 0; i < len(leaders); i++ {
 				client := clients[i]
-				// TODO: make query concurrency configurable
-				for j := 0; j < 8; j++ {
+				cpus := runtime.NumCPU() // limit concurrency to 1 ongoing query per CPU
+				for j := 0; j < cpus; j++ {
 					go func() {
 						// Continually handle queries and then reconnect for next query
 						waitTime := minWaitTime

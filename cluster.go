@@ -8,6 +8,7 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/mtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
@@ -680,6 +681,10 @@ func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery b
 	if err != nil {
 		return err
 	}
+	elapsed := mtime.Stopwatch()
+	defer func() {
+		log.Debugf("Processed query in %v: %v", elapsed(), sqlString)
+	}()
 	if unflat {
 		return core.UnflattenOptimized(source).Iterate(ctx, onFields, onRow)
 	} else {
