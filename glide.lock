@@ -22,7 +22,7 @@ imports:
 - name: github.com/getlantern/byteexec
   version: 2e21fedeb225921a8dc40321cbd114ffd0a302f3
 - name: github.com/getlantern/bytemap
-  version: 4dd4ecae18588644add452f16e5c5aa41a90bd00
+  version: 807aefefeb0978ae9572ddfe7ec99b68f3da03e2
 - name: github.com/getlantern/context
   version: 624d99b1798d7c5375ea1d3ca4c5b04d58f7c775
 - name: github.com/getlantern/errors
