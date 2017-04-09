@@ -250,7 +250,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(includedFields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+func (rs *rowStore) iterate(includedFields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	var tree *bytetree.Tree
@@ -328,7 +328,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 
 	highWaterMark := int64(0)
 	truncateBefore := rs.t.truncateBefore()
-	write := func(key bytemap.ByteMap, columns []encoding.Sequence) {
+	write := func(key bytemap.ByteMap, columns []encoding.Sequence) (bool, error) {
 		hasActiveSequence := false
 		for i, seq := range columns {
 			seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore, time.Time{})
@@ -340,7 +340,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 
 		if !hasActiveSequence {
 			// all encoding.Sequences expired, remove key
-			return
+			return true, nil
 		}
 
 		rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
@@ -402,6 +402,8 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 				panic(writeErr)
 			}
 		}
+
+		return true, nil
 	}
 	rs.mx.RLock()
 	fs := rs.fileStore
@@ -506,7 +508,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), okayToReuseBuffers bool, tree *bytetree.Tree, includedFields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error), okayToReuseBuffers bool, tree *bytetree.Tree, includedFields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -690,7 +692,10 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 			}
 
 			if includesAtLeastOneColumn {
-				onRow(key, columns)
+				more, err := onRow(key, columns)
+				if !more || err != nil {
+					return err
+				}
 			}
 
 			if useBuffer {
@@ -708,8 +713,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence), o
 					columns[i] = column
 				}
 			}
-			onRow(bytemap.ByteMap(key), columns)
-			return true, false, nil
+			more, err := onRow(bytemap.ByteMap(key), columns)
+			return more, false, err
 		})
 	}
 

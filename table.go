@@ -298,7 +298,7 @@ func (t *table) backfillTo() time.Time {
 	return t.db.clock.Now().Add(-1 * t.Backfill)
 }
 
-func (t *table) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence)) error {
+func (t *table) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
 	return t.rowStore.iterate(fields, includeMemStore, onValue)
 }
 

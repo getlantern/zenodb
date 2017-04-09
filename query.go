@@ -91,6 +91,8 @@ func (q *queryable) String() string {
 }
 
 func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
+	deadline, hasDeadline := ctx.Deadline()
+
 	// We report all fields from the table
 	err := onFields(q.t.Fields)
 	if err != nil {
@@ -99,7 +101,10 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
-	return q.t.iterate(q.fields.Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) {
-		onRow(key, vals)
+	return q.t.iterate(q.fields.Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+		if hasDeadline && time.Now().After(deadline) {
+			return false, nil
+		}
+		return onRow(key, vals)
 	})
 }

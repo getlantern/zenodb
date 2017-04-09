@@ -358,11 +358,12 @@ view_a:
 	time.Sleep(10 * time.Second)
 
 	table := db.getTable("test_a")
-	table.iterate(table.Fields.Names(), true, func(dims bytemap.ByteMap, vals []encoding.Sequence) {
+	table.iterate(table.Fields.Names(), true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		log.Debugf("Dims: %v")
 		for i, field := range table.Fields {
 			log.Debugf("Table Dump %v : %v", field.Name, vals[i].String(field.Expr, table.Resolution))
 		}
+		return true, nil
 	})
 	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, modifyTable)
 }
