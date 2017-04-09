@@ -1,6 +1,12 @@
 hash: 21bd82fe4eb8db28aeddbf9623e76debb35218f4c04ab305ef50e2a0d9b9bfaf
-updated: 2017-03-14T23:03:35.298972043-05:00
+updated: 2017-04-09T14:25:34.058905291-05:00
 imports:
+- name: github.com/aristanetworks/goarista
+  version: 79baa1b1fe5f0e1dd4e6920d35180192939678c4
+  subpackages:
+  - monotime
+- name: github.com/boltdb/bolt
+  version: e9cf4fae01b5a8ff89d0ec6b32f0d9c9f79aefdd
 - name: github.com/chzyer/readline
   version: 41eea22f717c616615e1e59aa06cf831f9901f35
 - name: github.com/cloudfoundry/gosigar
@@ -24,7 +30,7 @@ imports:
 - name: github.com/getlantern/filepersist
   version: c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4
 - name: github.com/getlantern/goexpr
-  version: d6b8955ca03d23c95e2954f9a9211e9284454d0f
+  version: e60477e42660b2c1c764b524cc3b99302cee7f2d
   subpackages:
   - geo
   - isp
@@ -41,6 +47,8 @@ imports:
   version: 10caeb5133f874e91d12e9b256f6e316dfaa5ae0
   subpackages:
   - certimporter
+- name: github.com/getlantern/mtime
+  version: ba114e4a82b0d453c15c505073a5896453b5cbd2
 - name: github.com/getlantern/ops
   version: b70875f5d689a9438bca72aefd7142a2af889b18
 - name: github.com/getlantern/redis
@@ -51,6 +59,8 @@ imports:
   version: 02f928aad224fbccd50d66edd776fc9d1e9f2f2b
 - name: github.com/getlantern/tlsdefaults
   version: 55d0dd468a195a4c8cb99ee0c1a2878cb7e72155
+- name: github.com/getlantern/uuid
+  version: 1318e7614b82cd38041b0b0bd3692d71f3901fb8
 - name: github.com/getlantern/vtime
   version: dc1e573cf9918131774034baa8eade77ef901ea3
 - name: github.com/getlantern/wal

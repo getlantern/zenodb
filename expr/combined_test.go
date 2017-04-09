@@ -13,7 +13,15 @@ func TestCombined(t *testing.T) {
 	avgB := AVG("b")
 	mult := MULT(avgA, avgB)
 	count := COUNT("b")
-	e := msgpacked(t, DIV(mult, count))
+	ge, err := goexpr.Binary("=", goexpr.Constant(0), goexpr.Constant(0))
+	if !assert.NoError(t, err) {
+		return
+	}
+	ie, err := IF(ge, DIV(mult, count))
+	if !assert.NoError(t, err) {
+		return
+	}
+	e := msgpacked(t, ie)
 	params1 := Map{
 		"a": 2,
 		"b": 10,
