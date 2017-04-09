@@ -687,9 +687,8 @@ func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery b
 	}()
 	if unflat {
 		return core.UnflattenOptimized(source).Iterate(ctx, onFields, onRow)
-	} else {
-		return source.Iterate(ctx, onFields, onFlatRow)
 	}
+	return source.Iterate(ctx, onFields, onFlatRow)
 }
 
 type resultInfo struct {
@@ -739,18 +738,6 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		defer cancel()
 	}
 
-	var onFieldsOnce sync.Once
-	oneTimeOnFields := func(fields core.Fields) error {
-		// Only pass onFields from first partition to respond, assuming that all
-		// partitions will return the same thing.
-		// TODO: if we ever push-down crosstab processing, we'll need to combine the
-		// fields from all partitions, since they'll differ
-		onFieldsOnce.Do(func() {
-			onFields(fields)
-		})
-		return nil
-	}
-
 	for i := 0; i < numPartitions; i++ {
 		partition := i
 		_resultsForPartition := int64(0)
@@ -769,8 +756,8 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					break
 				}
 
-				var partOnRow core.OnRow
-				var partOnFlatRow core.OnFlatRow
+				var partOnRow func(key bytemap.ByteMap, vals core.Vals) (bool, error)
+				var partOnFlatRow func(row *core.FlatRow) (bool, error)
 				if unflat {
 					partOnRow = func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
 						err := finalErr()
@@ -785,6 +772,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 							key:       key,
 							vals:      vals,
 						}
+						atomic.AddInt64(resultsForPartition, 1)
 						return true, nil
 					}
 				} else {
@@ -800,11 +788,18 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 							partition: partition,
 							flatRow:   row,
 						}
+						atomic.AddInt64(resultsForPartition, 1)
 						return true, nil
 					}
 				}
 
-				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, oneTimeOnFields, partOnRow, partOnFlatRow)
+				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, func(fields core.Fields) error {
+					results <- &remoteResult{
+						partition: partition,
+						fields:    fields,
+					}
+					return nil
+				}, partOnRow, partOnFlatRow)
 				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue
@@ -827,11 +822,25 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	log.Debugf("Deadline for results from partitions: %v (T - %v)", deadline, deadline.Sub(time.Now()))
 
 	timeout := time.NewTimer(deadline.Sub(time.Now()))
+	hasFields := false
 	resultCount := 0
 	for pendingPartitions := numPartitions; pendingPartitions > 0; {
 		start := time.Now()
 		select {
 		case result := <-results:
+			// first handle fields
+			if result.fields != nil {
+				if !hasFields {
+					err := onFields(result.fields)
+					if err != nil {
+						fail(err)
+					}
+					hasFields = true
+				}
+				continue
+			}
+
+			// handle unflat rows
 			if result.key != nil {
 				more, err := onRow(result.key, result.vals)
 				if err != nil {
@@ -841,6 +850,8 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				}
 				continue
 			}
+
+			// handle flat rows
 			if result.flatRow != nil {
 				more, err := onFlatRow(result.flatRow)
 				if err != nil {
@@ -883,6 +894,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 
 type remoteResult struct {
 	partition int
+	fields    core.Fields
 	key       bytemap.ByteMap
 	vals      core.Vals
 	flatRow   *core.FlatRow
