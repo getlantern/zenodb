@@ -692,13 +692,41 @@ func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery b
 	}
 }
 
+type resultInfo struct {
+	partition int
+	key       bytemap.ByteMap
+	vals      core.Vals
+	flatRow   *core.FlatRow
+	err       error
+}
+
 func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	ctx = withIncludeMemStore(ctx, includeMemStore)
 	numPartitions := db.opts.NumPartitions
-	results := make(chan *remoteResult, numPartitions)
+	results := make(chan *remoteResult, numPartitions*100000) // TODO: make this tunable
 	resultsByPartition := make(map[int]*int64)
-	timedOut := false
-	var mx sync.Mutex
+	var _finalErr error
+	var finalErrMx sync.RWMutex
+	finalErr := func() error {
+		finalErrMx.RLock()
+		result := _finalErr
+		finalErrMx.RUnlock()
+		return result
+	}
+	fail := func(err error) {
+		finalErrMx.Lock()
+		if _finalErr != nil {
+			_finalErr = err
+		}
+		finalErrMx.Unlock()
+	}
+	_stopped := int64(0)
+	stopped := func() bool {
+		return atomic.LoadInt64(&_stopped) == 1
+	}
+	stop := func() {
+		atomic.StoreInt64(&_stopped, 1)
+	}
 
 	subCtx := ctx
 	ctxDeadline, ctxHasDeadline := subCtx.Deadline()
@@ -733,44 +761,59 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				query := db.remoteQueryHandlerForPartition(partition)
 				if query == nil {
 					log.Errorf("No query handler for partition %d, ignoring", partition)
-					results <- &remoteResult{partition, false, 0, nil}
+					results <- &remoteResult{
+						partition: partition,
+						totalRows: 0,
+						err:       nil,
+					}
 					break
 				}
 
-				var newOnRow core.OnRow
-				var newOnFlatRow core.OnFlatRow
+				var partOnRow core.OnRow
+				var partOnFlatRow core.OnFlatRow
 				if unflat {
-					newOnRow = func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
-						mx.Lock()
-						if timedOut {
-							mx.Unlock()
-							return false, core.ErrDeadlineExceeded
+					partOnRow = func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+						err := finalErr()
+						if err != nil {
+							return false, err
 						}
-						atomic.AddInt64(resultsForPartition, 1)
-						more, onRowErr := onRow(key, vals)
-						mx.Unlock()
-						return more, onRowErr
+						if stopped() {
+							return false, nil
+						}
+						results <- &remoteResult{
+							partition: partition,
+							key:       key,
+							vals:      vals,
+						}
+						return true, nil
 					}
 				} else {
-					newOnFlatRow = func(row *core.FlatRow) (bool, error) {
-						mx.Lock()
-						if timedOut {
-							mx.Unlock()
-							return false, core.ErrDeadlineExceeded
+					partOnFlatRow = func(row *core.FlatRow) (bool, error) {
+						err := finalErr()
+						if err != nil {
+							return false, err
 						}
-						atomic.AddInt64(resultsForPartition, 1)
-						more, onRowErr := onFlatRow(row)
-						mx.Unlock()
-						return more, onRowErr
+						if stopped() {
+							return false, nil
+						}
+						results <- &remoteResult{
+							partition: partition,
+							flatRow:   row,
+						}
+						return true, nil
 					}
 				}
 
-				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, oneTimeOnFields, newOnRow, newOnFlatRow)
+				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, oneTimeOnFields, partOnRow, partOnFlatRow)
 				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue
 				}
-				results <- &remoteResult{partition, true, int(atomic.LoadInt64(resultsForPartition)), err}
+				results <- &remoteResult{
+					partition: partition,
+					totalRows: int(atomic.LoadInt64(resultsForPartition)),
+					err:       err,
+				}
 				break
 			}
 		}()
@@ -785,25 +828,41 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 
 	timeout := time.NewTimer(deadline.Sub(time.Now()))
 	resultCount := 0
-	var finalErr error
-	for i := 0; i < numPartitions; i++ {
+	for pendingPartitions := numPartitions; pendingPartitions > 0; {
 		start := time.Now()
 		select {
 		case result := <-results:
+			if result.key != nil {
+				more, err := onRow(result.key, result.vals)
+				if err != nil {
+					fail(err)
+				} else if !more {
+					stop()
+				}
+				continue
+			}
+			if result.flatRow != nil {
+				more, err := onFlatRow(result.flatRow)
+				if err != nil {
+					fail(err)
+				} else if !more {
+					stop()
+				}
+				continue
+			}
+
+			// final results for partition
 			resultCount++
+			pendingPartitions--
 			if result.err != nil {
 				log.Errorf("Error from partition %d: %v", result.partition, result.err)
-				if finalErr == nil {
-					finalErr = result.err
-				}
+				fail(result.err)
 			}
 			delta := time.Now().Sub(start)
-			log.Debugf("%d/%d got %d results from partition %d in %v", resultCount, db.opts.NumPartitions, result.results, result.partition, delta)
+			log.Debugf("%d/%d got %d results from partition %d in %v", resultCount, db.opts.NumPartitions, result.totalRows, result.partition, delta)
 			delete(resultsByPartition, result.partition)
 		case <-timeout.C:
-			mx.Lock()
-			timedOut = true
-			mx.Unlock()
+			fail(core.ErrDeadlineExceeded)
 			log.Errorf("Failed to get results by deadline, %d of %d partitions reporting", resultCount, numPartitions)
 			msg := bytes.NewBuffer([]byte("Missing partitions: "))
 			first := true
@@ -815,16 +874,18 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				msg.WriteString(fmt.Sprintf("%d (%d)", partition, results))
 			}
 			log.Debug(msg.String())
-			return finalErr
+			return finalErr()
 		}
 	}
 
-	return finalErr
+	return finalErr()
 }
 
 type remoteResult struct {
-	partition    int
-	handlerFound bool
-	results      int
-	err          error
+	partition int
+	key       bytemap.ByteMap
+	vals      core.Vals
+	flatRow   *core.FlatRow
+	totalRows int
+	err       error
 }
