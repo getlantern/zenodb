@@ -842,6 +842,9 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 
 			// handle unflat rows
 			if result.key != nil {
+				if stopped() || finalErr() != nil {
+					continue
+				}
 				more, err := onRow(result.key, result.vals)
 				if err != nil {
 					fail(err)
@@ -853,9 +856,13 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 
 			// handle flat rows
 			if result.flatRow != nil {
+				if stopped() || finalErr() != nil {
+					continue
+				}
 				more, err := onFlatRow(result.flatRow)
 				if err != nil {
 					fail(err)
+					return err
 				} else if !more {
 					stop()
 				}
