@@ -9,6 +9,7 @@ import (
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/sql"
+	"github.com/spaolacci/murmur3"
 	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
@@ -657,13 +658,17 @@ type partition struct {
 
 func (t *partition) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
 	return t.testTable.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
-		x := key.Get("x")
-		y := key.Get("y")
-		if x != nil {
-			if x.(int)%t.numPartitions == t.partition {
-				onRow(key, vals)
-			}
-		} else if y.(int)%t.numPartitions == t.partition {
+		// This mimics the logic in the actual clustering code
+		h := murmur3.New32()
+		x := key.GetBytes("x")
+		y := key.GetBytes("y")
+		if len(x) > 0 {
+			h.Write(x)
+		}
+		if len(y) > 0 {
+			h.Write(y)
+		}
+		if int(h.Sum32())%t.numPartitions == t.partition {
 			onRow(key, vals)
 		}
 		return true, nil
