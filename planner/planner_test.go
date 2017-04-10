@@ -549,12 +549,16 @@ func defaultOpts() *Opts {
 }
 
 func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields OnFields, onRow OnRow, onFlatRow OnFlatRow) error {
-	parts := partitions(1)
-	for _, part := range parts {
+	numPartitions := 1
+	for i := 0; i < numPartitions; i++ {
 		opts := defaultOpts()
 		opts.IsSubQuery = isSubQuery
 		opts.SubQueryResults = subQueryResults
 		opts.GetTable = func(table string, includedFields func(tableFields Fields) (Fields, error)) (Table, error) {
+			part := &partition{
+				partition:     i,
+				numPartitions: numPartitions,
+			}
 			part.name = table
 			var err error
 			part.fields, err = includedFields(defaultFields)
@@ -574,14 +578,6 @@ func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQue
 		}
 	}
 	return nil
-}
-
-func partitions(num int) []*partition {
-	partitions := make([]*partition, 0, num)
-	for i := 0; i < num; i++ {
-		partitions = append(partitions, &partition{partition: i, numPartitions: num})
-	}
-	return partitions
 }
 
 type testTable struct {
