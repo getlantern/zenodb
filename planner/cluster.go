@@ -123,25 +123,35 @@ func pushdownAllowed(opts *Opts, query *sql.Query) (bool, error) {
 				log.Debugf("Unexpected error checking if pushdown allowed: %v", err)
 				return false, err
 			}
-			partitionBy := t.GetPartitionBy()
-			if len(partitionBy) == 0 {
-				// Table not partitioned, can't push down
-				log.Debug("Pushdown not allowed because table is not partitioned")
-				return false, nil
-			}
-			groupParams := make(map[string]bool)
-			for _, groupBy := range current.GroupBy {
-				groupBy.Expr.WalkOneToOneParams(func(param string) {
-					if parentGroupByAll || parentGroupParams[groupBy.Name] {
-						groupParams[param] = true
-					}
-				})
-			}
-			for _, partitionKey := range partitionBy {
-				if !groupParams[partitionKey] {
-					log.Debugf("Pushdown not allowed because partition key %v is not represented in group by params %v", partitionKey, groupParams)
-					// Partition key not represented, can't push down
+			if current.GroupByAll && parentGroupByAll {
+				log.Debug("Pushdown allowed because we're grouping by all")
+			} else {
+				partitionBy := t.GetPartitionBy()
+				if len(partitionBy) == 0 {
+					// Table not partitioned, can't push down
+					log.Debug("Pushdown not allowed because table is not partitioned")
 					return false, nil
+				}
+
+				var groupParams map[string]bool
+				if current.GroupByAll {
+					groupParams = parentGroupParams
+				} else {
+					groupParams = make(map[string]bool)
+					for _, groupBy := range current.GroupBy {
+						groupBy.Expr.WalkOneToOneParams(func(param string) {
+							if parentGroupByAll || parentGroupParams[groupBy.Name] {
+								groupParams[param] = true
+							}
+						})
+					}
+				}
+				for _, partitionKey := range partitionBy {
+					if !groupParams[partitionKey] {
+						log.Debugf("Pushdown not allowed because partition key %v is not represented in group by params %v", partitionKey, groupParams)
+						// Partition key not represented, can't push down
+						return false, nil
+					}
 				}
 			}
 			log.Debugf("Pushdown allowed")

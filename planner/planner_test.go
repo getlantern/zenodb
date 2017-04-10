@@ -79,59 +79,48 @@ func TestPlans(t *testing.T) {
 		})
 	}
 
-	nonPushdownScenario("No grouping",
+	pushdownScenario("No grouping",
 		"SELECT * FROM TableA",
 		"select * from TableA",
-		noop,
-		flatten,
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
+		func(source RowSource) Source {
+			return Flatten(source)
 		})
 
-	nonPushdownScenario("WHERE clause",
+	pushdownScenario("WHERE clause",
 		"SELECT * FROM TableA WHERE x = 'CN'",
 		"select * from TableA where x = 'CN'",
-		func(source RowSource) RowSource {
-			return RowFilter(source, "where x = 'CN'", nil)
-		},
-		flatten,
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
+		func(source RowSource) Source {
+			return Flatten(RowFilter(source, "where x = 'CN'", nil))
 		})
 
-	nonPushdownScenario("WHERE with subquery",
+	pushdownScenario("WHERE with subquery",
 		"SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)",
 		"select * from TableA where dim in (select dim from tableb)",
-		func(source RowSource) RowSource {
-			return RowFilter(source, "where dim in (select dim as dim from tableb)", nil)
-		},
-		flatten,
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
-		})
-
-	nonPushdownScenario("LIMIT and OFFSET",
-		"SELECT * FROM TableA LIMIT 2, 5",
-		"select * from TableA",
-		noop,
 		func(source RowSource) Source {
-			return Limit(Offset(Flatten(source), 2), 5)
-		},
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
+			return Flatten(RowFilter(source, "where dim in (select dim as dim from tableb)", nil))
 		})
 
-	nonPushdownScenario("Calculated field",
+	scenario("LIMIT and OFFSET",
+		"SELECT * FROM TableA LIMIT 2, 5",
+		func() Source {
+			return Limit(Offset(Flatten(&testTable{"tablea", defaultFields}), 2), 5)
+		},
+		func() Source {
+			return Limit(Offset(
+				&clusterFlatRowSource{
+					clusterSource{
+						query: &sql.Query{SQL: "select * from TableA limit 2, 5"},
+					},
+				}, 2), 5)
+		})
+
+	pushdownScenario("Calculated field",
 		"SELECT *, a + b AS total FROM TableA",
 		"select *, a+b as total from TableA",
-		func(source RowSource) RowSource {
-			return Group(source, GroupOpts{
+		func(source RowSource) Source {
+			return Flatten(Group(source, GroupOpts{
 				Fields: textFieldSource("*, a+b as total"),
-			})
-		},
-		flatten,
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
+			}))
 		})
 
 	nonPushdownScenario("CROSSTAB, pushdown not allowed",
@@ -151,21 +140,16 @@ func TestPlans(t *testing.T) {
 			Crosstab: goexpr.Param("_crosstab"),
 		})
 
-	nonPushdownScenario("HAVING clause",
+	pushdownScenario("HAVING clause",
 		"SELECT * FROM TableA HAVING a+b > 0",
-		"select * from TableA",
-		func(source RowSource) RowSource {
-			return Group(source, GroupOpts{
-				Fields: textFieldSource("*"),
-				Having: textExprSource("a+b > 0"),
-			})
-		},
+		"select * from TableA having a+b > 0",
 		func(source RowSource) Source {
-			return FlatRowFilter(Flatten(source), "a+b > 0", nil)
-		},
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
-			Having: textExprSource("a+b > 0"),
+			return FlatRowFilter(
+				Flatten(
+					Group(source, GroupOpts{
+						Fields: textFieldSource("*"),
+						Having: textExprSource("a+b > 0"),
+					})), "a+b > 0", nil)
 		})
 
 	nonPushdownScenario("HAVING clause with single group by, pushdown not allowed",
@@ -376,33 +360,25 @@ func TestPlans(t *testing.T) {
 			By:     []GroupBy{NewGroupBy("zplus", goexpr.Param("zplus"))},
 		})
 
-	nonPushdownScenario("ASOF",
+	pushdownScenario("ASOF",
 		"SELECT * FROM TableA ASOF '-5s'",
 		"select * from TableA ASOF '-5s'",
-		func(source RowSource) RowSource {
-			return Group(source, GroupOpts{
+		func(source RowSource) Source {
+			return Flatten(Group(source, GroupOpts{
 				Fields: textFieldSource("*"),
 				AsOf:   epoch.Add(-5 * time.Second),
-			})
-		},
-		flatten,
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
+			}))
 		})
 
-	nonPushdownScenario("ASOF UNTIL",
+	pushdownScenario("ASOF UNTIL",
 		"SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'",
 		"select * from TableA ASOF '-5s' UNTIL '-1s'",
-		func(source RowSource) RowSource {
-			return Group(source, GroupOpts{
+		func(source RowSource) Source {
+			return Flatten(Group(source, GroupOpts{
 				Fields: textFieldSource("*"),
 				AsOf:   epoch.Add(-5 * time.Second),
 				Until:  epoch.Add(-1 * time.Second),
-			})
-		},
-		flatten,
-		GroupOpts{
-			Fields: textFieldSource("passthrough"),
+			}))
 		})
 
 	nonPushdownScenario("Change Resolution",
@@ -523,6 +499,7 @@ LIMIT 1
 	if !assert.NoError(t, err) {
 		return
 	}
+	log.Debug(FormatSource(plan))
 	verify(plan)
 
 	opts.QueryCluster = queryCluster
@@ -530,6 +507,7 @@ LIMIT 1
 	if !assert.NoError(t, err) {
 		return
 	}
+	log.Debug(FormatSource(plan))
 	verify(plan)
 }
 
