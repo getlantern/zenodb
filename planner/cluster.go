@@ -3,9 +3,9 @@ package planner
 import (
 	"context"
 	"fmt"
-	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
+	"sort"
 	"strings"
 	"time"
 )
@@ -193,13 +193,17 @@ func planClusterPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, erro
 }
 
 func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, error) {
-	// Remove having, order by and limit from query
+	// Remove group by, having, order by and limit from query
 	sqlString := query.SQL
+	crosstabString := concatForCrosstab(sqlString)
 	lowerSQL := strings.ToLower(sqlString)
+	indexOfGroupBy := strings.Index(lowerSQL, "group by ")
 	indexOfHaving := strings.Index(lowerSQL, "having ")
 	indexOfOrderBy := strings.Index(lowerSQL, "order by ")
 	indexOfLimit := strings.Index(lowerSQL, "limit ")
-	if indexOfHaving > 0 {
+	if indexOfGroupBy > 0 {
+		sqlString = sqlString[:indexOfGroupBy]
+	} else if indexOfHaving > 0 {
 		sqlString = sqlString[:indexOfHaving]
 	} else if indexOfOrderBy > 0 {
 		sqlString = sqlString[:indexOfOrderBy]
@@ -207,15 +211,45 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		sqlString = sqlString[:indexOfLimit]
 	}
 
-	if query.Crosstab != nil {
-		// Replace CROSSTAB with explicit CONCAT
-		sqlString = replaceCrosstab(sqlString)
+	hasGroupBy := len(query.GroupBy) > 0
+	hasCrosstab := crosstabString != ""
+	var groupByParts []string
+	if query.GroupByAll {
+		if hasGroupBy || hasCrosstab {
+			// need an explicit wildcard
+			groupByParts = append(groupByParts, "*")
+		}
+	}
+	if hasGroupBy {
+		groupByParams := make(map[string]bool)
+		for _, groupBy := range query.GroupBy {
+			groupBy.Expr.WalkParams(func(name string) {
+				groupByParams[name] = true
+			})
+		}
+		sortedNames := make([]string, 0, len(groupByParams))
+		for name := range groupByParams {
+			sortedNames = append(sortedNames, name)
+		}
+		sort.Strings(sortedNames)
+		for _, name := range sortedNames {
+			groupByParts = append(groupByParts, name)
+		}
+	}
+	if hasCrosstab {
+		groupByParts = append(groupByParts, crosstabString)
 		query.Crosstab = core.ClusterCrosstab
+	}
+	if query.Resolution != 0 {
+		groupByParts = append(groupByParts, fmt.Sprintf("period(%v)", query.Resolution.String()))
+	}
+	if len(groupByParts) > 0 {
+		sqlString = fmt.Sprintf("%v group by %v", sqlString, strings.Join(groupByParts, ", "))
 	}
 
 	pail, err := planAsIfLocal(opts, sqlString)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("Unable to plan non-pushdown query: %v", err)
 	}
 
 	clusterQuery, parseErr := sql.Parse(sqlString)
@@ -232,17 +266,11 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		},
 	}
 
-	// Flatten group by to just params
-	flattenedGroupBys := make([]core.GroupBy, 0, len(query.GroupBy))
-	for _, groupBy := range query.GroupBy {
-		flattenedGroupBys = append(flattenedGroupBys, core.NewGroupBy(groupBy.Name, goexpr.Param(groupBy.Name)))
-	}
 	if query.Resolution > pail.GetResolution() {
 		query.Resolution = pail.GetResolution()
 	}
 	// Pass through fields since the remote query already has the correct ones
 	query.Fields = core.PassthroughFieldSource
-	query.GroupBy = flattenedGroupBys
 	flat := core.Flatten(addGroupBy(source, query))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
@@ -264,14 +292,13 @@ func planAsIfLocal(opts *Opts, sqlString string) (core.FlatRowSource, error) {
 	return planLocal(query, unclusteredOpts)
 }
 
-func replaceCrosstab(sql string) string {
+func concatForCrosstab(sql string) string {
 	idx := strings.Index(strings.ToUpper(sql), "CROSSTAB")
 	if idx < 0 {
-		return sql
+		return ""
 	}
-	out := make([]byte, idx)
-	copy(out, []byte(sql)[:idx])
-	out = append(out, []byte("CONCAT('_', ")...)
+	var out []byte
+	out = append(out, []byte("concat('_', ")...)
 	idx += len("CROSSTAB(")
 	level := 1
 parseLoop:
@@ -293,7 +320,6 @@ parseLoop:
 			out = append(out, c)
 		}
 	}
-	out = append(out, []byte(" AS _crosstab")...)
-	out = append(out, []byte(sql)[idx+1:]...)
+	out = append(out, []byte(" as _crosstab")...)
 	return string(out)
 }

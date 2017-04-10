@@ -86,6 +86,13 @@ func TestPlans(t *testing.T) {
 			return Flatten(source)
 		})
 
+	pushdownScenario("Wildcard and specific grouping",
+		"SELECT * FROM TableA GROUP BY *, a, b",
+		"select * from TableA group by *, a, b",
+		func(source RowSource) Source {
+			return Flatten(source)
+		})
+
 	pushdownScenario("WHERE clause",
 		"SELECT * FROM TableA WHERE x = 'CN'",
 		"select * from TableA where x = 'CN'",
@@ -121,6 +128,23 @@ func TestPlans(t *testing.T) {
 			return Flatten(Group(source, GroupOpts{
 				Fields: textFieldSource("*, a+b as total"),
 			}))
+		})
+
+	nonPushdownScenario("Unknown dim, pushdown not allowed",
+		"SELECT * FROM TableA GROUP BY CONCAT('_', u, v) AS c",
+		"select * from TableA group by u, v",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields: textFieldSource("*"),
+				By:     []GroupBy{NewGroupBy("c", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("u"), goexpr.Param("v")))},
+			})
+		},
+		func(source RowSource) Source {
+			return Flatten(source)
+		},
+		GroupOpts{
+			Fields: textFieldSource("passthrough"),
+			By:     []GroupBy{NewGroupBy("c", goexpr.Concat(goexpr.Constant("_"), goexpr.Param("u"), goexpr.Param("v")))},
 		})
 
 	nonPushdownScenario("CROSSTAB, pushdown not allowed",
@@ -186,7 +210,7 @@ func TestPlans(t *testing.T) {
 
 	nonPushdownScenario("HAVING clause with complete group by and CROSSTAB, pushdown not allowed",
 		"SELECT * FROM TableA GROUP BY y, x, CROSSTAB(ct1, ct2) HAVING a+b > 0",
-		"select * from TableA group by y, x, concat('_', ct1, ct2) as _crosstab",
+		"select * from TableA group by x, y, concat('_', ct1, ct2) as _crosstab",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				By:       []GroupBy{groupByX, groupByY},
@@ -343,7 +367,7 @@ func TestPlans(t *testing.T) {
 
 	nonPushdownScenario("HAVING clause with group by on non partition key, pushdown not allowed",
 		"SELECT * FROM TableA GROUP BY CONCAT(',', z, 'thing') as zplus HAVING a+b > 0",
-		"select * from TableA group by concat(',', z, 'thing') as zplus",
+		"select * from TableA group by z",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				Fields: textFieldSource("*"),
@@ -357,7 +381,7 @@ func TestPlans(t *testing.T) {
 		GroupOpts{
 			Fields: textFieldSource("passthrough"),
 			Having: textExprSource("a+b > 0"),
-			By:     []GroupBy{NewGroupBy("zplus", goexpr.Param("zplus"))},
+			By:     []GroupBy{NewGroupBy("zplus", goexpr.Concat(goexpr.Constant(","), goexpr.Param("z"), goexpr.Constant("thing")))},
 		})
 
 	pushdownScenario("ASOF",

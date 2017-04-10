@@ -277,6 +277,11 @@ FROM Table_A
 	assert.True(t, q.GroupByAll)
 }
 
+func TestParseIt(t *testing.T) {
+	_, err := Parse(`select * from TableA  group by concat('_', ct1, concat('|', ct2)) as _crosstab`)
+	assert.NoError(t, err)
+}
+
 type testexpr struct {
 	val goexpr.Expr
 }
