@@ -93,8 +93,7 @@ var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexp
 }
 
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
-	"CONCAT":  goexpr.Concat,
-	"PCONCAT": goexpr.PConcat,
+	"CONCAT": goexpr.Concat,
 	"CROSSTAB": func(exprs ...goexpr.Expr) goexpr.Expr {
 		// Crosstab expressions are concatenated using underscore
 		allExprs := make([]goexpr.Expr, 1, len(exprs)+1)
@@ -813,73 +812,15 @@ func goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		return goexpr.Constant(floatVal), nil
 	case *sqlparser.FuncExpr:
 		fname := strings.ToUpper(string(e.Name))
-		alias, foundAlias := aliases[fname]
-		if foundAlias {
-			return applyAlias(e, alias)
+		ge, err := goFnExprFor(e, fname)
+		if err != nil && fname[0] == 'P' {
+			// this might be a pushdown, try without the leading P
+			ge, err = goFnExprFor(e, fname[1:])
+			if err == nil {
+				ge = goexpr.P(ge)
+			}
 		}
-		numParams := len(e.Exprs)
-		nfn, found := nullaryGoExpr[fname]
-		if found {
-			return nfn(), nil
-		}
-		ufn, found := unaryGoExpr[fname]
-		if found {
-			if numParams != 1 {
-				return nil, fmt.Errorf("Function %v requires 1 parameter, not %d", fname, numParams)
-			}
-			p0, err := paramGoExpr(e, 0)
-			if err != nil {
-				return nil, err
-			}
-			return ufn(p0), nil
-		}
-		bfn, found := binaryGoExpr[fname]
-		if found {
-			if numParams != 2 {
-				return nil, fmt.Errorf("Function %v requires 2 parameters, not %d", fname, numParams)
-			}
-			p0, err := paramGoExpr(e, 0)
-			if err != nil {
-				return nil, err
-			}
-			p1, err := paramGoExpr(e, 1)
-			if err != nil {
-				return nil, err
-			}
-			return bfn(p0, p1), nil
-		}
-		tfn, found := ternaryGoExpr[fname]
-		if found {
-			if numParams != 3 {
-				return nil, fmt.Errorf("Function %v requires 3 parameters, not %d", fname, numParams)
-			}
-			p0, err := paramGoExpr(e, 0)
-			if err != nil {
-				return nil, err
-			}
-			p1, err := paramGoExpr(e, 1)
-			if err != nil {
-				return nil, err
-			}
-			p2, err := paramGoExpr(e, 2)
-			if err != nil {
-				return nil, err
-			}
-			return tfn(p0, p1, p2), nil
-		}
-		vfn, found := varGoExpr[fname]
-		if found {
-			params := make([]goexpr.Expr, 0, numParams)
-			for i := 0; i < numParams; i++ {
-				param, err := paramGoExpr(e, i)
-				if err != nil {
-					return nil, err
-				}
-				params = append(params, param)
-			}
-			return vfn(params...), nil
-		}
-		return nil, fmt.Errorf("Unknown function %v", fname)
+		return ge, err
 	case *sqlparser.NullCheck:
 		wrapped, err := goExprFor(e.Expr)
 		if err != nil {
@@ -893,6 +834,76 @@ func goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 	default:
 		return nil, fmt.Errorf("Unknown dimensional expression of type %v: %v", reflect.TypeOf(_e), nodeToString(_e))
 	}
+}
+
+func goFnExprFor(e *sqlparser.FuncExpr, fname string) (goexpr.Expr, error) {
+	alias, foundAlias := aliases[fname]
+	if foundAlias {
+		return applyAlias(e, alias)
+	}
+	numParams := len(e.Exprs)
+	nfn, found := nullaryGoExpr[fname]
+	if found {
+		return nfn(), nil
+	}
+	ufn, found := unaryGoExpr[fname]
+	if found {
+		if numParams != 1 {
+			return nil, fmt.Errorf("Function %v requires 1 parameter, not %d", fname, numParams)
+		}
+		p0, err := paramGoExpr(e, 0)
+		if err != nil {
+			return nil, err
+		}
+		return ufn(p0), nil
+	}
+	bfn, found := binaryGoExpr[fname]
+	if found {
+		if numParams != 2 {
+			return nil, fmt.Errorf("Function %v requires 2 parameters, not %d", fname, numParams)
+		}
+		p0, err := paramGoExpr(e, 0)
+		if err != nil {
+			return nil, err
+		}
+		p1, err := paramGoExpr(e, 1)
+		if err != nil {
+			return nil, err
+		}
+		return bfn(p0, p1), nil
+	}
+	tfn, found := ternaryGoExpr[fname]
+	if found {
+		if numParams != 3 {
+			return nil, fmt.Errorf("Function %v requires 3 parameters, not %d", fname, numParams)
+		}
+		p0, err := paramGoExpr(e, 0)
+		if err != nil {
+			return nil, err
+		}
+		p1, err := paramGoExpr(e, 1)
+		if err != nil {
+			return nil, err
+		}
+		p2, err := paramGoExpr(e, 2)
+		if err != nil {
+			return nil, err
+		}
+		return tfn(p0, p1, p2), nil
+	}
+	vfn, found := varGoExpr[fname]
+	if found {
+		params := make([]goexpr.Expr, 0, numParams)
+		for i := 0; i < numParams; i++ {
+			param, err := paramGoExpr(e, i)
+			if err != nil {
+				return nil, err
+			}
+			params = append(params, param)
+		}
+		return vfn(params...), nil
+	}
+	return nil, fmt.Errorf("Unknown function %v", fname)
 }
 
 func paramGoExpr(e *sqlparser.FuncExpr, idx int) (goexpr.Expr, error) {

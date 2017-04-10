@@ -19,7 +19,7 @@ func TestSQLPlain(t *testing.T) {
 	RegisterUnaryDIMFunction("TEST", func(val goexpr.Expr) goexpr.Expr {
 		return &testexpr{val}
 	})
-	RegisterAlias("MYALIAS", "ANY(%v, HGET('hash', %v), %v)")
+	RegisterAlias("MYALIAS", "ANY(%v, PHGET('hash', %v), %v)")
 	known := AVG("k")
 	knownField := core.NewField("knownfield", known)
 	oKnownField := core.NewField("oknownfield", SUM("o"))
@@ -48,7 +48,7 @@ WHERE
 GROUP BY
 	dim_a,
 	CROSSTAB(dim_b, dim_ct),
-	ISP(ip) AS isp,
+	PISP(ip) AS isp,
 	ORG(ip) AS org,
 	ASN(ip) AS asn,
 	ASNAME(ip) AS asn_name,
@@ -56,12 +56,11 @@ GROUP BY
 	REGION(ip) AS state,
 	REGION_CITY(ip) AS city_state,
 	COUNTRY_CODE(ip) AS country,
-	CONCAT('|', part_a, part_b) AS joined,
-	PCONCAT('|', part_a, part_b) AS joinedp,
+	PCONCAT('|', part_a, part_b) AS joined,
 	TEST(dim_k) AS test_dim_k,
 	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
 	SPLIT(dim_o, ',', 2) AS spl,
-	SUBSTR(dim_p, 1, 5) AS sub,
+	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
 	period('5s') // period is a special function
 HAVING Rate > 15 AND H < 2
@@ -136,9 +135,9 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 16) {
+	if assert.Len(t, q.GroupBy, 15) {
 		idx := 0
-		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m")), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
+		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), goexpr.P(redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m"))), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("asn", isp.ASN(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -152,11 +151,9 @@ LIMIT 100, 10
 		idx++
 		assert.Equal(t, core.NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[idx])
 		idx++
-		assert.Equal(t, core.NewGroupBy("isp", isp.ISP(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
+		assert.Equal(t, core.NewGroupBy("isp", goexpr.P(isp.ISP(goexpr.Param("ip")))).String(), q.GroupBy[idx].String())
 		idx++
-		assert.Equal(t, core.NewGroupBy("joined", goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
-		idx++
-		assert.Equal(t, core.NewGroupBy("joinedp", goexpr.PConcat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b"))).String(), q.GroupBy[idx].String())
+		assert.Equal(t, core.NewGroupBy("joined", goexpr.P(goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b")))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -167,7 +164,7 @@ LIMIT 100, 10
 		idx++
 		assert.Equal(t, core.NewGroupBy("state", geo.REGION(goexpr.Param("ip"))), q.GroupBy[idx])
 		idx++
-		assert.Equal(t, core.NewGroupBy("sub", goexpr.Substr(goexpr.Param("dim_p"), goexpr.Constant(1), goexpr.Constant(5))).String(), q.GroupBy[idx].String())
+		assert.Equal(t, core.NewGroupBy("sub", goexpr.P(goexpr.Substr(goexpr.Param("dim_p"), goexpr.Constant(1), goexpr.Constant(5)))).String(), q.GroupBy[idx].String())
 		assert.Equal(t, "bcdef", q.GroupBy[idx].Expr.Eval(goexpr.MapParams{"dim_p": "abcdefg"}))
 		idx++
 		assert.Equal(t, core.NewGroupBy("test_dim_k", &testexpr{goexpr.Param("dim_k")}), q.GroupBy[idx])
