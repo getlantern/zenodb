@@ -39,6 +39,9 @@ func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fi
 	if t == nil {
 		return nil, fmt.Errorf("Table %v not found", table)
 	}
+	if t.Virtual {
+		return nil, fmt.Errorf("Table %v is virtual and cannot be queried", table)
+	}
 	until := encoding.RoundTimeUp(db.clock.Now(), t.Resolution)
 	asOf := encoding.RoundTimeUp(until.Add(-1*t.RetentionPeriod), t.Resolution)
 	included, err := includedFields(t.Fields)
