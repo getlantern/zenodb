@@ -27,7 +27,7 @@ func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRo
 		// Transform to flattened version of fields
 		outFields := make(Fields, 0, len(inFields))
 		for _, field := range inFields {
-			outFields = append(outFields, NewField(field.Name, expr.SUM(expr.FIELD(field.Name))))
+			outFields = append(outFields, NewField(field.Name, expr.FIELD(field.Name)))
 		}
 		return onFields(outFields)
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
