@@ -62,7 +62,8 @@ GROUP BY
 	SPLIT(dim_o, ',', 2) AS spl,
 	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
-	period('5s') // period is a special function
+	period('5s'), // period is a special function
+	STRIDE('1h')
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
 LIMIT 100, 10
@@ -173,6 +174,7 @@ LIMIT 100, 10
 	assert.Equal(t, goexpr.Concat(goexpr.Constant("_"), goexpr.Param("dim_b"), goexpr.Param("dim_ct")), q.Crosstab)
 	assert.Equal(t, -60*time.Minute, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
+	assert.Equal(t, 1*time.Hour, q.Stride)
 	if assert.Len(t, q.OrderBy, 3) {
 		assert.Equal(t, "rate", q.OrderBy[0].Field)
 		assert.True(t, q.OrderBy[0].Descending)

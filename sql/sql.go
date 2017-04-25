@@ -36,6 +36,7 @@ var (
 	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
 	ErrNestedFunctionCall = errors.New("Nested function calls are not currently supported in SELECT")
 	ErrInvalidPeriod      = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
+	ErrInvalidStride      = errors.New("Please specify a stride in the form stride(5s) where 5s can be any valid Go duration expression")
 )
 
 var aggregateFuncs = map[string]func(interface{}) expr.Expr{
@@ -158,6 +159,7 @@ type Query struct {
 	AsOfOffset   time.Duration
 	Until        time.Time
 	UntilOffset  time.Duration
+	Stride       time.Duration
 	// GroupBy are the GroupBy expressions ordered alphabetically by name.
 	GroupBy    []core.GroupBy
 	GroupByAll bool
@@ -415,12 +417,21 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			if len(fn.Exprs) != 1 {
 				return ErrInvalidPeriod
 			}
-			period := nodeToString(fn.Exprs[0])
-			res, err := time.ParseDuration(strings.ToLower(strings.Replace(strings.Trim(period, "''"), " as ", "", 1)))
+			res, err := nodeToDuration(fn.Exprs[0])
 			if err != nil {
-				return fmt.Errorf("Unable to parse period %v: %v", period, err)
+				return err
 			}
 			q.Resolution = res
+		} else if ok && strings.EqualFold("STRIDE", string(fn.Name)) {
+			log.Trace("Detected stride in group by")
+			if len(fn.Exprs) != 1 {
+				return ErrInvalidStride
+			}
+			stride, err := nodeToDuration(fn.Exprs[0])
+			if err != nil {
+				return err
+			}
+			q.Stride = stride
 		} else {
 			var nestedEx sqlparser.Expr
 			isCrosstab := ok && strings.EqualFold("CROSSTAB", string(fn.Name))
@@ -941,4 +952,13 @@ func stringToTimeOrDuration(str string) (time.Time, time.Duration, error) {
 	}
 	d, err := time.ParseDuration(strings.ToLower(str))
 	return t, d, err
+}
+
+func nodeToDuration(node sqlparser.SQLNode) (time.Duration, error) {
+	str := nodeToString(node)
+	dur, err := time.ParseDuration(strings.ToLower(strings.Replace(strings.Trim(str, "''"), " as ", "", 1)))
+	if err != nil {
+		err = fmt.Errorf("Unable to parse duration %v: %v", str, err)
+	}
+	return dur, err
 }
