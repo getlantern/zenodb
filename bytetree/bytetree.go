@@ -18,6 +18,7 @@ type Tree struct {
 	inResolution  time.Duration
 	asOf          time.Time
 	until         time.Time
+	strideSlice   time.Duration
 	root          *node
 	bytes         int
 	length        int
@@ -242,7 +243,7 @@ func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, para
 				in := vals[i]
 				inEx := bt.inExprs[i]
 				previousSize := cap(out)
-				out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, bt.asOf, bt.until)
+				out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, bt.asOf, bt.until, bt.strideSlice)
 				n.data[o] = out
 				bytesAdded += cap(out) - previousSize
 			}

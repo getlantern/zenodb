@@ -195,21 +195,19 @@ func TestSequenceConstant(t *testing.T) {
 }
 
 func TestSequenceSubMergePlain(t *testing.T) {
-	doTestSequenceSubMerge(t, 11, 0)
+	doTestSequenceSubMerge(t, 0)
 }
 
 func TestSequenceSubMergeStride(t *testing.T) {
-	doTestSequenceSubMerge(t, 2, 11)
+	doTestSequenceSubMerge(t, 2)
 }
 
-func doTestSequenceSubMerge(t *testing.T, scale int, _stride int) {
+func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 	e := SUM(FIELD("a"))
 	params := FloatParams(1)
 	inResolution := 1 * time.Minute
-	stride := time.Duration(_stride) * inResolution
-	if stride > 0 {
-		scale = _stride
-	}
+	scale := 11
+	strideSlice := time.Duration(_strideSlice) * inResolution
 	outResolution := inResolution * time.Duration(scale)
 	outPeriods := 10
 	inPeriods := scale*outPeriods + 2
@@ -220,7 +218,7 @@ func doTestSequenceSubMerge(t *testing.T, scale int, _stride int) {
 	expected.SetUntil(until)
 	for i := 0; i < outPeriods; i++ {
 		for j := 0; j < scale; j++ {
-			if stride <= 0 || j < scale {
+			if _strideSlice <= 0 || j < _strideSlice {
 				expected.UpdateValueAt(i, e, params, nil)
 			}
 		}
@@ -235,14 +233,14 @@ func doTestSequenceSubMerge(t *testing.T, scale int, _stride int) {
 	for i := 0; i < inPeriods; i++ {
 		in.UpdateValueAt(i, e, params, nil)
 	}
-	result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, stride)
+	result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, strideSlice)
 	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
 
 	// Try it with a bunch of small sequences
 	result = nil
 	in = NewFloatValue(e, asOf.Add(-1*inResolution), 1)
 	for i := 0; i < inPeriods; i++ {
-		result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, stride)
+		result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, strideSlice)
 		in.SetUntil(in.Until().Add(inResolution))
 	}
 	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))

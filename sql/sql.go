@@ -235,6 +235,7 @@ func parse(stmt *sqlparser.Select) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return q, nil
 }
 

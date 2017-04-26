@@ -437,6 +437,21 @@ func TestPlans(t *testing.T) {
 			Resolution: 1 * time.Second,
 		})
 
+	nonPushdownScenario("Stride",
+		"SELECT * FROM TableA GROUP BY stride(2s)",
+		"select * from TableA group by stride(2 as s)",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields:      textFieldSource("*"),
+				Resolution:  2 * time.Second,
+				StrideSlice: resolution,
+			})
+		},
+		flatten,
+		GroupOpts{
+			Fields: textFieldSource("passthrough"),
+		})
+
 	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x = 'CN' GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
 		return Limit(
 			Offset(
@@ -471,13 +486,13 @@ func TestPlans(t *testing.T) {
 	for i, sqlString := range queries {
 		opts := defaultOpts()
 		plan, err := Plan(sqlString, opts)
-		if assert.NoError(t, err) {
+		if assert.NoError(t, err, sqlString) {
 			assert.Equal(t, FormatSource(expected[i]()), FormatSource(plan), fmt.Sprintf("Non-clustered: %v: %v", descriptions[i], sqlString))
 		}
 
 		opts.QueryCluster = queryCluster
 		clusterPlan, err := Plan(sqlString, opts)
-		if assert.NoError(t, err) {
+		if assert.NoError(t, err, sqlString) {
 			assert.Equal(t, FormatSource(expectedCluster[i]()), FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], sqlString))
 		}
 	}
