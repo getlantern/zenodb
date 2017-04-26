@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
@@ -96,7 +95,8 @@ func (db *mockDB) Query(sqlString string, isSubQuery bool, subQueryResults [][]i
 	return nil, nil
 }
 
-func (db *mockDB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
+func (db *mockDB) Follow(f *common.Follow, send func(chan *common.Point, func() bool) error) error {
+	return nil
 }
 
 func (db *mockDB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {

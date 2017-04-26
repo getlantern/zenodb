@@ -32,12 +32,6 @@ var (
 	errCanceled = fmt.Errorf("following canceled")
 )
 
-type walEntry struct {
-	stream string
-	data   []byte
-	offset wal.Offset
-}
-
 type followSpec struct {
 	followerID int
 	offset     wal.Offset
@@ -45,45 +39,36 @@ type followSpec struct {
 
 type follower struct {
 	common.Follow
-	cb        func(data []byte, offset wal.Offset) error
-	entries   chan *walEntry
+	points    chan *common.Point
 	hasFailed int32
 }
 
-func (f *follower) read() {
-	for entry := range f.entries {
-		if f.failed() {
-			continue
-		}
-		err := f.cb(entry.data, entry.offset)
-		if err != nil {
-			log.Errorf("Error on following for follower %d: %v", f.PartitionNumber, err)
-			f.markFailed()
-		}
-	}
-}
-
-func (f *follower) submit(entry *walEntry) {
+func (f *follower) submit(point *common.Point) {
 	if f.failed() {
 		return
 	}
-	f.entries <- entry
+	f.points <- point
 }
 
 func (f *follower) markFailed() {
 	atomic.StoreInt32(&f.hasFailed, 1)
-	close(f.entries)
+	close(f.points)
 }
 
 func (f *follower) failed() bool {
 	return atomic.LoadInt32(&f.hasFailed) == 1
 }
 
-func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
+func (db *DB) Follow(f *common.Follow, run func(chan *common.Point, func() bool) error) error {
 	go db.processFollowersOnce.Do(db.processFollowers)
-	fol := &follower{Follow: *f, cb: cb, entries: make(chan *walEntry, 1000000)} // TODO: make this buffer tunable
+	fol := &follower{Follow: *f, points: make(chan *common.Point, 1000000)} // TODO: make this buffer tunable
 	db.followerJoined <- fol
-	fol.read()
+	err := run(fol.points, fol.failed)
+	if err != nil {
+		log.Errorf("Error on following for follower %d: %v", f.PartitionNumber, err)
+		fol.markFailed()
+	}
+	return err
 }
 
 type tableSpec struct {
@@ -244,9 +229,9 @@ func (db *DB) processFollowers() {
 			}
 
 		case result := <-results:
-			entry := result.entry
-			partitions := streams[entry.stream]
-			offset := entry.offset
+			point := result.point
+			partitions := streams[point.Stream]
+			offset := point.Offset
 
 			includedFollowers = includedFollowers[:0]
 			for partitionKeys, partition := range partitions {
@@ -288,7 +273,7 @@ func (db *DB) processFollowers() {
 						// ignore failed followers
 						continue
 					}
-					f.submit(entry)
+					f.submit(point)
 					stats[f.PartitionNumber]++
 				}
 			}
@@ -300,7 +285,7 @@ func (db *DB) processFollowers() {
 			stats = make([]int, db.opts.NumPartitions)
 
 			for _, f := range followers {
-				log.Debugf("Queued for follower %d: %v", f.PartitionNumber, humanize.Comma(int64(len(f.entries))))
+				log.Debugf("Queued for follower %d: %v", f.PartitionNumber, humanize.Comma(int64(len(f.points))))
 			}
 		}
 	}
@@ -308,11 +293,11 @@ func (db *DB) processFollowers() {
 
 type partitionRequest struct {
 	partitions map[string]*partitionSpec
-	entry      *walEntry
+	point      *common.Point
 }
 
 type partitionsResult struct {
-	entry      *walEntry
+	point      *common.Point
 	partitions map[string]*partitionResult
 }
 
@@ -326,7 +311,7 @@ type partitionsResultsByOffset []*partitionsResult
 func (r partitionsResultsByOffset) Len() int      { return len(r) }
 func (r partitionsResultsByOffset) Swap(i, j int) { r[i], r[j] = r[j], r[i] }
 func (r partitionsResultsByOffset) Less(i, j int) bool {
-	return r[j].entry.offset.After(r[i].entry.offset)
+	return r[j].point.Offset.After(r[i].point.Offset)
 }
 
 func (db *DB) startParallelEntryProcessing() (chan *partitionRequest, chan *partitionsResult) {
@@ -391,13 +376,13 @@ func (db *DB) mapPartitionRequests(in chan *partitionRequest, mapped chan *parti
 	h := partitionHash()
 	for req := range in {
 		partitions := req.partitions
-		entry := req.entry
+		point := req.point
 		result := &partitionsResult{
-			entry:      entry,
+			point:      point,
 			partitions: make(map[string]*partitionResult),
 		}
 
-		data := entry.data
+		data := point.Data
 		// Skip timestamp
 		_, remain := encoding.Read(data, encoding.Width64bits)
 		dimsLen, remain := encoding.ReadInt32(remain)
@@ -483,7 +468,7 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 			dataCopy := make([]byte, len(data))
 			copy(dataCopy, data)
 			select {
-			case requests <- &partitionRequest{partitions, &walEntry{stream: stream, data: dataCopy, offset: r.Offset()}}:
+			case requests <- &partitionRequest{partitions, &common.Point{Stream: stream, Data: dataCopy, Offset: r.Offset()}}:
 				// okay
 			case <-stop:
 				return

@@ -43,11 +43,6 @@ type Query struct {
 	Unflat          bool
 }
 
-type Point struct {
-	Data   []byte
-	Offset wal.Offset
-}
-
 type RemoteQueryResult struct {
 	Fields       core.Fields
 	Key          bytemap.ByteMap

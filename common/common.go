@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+type Point struct {
+	Data   []byte
+	Offset wal.Offset
+	Stream string `msgpack:",omitempty"`
+}
+
 type Partition struct {
 	Keys   []string
 	Tables []*PartitionTable

@@ -122,6 +122,7 @@ func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.O
 	valsBM := make(bytemap.ByteMap, len(vals))
 	copy(dimsBM, dims)
 	copy(valsBM, vals)
+	log.Debugf("Inserting for: %v", dimsBM.AsMap())
 	return t.doInsert(ts, dimsBM, valsBM, offset)
 }
 

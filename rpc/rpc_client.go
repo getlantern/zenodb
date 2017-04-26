@@ -154,12 +154,21 @@ func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.Call
 		return nil, err
 	}
 
+	_batch := make([]*common.Point, 0, 1000)
+	batch := _batch
 	next := func() ([]byte, wal.Offset, error) {
-		point := &Point{}
-		err := stream.RecvMsg(point)
-		if err != nil {
-			return nil, nil, err
+		if len(batch) == 0 {
+			log.Debug("Filling batch")
+			batch = _batch
+			// fill batch again
+			err := stream.RecvMsg(&batch)
+			if err != nil {
+				return nil, nil, err
+			}
+			log.Debugf("Filled batch of size: %d", len(batch))
 		}
+		point := batch[0]
+		batch = batch[1:]
 		return point.Data, point.Offset, nil
 	}
 
@@ -169,7 +178,7 @@ func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.Call
 func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error {
 	elapsed := mtime.Stopwatch()
 	defer func() {
-		log.Debugf("Finished processing query: %v\nElapsed: %v", query, elapsed())
+		log.Debugf("Finished processing query in %v", elapsed())
 	}()
 
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)

@@ -84,7 +84,18 @@ func doTestCluster(t *testing.T, partitionBy []string) {
 				Partition:      part,
 				MaxMemoryRatio: 0.00001,
 				Follow: func(f func() *common.Follow, cb func(data []byte, newOffset wal.Offset) error) {
-					leader.Follow(f(), cb)
+					leader.Follow(f(), func(points chan *common.Point, failed func() bool) error {
+						for point := range points {
+							if failed() {
+								return nil
+							}
+							err := cb(point.Data, point.Offset)
+							if err != nil {
+								return err
+							}
+						}
+						return nil
+					})
 				},
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
 					var register func()

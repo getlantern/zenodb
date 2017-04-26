@@ -6,7 +6,6 @@ import (
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
@@ -35,7 +34,7 @@ type DB interface {
 
 	Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error)
 
-	Follow(f *common.Follow, cb func([]byte, wal.Offset) error)
+	Follow(f *common.Follow, send func(chan *common.Point, func() bool) error) error
 
 	RegisterQueryHandler(partition int, query planner.QueryClusterFN)
 }
@@ -146,10 +145,50 @@ func (s *server) Follow(f *common.Follow, stream grpc.ServerStream) error {
 
 	log.Debugf("Follower %d joined", f.PartitionNumber)
 	defer log.Debugf("Follower %d left", f.PartitionNumber)
-	s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
-		return stream.SendMsg(&rpc.Point{data, newOffset})
+	return s.db.Follow(f, func(points chan *common.Point, failed func() bool) error {
+		batch := make([]*common.Point, 0, 1000)
+
+		addPoint := func(point *common.Point) {
+			point.Stream = ""
+			batch = append(batch, point)
+		}
+		submit := func(necessary bool) error {
+			necessary = len(batch) > 0 && (necessary || len(batch) >= cap(batch))
+			if necessary {
+				log.Debugf("Sending batch of size: %d", len(batch))
+				err := stream.SendMsg(batch)
+				batch = batch[:0]
+				return err
+			}
+			return nil
+		}
+
+		for {
+			select {
+			case point := <-points:
+				if failed() {
+					return nil
+				}
+				addPoint(point)
+				err := submit(false)
+				if err != nil {
+					return err
+				}
+			default:
+				err := submit(true)
+				if err != nil {
+					return err
+				}
+				point := <-points
+				if failed() {
+					return nil
+				}
+				if point != nil {
+					addPoint(point)
+				}
+			}
+		}
 	})
-	return nil
 }
 
 func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.ServerStream) error {
