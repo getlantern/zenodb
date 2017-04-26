@@ -260,8 +260,6 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		return nil, parseErr
 	}
 	fixupSubQuery(clusterQuery, opts)
-	// Striding is always pushed down, don't bother with doing it again
-	clusterQuery.Stride = 0
 
 	var source core.RowSource = &clusterRowSource{
 		clusterSource{

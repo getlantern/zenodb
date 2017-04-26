@@ -147,7 +147,11 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 	if resolution == 0 {
 		resolution = source.GetResolution()
 	}
+
 	if query.Stride > 0 {
+		if query.Stride%source.GetResolution() != 0 {
+			return nil, fmt.Errorf("Query stride '%v' is not an even multiple of table resolution '%v'", query.Stride, source.GetResolution())
+		}
 		strideSlice = resolution
 		resolution = query.Stride
 	}
@@ -155,17 +159,17 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 	resolutionTruncated := false
 	window := until.Sub(asOf)
 	if resolution > window {
-		resolutionTruncated = true
 		resolution = window
+		resolutionTruncated = true
 	}
 
 	resolutionChanged := resolution != source.GetResolution()
 	if resolutionChanged {
 		if resolution < source.GetResolution() {
-			return nil, fmt.Errorf("Query resolution '%v' is higher than table resolution of '%v'", resolution, source.GetResolution())
+			return nil, fmt.Errorf("Query resolution '%v' is higher than table resolution '%v'", resolution, source.GetResolution())
 		}
 		if resolution%source.GetResolution() != 0 {
-			return nil, fmt.Errorf("Query resolution '%v' is not an even multiple of table resolution of '%v'", resolution, source.GetResolution())
+			return nil, fmt.Errorf("Query resolution '%v' is not an even multiple of table resolution '%v'", resolution, source.GetResolution())
 		}
 	}
 
@@ -225,7 +229,6 @@ func addGroupBy(source core.RowSource, query *sql.Query, applyResolution bool, r
 		StrideSlice: strideSlice,
 	}
 	if applyResolution {
-		// Only set the resolution if it actually changed
 		opts.Resolution = resolution
 	}
 	return core.Group(source, opts)

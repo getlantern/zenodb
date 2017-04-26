@@ -205,8 +205,8 @@ func TestSequenceSubMergeStride(t *testing.T) {
 func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 	e := SUM(FIELD("a"))
 	params := FloatParams(1)
-	inResolution := 1 * time.Minute
 	scale := 11
+	inResolution := 1 * time.Minute
 	strideSlice := time.Duration(_strideSlice) * inResolution
 	outResolution := inResolution * time.Duration(scale)
 	outPeriods := 10

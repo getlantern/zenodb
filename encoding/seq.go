@@ -17,8 +17,8 @@ var (
 // Sequence represents a time-ordered sequence of accumulator states in
 // descending time order. The first 8 bytes are the timestamp at which the
 // Sequence ends, and after that each n bytes are data for the next interval
-// in the Sequence going back in time, where n is determined by the type of type
-// of Expr.
+// in the Sequence going back in time, where n is determined by the type of
+// Expr.
 type Sequence []byte
 
 // NewSequence allocates a new Sequence that holds the given number of periods

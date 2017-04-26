@@ -438,18 +438,34 @@ func TestPlans(t *testing.T) {
 		})
 
 	nonPushdownScenario("Stride",
-		"SELECT * FROM TableA GROUP BY stride(2s)",
-		"select * from TableA group by stride(2 as s)",
+		"SELECT * FROM TableA GROUP BY stride(4s)",
+		"select * from TableA group by stride(4 as s)",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				Fields:      textFieldSource("*"),
-				Resolution:  2 * time.Second,
+				Resolution:  4 * time.Second,
 				StrideSlice: resolution,
 			})
 		},
 		flatten,
 		GroupOpts{
 			Fields: textFieldSource("passthrough"),
+		})
+
+	nonPushdownScenario("Stride with period",
+		"SELECT * FROM TableA GROUP BY period(2s), stride(4s)",
+		"select * from TableA group by period(2 as s), stride(4 as s)",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields:      textFieldSource("*"),
+				Resolution:  4 * time.Second,
+				StrideSlice: 2 * time.Second,
+			})
+		},
+		flatten,
+		GroupOpts{
+			Fields:     textFieldSource("passthrough"),
+			Resolution: 2 * time.Second,
 		})
 
 	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x = 'CN' GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
