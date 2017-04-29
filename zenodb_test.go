@@ -384,7 +384,7 @@ FROM test_a
 ASOF '%s' UNTIL '%s'
 WHERE b != true AND r IN (SELECT r FROM test_a)
 GROUP BY r, u, period(%v)
-HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
+-- HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
 `, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), resolution*time.Duration(scalingFactor))
 

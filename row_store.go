@@ -258,7 +258,9 @@ func (rs *rowStore) iterate(includedFields []string, includeMemStore bool, onVal
 		tree = rs.memStore.tree.Copy()
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(onValue, false, tree, includedFields...)
+	return fs.iterate(func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+		return onValue(key, columns)
+	}, false, false, tree, includedFields...)
 }
 
 func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
@@ -328,7 +330,14 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 
 	highWaterMark := int64(0)
 	truncateBefore := rs.t.truncateBefore()
-	write := func(key bytemap.ByteMap, columns []encoding.Sequence) (bool, error) {
+	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+		if !shouldSort && raw != nil {
+			// This is an optimization that allows us to skip other processing by just
+			// passing through the raw data
+			_, writeErr := cout.Write(raw)
+			return true, writeErr
+		}
+
 		hasActiveSequence := false
 		for i, seq := range columns {
 			seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore, time.Time{})
@@ -408,7 +417,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	rs.mx.RUnlock()
-	fs.iterate(write, !shouldSort, ms.tree)
+	fs.iterate(write, !shouldSort, true, ms.tree)
 	err = cout.Close()
 	if err != nil {
 		panic(err)
@@ -508,7 +517,7 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error), okayToReuseBuffers bool, tree *bytetree.Tree, includedFields ...string) error {
+func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error), okayToReuseBuffers bool, rawOkay bool, tree *bytetree.Tree, includedFields ...string) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -623,6 +632,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence) (m
 			if !useBuffer || len(row) < int(rowLength) {
 				row = make([]byte, rowLength)
 			}
+			raw := row
 			encoding.Binary.PutUint64(row, rowLength)
 			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
@@ -632,6 +642,19 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence) (m
 
 			keyLength, row := encoding.ReadInt16(row)
 			key, row := encoding.ReadByteMap(row, keyLength)
+
+			var columns2 []encoding.Sequence
+			if tree != nil {
+				columns2 = tree.Remove(ctx, key)
+			}
+			if columns2 == nil && rawOkay {
+				// There's nothing to merge in, just pass through the raw data
+				more, err := onRow(key, nil, raw)
+				if !more || err != nil {
+					return err
+				}
+				continue
+			}
 
 			numColumns, row := encoding.ReadInt16(row)
 			colLengths := make([]int, 0, numColumns)
@@ -664,42 +687,42 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence) (m
 				}
 			}
 
-			if tree != nil {
-				columns2 := tree.Remove(ctx, key)
-
-				// Merge memStore columns into fileStore columns
-				for i, field := range fs.t.Fields {
-					if !includeField(i) {
-						continue
-					}
-					if i >= len(columns2) {
-						continue
-					}
-					column2 := columns2[i]
-					if column2 == nil {
-						continue
-					}
-					includesAtLeastOneColumn = true
-					column := columns[i]
-					if column == nil {
-						// Nothing to merge, just use column2
-						columns[i] = column2
-						continue
-					}
-					// merge
-					columns[i] = column.Merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
+			// Merge memStore columns into fileStore columns
+			for i, field := range fs.t.Fields {
+				if !includeField(i) {
+					continue
 				}
+				if i >= len(columns2) {
+					continue
+				}
+				column2 := columns2[i]
+				if column2 == nil {
+					continue
+				}
+				includesAtLeastOneColumn = true
+				// Clear raw to prevent recipient from using passthrough data
+				raw = nil
+				column := columns[i]
+				if column == nil {
+					// Nothing to merge, just use column2
+					columns[i] = column2
+					continue
+				}
+				// merge
+				columns[i] = column.Merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
 			}
 
+			var more bool
 			if includesAtLeastOneColumn {
-				more, err := onRow(key, columns)
-				if !more || err != nil {
-					return err
-				}
+				more, err = onRow(key, columns, raw)
 			}
 
 			if useBuffer {
 				buffers.Put(bufferedRow)
+			}
+
+			if !more || err != nil {
+				return err
 			}
 		}
 	}
@@ -713,7 +736,7 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence) (m
 					columns[i] = column
 				}
 			}
-			more, err := onRow(bytemap.ByteMap(key), columns)
+			more, err := onRow(bytemap.ByteMap(key), columns, nil)
 			return more, false, err
 		})
 	}
