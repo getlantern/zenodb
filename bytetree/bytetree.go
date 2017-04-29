@@ -45,6 +45,7 @@ func New(
 	inResolution time.Duration,
 	asOf time.Time,
 	until time.Time,
+	strideSlice time.Duration,
 ) *Tree {
 	var subMergers [][]expr.SubMerge
 	for _, o := range outExprs {
@@ -58,6 +59,7 @@ func New(
 		inResolution:  inResolution,
 		asOf:          asOf,
 		until:         until,
+		strideSlice:   strideSlice,
 		root:          &node{},
 	}
 }
