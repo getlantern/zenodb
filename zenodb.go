@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"sync"
@@ -327,9 +328,16 @@ func (db *DB) capMemStoreSize() {
 	actual := atomic.LoadUint64(&db.memory)
 	allowed := db.maxMemoryBytes()
 	if actual > allowed {
+		// First try to regain memory with GC
+		log.Debugf("Memory usage of %v exceeds allowed %v, forcing GC", humanize.Bytes(actual), humanize.Bytes(allowed))
+		debug.FreeOSMemory()
+		db.updateMemStats()
+	}
+	actual = atomic.LoadUint64(&db.memory)
+	if actual > allowed {
 		// Force flushing on the table with the largest memstore
 		sort.Sort(sizes)
-		log.Debugf("Memory usage of %v exceeds allowed %v, forcing flush on %v", humanize.Bytes(actual), humanize.Bytes(allowed), sizes[0].t.Name)
+		log.Debugf("Memory usage of %v exceeds allowed %v even after GC, forcing flush on %v", humanize.Bytes(actual), humanize.Bytes(allowed), sizes[0].t.Name)
 		sizes[0].t.forceFlush()
 		db.updateMemStats()
 		log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
