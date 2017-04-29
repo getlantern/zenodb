@@ -9,6 +9,7 @@ import (
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
+	"github.com/getlantern/mtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
@@ -166,6 +167,11 @@ func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.Call
 }
 
 func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error {
+	elapsed := mtime.Stopwatch()
+	defer func() {
+		log.Debugf("Finished processing query in %v", elapsed())
+	}()
+
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)
 	if err != nil {
 		return errors.New("Unable to obtain client stream: %v", err)

@@ -241,7 +241,10 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		query.Crosstab = core.ClusterCrosstab
 	}
 	if query.Resolution != 0 {
-		groupByParts = append(groupByParts, fmt.Sprintf("period(%v)", query.Resolution.String()))
+		groupByParts = append(groupByParts, fmt.Sprintf("period(%v)", query.Resolution))
+	}
+	if query.Stride > 0 {
+		groupByParts = append(groupByParts, fmt.Sprintf("stride(%v)", query.Stride))
 	}
 	if len(groupByParts) > 0 {
 		sqlString = fmt.Sprintf("%v group by %v", sqlString, strings.Join(groupByParts, ", "))
@@ -258,7 +261,7 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	}
 	fixupSubQuery(clusterQuery, opts)
 
-	source := &clusterRowSource{
+	var source core.RowSource = &clusterRowSource{
 		clusterSource{
 			opts:          opts,
 			query:         clusterQuery,
@@ -271,7 +274,13 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	}
 	// Pass through fields since the remote query already has the correct ones
 	query.Fields = core.PassthroughFieldSource
-	flat := core.Flatten(addGroupBy(source, query))
+	// Pass through asOf, until and resolution since the remote query already has
+	// those
+	query.AsOf = time.Time{}
+	query.Until = time.Time{}
+	query.Resolution = 0
+
+	flat := core.Flatten(addGroupBy(source, query, true, query.Resolution, 0))
 	if query.Having != nil {
 		flat = addHaving(flat, query)
 	}

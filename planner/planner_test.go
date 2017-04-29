@@ -416,8 +416,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields:     textFieldSource("passthrough"),
-			Resolution: 2 * time.Second,
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("Resolution smaller than data window",
@@ -433,8 +432,37 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields:     textFieldSource("passthrough"),
-			Resolution: 1 * time.Second,
+			Fields: textFieldSource("passthrough"),
+		})
+
+	nonPushdownScenario("Stride",
+		"SELECT * FROM TableA GROUP BY stride(4s)",
+		"select * from TableA group by stride(4 as s)",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields:      textFieldSource("*"),
+				Resolution:  4 * time.Second,
+				StrideSlice: resolution,
+			})
+		},
+		flatten,
+		GroupOpts{
+			Fields: textFieldSource("passthrough"),
+		})
+
+	nonPushdownScenario("Stride with period",
+		"SELECT * FROM TableA GROUP BY period(2s), stride(4s)",
+		"select * from TableA group by period(2 as s), stride(4 as s)",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields:      textFieldSource("*"),
+				Resolution:  4 * time.Second,
+				StrideSlice: 2 * time.Second,
+			})
+		},
+		flatten,
+		GroupOpts{
+			Fields: textFieldSource("passthrough"),
 		})
 
 	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x = 'CN' GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
@@ -462,22 +490,21 @@ func TestPlans(t *testing.T) {
 			},
 		}
 		return Limit(Offset(Sort(Flatten(Group(t, GroupOpts{
-			Fields:     textFieldSource("passthrough"),
-			By:         []GroupBy{groupByY},
-			Resolution: 2 * time.Second,
+			Fields: textFieldSource("passthrough"),
+			By:     []GroupBy{groupByY},
 		})), NewOrderBy("total", true)), 2), 5)
 	})
 
 	for i, sqlString := range queries {
 		opts := defaultOpts()
 		plan, err := Plan(sqlString, opts)
-		if assert.NoError(t, err) {
+		if assert.NoError(t, err, sqlString) {
 			assert.Equal(t, FormatSource(expected[i]()), FormatSource(plan), fmt.Sprintf("Non-clustered: %v: %v", descriptions[i], sqlString))
 		}
 
 		opts.QueryCluster = queryCluster
 		clusterPlan, err := Plan(sqlString, opts)
-		if assert.NoError(t, err) {
+		if assert.NoError(t, err, sqlString) {
 			assert.Equal(t, FormatSource(expectedCluster[i]()), FormatSource(clusterPlan), fmt.Sprintf("Clustered: %v: %v", descriptions[i], sqlString))
 		}
 	}

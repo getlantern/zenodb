@@ -52,13 +52,14 @@ type keyedVals struct {
 }
 
 type GroupOpts struct {
-	By         []GroupBy
-	Crosstab   goexpr.Expr
-	Having     ExprSource
-	Fields     FieldSource
-	Resolution time.Duration
-	AsOf       time.Time
-	Until      time.Time
+	By          []GroupBy
+	Crosstab    goexpr.Expr
+	Having      ExprSource
+	Fields      FieldSource
+	Resolution  time.Duration
+	AsOf        time.Time
+	Until       time.Time
+	StrideSlice time.Duration
 }
 
 func Group(source RowSource, opts GroupOpts) RowSource {
@@ -291,6 +292,9 @@ func (g *group) String() string {
 	}
 	if !g.Until.IsZero() {
 		result.WriteString(fmt.Sprintf("\n       until: %v", g.Until.In(time.UTC)))
+	}
+	if g.StrideSlice > 0 {
+		result.WriteString(fmt.Sprintf("\n       stride slice: %v", g.StrideSlice))
 	}
 	return result.String()
 }

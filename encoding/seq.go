@@ -16,8 +16,9 @@ var (
 
 // Sequence represents a time-ordered sequence of accumulator states in
 // descending time order. The first 8 bytes are the timestamp at which the
-// Sequence starts, and after that each n bytes are data for the next interval
-// in the Sequence, where n is determined by the type of type of Expr.
+// Sequence ends, and after that each n bytes are data for the next interval
+// in the Sequence going back in time, where n is determined by the type of
+// Expr.
 type Sequence []byte
 
 // NewSequence allocates a new Sequence that holds the given number of periods
@@ -239,7 +240,7 @@ func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexp
 	return out
 }
 
-func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution time.Duration, otherResolution time.Duration, ex expr.Expr, otherEx expr.Expr, submerge expr.SubMerge, asOf time.Time, until time.Time) (result Sequence) {
+func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution time.Duration, otherResolution time.Duration, ex expr.Expr, otherEx expr.Expr, submerge expr.SubMerge, asOf time.Time, until time.Time, strideSlice time.Duration) (result Sequence) {
 	result = seq
 	otherWidth := otherEx.EncodedWidth()
 	other = other.Truncate(otherWidth, otherResolution, asOf, until)
@@ -282,12 +283,15 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	scale := int(resolution / otherResolution)
 	untilOffset := int(resultUntil.Sub(otherUntil) / otherResolution)
 	resultPeriods := result.NumPeriods(width)
+	strideSlicePeriods := int(strideSlice / otherResolution)
 	for po := 0; po < otherPeriods; po++ {
 		p := int(math.Floor(float64(po+untilOffset) / float64(scale)))
 		if p >= resultPeriods {
 			break
 		}
-		submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], metadata)
+		if strideSlice <= 0 || (po+untilOffset)%scale < strideSlicePeriods {
+			submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], metadata)
+		}
 	}
 	return
 }

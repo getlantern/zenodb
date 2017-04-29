@@ -365,11 +365,19 @@ view_a:
 		}
 		return true, nil
 	})
-	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, modifyTable)
+
+	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, false, modifyTable)
+	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, true, modifyTable)
 }
 
-func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int, modifyTable func(string, func(*table))) {
+func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int, stride bool, modifyTable func(string, func(*table))) {
 	log.Debugf("AsOf: %v  Until: %v", asOf, until)
+
+	period := resolution * time.Duration(scalingFactor)
+	periodString := fmt.Sprintf("period(%v)", period)
+	if stride {
+		periodString = fmt.Sprintf("%v, stride(%v)", periodString, period)
+	}
 
 	sqlString := fmt.Sprintf(`
 SELECT
@@ -383,10 +391,10 @@ SELECT
 FROM test_a
 ASOF '%s' UNTIL '%s'
 WHERE b != true AND r IN (SELECT r FROM test_a)
-GROUP BY r, u, period(%v)
+GROUP BY r, u, %v
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
-`, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), resolution*time.Duration(scalingFactor))
+`, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), periodString)
 
 	var rows []*core.FlatRow
 	source, err := db.Query(sqlString, false, nil, randomlyIncludeMemStore())

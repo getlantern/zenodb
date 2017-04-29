@@ -142,18 +142,34 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		until = query.Until
 	}
 
-	window := until.Sub(asOf)
-	if query.Resolution > window {
-		query.Resolution = window
+	resolution := query.Resolution
+	var strideSlice time.Duration
+	if resolution == 0 {
+		resolution = source.GetResolution()
 	}
 
-	resolutionChanged := query.Resolution != 0 && query.Resolution != source.GetResolution()
-	if resolutionChanged {
-		if query.Resolution < source.GetResolution() {
-			return nil, fmt.Errorf("Query resolution '%v' is higher than table resolution of '%v'", query.Resolution, source.GetResolution())
+	if query.Stride > 0 {
+		if query.Stride%source.GetResolution() != 0 {
+			return nil, fmt.Errorf("Query stride '%v' is not an even multiple of table resolution '%v'", query.Stride, source.GetResolution())
 		}
-		if query.Resolution%source.GetResolution() != 0 {
-			return nil, fmt.Errorf("Query resolution '%v' is not an even multiple of table resolution of '%v'", query.Resolution, source.GetResolution())
+		strideSlice = resolution
+		resolution = query.Stride
+	}
+
+	resolutionTruncated := false
+	window := until.Sub(asOf)
+	if resolution > window {
+		resolution = window
+		resolutionTruncated = true
+	}
+
+	resolutionChanged := resolution != source.GetResolution()
+	if resolutionChanged {
+		if resolution < source.GetResolution() {
+			return nil, fmt.Errorf("Query resolution '%v' is higher than table resolution '%v'", resolution, source.GetResolution())
+		}
+		if resolution%source.GetResolution() != 0 {
+			return nil, fmt.Errorf("Query resolution '%v' is not an even multiple of table resolution '%v'", resolution, source.GetResolution())
 		}
 	}
 
@@ -179,8 +195,11 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		})
 	}
 
-	if asOfChanged || untilChanged || resolutionChanged || needsGroupBy(query) {
-		source = addGroupBy(source, query)
+	needsGroupBy := asOfChanged || untilChanged || resolutionChanged ||
+		!query.GroupByAll || query.HasSpecificFields || query.Having != nil ||
+		query.Crosstab != nil || strideSlice > 0
+	if needsGroupBy {
+		source = addGroupBy(source, query, resolutionTruncated || resolutionChanged, resolution, strideSlice)
 	}
 
 	flat := core.Flatten(source)
@@ -199,20 +218,20 @@ func fixupSubQuery(query *sql.Query, opts *Opts) {
 	}
 }
 
-func needsGroupBy(query *sql.Query) bool {
-	return !query.GroupByAll || query.HasSpecificFields || query.Having != nil || query.Crosstab != nil
-}
-
-func addGroupBy(source core.RowSource, query *sql.Query) core.RowSource {
-	return core.Group(source, core.GroupOpts{
-		By:         query.GroupBy,
-		Crosstab:   query.Crosstab,
-		Having:     query.Having,
-		Fields:     query.Fields,
-		Resolution: query.Resolution,
-		AsOf:       query.AsOf,
-		Until:      query.Until,
-	})
+func addGroupBy(source core.RowSource, query *sql.Query, applyResolution bool, resolution time.Duration, strideSlice time.Duration) core.RowSource {
+	opts := core.GroupOpts{
+		By:          query.GroupBy,
+		Crosstab:    query.Crosstab,
+		Having:      query.Having,
+		Fields:      query.Fields,
+		AsOf:        query.AsOf,
+		Until:       query.Until,
+		StrideSlice: strideSlice,
+	}
+	if applyResolution {
+		opts.Resolution = resolution
+	}
+	return core.Group(source, opts)
 }
 
 func addOrderLimitOffset(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {

@@ -147,7 +147,7 @@ func TestSequenceFull(t *testing.T) {
 		assert.Equal(t, epoch, seqIn.Until().In(time.UTC))
 		assert.Equal(t, epoch.Add(-1*time.Duration(inPeriods)*resolutionIn).In(time.UTC), seqIn.AsOf(widthIn, resolutionIn).In(time.UTC))
 
-		merged := seqOut.SubMerge(seqIn, nil, resolutionOut, resolutionIn, eOut, eIn, submergers[0], asOf, until)
+		merged := seqOut.SubMerge(seqIn, nil, resolutionOut, resolutionIn, eOut, eIn, submergers[0], asOf, until, 0)
 		assert.Equal(t, seqIn.Until().In(time.UTC), merged.Until().In(time.UTC))
 		assert.Equal(t, seqIn.AsOf(widthIn, resolutionIn).In(time.UTC), merged.AsOf(widthOut, resolutionOut).In(time.UTC))
 
@@ -194,21 +194,33 @@ func TestSequenceConstant(t *testing.T) {
 	assert.EqualValues(t, 5.1, v)
 }
 
-func TestSequenceSubMerge(t *testing.T) {
+func TestSequenceSubMergePlain(t *testing.T) {
+	doTestSequenceSubMerge(t, 0)
+}
+
+func TestSequenceSubMergeStride(t *testing.T) {
+	doTestSequenceSubMerge(t, 2)
+}
+
+func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 	e := SUM(FIELD("a"))
 	params := FloatParams(1)
 	scale := 11
 	inResolution := 1 * time.Minute
+	strideSlice := time.Duration(_strideSlice) * inResolution
 	outResolution := inResolution * time.Duration(scale)
 	outPeriods := 10
 	inPeriods := scale*outPeriods + 2
 	asOf := time.Date(2015, 1, 1, 1, 2, 0, 0, time.UTC)
 	until := asOf.Add(outResolution * time.Duration(outPeriods))
+
 	expected := NewSequence(e.EncodedWidth(), outPeriods)
 	expected.SetUntil(until)
 	for i := 0; i < outPeriods; i++ {
 		for j := 0; j < scale; j++ {
-			expected.UpdateValueAt(i, e, params, nil)
+			if _strideSlice <= 0 || j < _strideSlice {
+				expected.UpdateValueAt(i, e, params, nil)
+			}
 		}
 	}
 
@@ -221,14 +233,14 @@ func TestSequenceSubMerge(t *testing.T) {
 	for i := 0; i < inPeriods; i++ {
 		in.UpdateValueAt(i, e, params, nil)
 	}
-	result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until)
+	result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, strideSlice)
 	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
 
 	// Try it with a bunch of small sequences
 	result = nil
 	in = NewFloatValue(e, asOf.Add(-1*inResolution), 1)
 	for i := 0; i < inPeriods; i++ {
-		result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until)
+		result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, strideSlice)
 		in.SetUntil(in.Until().Add(inResolution))
 	}
 	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
