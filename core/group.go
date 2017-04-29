@@ -156,6 +156,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 				g.source.GetResolution(),
 				g.GetAsOf(),
 				g.GetUntil(),
+				g.StrideSlice,
 			)
 		}
 		metadata := key

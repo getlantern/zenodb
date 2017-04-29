@@ -181,7 +181,7 @@ func (t *table) newByteTree() *bytetree.Tree {
 	for _, field := range t.Fields {
 		exprs = append(exprs, field.Expr)
 	}
-	return bytetree.New(exprs, nil, t.Resolution, 0, time.Time{}, time.Time{})
+	return bytetree.New(exprs, nil, t.Resolution, 0, time.Time{}, time.Time{}, 0)
 }
 
 func (rs *rowStore) processInserts() {
