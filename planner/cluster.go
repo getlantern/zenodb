@@ -274,6 +274,11 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 	}
 	// Pass through fields since the remote query already has the correct ones
 	query.Fields = core.PassthroughFieldSource
+	// Pass through asOf, until and resolution since the remote query already has
+	// those
+	query.AsOf = time.Time{}
+	query.Until = time.Time{}
+	query.Resolution = 0
 
 	flat := core.Flatten(addGroupBy(source, query, true, query.Resolution, 0))
 	if query.Having != nil {

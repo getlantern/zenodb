@@ -416,8 +416,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields:     textFieldSource("passthrough"),
-			Resolution: 2 * time.Second,
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("Resolution smaller than data window",
@@ -433,8 +432,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields:     textFieldSource("passthrough"),
-			Resolution: 1 * time.Second,
+			Fields: textFieldSource("passthrough"),
 		})
 
 	nonPushdownScenario("Stride",
@@ -464,8 +462,7 @@ func TestPlans(t *testing.T) {
 		},
 		flatten,
 		GroupOpts{
-			Fields:     textFieldSource("passthrough"),
-			Resolution: 2 * time.Second,
+			Fields: textFieldSource("passthrough"),
 		})
 
 	scenario("Complex SELECT", "SELECT *, a + b AS total FROM TableA ASOF '-5s' UNTIL '-1s' WHERE x = 'CN' GROUP BY y, period(2s) ORDER BY total DESC LIMIT 2, 5", func() Source {
@@ -493,9 +490,8 @@ func TestPlans(t *testing.T) {
 			},
 		}
 		return Limit(Offset(Sort(Flatten(Group(t, GroupOpts{
-			Fields:     textFieldSource("passthrough"),
-			By:         []GroupBy{groupByY},
-			Resolution: 2 * time.Second,
+			Fields: textFieldSource("passthrough"),
+			By:     []GroupBy{groupByY},
 		})), NewOrderBy("total", true)), 2), 5)
 	})
 
