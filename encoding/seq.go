@@ -261,7 +261,6 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	} else {
 		periodsToPrepend := int(newUntil.Sub(resultUntil) / resolution)
 		if periodsToPrepend > 0 {
-			fmt.Println("Prepending")
 			prepended := NewSequence(width, periodsToPrepend)
 			prepended.SetUntil(newUntil)
 			// Append existing data
@@ -275,7 +274,6 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	oldAsOf := RoundTimeUntilUp(result.AsOf(width, resolution), resolution, resultUntil)
 	newAsOf := RoundTimeUntilDown(otherAsOf, resolution, resultUntil)
 	periodsToAppend := int(oldAsOf.Sub(newAsOf) / resolution)
-	fmt.Printf("oldAsOf: %v   newAsOf: %v   periodsToAppend: %d\n", oldAsOf, newAsOf, periodsToAppend)
 	if periodsToAppend > 0 {
 		appended := NewSequence(width, result.NumPeriods(width)+periodsToAppend)
 		copy(appended, result)
@@ -286,16 +284,13 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	// (i.e. caller already checked this)
 	scale := int(resolution / otherResolution)
 	untilOffset := int(resultUntil.Sub(otherUntil) / otherResolution)
-	fmt.Printf("otherUntil: %v   resultUntil: %v\n   untilOffset: %d   otherPeriods: %d\n", otherUntil.In(time.UTC), resultUntil.In(time.UTC), untilOffset, otherPeriods)
 	resultPeriods := result.NumPeriods(width)
 	strideSlicePeriods := int(strideSlice / otherResolution)
 	for po := 0; po < otherPeriods; po++ {
 		p := int(math.Floor(float64(po+untilOffset) / float64(scale)))
-		fmt.Printf("p: %d\n", p)
 		if p >= resultPeriods {
 			break
 		}
-		fmt.Printf("%d -> %d\n", po, p)
 		if strideSlice <= 0 || (po+untilOffset)%scale < strideSlicePeriods {
 			submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], metadata)
 		}

@@ -238,8 +238,6 @@ func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 
 	// Try it with a bunch of small sequences
 	testSubMergeParts := func(order []int) {
-		log.Debug(order)
-
 		result = nil
 		start := asOf.Add(-1 * inResolution)
 		for _, o := range order {
@@ -254,8 +252,8 @@ func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 		order = append(order, i)
 	}
 
-	// // try forward
-	// testSubMergeParts(order)
+	// try forward
+	testSubMergeParts(order)
 
 	// try reverse
 	reversed := make([]int, inPeriods)
@@ -263,6 +261,10 @@ func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 		reversed[inPeriods-1-i] = o
 	}
 	testSubMergeParts(reversed)
+
+	// try random
+	random := rand.Perm(inPeriods)
+	testSubMergeParts(random)
 }
 
 func randBelow(res time.Duration) time.Duration {
