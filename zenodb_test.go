@@ -53,7 +53,7 @@ func TestClusterPushdownSinglePartition(t *testing.T) {
 }
 
 func TestClusterPushdownMultiPartition(t *testing.T) {
-	doTestCluster(t, 10, []string{"r", "u"})
+	doTestCluster(t, 7, []string{"r", "u"})
 }
 
 func TestClusterNoPushdownSinglePartition(t *testing.T) {
@@ -61,7 +61,7 @@ func TestClusterNoPushdownSinglePartition(t *testing.T) {
 }
 
 func TestClusterNoPushdownMultiPartition(t *testing.T) {
-	doTestCluster(t, 10, nil)
+	doTestCluster(t, 7, nil)
 }
 
 func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
@@ -399,10 +399,10 @@ ORDER BY _time`
 			epoch.Add(resolution),
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 2,
-				"i":       142,
-				"ii":      264,
-				"iii":     18744,
+				"_points": 3,
+				"i":       30142,
+				"ii":      40264,
+				"iii":     404545829.3333333,
 				"iv":      30,
 				"biv":     0,
 				"z":       53,
@@ -412,10 +412,10 @@ ORDER BY _time`
 			epoch.Add(4 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 2,
-				"i":       30500,
-				"ii":      40600,
-				"iii":     619150000,
+				"_points": 1,
+				"i":       500,
+				"ii":      600,
+				"iii":     300000,
 				"iv":      0,
 				"biv":     0,
 				"z":       700,
@@ -515,10 +515,6 @@ func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeM
 	}
 	for i, erow := range er {
 		row := rows[i]
-		log.Debugf("%v -> %v", erow.ts.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC))
-		for i, k := range md.FieldNames {
-			log.Debugf("%v  : %f -> %f", k, erow.vals[k], row.Values[i])
-		}
 		erow.assert(t, md.FieldNames, row, i+1)
 	}
 }

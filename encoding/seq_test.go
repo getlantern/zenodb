@@ -198,9 +198,9 @@ func TestSequenceSubMergePlain(t *testing.T) {
 	doTestSequenceSubMerge(t, 0)
 }
 
-// func TestSequenceSubMergeStride(t *testing.T) {
-// 	doTestSequenceSubMerge(t, 2)
-// }
+func TestSequenceSubMergeStride(t *testing.T) {
+	doTestSequenceSubMerge(t, 2)
+}
 
 func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 	e := SUM(FIELD("a"))
