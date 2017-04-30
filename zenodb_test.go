@@ -367,7 +367,9 @@ view_a:
 
 	for _, includeMemStore := range []bool{true, false} {
 		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
-		testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
+		if false {
+			testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
+		}
 	}
 }
 
@@ -420,66 +422,6 @@ ORDER BY _time`
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)
-}
-
-type expectedResult []expectedRow
-
-func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeMemStore bool) {
-	var rows []*core.FlatRow
-	source, err := db.Query(sqlString, false, nil, includeMemStore)
-	if !assert.NoError(t, err, "Unable to plan SQL query") {
-		return
-	}
-
-	var fields core.Fields
-	err = source.Iterate(context.Background(), func(inFields core.Fields) error {
-		fields = inFields
-		return nil
-	}, func(row *core.FlatRow) (bool, error) {
-		rows = append(rows, row)
-		return true, nil
-	})
-	if !assert.NoError(t, err, "Unable to plan SQL query") {
-		return
-	}
-
-	md := MetaDataFor(source, fields)
-	if !assert.Len(t, rows, len(er), "Wrong number of rows, perhaps HAVING isn't working") {
-		return
-	}
-	for i, erow := range er {
-		erow.assert(t, md.FieldNames, rows[i], i+1)
-	}
-}
-
-type expectedRow struct {
-	ts   time.Time
-	dims map[string]interface{}
-	vals map[string]float64
-}
-
-func (erow expectedRow) assert(t *testing.T, fieldNames []string, row *core.FlatRow, idx int) {
-	if !assert.Equal(t, erow.ts.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC), "Row %d - wrong timestamp", idx) {
-		return
-	}
-
-	dims := row.Key.AsMap()
-	if !assert.Len(t, dims, len(erow.dims), "Row %d - wrong number of dimensions in result", idx) {
-		return
-	}
-	for k, v := range erow.dims {
-		if !assert.Equal(t, v, dims[k], "Row %d - mismatch on dimension %v", idx, k) {
-			return
-		}
-	}
-
-	if !assert.Len(t, row.Values, len(erow.vals), "Row %d - wrong number of values in result", idx) {
-		return
-	}
-	for i, v := range row.Values {
-		fieldName := fieldNames[i]
-		assert.Equal(t, erow.vals[fieldName], v, "Row %d - mismatch on field %v", idx, fieldName)
-	}
 }
 
 func testAggregateQuery(t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
@@ -544,4 +486,69 @@ ORDER BY u DESC
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)
+}
+
+type expectedResult []expectedRow
+
+func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeMemStore bool) {
+	var rows []*core.FlatRow
+	source, err := db.Query(sqlString, false, nil, includeMemStore)
+	if !assert.NoError(t, err, "Unable to plan SQL query") {
+		return
+	}
+
+	var fields core.Fields
+	err = source.Iterate(context.Background(), func(inFields core.Fields) error {
+		fields = inFields
+		return nil
+	}, func(row *core.FlatRow) (bool, error) {
+		rows = append(rows, row)
+		return true, nil
+	})
+	if !assert.NoError(t, err, "Unable to plan SQL query") {
+		return
+	}
+
+	md := MetaDataFor(source, fields)
+	if !assert.Len(t, rows, len(er), "Wrong number of rows, perhaps HAVING isn't working") {
+		return
+	}
+	for i, erow := range er {
+		row := rows[i]
+		log.Debugf("%v -> %v", erow.ts.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC))
+		for i, k := range md.FieldNames {
+			log.Debugf("%v  : %f -> %f", k, erow.vals[k], row.Values[i])
+		}
+		erow.assert(t, md.FieldNames, row, i+1)
+	}
+}
+
+type expectedRow struct {
+	ts   time.Time
+	dims map[string]interface{}
+	vals map[string]float64
+}
+
+func (erow expectedRow) assert(t *testing.T, fieldNames []string, row *core.FlatRow, idx int) {
+	if !assert.Equal(t, erow.ts.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC), "Row %d - wrong timestamp", idx) {
+		return
+	}
+
+	dims := row.Key.AsMap()
+	if !assert.Len(t, dims, len(erow.dims), "Row %d - wrong number of dimensions in result", idx) {
+		return
+	}
+	for k, v := range erow.dims {
+		if !assert.Equal(t, v, dims[k], "Row %d - mismatch on dimension %v", idx, k) {
+			return
+		}
+	}
+
+	if !assert.Len(t, row.Values, len(erow.vals), "Row %d - wrong number of values in result", idx) {
+		return
+	}
+	for i, v := range row.Values {
+		fieldName := fieldNames[i]
+		assert.Equal(t, erow.vals[fieldName], v, "Row %d - mismatch on field %v", idx, fieldName)
+	}
 }

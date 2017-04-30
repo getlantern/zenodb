@@ -3,11 +3,13 @@
 package bytetree
 
 import (
+	"fmt"
+	"sync"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
-	"sync"
-	"time"
 )
 
 type Tree struct {
@@ -237,6 +239,7 @@ func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, para
 	} else {
 		for o, subMergers := range bt.subMergers {
 			out := n.data[o]
+
 			outEx := bt.outExprs[o]
 			for i, submerge := range subMergers {
 				if submerge == nil {
@@ -245,7 +248,10 @@ func (n *node) doUpdate(bt *Tree, fullKey []byte, vals []encoding.Sequence, para
 				in := vals[i]
 				inEx := bt.inExprs[i]
 				previousSize := cap(out)
+				fmt.Printf("SubMerge Before: %v\n", out.String(outEx, bt.outResolution))
+				fmt.Printf("SubMerge In    : %v\n", in.String(inEx, bt.inResolution))
 				out = out.SubMerge(in, metadata, bt.outResolution, bt.inResolution, outEx, inEx, submerge, bt.asOf, bt.until, bt.strideSlice)
+				fmt.Printf("SubMerge After : %v\n", out.String(outEx, bt.outResolution))
 				n.data[o] = out
 				bytesAdded += cap(out) - previousSize
 			}

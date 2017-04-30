@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/getlantern/bytemap"
@@ -53,6 +54,9 @@ func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRo
 
 		// Iterate
 		ts := asOf
+		for i, field := range fields {
+			fmt.Printf("Flattening %v: %v\n", field.Name, vals[i].String(field.Expr, resolution))
+		}
 		for ; !ts.After(until); ts = ts.Add(resolution) {
 			tsNanos := ts.UnixNano()
 			row := &FlatRow{

@@ -113,6 +113,8 @@ func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.O
 		return false
 	}
 
+	log.Debugf("Inserting at %v -> %v", ts.In(time.UTC), bytemap.ByteMap(dims).AsMap())
+
 	valsLen, remain := encoding.ReadInt32(remain)
 	vals, _ := encoding.Read(remain, valsLen)
 	// Split the dims and vals so that holding on to one doesn't force holding on
