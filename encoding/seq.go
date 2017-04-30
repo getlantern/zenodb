@@ -257,6 +257,7 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	if len(result) <= Width64bits {
 		result = NewSequence(width, 1)
 		result.SetUntil(newUntil)
+		resultUntil = newUntil
 	} else {
 		periodsToPrepend := int(newUntil.Sub(resultUntil) / resolution)
 		if periodsToPrepend > 0 {
@@ -265,13 +266,14 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 			// Append existing data
 			prepended = append(prepended, result[Width64bits:]...)
 			result = prepended
+			resultUntil = newUntil
 		}
 	}
-	resultUntil = newUntil
 
 	otherAsOf := other.AsOf(otherWidth, otherResolution)
-	newAsOf := RoundTimeUntilUp(otherAsOf, resolution, resultUntil)
-	periodsToAppend := int(result.AsOf(width, resolution).Sub(newAsOf) / resolution)
+	oldAsOf := RoundTimeUntilUp(result.AsOf(width, resolution), resolution, resultUntil)
+	newAsOf := RoundTimeUntilDown(otherAsOf, resolution, resultUntil)
+	periodsToAppend := int(oldAsOf.Sub(newAsOf) / resolution)
 	if periodsToAppend > 0 {
 		appended := NewSequence(width, result.NumPeriods(width)+periodsToAppend)
 		copy(appended, result)

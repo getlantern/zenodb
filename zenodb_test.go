@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
@@ -49,17 +48,23 @@ func TestSingleDB(t *testing.T) {
 	})
 }
 
-func TestClusterPushdown(t *testing.T) {
-	doTestCluster(t, []string{"r", "u"})
+func TestClusterPushdownSinglePartition(t *testing.T) {
+	doTestCluster(t, 1, []string{"r", "u"})
 }
 
-func TestClusterNoPushdown(t *testing.T) {
-	doTestCluster(t, nil)
+func TestClusterPushdownMultiPartition(t *testing.T) {
+	doTestCluster(t, 7, []string{"r", "u"})
 }
 
-func doTestCluster(t *testing.T, partitionBy []string) {
-	numPartitions := 1 + rand.Intn(10)
+func TestClusterNoPushdownSinglePartition(t *testing.T) {
+	doTestCluster(t, 1, nil)
+}
 
+func TestClusterNoPushdownMultiPartition(t *testing.T) {
+	doTestCluster(t, 7, nil)
+}
+
+func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
 		leader, err := NewDB(&DBOpts{
 			Dir:            filepath.Join(tmpDir, "leader"),
@@ -121,6 +126,7 @@ func doTestCluster(t *testing.T, partitionBy []string) {
 }
 
 func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table)))) {
+	rand.Seed(0)
 	epoch := time.Date(2015, time.January, 1, 2, 3, 4, 5, time.UTC)
 
 	tmpDir, err := ioutil.TempDir("", "zenodbtest")
@@ -281,12 +287,10 @@ view_a:
 		})
 	}
 
-	advance(resolution)
+	advance(resolution + randAboveRes())
 
-	nextTS := now.Add(randAboveRes())
-	advanceClock(nextTS)
 	db.Insert("inbound",
-		nextTS,
+		now,
 		map[string]interface{}{
 			"r":  "A",
 			"u":  1,
@@ -300,10 +304,8 @@ view_a:
 		})
 	shuffleFields()
 
-	nextTS = now.Add(randAboveRes())
-	advanceClock(nextTS)
 	db.Insert("inbound",
-		nextTS,
+		now,
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,
@@ -317,10 +319,8 @@ view_a:
 		})
 	shuffleFields()
 
-	nextTS = now.Add(randAboveRes())
-	advanceClock(nextTS)
 	db.Insert("inbound",
-		nextTS,
+		now,
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,
@@ -334,13 +334,12 @@ view_a:
 	shuffleFields()
 
 	scalingFactor := 5
-	asOf := nextTS.Add(time.Duration(1-scalingFactor) * resolution)
-	until := nextTS.Add(resolution)
+	asOf := now.Add(time.Duration(1-scalingFactor) * resolution)
+	until := now.Add(resolution)
 
-	nextTS = now.Add(5 * randAboveRes())
-	advanceClock(nextTS)
+	advance(5 * randAboveRes())
 	db.Insert("inbound",
-		nextTS,
+		now,
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,
@@ -366,18 +365,69 @@ view_a:
 		return true, nil
 	})
 
-	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, false, modifyTable)
-	testAggregateQuery(t, db, now, epoch, resolution, asOf, until, scalingFactor, true, modifyTable)
+	for _, includeMemStore := range []bool{true, false} {
+		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
+		if false {
+			testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
+		}
+	}
 }
 
-func testAggregateQuery(t *testing.T, db *DB, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int, stride bool, modifyTable func(string, func(*table))) {
+func testSimpleQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	sqlString := `
+SELECT *
+FROM test_a
+GROUP BY _
+ORDER BY _time`
+
+	epoch = encoding.RoundTimeUp(epoch, resolution)
+	expectedResult{
+		expectedRow{
+			epoch,
+			map[string]interface{}{},
+			map[string]float64{
+				"_points": 2,
+				"i":       11,
+				"ii":      22,
+				"iii":     121,
+				"iv":      15,
+				"biv":     10,
+				"z":       0,
+			},
+		},
+		expectedRow{
+			epoch.Add(resolution),
+			map[string]interface{}{},
+			map[string]float64{
+				"_points": 3,
+				"i":       30142,
+				"ii":      40264,
+				"iii":     404545829.3333333,
+				"iv":      30,
+				"biv":     0,
+				"z":       53,
+			},
+		},
+		expectedRow{
+			epoch.Add(4 * resolution),
+			map[string]interface{}{},
+			map[string]float64{
+				"_points": 1,
+				"i":       500,
+				"ii":      600,
+				"iii":     300000,
+				"iv":      0,
+				"biv":     0,
+				"z":       700,
+			},
+		},
+	}.assert(t, db, sqlString, includeMemStore)
+}
+
+func testAggregateQuery(t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
 	log.Debugf("AsOf: %v  Until: %v", asOf, until)
 
 	period := resolution * time.Duration(scalingFactor)
-	periodString := fmt.Sprintf("period(%v)", period)
-	if stride {
-		periodString = fmt.Sprintf("%v, stride(%v)", periodString, period)
-	}
 
 	sqlString := fmt.Sprintf(`
 SELECT
@@ -391,13 +441,58 @@ SELECT
 FROM test_a
 ASOF '%s' UNTIL '%s'
 WHERE b != true AND r IN (SELECT r FROM test_a)
-GROUP BY r, u, %v
+GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
-`, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), periodString)
+`, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), period)
 
+	expectedResult{
+		expectedRow{
+			encoding.RoundTimeDown(until, resolution),
+			map[string]interface{}{
+				"r": "A",
+				"u": 2,
+			},
+			map[string]float64{
+				"_points":    1,
+				"i_filtered": 0,
+				"i":          31,
+				"ii":         42,
+				"iii":        float64(31*42) / float64(1),
+				"iv":         0,
+				"biv":        0,
+				"ciii":       float64(31*42) / float64(1) / float64(2),
+				"cval":       5.1,
+				"z":          53,
+			},
+		},
+		expectedRow{
+			encoding.RoundTimeDown(until, resolution),
+			map[string]interface{}{
+				"r": "A",
+				"u": 1,
+			},
+			map[string]float64{
+				"_points":    3,
+				"i_filtered": 0,
+				"i":          122,
+				"ii":         244,
+				"iii":        float64(122*244) / float64(3),
+				"iv":         20,
+				"biv":        1,
+				"ciii":       float64(122*244) / float64(3) / float64(2),
+				"cval":       5.1,
+				"z":          0,
+			},
+		},
+	}.assert(t, db, sqlString, includeMemStore)
+}
+
+type expectedResult []expectedRow
+
+func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeMemStore bool) {
 	var rows []*core.FlatRow
-	source, err := db.Query(sqlString, false, nil, randomlyIncludeMemStore())
+	source, err := db.Query(sqlString, false, nil, includeMemStore)
 	if !assert.NoError(t, err, "Unable to plan SQL query") {
 		return
 	}
@@ -415,59 +510,41 @@ ORDER BY u DESC
 	}
 
 	md := MetaDataFor(source, fields)
-	log.Debugf("%v -> %v", md.AsOf, md.Until)
-	log.Debug(spew.Sdump(rows))
-	if !assert.Len(t, rows, 2, "Wrong number of rows, perhaps HAVING isn't working") {
+	if !assert.Len(t, rows, len(er), "Wrong number of rows, perhaps HAVING isn't working") {
 		return
 	}
-	if !assert.EqualValues(t, 2, rows[0].Key.Get("u"), "Wrong dim, result may be sorted incorrectly") {
-		return
+	for i, erow := range er {
+		row := rows[i]
+		erow.assert(t, md.FieldNames, row, i+1)
 	}
-	if !assert.EqualValues(t, 1, rows[1].Key.Get("u"), "Wrong dim, result may be sorted incorrectly") {
-		return
-	}
-	// TODO: _having shouldn't bleed through like that
-	assert.Equal(t, []string{"ciii", "ii", "biv", "_points", "i", "iii", "iv", "z", "i_filtered", "cval"}, md.FieldNames)
-
-	fieldIdx := func(name string) int {
-		for i, candidate := range md.FieldNames {
-			if candidate == name {
-				return i
-			}
-		}
-		return -1
-	}
-
-	pointsIdx := fieldIdx("_points")
-	iIdx := fieldIdx("i")
-	iiIdx := fieldIdx("ii")
-	ciiiIdx := fieldIdx("ciii")
-	ivIdx := fieldIdx("iv")
-	bivIdx := fieldIdx("biv")
-	zIdx := fieldIdx("z")
-	iFilteredIdx := fieldIdx("i_filtered")
-	cvalIdx := fieldIdx("cval")
-
-	assert.EqualValues(t, 3, rows[1].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 0, rows[1].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 122, rows[1].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 244, rows[1].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 20, rows[1].Values[ivIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 1, rows[1].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, float64(122*244)/float64(3)/float64(2), rows[1].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 5.1, rows[1].Values[cvalIdx])
-
-	assert.EqualValues(t, 1, rows[0].Values[pointsIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 0, rows[0].Values[iFilteredIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 31, rows[0].Values[iIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 42, rows[0].Values[iiIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 0, rows[0].Values[ivIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 0, rows[0].Values[bivIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 53, rows[0].Values[zIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, float64(31*42)/float64(1)/float64(2), rows[0].Values[ciiiIdx], "Wrong derived value, bucketing may not be working correctly")
-	assert.EqualValues(t, 5.1, rows[0].Values[cvalIdx])
 }
 
-func randomlyIncludeMemStore() bool {
-	return rand.Float64() > 0.5
+type expectedRow struct {
+	ts   time.Time
+	dims map[string]interface{}
+	vals map[string]float64
+}
+
+func (erow expectedRow) assert(t *testing.T, fieldNames []string, row *core.FlatRow, idx int) {
+	if !assert.Equal(t, erow.ts.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC), "Row %d - wrong timestamp", idx) {
+		return
+	}
+
+	dims := row.Key.AsMap()
+	if !assert.Len(t, dims, len(erow.dims), "Row %d - wrong number of dimensions in result", idx) {
+		return
+	}
+	for k, v := range erow.dims {
+		if !assert.Equal(t, v, dims[k], "Row %d - mismatch on dimension %v", idx, k) {
+			return
+		}
+	}
+
+	if !assert.Len(t, row.Values, len(erow.vals), "Row %d - wrong number of values in result", idx) {
+		return
+	}
+	for i, v := range row.Values {
+		fieldName := fieldNames[i]
+		assert.Equal(t, erow.vals[fieldName], v, "Row %d - mismatch on field %v", idx, fieldName)
+	}
 }

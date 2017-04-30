@@ -3,11 +3,12 @@
 package bytetree
 
 import (
+	"sync"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
-	"sync"
-	"time"
 )
 
 type Tree struct {
