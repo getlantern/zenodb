@@ -424,6 +424,44 @@ ORDER BY _time`
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
+func testStrideQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	sqlString := fmt.Sprintf(`
+SELECT *
+FROM test_a
+GROUP BY _, STRIDE(%v)
+ORDER BY _time`, resolution*4)
+
+	epoch = encoding.RoundTimeUp(epoch, resolution)
+	expectedResult{
+		expectedRow{
+			epoch,
+			map[string]interface{}{},
+			map[string]float64{
+				"_points": 2,
+				"i":       11,
+				"ii":      22,
+				"iii":     121,
+				"iv":      15,
+				"biv":     10,
+				"z":       0,
+			},
+		},
+		expectedRow{
+			epoch.Add(4 * resolution),
+			map[string]interface{}{},
+			map[string]float64{
+				"_points": 1,
+				"i":       500,
+				"ii":      600,
+				"iii":     300000,
+				"iv":      0,
+				"biv":     0,
+				"z":       700,
+			},
+		},
+	}.assert(t, db, sqlString, includeMemStore)
+}
+
 func testAggregateQuery(t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
 	log.Debugf("AsOf: %v  Until: %v", asOf, until)
 
