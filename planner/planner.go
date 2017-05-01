@@ -63,7 +63,6 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 		if err != nil {
 			return nil, err
 		}
-		// TODO: make this work with * expression too
 		source = core.Unflatten(subSource, query.Fields)
 	} else {
 		var sourceErr error

@@ -520,7 +520,7 @@ func verifyNoHaving(t *testing.T, fields Fields, plan Source, sqlString string) 
 
 func TestPlanExecution(t *testing.T) {
 	sqlString := `
-SELECT *, AVG(a)+AVG(b) AS avg_total
+SELECT AVG(a)+AVG(b) AS avg_total
 FROM (SELECT * FROM tablea WHERE x IN (SELECT x FROM tablea WHERE x = 1) OR y IN (SELECT y FROM tablea WHERE y = 3))
 HAVING avg_total > 20
 ORDER BY _time
@@ -541,7 +541,7 @@ LIMIT 1
 			row := rows[0]
 			assert.Equal(t, 1, row.Key.Get("x"))
 			assert.Equal(t, 3, row.Key.Get("y"))
-			assert.EqualValues(t, []float64{1, 50, 0, 50}, row.Values)
+			assert.EqualValues(t, []float64{50}, row.Values)
 		}
 	}
 
