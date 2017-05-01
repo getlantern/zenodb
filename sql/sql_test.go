@@ -211,8 +211,6 @@ LIMIT 100, 10
 }
 
 func TestFromSubQuery(t *testing.T) {
-	field := core.NewField("field", MAX("field"))
-	name := core.NewField("name", SUM("name"))
 	subSQL := "SELECT name, * FROM the_table ASOF '-2h' UNTIL '-1h' GROUP BY CONCAT(',', A, B) AS A, period('5s') HAVING stuff > 5"
 	subQuery, err := Parse(subSQL)
 	if !assert.NoError(t, err) {
@@ -221,7 +219,7 @@ func TestFromSubQuery(t *testing.T) {
 	assert.Equal(t, -2*time.Hour, subQuery.AsOfOffset)
 	assert.Equal(t, -1*time.Hour, subQuery.UntilOffset)
 	q, err := Parse(fmt.Sprintf(`
-SELECT AVG(field) AS the_avg, *
+SELECT AVG(field) AS the_avg, name, MAX(field) AS field
 FROM (%s)
 GROUP BY A, period('10s')
 `, subSQL))
@@ -236,8 +234,8 @@ GROUP BY A, period('10s')
 	assert.Equal(t, -2*time.Hour, q.AsOfOffset)
 	assert.Equal(t, -1*time.Hour, q.UntilOffset)
 	assert.Empty(t, pretty.Compare(q.FromSubQuery, subQuery))
-	assert.Equal(t, "avg(field) as the_avg, *", q.Fields.String())
-	fields, err := q.Fields.Get(core.Fields{name, field})
+	assert.Equal(t, "avg(field) as the_avg, name, max(field) as field", q.Fields.String())
+	fields, err := q.Fields.Get(nil)
 	if !assert.NoError(t, err) {
 		return
 	}

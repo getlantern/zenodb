@@ -39,13 +39,9 @@ func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 	return f.source.Iterate(ctx, func(fields Fields) error {
 		inFields = fields
 		var err error
-		outFields, err = f.fields.Get(inFields)
+		outFields, err = f.fields.Get(nil)
 		if err != nil {
 			return err
-		}
-		if len(outFields) == 0 {
-			// default to inFields
-			outFields = inFields
 		}
 		numIn = len(inFields)
 		numOut = len(outFields)
