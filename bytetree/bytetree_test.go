@@ -98,7 +98,7 @@ func doTest(t *testing.T, populate func(bt *Tree, resolutionOut time.Duration, e
 
 	// First test submerging
 
-	bt := New([]Expr{eOut}, []Expr{eA, eB}, resolutionOut, resolutionIn, asOf, until)
+	bt := New([]Expr{eOut}, []Expr{eA, eB}, resolutionOut, resolutionIn, asOf, until, 0)
 	populate(bt, resolutionOut, eA, eB)
 
 	// Check tree twice with different contexts to make sure removals don't affect
