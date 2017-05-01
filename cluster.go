@@ -734,7 +734,8 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		now := time.Now()
 		timeout := ctxDeadline.Sub(now)
 		var cancel context.CancelFunc
-		subCtx, cancel = context.WithDeadline(subCtx, now.Add(timeout/2))
+		ctxDeadline = now.Add(timeout / 2)
+		subCtx, cancel = context.WithDeadline(subCtx, ctxDeadline)
 		defer cancel()
 	}
 
