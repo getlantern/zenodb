@@ -203,7 +203,7 @@ func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, err
 	cbytes := make([]byte, 8)
 
 	var mx sync.Mutex
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), h.QueryTimeout)
 	defer cancel()
 	rs.Iterate(ctx, func(inFields core.Fields) error {
 		fields = inFields

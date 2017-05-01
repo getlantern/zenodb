@@ -26,6 +26,7 @@ type Opts struct {
 	CacheDir          string
 	CacheTTL          time.Duration
 	Password          string
+	QueryTimeout      time.Duration
 }
 
 type handler struct {
@@ -52,6 +53,10 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 
 	if opts.CacheTTL == 0 {
 		opts.CacheTTL = 1 * time.Hour
+	}
+
+	if opts.QueryTimeout == 0 {
+		opts.QueryTimeout = 10 * time.Minute
 	}
 
 	hashKey := []byte(opts.HashKey)
