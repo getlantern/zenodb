@@ -3,6 +3,9 @@ package planner
 import (
 	"context"
 	"fmt"
+	"testing"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/goexpr"
 	. "github.com/getlantern/zenodb/core"
@@ -11,8 +14,6 @@ import (
 	"github.com/getlantern/zenodb/sql"
 	"github.com/spaolacci/murmur3"
 	"github.com/stretchr/testify/assert"
-	"testing"
-	"time"
 )
 
 var (

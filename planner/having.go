@@ -2,9 +2,10 @@ package planner
 
 import (
 	"context"
+	"time"
+
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
-	"time"
 )
 
 func addHaving(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {

@@ -2,10 +2,11 @@ package planner
 
 import (
 	"context"
+	"sync"
+
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/sql"
-	"sync"
 )
 
 func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) ([][]interface{}, error), error) {
