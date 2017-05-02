@@ -3,11 +3,12 @@ package planner
 import (
 	"context"
 	"fmt"
-	"github.com/getlantern/zenodb/core"
-	"github.com/getlantern/zenodb/sql"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/sql"
 )
 
 const (
