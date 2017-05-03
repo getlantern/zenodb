@@ -98,6 +98,7 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	router.HandleFunc("/oauth/code", h.oauthCode)
 	router.PathPrefix("/async").HandlerFunc(h.asyncQuery)
 	router.PathPrefix("/run").HandlerFunc(h.runQuery)
+	router.PathPrefix("/nocache").HandlerFunc(h.noCache)
 	router.PathPrefix("/cached/{permalink}").HandlerFunc(h.cachedQuery)
 	router.PathPrefix("/favicon").Handler(http.NotFoundHandler())
 	router.PathPrefix("/report/{permalink}").HandlerFunc(h.index)

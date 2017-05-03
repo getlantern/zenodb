@@ -78,6 +78,25 @@ func (h *handler) sqlQuery(resp http.ResponseWriter, req *http.Request, timeout 
 	h.respondWithCacheEntry(resp, req, ce, err, timeout)
 }
 
+func (h *handler) noCache(resp http.ResponseWriter, req *http.Request) {
+	if !h.authenticate(resp, req) {
+		resp.WriteHeader(http.StatusForbidden)
+		return
+	}
+
+	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
+	result, err := h.doQuery(sqlString, "")
+	if err != nil {
+		log.Error(err)
+		resp.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(resp, err.Error())
+		return
+	}
+	resp.Header().Set("Content-Type", "application/json")
+	resp.WriteHeader(http.StatusOK)
+	json.NewEncoder(resp).Encode(result)
+}
+
 func (h *handler) respondWithCacheEntry(resp http.ResponseWriter, req *http.Request, ce cacheEntry, err error, timeout time.Duration) {
 	limit := int(timeout / pauseTime)
 	for i := 0; i < limit; i++ {
@@ -89,7 +108,7 @@ func (h *handler) respondWithCacheEntry(resp http.ResponseWriter, req *http.Requ
 		}
 		switch ce.status() {
 		case statusSuccess:
-			h.respondSuccess(resp, req, ce)
+			h.respondSuccess(resp, req, ce.data())
 			return
 		case statusError:
 			h.respondError(resp, req, ce)
