@@ -151,7 +151,7 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 				log.Error(err)
 				ce = ce.fail(err)
 			} else if len(resultBytes) > h.MaxResponseBytes {
-				err = fmt.Errorf("Size of query result exceeded %v", humanize.Bytes(uint64(len(resultBytes))))
+				err = fmt.Errorf("Query result size %v exceeded limit of %v", humanize.Bytes(uint64(len(resultBytes))), humanize.Bytes(uint64(h.MaxResponseBytes)))
 				log.Error(err)
 				ce = ce.fail(err)
 			} else {
@@ -207,6 +207,7 @@ func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, err
 	tsCardinality := hllpp.New()
 	cbytes := make([]byte, 8)
 
+	estimatedResultBytes := 0
 	var mx sync.Mutex
 	ctx, cancel := context.WithTimeout(context.Background(), h.QueryTimeout)
 	defer cancel()
@@ -229,8 +230,19 @@ func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, err
 				dimCardinalities[dim] = hlp
 			}
 			hlp.Add(valueBytes)
+			estimatedResultBytes += len(dim) + len(valueBytes)
 			return true
 		})
+
+		estimatedResultBytes += 8 * len(row.Values)
+		if estimatedResultBytes > h.MaxResponseBytes {
+			mx.Unlock()
+			// Note - the estimated size here is always an underestimate of the final
+			// JSON size, so this is a conservative way to check. The final check
+			// after generating the JSON may sometimes catch things that slipped
+			// through here.
+			return false, fmt.Errorf("Estimated query result size %v exceeded limit of %v", humanize.Bytes(uint64(estimatedResultBytes)), humanize.Bytes(uint64(h.MaxResponseBytes)))
+		}
 
 		encoding.Binary.PutUint64(cbytes, uint64(row.TS))
 		tsCardinality.Add(cbytes)
