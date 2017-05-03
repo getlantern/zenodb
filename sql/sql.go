@@ -1,4 +1,6 @@
-// Package sql provides the ability to parse SQL queries.
+// Package sql provides the ability to parse SQL queries. This pacakge contains
+// some code taking from the Go standard library's time package. Go is licensed
+// as per https://golang.org/LICENSE.
 package sql
 
 import (
@@ -951,13 +953,13 @@ func stringToTimeOrDuration(str string) (time.Time, time.Duration, error) {
 	if err == nil {
 		return t, 0, err
 	}
-	d, err := time.ParseDuration(strings.ToLower(str))
+	d, err := ParseDuration(strings.ToLower(str))
 	return t, d, err
 }
 
 func nodeToDuration(node sqlparser.SQLNode) (time.Duration, error) {
 	str := nodeToString(node)
-	dur, err := time.ParseDuration(strings.ToLower(strings.Replace(strings.Trim(str, "''"), " as ", "", 1)))
+	dur, err := ParseDuration(strings.ToLower(strings.Replace(strings.Trim(str, "''"), " as ", "", 1)))
 	if err != nil {
 		err = fmt.Errorf("Unable to parse duration %v: %v", str, err)
 	}

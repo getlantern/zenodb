@@ -15,6 +15,14 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestParseDuration(t *testing.T) {
+	doParse := func(s string) time.Duration {
+		d, _ := ParseDuration(s)
+		return d
+	}
+	assert.Equal(t, 7*24*time.Hour+2*24*time.Hour+3*time.Hour+4*time.Minute+5*time.Second, doParse("1w2d3h4m5s"))
+}
+
 func TestSQLPlain(t *testing.T) {
 	RegisterUnaryDIMFunction("TEST", func(val goexpr.Expr) goexpr.Expr {
 		return &testexpr{val}
@@ -34,7 +42,7 @@ SELECT
 	SUM(BOUNDED(bfield, 0, 100)) AS bounded,
 	5 as cval,
 	WAVG(a, b) AS weighted
-FROM Table_A ASOF '-60m' UNTIL '-15m'
+FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
 	dim_b > 10 OR (dim_c = 20 OR dim_d <> 'thing') AND
@@ -63,7 +71,7 @@ GROUP BY
 	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
 	period('5s'), // period is a special function
-	STRIDE('1h')
+	STRIDE('1d')
 HAVING Rate > 15 AND H < 2
 ORDER BY Rate DESC, x, y
 LIMIT 100, 10
@@ -172,9 +180,9 @@ LIMIT 100, 10
 	}
 	assert.False(t, q.GroupByAll)
 	assert.Equal(t, goexpr.Concat(goexpr.Constant("_"), goexpr.Param("dim_b"), goexpr.Param("dim_ct")), q.Crosstab)
-	assert.Equal(t, -60*time.Minute, q.AsOfOffset)
+	assert.Equal(t, -7*24*time.Hour, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
-	assert.Equal(t, 1*time.Hour, q.Stride)
+	assert.Equal(t, 24*time.Hour, q.Stride)
 	if assert.Len(t, q.OrderBy, 3) {
 		assert.Equal(t, "rate", q.OrderBy[0].Field)
 		assert.True(t, q.OrderBy[0].Descending)
