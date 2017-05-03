@@ -396,23 +396,37 @@ func TestPlans(t *testing.T) {
 		})
 
 	pushdownScenario("ASOF UNTIL",
-		"SELECT * FROM TableA ASOF '-5s' UNTIL '-1s'",
-		"select * from TableA ASOF '-5s' UNTIL '-1s'",
+		"SELECT * FROM TableA ASOF '-5w' UNTIL '-1d'",
+		"select * from TableA ASOF '-5w' UNTIL '-1d'",
 		func(source RowSource) Source {
 			return Flatten(Group(source, GroupOpts{
 				Fields: textFieldSource("*"),
-				AsOf:   epoch.Add(-5 * time.Second),
-				Until:  epoch.Add(-1 * time.Second),
+				AsOf:   epoch.Add(-5 * 7 * 24 * time.Hour),
+				Until:  epoch.Add(-1 * 24 * time.Hour),
 			}))
 		})
 
-	nonPushdownScenario("Change Resolution",
+	nonPushdownScenario("Change Resolution Small",
 		"SELECT * FROM TableA GROUP BY period(2s)",
 		"select * from TableA group by period(2 as s)",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				Fields:     textFieldSource("*"),
 				Resolution: 2 * time.Second,
+			})
+		},
+		flatten,
+		GroupOpts{
+			Fields: textFieldSource("passthrough"),
+		})
+
+	nonPushdownScenario("Change Resolution Big",
+		"SELECT * FROM TableA GROUP BY period(2d)",
+		"select * from TableA group by period(48 as h0m0s)",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields:     textFieldSource("*"),
+				Resolution: 10 * time.Second, // limited by window of data
 			})
 		},
 		flatten,
