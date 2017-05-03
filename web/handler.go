@@ -27,6 +27,7 @@ type Opts struct {
 	CacheTTL          time.Duration
 	Password          string
 	QueryTimeout      time.Duration
+	MaxResponseBytes  int
 }
 
 type handler struct {
@@ -51,12 +52,16 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 		return errors.New("Unable to start web server, no CacheDir specified")
 	}
 
-	if opts.CacheTTL == 0 {
+	if opts.CacheTTL <= 0 {
 		opts.CacheTTL = 1 * time.Hour
 	}
 
-	if opts.QueryTimeout == 0 {
+	if opts.QueryTimeout <= 0 {
 		opts.QueryTimeout = 10 * time.Minute
+	}
+
+	if opts.MaxResponseBytes <= 0 {
+		opts.MaxResponseBytes = 10 * 1024 * 1024 // 10 MB
 	}
 
 	hashKey := []byte(opts.HashKey)
@@ -98,7 +103,6 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	router.HandleFunc("/oauth/code", h.oauthCode)
 	router.PathPrefix("/async").HandlerFunc(h.asyncQuery)
 	router.PathPrefix("/run").HandlerFunc(h.runQuery)
-	router.PathPrefix("/nocache").HandlerFunc(h.noCache)
 	router.PathPrefix("/cached/{permalink}").HandlerFunc(h.cachedQuery)
 	router.PathPrefix("/favicon").Handler(http.NotFoundHandler())
 	router.PathPrefix("/report/{permalink}").HandlerFunc(h.index)
