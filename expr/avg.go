@@ -3,6 +3,7 @@ package expr
 import (
 	"fmt"
 	"math"
+	"time"
 
 	"github.com/getlantern/goexpr"
 )
@@ -37,6 +38,15 @@ func (e *avg) Validate() error {
 
 func (e *avg) EncodedWidth() int {
 	return width64bits*2 + 1 + e.Value.EncodedWidth()
+}
+
+func (e *avg) Shift() time.Duration {
+	a := e.Value.Shift()
+	b := e.Weight.Shift()
+	if a > b {
+		return a
+	}
+	return b
 }
 
 func (e *avg) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
@@ -84,7 +94,7 @@ func (e *avg) SubMergers(subs []Expr) []SubMerge {
 	return result
 }
 
-func (e *avg) subMerge(data []byte, other []byte, metadata goexpr.Params) {
+func (e *avg) subMerge(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
 	e.Merge(data, data, other)
 }
 

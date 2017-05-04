@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"time"
 
 	"github.com/getlantern/goexpr"
 	"gopkg.in/vmihailenco/msgpack.v2"
@@ -58,6 +59,10 @@ func (e *aggregate) EncodedWidth() int {
 	return 1 + width64bits + e.Wrapped.EncodedWidth()
 }
 
+func (e *aggregate) Shift() time.Duration {
+	return e.Wrapped.Shift()
+}
+
 func (e *aggregate) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
 	value, wasSet, more := e.load(b)
 	remain, wrappedValue, updated := e.Wrapped.Update(more, params, metadata)
@@ -99,7 +104,7 @@ func (e *aggregate) SubMergers(subs []Expr) []SubMerge {
 	return result
 }
 
-func (e *aggregate) subMerge(data []byte, other []byte, metadata goexpr.Params) {
+func (e *aggregate) subMerge(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
 	e.Merge(data, data, other)
 }
 

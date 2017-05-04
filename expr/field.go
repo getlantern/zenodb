@@ -1,6 +1,8 @@
 package expr
 
 import (
+	"time"
+
 	"github.com/getlantern/goexpr"
 )
 
@@ -33,6 +35,10 @@ func (e *field) Validate() error {
 }
 
 func (e *field) EncodedWidth() int {
+	return 0
+}
+
+func (e *field) Shift() time.Duration {
 	return 0
 }
 

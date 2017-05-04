@@ -224,10 +224,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 					if condErr != nil {
 						return condErr
 					}
-					ifex, ifexErr := expr.IF(cond, outField.Expr)
-					if ifexErr != nil {
-						return ifexErr
-					}
+					ifex := expr.IF(cond, outField.Expr)
 					outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", strings.ToLower(ctab), outField.Name), ifex))
 				}
 			}

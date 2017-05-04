@@ -292,7 +292,7 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 			break
 		}
 		if strideSlice <= 0 || (po+untilOffset)%scale < strideSlicePeriods {
-			submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], metadata)
+			submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], otherResolution, metadata)
 		}
 	}
 	return

@@ -2,6 +2,7 @@ package expr
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/getlantern/goexpr"
 	"gopkg.in/vmihailenco/msgpack.v2"
@@ -30,6 +31,10 @@ func (e *bounded) Validate() error {
 
 func (e *bounded) EncodedWidth() int {
 	return e.wrapped.EncodedWidth()
+}
+
+func (e *bounded) Shift() time.Duration {
+	return e.wrapped.Shift()
 }
 
 func (e *bounded) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {

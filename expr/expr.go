@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"strconv"
+	"time"
 
 	"github.com/getlantern/goexpr"
 	"gopkg.in/vmihailenco/msgpack.v2"
@@ -28,6 +29,7 @@ var (
 	ifType        = reflect.TypeOf((*ifExpr)(nil))
 	avgType       = reflect.TypeOf((*avg)(nil))
 	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
+	shiftType     = reflect.TypeOf((*shift)(nil))
 )
 
 func init() {
@@ -38,6 +40,7 @@ func init() {
 	msgpack.RegisterExt(54, &ifExpr{})
 	msgpack.RegisterExt(55, &avg{})
 	msgpack.RegisterExt(56, &binaryExpr{})
+	msgpack.RegisterExt(57, &shift{})
 }
 
 // Params is an interface for data structures that can contain named values.
@@ -65,8 +68,9 @@ func (p FloatParams) Get(name string) (val float64, found bool) {
 }
 
 // SubMerge is a function that merges other into data for a given Expr,
-// potentially taking into account the supplied metadata.
-type SubMerge func(data []byte, other []byte, metadata goexpr.Params)
+// potentially taking into account the supplied metadata. otherRes is the amount
+// of time represented by each period in other.
+type SubMerge func(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params)
 
 // An Expr is expression that stores its value in a byte array and that
 // evaluates to a float64.
@@ -78,6 +82,10 @@ type Expr interface {
 	// EncodedWidth returns the number of bytes needed to represent the internal
 	// state of this Expr.
 	EncodedWidth() int
+
+	// Shift() returns the total cumulative shift of this expression, including
+	// subexpressions.
+	Shift() time.Duration
 
 	// Update updates the value in buf by applying the given Params. Metadata
 	// provides additional metadata that can be used in evaluating how to apply

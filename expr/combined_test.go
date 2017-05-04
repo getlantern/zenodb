@@ -17,10 +17,7 @@ func TestCombined(t *testing.T) {
 	if !assert.NoError(t, err) {
 		return
 	}
-	ie, err := IF(ge, DIV(mult, count))
-	if !assert.NoError(t, err) {
-		return
-	}
+	ie := IF(ge, DIV(mult, count))
 	e := msgpacked(t, ie)
 	params1 := Map{
 		"a": 2,
@@ -74,7 +71,7 @@ func TestCombined(t *testing.T) {
 	sms := e.SubMergers(fields)
 	for i, sm := range sms {
 		if sm != nil {
-			sm(be, data[i], nil)
+			sm(be, data[i], 0, nil)
 		}
 	}
 	val, _, _ = e.Get(be)
