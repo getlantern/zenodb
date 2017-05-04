@@ -585,7 +585,13 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []
 				if !foundField {
 					fs.t.log.Debugf("Unable to find field %v on table %v", fieldString, fs.t.Name)
 					fileFields = append(fileFields, core.Field{})
+					// It's not okay to use raw rows since field definitions have changed
+					rawOkay = false
 				}
+			}
+			if len(fieldStrings) != len(fs.t.Fields) {
+				fs.t.log.Debug("File store has different set of fields than table, disabling raw passthrough")
+				rawOkay = false
 			}
 		}
 
