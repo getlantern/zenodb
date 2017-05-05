@@ -27,29 +27,31 @@ func TestShiftRegular(t *testing.T) {
 
 func TestShiftSubMerge(t *testing.T) {
 	res := 1 * time.Hour
+	periods := 10
 
 	fa := msgpacked(t, SUM(FIELD("a")))
-	fb := msgpacked(t, SUM(FIELD("b")))
-	fs := msgpacked(t, SUB(
-		SUM(FIELD("a")),
-		SHIFT(SHIFT(SUM(FIELD("b")), res), res)))
-	assert.EqualValues(t, 2*res, fs.Shift())
+	fs := msgpacked(t, SUB(SHIFT(SHIFT(SUM(FIELD("a")), 2*res), res), SUM(FIELD("a"))))
+	assert.EqualValues(t, 3*res, fs.Shift())
 
-	a := make([]byte, fa.EncodedWidth())
-	b := make([]byte, fb.EncodedWidth()*3)
-	s := make([]byte, fs.EncodedWidth())
+	a := make([]byte, fa.EncodedWidth()*periods)
+	s := make([]byte, fs.EncodedWidth()*periods)
 
-	params := Map{
-		"a": 4,
-		"b": 1,
+	for i := 0; i < periods; i++ {
+		fa.Update(a[i*fa.EncodedWidth():], Map{"a": float64(i)}, nil)
 	}
-	fa.Update(a, params, nil)
-	fb.Update(b[fb.EncodedWidth()*2:], params, nil)
-	subs := fs.SubMergers([]Expr{fa, fb})
-	subDatas := [][]byte{a, b}
-	for i, sub := range subs {
-		sub(s, subDatas[i], res, nil)
+
+	subs := fs.SubMergers([]Expr{fa})
+	for i := 0; i < periods; i++ {
+		for _, sub := range subs {
+			sub(s[i*fs.EncodedWidth():], a[i*fa.EncodedWidth():], res, nil)
+		}
 	}
-	val, _, _ := fs.Get(s)
-	assert.EqualValues(t, 3, val)
+	for i := 0; i < periods; i++ {
+		expected := 3
+		if i >= 7 {
+			expected = -1 * i
+		}
+		actual, _, _ := fs.Get(s[i*fs.EncodedWidth():])
+		assert.EqualValues(t, expected, actual, "Wrong value at position %d", i)
+	}
 }
