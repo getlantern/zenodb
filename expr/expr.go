@@ -83,9 +83,13 @@ type Expr interface {
 	// state of this Expr.
 	EncodedWidth() int
 
-	// Shift() returns the total cumulative shift of this expression, including
-	// subexpressions.
-	Shift() time.Duration
+	// MinShift returns the total cumulative right shift of this expression,
+	// including subexpressions.
+	MinShift() time.Duration
+
+	// MaxShift returns the total cumulative right shift of this expression,
+	// including subexpressions.
+	MaxShift() time.Duration
 
 	// Update updates the value in buf by applying the given Params. Metadata
 	// provides additional metadata that can be used in evaluating how to apply

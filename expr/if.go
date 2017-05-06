@@ -26,8 +26,12 @@ func (e *ifExpr) EncodedWidth() int {
 	return e.Width
 }
 
-func (e *ifExpr) Shift() time.Duration {
-	return e.Wrapped.Shift()
+func (e *ifExpr) MinShift() time.Duration {
+	return e.Wrapped.MinShift()
+}
+
+func (e *ifExpr) MaxShift() time.Duration {
+	return e.Wrapped.MaxShift()
 }
 
 func (e *ifExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {

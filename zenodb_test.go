@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
@@ -368,8 +369,11 @@ view_a:
 	for _, includeMemStore := range []bool{true, false} {
 		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
 		testStrideQuery(t, db, includeMemStore, epoch, resolution)
+		testShiftQuery(t, db, includeMemStore, epoch, resolution)
 		testSubQuery(t, db, includeMemStore, epoch, resolution)
-		testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
+		if true {
+			testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
+		}
 	}
 }
 
@@ -457,6 +461,54 @@ ORDER BY _time`, resolution*4)
 				"iv":      0,
 				"biv":     0,
 				"z":       700,
+			},
+		},
+	}.assert(t, db, sqlString, includeMemStore)
+}
+
+func testShiftQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	sqlString := fmt.Sprintf(`
+SELECT _points, i, SHIFT(i, '%v') AS i_shifted
+FROM test_a
+GROUP BY _
+ORDER BY _time`, resolution)
+
+	epoch = encoding.RoundTimeUp(epoch, resolution)
+	expectedResult{
+		expectedRow{
+			epoch,
+			map[string]interface{}{},
+			map[string]float64{
+				"_points":   2,
+				"i":         11,
+				"i_shifted": 0,
+			},
+		},
+		expectedRow{
+			epoch.Add(resolution),
+			map[string]interface{}{},
+			map[string]float64{
+				"_points":   3,
+				"i":         30142,
+				"i_shifted": 11,
+			},
+		},
+		expectedRow{
+			epoch.Add(2 * resolution),
+			map[string]interface{}{},
+			map[string]float64{
+				"_points":   0,
+				"i":         0,
+				"i_shifted": 30142,
+			},
+		},
+		expectedRow{
+			epoch.Add(4 * resolution),
+			map[string]interface{}{},
+			map[string]float64{
+				"_points":   1,
+				"i":         500,
+				"i_shifted": 0,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)
@@ -584,6 +636,9 @@ func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeM
 		return
 	}
 
+	if false {
+		spew.Dump(rows)
+	}
 	md := MetaDataFor(source, fields)
 	if !assert.Len(t, rows, len(er), "Wrong number of rows, perhaps HAVING isn't working") {
 		return

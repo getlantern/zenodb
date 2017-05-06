@@ -59,8 +59,12 @@ func (e *aggregate) EncodedWidth() int {
 	return 1 + width64bits + e.Wrapped.EncodedWidth()
 }
 
-func (e *aggregate) Shift() time.Duration {
-	return e.Wrapped.Shift()
+func (e *aggregate) MinShift() time.Duration {
+	return e.Wrapped.MinShift()
+}
+
+func (e *aggregate) MaxShift() time.Duration {
+	return e.Wrapped.MaxShift()
 }
 
 func (e *aggregate) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {

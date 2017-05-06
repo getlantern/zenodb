@@ -203,48 +203,60 @@ func TestSequenceSubMergeStride(t *testing.T) {
 }
 
 func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
-	e := SUM(FIELD("a"))
-	params := FloatParams(1)
 	scale := 11
 	inResolution := 1 * time.Minute
 	strideSlice := time.Duration(_strideSlice) * inResolution
 	outResolution := inResolution * time.Duration(scale)
 	outPeriods := 10
-	inPeriods := scale*outPeriods + 2
+	inPeriods := scale * (outPeriods + 1)
 	asOf := time.Date(2015, 1, 1, 1, 2, 0, 0, time.UTC)
 	until := asOf.Add(outResolution * time.Duration(outPeriods))
 
-	expected := NewSequence(e.EncodedWidth(), outPeriods)
-	expected.SetUntil(until)
+	eIn := SUM(FIELD("a"))
+	eOut := ADD(SUM(FIELD("a")), SHIFT(SUM(FIELD("a")), inResolution))
+	params := FloatParams(1)
+
+	expectedVals := make([]float64, outPeriods)
 	for i := 0; i < outPeriods; i++ {
 		for j := 0; j < scale; j++ {
 			if _strideSlice <= 0 || j < _strideSlice {
-				expected.UpdateValueAt(i, e, params, nil)
+				expectedVals[i] += 2
 			}
 		}
 	}
 
 	var result Sequence
-	submerge := e.SubMergers([]Expr{e})[0]
+	submerge := eOut.SubMergers([]Expr{eIn})[0]
+
+	assertResult := func(t *testing.T, result Sequence) {
+		if assert.Equal(t, until.In(time.UTC), result.Until().In(time.UTC)) {
+			var resultVals []float64
+			for i := 0; i < result.NumPeriods(eOut.EncodedWidth()); i++ {
+				val, _ := result.ValueAt(i, eOut)
+				resultVals = append(resultVals, val)
+			}
+			assert.EqualValues(t, expectedVals, resultVals)
+		}
+	}
 
 	// Try it with a single big in sequence
-	in := NewSequence(e.EncodedWidth(), inPeriods)
+	in := NewSequence(eIn.EncodedWidth(), inPeriods)
 	in.SetUntil(until.Add(inResolution))
 	for i := 0; i < inPeriods; i++ {
-		in.UpdateValueAt(i, e, params, nil)
+		in.UpdateValueAt(i, eIn, params, nil)
 	}
-	result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, strideSlice)
-	assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
+	result = result.SubMerge(in, nil, outResolution, inResolution, eOut, eIn, submerge, asOf, until, strideSlice)
+	assertResult(t, result)
 
 	// Try it with a bunch of small sequences
 	testSubMergeParts := func(order []int) {
 		result = nil
-		start := asOf.Add(-1 * inResolution)
+		start := in.AsOf(eIn.EncodedWidth(), inResolution)
 		for _, o := range order {
-			in := NewFloatValue(e, start.Add(time.Duration(o)*inResolution), 1)
-			result = result.SubMerge(in, nil, outResolution, inResolution, e, e, submerge, asOf, until, strideSlice)
+			in := NewFloatValue(eIn, start.Add(time.Duration(o)*(1+inResolution)), 1)
+			result = result.SubMerge(in, nil, outResolution, inResolution, eOut, eIn, submerge, asOf, until, strideSlice)
 		}
-		assert.Equal(t, expected.String(e, outResolution), result.String(e, outResolution))
+		assertResult(t, result)
 	}
 
 	order := make([]int, 0, inPeriods)

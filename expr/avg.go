@@ -40,9 +40,18 @@ func (e *avg) EncodedWidth() int {
 	return width64bits*2 + 1 + e.Value.EncodedWidth()
 }
 
-func (e *avg) Shift() time.Duration {
-	a := e.Value.Shift()
-	b := e.Weight.Shift()
+func (e *avg) MinShift() time.Duration {
+	a := e.Value.MinShift()
+	b := e.Weight.MinShift()
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func (e *avg) MaxShift() time.Duration {
+	a := e.Value.MaxShift()
+	b := e.Weight.MaxShift()
 	if a > b {
 		return a
 	}

@@ -163,6 +163,7 @@ type Query struct {
 	Until        time.Time
 	UntilOffset  time.Duration
 	Stride       time.Duration
+	Shift        time.Duration
 	// GroupBy are the GroupBy expressions ordered alphabetically by name.
 	GroupBy    []core.GroupBy
 	GroupByAll bool

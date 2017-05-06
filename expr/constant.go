@@ -24,7 +24,11 @@ func (e *constant) EncodedWidth() int {
 	return 0
 }
 
-func (e *constant) Shift() time.Duration {
+func (e *constant) MinShift() time.Duration {
+	return 0
+}
+
+func (e *constant) MaxShift() time.Duration {
 	return 0
 }
 
