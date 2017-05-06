@@ -68,7 +68,7 @@ func (e *binaryExpr) EncodedWidth() int {
 func (e *binaryExpr) Shift() time.Duration {
 	a := e.Left.Shift()
 	b := e.Right.Shift()
-	if a > b {
+	if a < b {
 		return a
 	}
 	return b

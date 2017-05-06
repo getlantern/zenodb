@@ -83,7 +83,7 @@ type Expr interface {
 	// state of this Expr.
 	EncodedWidth() int
 
-	// Shift returns the total cumulative shift backward in time, including
+	// Shift returns the total cumulative shift in time, including
 	// subexpressions.
 	Shift() time.Duration
 

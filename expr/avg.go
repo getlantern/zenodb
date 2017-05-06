@@ -43,7 +43,7 @@ func (e *avg) EncodedWidth() int {
 func (e *avg) Shift() time.Duration {
 	a := e.Value.Shift()
 	b := e.Weight.Shift()
-	if a > b {
+	if a < b {
 		return a
 	}
 	return b

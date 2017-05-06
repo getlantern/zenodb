@@ -30,8 +30,8 @@ func TestShiftSubMerge(t *testing.T) {
 	periods := 10
 
 	fa := msgpacked(t, SUM(FIELD("a")))
-	fs := msgpacked(t, SUB(SHIFT(SHIFT(SUM(FIELD("a")), 2*res), res), SUM(FIELD("a"))))
-	assert.EqualValues(t, 3*res, fs.Shift())
+	fs := msgpacked(t, SUB(SHIFT(SHIFT(SUM(FIELD("a")), -2*res), -1*res), SUM(FIELD("a"))))
+	assert.EqualValues(t, -3*res, fs.Shift())
 
 	a := make([]byte, fa.EncodedWidth()*periods)
 	s := make([]byte, fs.EncodedWidth()*periods)

@@ -213,7 +213,7 @@ func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 	until := asOf.Add(outResolution * time.Duration(outPeriods))
 
 	eIn := SUM(FIELD("a"))
-	eOut := ADD(SUM(FIELD("a")), SHIFT(SUM(FIELD("a")), inResolution))
+	eOut := ADD(SUM(FIELD("a")), SHIFT(SUM(FIELD("a")), -1*inResolution))
 	params := FloatParams(1)
 
 	expectedVals := make([]float64, outPeriods)

@@ -64,8 +64,8 @@ func (e *shift) shiftedSubMerger(wrapped SubMerge, subWidth int) SubMerge {
 		return nil
 	}
 	return func(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
-		n := int(e.Offset/otherRes) * subWidth
-		if n < len(other) {
+		n := -1 * int(e.Offset/otherRes) * subWidth
+		if n >= 0 && n < len(other) {
 			wrapped(data, other[n:], otherRes, metadata)
 		}
 	}

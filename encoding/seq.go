@@ -241,14 +241,14 @@ func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexp
 }
 
 func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution time.Duration, otherResolution time.Duration, ex expr.Expr, otherEx expr.Expr, submerge expr.SubMerge, asOf time.Time, until time.Time, strideSlice time.Duration) (result Sequence) {
-	shift := ex.Shift()
+	shiftBack := -1 * ex.Shift()
 	result = seq
 	otherWidth := otherEx.EncodedWidth()
 	otherAsOf := other.AsOf(otherEx.EncodedWidth(), otherResolution)
 	if otherAsOf.Before(asOf) {
 		otherAsOf = asOf
 	}
-	other = other.Truncate(otherWidth, otherResolution, asOf.Add(-1*shift), until)
+	other = other.Truncate(otherWidth, otherResolution, asOf.Add(-1*shiftBack), until)
 	otherPeriods := other.NumPeriods(otherWidth)
 	if otherPeriods == 0 {
 		return
@@ -258,8 +258,8 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	result = seq.Truncate(width, resolution, asOf, until)
 	resultUntil := result.Until()
 	otherUntil := other.Until()
-	if shift > 0 {
-		shiftedOtherUntil := otherUntil.Add(shift)
+	if shiftBack > 0 {
+		shiftedOtherUntil := otherUntil.Add(shiftBack)
 		if shiftedOtherUntil.After(until) {
 			shiftedOtherUntil = until
 		}
@@ -271,7 +271,7 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 			copy(grown[Width64bits+growBy:], other[Width64bits:])
 			other = grown
 			otherUntil = shiftedOtherUntil
-			otherPeriods += int(shift / otherResolution)
+			otherPeriods += int(shiftBack / otherResolution)
 		}
 	}
 	newUntil := RoundTimeUntilUp(otherUntil, resolution, until)
