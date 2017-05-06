@@ -117,8 +117,6 @@ func sourceForTable(query *sql.Query, opts *Opts) (core.RowSource, error) {
 }
 
 func asOfUntilFor(query *sql.Query, opts *Opts, source core.RowSource, now time.Time) (time.Time, bool, time.Time, bool) {
-	// TODO: take into account the SHIFT to make sure we're not reading SHIFT from
-	// empty data.
 	if query.AsOfOffset != 0 {
 		query.AsOf = now.Add(query.AsOfOffset)
 	}
