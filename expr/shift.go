@@ -26,12 +26,8 @@ func (e *shift) EncodedWidth() int {
 	return e.Width
 }
 
-func (e *shift) MinShift() time.Duration {
-	return e.Offset + e.Wrapped.MinShift()
-}
-
-func (e *shift) MaxShift() time.Duration {
-	return e.Offset + e.Wrapped.MaxShift()
+func (e *shift) Shift() time.Duration {
+	return e.Offset + e.Wrapped.Shift()
 }
 
 func (e *shift) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {

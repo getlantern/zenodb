@@ -38,11 +38,7 @@ func (e *field) EncodedWidth() int {
 	return 0
 }
 
-func (e *field) MinShift() time.Duration {
-	return 0
-}
-
-func (e *field) MaxShift() time.Duration {
+func (e *field) Shift() time.Duration {
 	return 0
 }
 

@@ -167,7 +167,7 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query, fields core.Fields) e
 	for _, field := range fields {
 		// Don't add _points twice
 		if field.Name != "_points" {
-			if field.Expr.MinShift() != 0 || field.Expr.MaxShift() != 0 {
+			if field.Expr.Shift() != 0 {
 				return fmt.Errorf("%v uses SHIFT, which is not allowed in tables/views", field)
 			}
 			newFields = append(newFields, field)

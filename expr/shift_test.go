@@ -31,8 +31,7 @@ func TestShiftSubMerge(t *testing.T) {
 
 	fa := msgpacked(t, SUM(FIELD("a")))
 	fs := msgpacked(t, SUB(SHIFT(SHIFT(SUM(FIELD("a")), 2*res), res), SUM(FIELD("a"))))
-	assert.EqualValues(t, 0, fs.MinShift())
-	assert.EqualValues(t, 3*res, fs.MaxShift())
+	assert.EqualValues(t, 3*res, fs.Shift())
 
 	a := make([]byte, fa.EncodedWidth()*periods)
 	s := make([]byte, fs.EncodedWidth()*periods)
@@ -55,11 +54,4 @@ func TestShiftSubMerge(t *testing.T) {
 		actual, _, _ := fs.Get(s[i*fs.EncodedWidth():])
 		assert.EqualValues(t, expected, actual, "Wrong value at position %d", i)
 	}
-}
-
-func TestCalcShift(t *testing.T) {
-	res := 1 * time.Hour
-	fs := msgpacked(t, SUB(SHIFT(SHIFT(SUM(FIELD("a")), 2*res), res), SHIFT(SUM(FIELD("a")), res)))
-	assert.EqualValues(t, 1*res, fs.MinShift())
-	assert.EqualValues(t, 3*res, fs.MaxShift())
 }

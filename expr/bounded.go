@@ -33,12 +33,8 @@ func (e *bounded) EncodedWidth() int {
 	return e.wrapped.EncodedWidth()
 }
 
-func (e *bounded) MinShift() time.Duration {
-	return e.wrapped.MinShift()
-}
-
-func (e *bounded) MaxShift() time.Duration {
-	return e.wrapped.MaxShift()
+func (e *bounded) Shift() time.Duration {
+	return e.wrapped.Shift()
 }
 
 func (e *bounded) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {

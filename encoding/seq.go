@@ -241,7 +241,7 @@ func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexp
 }
 
 func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution time.Duration, otherResolution time.Duration, ex expr.Expr, otherEx expr.Expr, submerge expr.SubMerge, asOf time.Time, until time.Time, strideSlice time.Duration) (result Sequence) {
-	shift := ex.MaxShift()
+	shift := ex.Shift()
 	result = seq
 	otherWidth := otherEx.EncodedWidth()
 	otherAsOf := other.AsOf(otherEx.EncodedWidth(), otherResolution)

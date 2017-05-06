@@ -65,18 +65,9 @@ func (e *binaryExpr) EncodedWidth() int {
 	return e.Left.EncodedWidth() + e.Right.EncodedWidth()
 }
 
-func (e *binaryExpr) MinShift() time.Duration {
-	a := e.Left.MinShift()
-	b := e.Right.MinShift()
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func (e *binaryExpr) MaxShift() time.Duration {
-	a := e.Left.MaxShift()
-	b := e.Right.MaxShift()
+func (e *binaryExpr) Shift() time.Duration {
+	a := e.Left.Shift()
+	b := e.Right.Shift()
 	if a > b {
 		return a
 	}
