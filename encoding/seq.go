@@ -263,15 +263,16 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 		if shiftedOtherUntil.After(until) {
 			shiftedOtherUntil = until
 		}
-		growBy := int(shiftedOtherUntil.Sub(otherUntil)/otherResolution) * otherEx.EncodedWidth()
-		if growBy > 0 {
+		growByPeriods := int(shiftedOtherUntil.Sub(otherUntil) / otherResolution)
+		if growByPeriods > 0 {
+			growBy := growByPeriods * otherWidth
 			// grow other to give us a chance to pick up the shifted values
 			grown := make(Sequence, len(other)+growBy)
 			grown.SetUntil(shiftedOtherUntil)
 			copy(grown[Width64bits+growBy:], other[Width64bits:])
 			other = grown
 			otherUntil = shiftedOtherUntil
-			otherPeriods += int(shiftBack / otherResolution)
+			otherPeriods = other.NumPeriods(otherWidth)
 		}
 	}
 	newUntil := RoundTimeUntilUp(otherUntil, resolution, until)

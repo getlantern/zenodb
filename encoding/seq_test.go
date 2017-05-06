@@ -208,12 +208,12 @@ func doTestSequenceSubMerge(t *testing.T, _strideSlice int) {
 	strideSlice := time.Duration(_strideSlice) * inResolution
 	outResolution := inResolution * time.Duration(scale)
 	outPeriods := 10
-	inPeriods := scale * (outPeriods + 1)
+	inPeriods := scale * (outPeriods + 21)
 	asOf := time.Date(2015, 1, 1, 1, 2, 0, 0, time.UTC)
 	until := asOf.Add(outResolution * time.Duration(outPeriods))
 
 	eIn := SUM(FIELD("a"))
-	eOut := ADD(SUM(FIELD("a")), SHIFT(SUM(FIELD("a")), -1*inResolution))
+	eOut := ADD(SUM(FIELD("a")), SHIFT(SUM(FIELD("a")), -20*outResolution))
 	params := FloatParams(1)
 
 	expectedVals := make([]float64, outPeriods)
