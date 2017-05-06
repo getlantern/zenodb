@@ -52,13 +52,13 @@ func validateWrappedInBinary(wrapped Expr) error {
 		return fmt.Errorf("Binary expression cannot wrap nil expression")
 	}
 	typeOfWrapped := reflect.TypeOf(wrapped)
-	if typeOfWrapped == aggregateType || typeOfWrapped == ifType || typeOfWrapped == avgType || typeOfWrapped == constType {
+	if typeOfWrapped == aggregateType || typeOfWrapped == ifType || typeOfWrapped == avgType || typeOfWrapped == constType || typeOfWrapped == shiftType {
 		return nil
 	}
 	if typeOfWrapped == binaryType {
 		return wrapped.Validate()
 	}
-	return fmt.Errorf("Binary expression must wrap only aggregate, if and constant expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v of type %v", wrapped, typeOfWrapped)
+	return fmt.Errorf("Binary expression must wrap only aggregate, if, constant or shift expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v of type %v", wrapped, typeOfWrapped)
 }
 
 func (e *binaryExpr) EncodedWidth() int {

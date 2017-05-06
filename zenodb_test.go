@@ -471,10 +471,12 @@ func testShiftQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time,
 SELECT _points, i, SHIFT(i, '%v') AS i_shifted
 FROM test_a
 GROUP BY _
+HAVING i_shifted > 0 OR i > 0
 ORDER BY _time`, -1*resolution)
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
 	expectedResult{
+		// Excluded by HAVING filter
 		expectedRow{
 			epoch,
 			map[string]interface{}{},
