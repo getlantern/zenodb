@@ -78,7 +78,7 @@ func TestFlatRowFilter(t *testing.T) {
 	assert.EqualValues(t, 0, atomic.LoadInt64(&totalA), "Filter should have excluded anything with a value for A")
 }
 
-func TestDeadline(t *testing.T) {
+func TestDeadlineFilter(t *testing.T) {
 	f := RowFilter(&goodSource{}, "deadline", func(ctx context.Context, key bytemap.ByteMap, fields Fields, vals Vals) (bytemap.ByteMap, Vals, error) {
 		// Slow things down by sleeping for a bit
 		time.Sleep(100 * time.Millisecond)
@@ -96,6 +96,34 @@ func TestDeadline(t *testing.T) {
 
 	assert.Equal(t, ErrDeadlineExceeded, err, "Should have gotten deadline exceeded error")
 	assert.EqualValues(t, 1, atomic.LoadInt64(&rowsSeen), "Should have gotten only 1 row before deadline exceeded")
+}
+
+func TestDeadlineGroup(t *testing.T) {
+	eTotal := ADD(eA, eB)
+	g := Group(&infiniteSource{}, GroupOpts{
+		By: []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
+		Fields: StaticFieldSource{
+			Field{
+				Name: "total",
+				Expr: eTotal,
+			},
+		},
+		Resolution: resolution * 2,
+		AsOf:       asOf.Add(2 * resolution),
+		Until:      until.Add(-2 * resolution),
+	})
+
+	rowsSeen := int64(0)
+
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(25*time.Millisecond))
+	defer cancel()
+	err := g.Iterate(ctx, FieldsIgnored, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+		atomic.AddInt64(&rowsSeen, 1)
+		return true, nil
+	})
+
+	assert.Equal(t, ErrDeadlineExceeded, err, "Should have gotten deadline exceeded error")
+	assert.EqualValues(t, 0, atomic.LoadInt64(&rowsSeen), "Should have gotten 0 rows before deadline exceeded")
 }
 
 func TestGroupSingle(t *testing.T) {
@@ -445,27 +473,6 @@ var testRows = []*testRow{
 	makeRow(epoch, 2, 2, 0, 100),
 }
 
-type goodSource struct {
-	testSource
-}
-
-func (s *goodSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
-	onFields(s.getFields())
-	deadline, hasDeadline := ctx.Deadline()
-	hitDeadline := func() bool {
-		return hasDeadline && time.Now().After(deadline)
-	}
-
-	for _, row := range testRows {
-		if hitDeadline() {
-			return ErrDeadlineExceeded
-		}
-		onRow(row.key, row.vals)
-	}
-
-	return nil
-}
-
 func makeRow(ts time.Time, x int, y int, a float64, b float64) *testRow {
 	key := bytemap.New(map[string]interface{}{"x": x, "y": y})
 	vals := make([]encoding.Sequence, 2)
@@ -478,8 +485,50 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) *testRow {
 	return &testRow{key, vals}
 }
 
+type goodSource struct {
+	testSource
+}
+
+func (s *goodSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	onFields(s.getFields())
+
+	guard := Guard(ctx)
+	for _, row := range testRows {
+		if guard.TimedOut() {
+			return ErrDeadlineExceeded
+		}
+		more, err := onRow(row.key, row.vals)
+		if !more || err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (s *goodSource) String() string {
 	return "test.good"
+}
+
+type infiniteSource struct {
+	testSource
+}
+
+func (s *infiniteSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	onFields(s.getFields())
+
+	for {
+		for _, row := range testRows {
+			more, err := onRow(row.key, row.vals)
+			if !more || err != nil {
+				return err
+			}
+		}
+	}
+}
+
+func (s *infiniteSource) String() string {
+	return "test.infinite"
 }
 
 type errorSource struct {

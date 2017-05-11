@@ -2,6 +2,7 @@ package zenodb
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -246,7 +247,9 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(includedFields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+func (rs *rowStore) iterate(ctx context.Context, includedFields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+	guard := core.Guard(ctx)
+
 	rs.mx.RLock()
 	fs := rs.fileStore
 	var tree *bytetree.Tree
@@ -255,7 +258,7 @@ func (rs *rowStore) iterate(includedFields []string, includeMemStore bool, onVal
 	}
 	rs.mx.RUnlock()
 	return fs.iterate(func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
-		return onValue(key, columns)
+		return guard.ProceedAfter(onValue(key, columns))
 	}, false, false, tree, includedFields...)
 }
 

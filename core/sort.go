@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"time"
 )
 
 // OrderBy specifies an element by whith to order (element being ither a field
@@ -55,30 +54,31 @@ type sorter struct {
 }
 
 func (s *sorter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+	guard := Guard(ctx)
+
 	rows := orderedRows{
 		orderBy: s.by,
 	}
 
 	err := s.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
 		rows.rows = append(rows.rows, row)
-		return proceed()
+		return guard.Proceed()
 	})
 
 	if err != ErrDeadlineExceeded {
-		deadline, hasDeadline := ctx.Deadline()
 		sort.Sort(rows)
 		for _, row := range rows.rows {
-			if hasDeadline && time.Now().After(deadline) {
+			if guard.TimedOut() {
 				return ErrDeadlineExceeded
 			}
-			more, err := onRow(row)
-			if err != nil {
-				return err
+
+			more, onRowErr := onRow(row)
+			if onRowErr != nil {
+				return onRowErr
 			}
 			if !more {
 				break
 			}
-
 		}
 	}
 	return err

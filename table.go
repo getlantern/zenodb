@@ -1,6 +1,7 @@
 package zenodb
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -301,8 +302,8 @@ func (t *table) backfillTo() time.Time {
 	return t.db.clock.Now().Add(-1 * t.Backfill)
 }
 
-func (t *table) iterate(fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
-	return t.rowStore.iterate(fields, includeMemStore, onValue)
+func (t *table) iterate(ctx context.Context, fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+	return t.rowStore.iterate(ctx, fields, includeMemStore, onValue)
 }
 
 // shouldSort determines whether or not a flush should be sorted. The flush will

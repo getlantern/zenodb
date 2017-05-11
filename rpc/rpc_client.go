@@ -132,8 +132,8 @@ func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bo
 			if result.EndOfResults {
 				return nil
 			}
-			_, rowErr = onRow(result.Row)
-			if rowErr != nil {
+			more, rowErr := onRow(result.Row)
+			if !more || rowErr != nil {
 				return rowErr
 			}
 		}
