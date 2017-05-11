@@ -21,6 +21,8 @@ type rowFilter struct {
 }
 
 func (f *rowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	guard := Guard(ctx)
+
 	var fields Fields
 	return f.source.Iterate(ctx, func(inFields Fields) error {
 		fields = inFields
@@ -34,7 +36,7 @@ func (f *rowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 		if key != nil {
 			return onRow(key, vals)
 		}
-		return proceed()
+		return guard.Proceed()
 	})
 }
 
@@ -57,6 +59,8 @@ type flatRowFilter struct {
 }
 
 func (f *flatRowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+	guard := Guard(ctx)
+
 	var fields Fields
 	return f.source.Iterate(ctx, func(inFields Fields) error {
 		fields = inFields
@@ -70,7 +74,7 @@ func (f *flatRowFilter) Iterate(ctx context.Context, onFields OnFields, onRow On
 		if row != nil {
 			return onRow(row)
 		}
-		return proceed()
+		return guard.Proceed()
 	})
 }
 

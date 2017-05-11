@@ -187,6 +187,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		var finalErr error
 
 		first := true
+	receiveLoop:
 		for {
 			// Process current result
 			if recvErr != nil {
@@ -204,10 +205,16 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 				if m.EndOfResults {
 					break
 				}
+				var more bool
+				var err error
 				if unflat {
-					onRow(m.Key, m.Vals)
+					more, err = onRow(m.Key, m.Vals)
 				} else {
-					onFlatRow(m.Row)
+					more, err = onFlatRow(m.Row)
+				}
+				if !more || err != nil {
+					finalErr = err
+					break receiveLoop
 				}
 			}
 

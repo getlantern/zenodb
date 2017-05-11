@@ -244,10 +244,65 @@ func (t *flatRowTransform) GetSource() Source {
 	return t.source
 }
 
-func proceed() (bool, error) {
+func stop() (bool, error) {
+	return false, nil
+}
+
+// TimeoutGuard provides the ability to guard against timeouts on a Context.
+type TimeoutGuard interface {
+	// TimedOut returns true if the context deadline has been exceeded.
+	TimedOut() bool
+
+	// Proceed returns false, ErrDeadlineExceeded if the context deadline has been
+	// exceeded
+	Proceed() (more bool, err error)
+
+	// ProceedAfter returns origMore, origErr if origMore is false or origErr is
+	// not nil, else behaves like Proceed()
+	ProceedAfter(origMore bool, origErr error) (more bool, err error)
+}
+
+type timeoutGuard struct {
+	deadline time.Time
+}
+
+type noopTimeoutGuard struct{}
+
+// Guard creates a new TimeoutGuard for the given Context.
+func Guard(ctx context.Context) TimeoutGuard {
+	deadline, hasDeadline := ctx.Deadline()
+	if !hasDeadline {
+		return &noopTimeoutGuard{}
+	}
+	return &timeoutGuard{deadline}
+}
+
+func (g *timeoutGuard) TimedOut() bool {
+	return time.Now().After(g.deadline)
+}
+
+func (g *timeoutGuard) Proceed() (bool, error) {
+	if g.TimedOut() {
+		return false, ErrDeadlineExceeded
+	}
 	return true, nil
 }
 
-func stop() (bool, error) {
-	return false, nil
+func (g *timeoutGuard) ProceedAfter(origMore bool, origErr error) (more bool, err error) {
+	if !origMore || origErr != nil {
+		return origMore, origErr
+	}
+	return g.Proceed()
+}
+
+func (g *noopTimeoutGuard) TimedOut() bool {
+	return false
+}
+
+func (g *noopTimeoutGuard) Proceed() (bool, error) {
+	return true, nil
+}
+
+func (g *noopTimeoutGuard) ProceedAfter(origMore bool, origErr error) (more bool, err error) {
+	return origMore, origErr
 }

@@ -17,7 +17,10 @@ type flatten struct {
 }
 
 func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+	guard := Guard(ctx)
+
 	resolution := f.GetResolution()
+
 	var fields Fields
 	var numFields int
 
@@ -77,7 +80,7 @@ func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRo
 			}
 		}
 
-		return proceed()
+		return guard.Proceed()
 	})
 }
 

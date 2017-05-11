@@ -108,6 +108,8 @@ func (g *group) GetUntil() time.Time {
 }
 
 func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+	guard := Guard(ctx)
+
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
 	if len(g.By) == 0 {
 		if g.Crosstab != nil && g.Crosstab.String() == ClusterCrosstab.String() {
@@ -200,13 +202,11 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 		} else {
 			updateTree(key, vals)
 		}
-		return proceed()
+		return guard.Proceed()
 	})
 
 	var walkErr error
 	if err != ErrDeadlineExceeded {
-		deadline, hasDeadline := ctx.Deadline()
-
 		if g.Crosstab != nil {
 			origOutFields := outFields
 			sortedCtabs := make([]string, 0, len(ctabs))
@@ -216,7 +216,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 			sort.Strings(sortedCtabs)
 			outFields = make([]Field, 0, (len(sortedCtabs)+1)*len(origOutFields))
 			for _, ctab := range sortedCtabs {
-				if hasDeadline && time.Now().After(deadline) {
+				if guard.TimedOut() {
 					return ErrDeadlineExceeded
 				}
 				for _, outField := range origOutFields {
@@ -237,7 +237,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 			}
 
 			for _, kv := range kvs {
-				if hasDeadline && time.Now().After(deadline) {
+				if guard.TimedOut() {
 					return ErrDeadlineExceeded
 				}
 				updateTree(kv.key, kv.vals)
@@ -252,7 +252,8 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 		if bt != nil {
 			walkErr = bt.Walk(0, func(key []byte, data []encoding.Sequence) (bool, bool, error) {
 				more, iterErr := onRow(key, data)
-				if iterErr == nil && hasDeadline && time.Now().After(deadline) {
+				if iterErr == nil && guard.TimedOut() {
+					more = false
 					iterErr = ErrDeadlineExceeded
 				}
 				return more, true, iterErr
