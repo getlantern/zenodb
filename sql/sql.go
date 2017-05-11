@@ -543,194 +543,40 @@ func (f *fielded) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, er
 	}
 	switch e := _e.(type) {
 	case *sqlparser.ColName:
-		name := strings.ToLower(string(e.Name))
-		// Default to a sum over the field
-		ex := expr.FIELD(name)
-		if !defaultToSum {
-			return ex, nil
-		}
-		f, found := f.fieldsMap[name]
-		if found {
-			// Use existing expression referenced by this name
-			return f.Expr, nil
-		}
-		return expr.SUM(ex), nil
+		return f.columnExprFor(e, defaultToSum)
 	case *sqlparser.FuncExpr:
 		fname := strings.ToUpper(string(e.Name))
 		if fname == "IF" {
-			if len(e.Exprs) != 2 {
-				return nil, ErrIfArity
-			}
-			condEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			_valueEx, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			valueEx, valueErr := f.exprFor(_valueEx.Expr, true)
-			if valueErr != nil {
-				return nil, valueErr
-			}
-			boolEx, boolErr := goExprFor(condEx.Expr)
-			if boolErr != nil {
-				return nil, boolErr
-			}
-			return expr.IF(boolEx, valueEx), nil
+			return f.ifExprFor(e, fname, defaultToSum)
 		}
 		if fname == "BOUNDED" {
-			if len(e.Exprs) != 3 {
-				return nil, ErrBoundedArity
-			}
-			param0, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			param1, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			param2, ok := e.Exprs[2].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			wrapped, err := f.exprFor(param0.Expr, defaultToSum)
-			if err != nil {
-				return nil, err
-			}
-			min, err := strconv.ParseFloat(nodeToString(param1.Expr), 64)
-			if err != nil {
-				return nil, fmt.Errorf("Unable to parse min parameter to BOUNDED: %v", err)
-			}
-			max, err := strconv.ParseFloat(nodeToString(param2.Expr), 64)
-			if err != nil {
-				return nil, fmt.Errorf("Unable to parse max parameter to BOUNDED: %v", err)
-			}
-			return expr.BOUNDED(wrapped, min, max), nil
+			return f.boundedExprFor(e, fname, defaultToSum)
 		}
 		if fname == "SHIFT" {
-			if len(e.Exprs) != 2 {
-				return nil, ErrShiftArity
-			}
-			_valueEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			valueEx, valueErr := f.exprFor(_valueEx.Expr, true)
-			if valueErr != nil {
-				return nil, valueErr
-			}
-			offset, offsetErr := nodeToDuration(e.Exprs[1])
-			if offsetErr != nil {
-				return nil, offsetErr
-			}
-			return expr.SHIFT(valueEx, offset), nil
+			return f.shiftExprFor(e, fname, defaultToSum)
 		}
 		switch len(e.Exprs) {
 		case 1:
-			fn, ok := aggregateFuncs[fname]
-			if !ok {
-				return nil, fmt.Errorf("Unknown function '%v'", fname)
-			}
-			log.Tracef("Found function: %v", fname)
-			_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			se, err := f.exprFor(_param.Expr, false)
-			if err != nil {
-				return nil, err
-			}
-			return fn(se), nil
+			return f.unaryFuncExprFor(e, fname, defaultToSum)
 		case 2:
-			fn, ok := binaryAggregateFuncs[fname]
-			if !ok {
-				return nil, fmt.Errorf("Unknown function '%v'", fname)
-			}
-			log.Tracef("Found function: %v", fname)
-			_param1, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			_param2, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
-			if !ok {
-				return nil, ErrWildcardNotAllowed
-			}
-			se1, err := f.exprFor(_param1.Expr, false)
-			if err != nil {
-				return nil, err
-			}
-			se2, err := f.exprFor(_param2.Expr, false)
-			if err != nil {
-				return nil, err
-			}
-			return fn(se1, se2), nil
+			return f.binaryFuncExprFor(e, fname, defaultToSum)
 		default:
 			return nil, ErrAggregateArity
 		}
 
 	case *sqlparser.ComparisonExpr:
-		_op := string(e.Operator)
-		if log.IsTraceEnabled() {
-			log.Tracef("Parsing ComparisonExpr %v %v %v", nodeToString(e.Left), _op, nodeToString(e.Right))
-		}
-		cond, ok := conditions[_op]
-		if !ok {
-			return nil, fmt.Errorf("Unknown condition %v", _op)
-		}
-		left, err := f.exprFor(e.Left, true)
-		if err != nil {
-			return nil, err
-		}
-		right, err := f.exprFor(e.Right, true)
-		if err != nil {
-			return nil, err
-		}
-		return cond(left, right), nil
+		return f.comparisonExprFor(e, defaultToSum)
 	case *sqlparser.BinaryExpr:
-		_op := string(e.Operator)
-		if log.IsTraceEnabled() {
-			log.Tracef("Parsing BinaryExpr %v %v %v", nodeToString(e.Left), _op, nodeToString(e.Right))
-		}
-		op, ok := operators[_op]
-		if !ok {
-			return nil, fmt.Errorf("Unknown operator %v", _op)
-		}
-		left, err := f.exprFor(e.Left, true)
-		if err != nil {
-			return nil, err
-		}
-		right, err := f.exprFor(e.Right, true)
-		if err != nil {
-			return nil, err
-		}
-		return op(left, right), nil
+		return f.binaryExprFor(e, defaultToSum)
 	case sqlparser.ValTuple:
 		// For some reason addition comes through as a single element ValTuple, just
 		// extract the first expression and continue.
 		log.Tracef("Returning wrapped expression for ValTuple: %s", _e)
 		return f.exprFor(e[0], defaultToSum)
 	case *sqlparser.AndExpr:
-		left, err := f.exprFor(e.Left, true)
-		if err != nil {
-			return "", err
-		}
-		right, err := f.exprFor(e.Right, true)
-		if err != nil {
-			return "", err
-		}
-		return expr.AND(left, right), nil
+		return f.andExprFor(e, defaultToSum)
 	case *sqlparser.OrExpr:
-		left, err := f.exprFor(e.Left, true)
-		if err != nil {
-			return "", err
-		}
-		right, err := f.exprFor(e.Right, true)
-		if err != nil {
-			return "", err
-		}
-		return expr.OR(left, right), nil
+		return f.orExprFor(e, defaultToSum)
 	case *sqlparser.ParenBoolExpr:
 		// TODO: make sure that we don't need to worry about parens in our
 		// expression tree
@@ -743,6 +589,205 @@ func (f *fielded) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, er
 		log.Tracef("Returning string for expression: %v", str)
 		return str, nil
 	}
+}
+
+func (f *fielded) columnExprFor(e *sqlparser.ColName, defaultToSum bool) (interface{}, error) {
+	name := strings.ToLower(string(e.Name))
+	if name == "_" {
+		// This is a special name that stands for "value present"
+		return expr.GT(PointsField.Expr, expr.CONST(0)), nil
+	}
+
+	// Default to a sum over the field
+	ex := expr.FIELD(name)
+	if !defaultToSum {
+		return ex, nil
+	}
+	existing, found := f.fieldsMap[name]
+	if found {
+		// Use existing expression referenced by this name
+		return existing.Expr, nil
+	}
+	return expr.SUM(ex), nil
+}
+
+func (f *fielded) ifExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
+	if len(e.Exprs) != 2 {
+		return nil, ErrIfArity
+	}
+	condEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	_valueEx, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	valueEx, valueErr := f.exprFor(_valueEx.Expr, true)
+	if valueErr != nil {
+		return nil, valueErr
+	}
+	boolEx, boolErr := goExprFor(condEx.Expr)
+	if boolErr != nil {
+		return nil, boolErr
+	}
+	return expr.IF(boolEx, valueEx), nil
+}
+
+func (f *fielded) boundedExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
+	if len(e.Exprs) != 3 {
+		return nil, ErrBoundedArity
+	}
+	param0, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	param1, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	param2, ok := e.Exprs[2].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	wrapped, err := f.exprFor(param0.Expr, defaultToSum)
+	if err != nil {
+		return nil, err
+	}
+	min, err := strconv.ParseFloat(nodeToString(param1.Expr), 64)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse min parameter to BOUNDED: %v", err)
+	}
+	max, err := strconv.ParseFloat(nodeToString(param2.Expr), 64)
+	if err != nil {
+		return nil, fmt.Errorf("Unable to parse max parameter to BOUNDED: %v", err)
+	}
+	return expr.BOUNDED(wrapped, min, max), nil
+}
+
+func (f *fielded) shiftExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
+	if len(e.Exprs) != 2 {
+		return nil, ErrShiftArity
+	}
+	_valueEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	valueEx, valueErr := f.exprFor(_valueEx.Expr, true)
+	if valueErr != nil {
+		return nil, valueErr
+	}
+	offset, offsetErr := nodeToDuration(e.Exprs[1])
+	if offsetErr != nil {
+		return nil, offsetErr
+	}
+	return expr.SHIFT(valueEx, offset), nil
+}
+
+func (f *fielded) unaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
+	fn, ok := aggregateFuncs[fname]
+	if !ok {
+		return nil, fmt.Errorf("Unknown function '%v'", fname)
+	}
+	log.Tracef("Found function: %v", fname)
+	_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	se, err := f.exprFor(_param.Expr, false)
+	if err != nil {
+		return nil, err
+	}
+	return fn(se), nil
+}
+
+func (f *fielded) binaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
+	fn, ok := binaryAggregateFuncs[fname]
+	if !ok {
+		return nil, fmt.Errorf("Unknown function '%v'", fname)
+	}
+	log.Tracef("Found function: %v", fname)
+	_param1, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	_param2, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	se1, err := f.exprFor(_param1.Expr, false)
+	if err != nil {
+		return nil, err
+	}
+	se2, err := f.exprFor(_param2.Expr, false)
+	if err != nil {
+		return nil, err
+	}
+	return fn(se1, se2), nil
+}
+
+func (f *fielded) comparisonExprFor(e *sqlparser.ComparisonExpr, defaultToSum bool) (interface{}, error) {
+	_op := string(e.Operator)
+	if log.IsTraceEnabled() {
+		log.Tracef("Parsing ComparisonExpr %v %v %v", nodeToString(e.Left), _op, nodeToString(e.Right))
+	}
+	cond, ok := conditions[_op]
+	if !ok {
+		return nil, fmt.Errorf("Unknown condition %v", _op)
+	}
+	left, err := f.exprFor(e.Left, true)
+	if err != nil {
+		return nil, err
+	}
+	right, err := f.exprFor(e.Right, true)
+	if err != nil {
+		return nil, err
+	}
+	return cond(left, right), nil
+}
+
+func (f *fielded) binaryExprFor(e *sqlparser.BinaryExpr, defaultToSum bool) (interface{}, error) {
+	_op := string(e.Operator)
+	if log.IsTraceEnabled() {
+		log.Tracef("Parsing BinaryExpr %v %v %v", nodeToString(e.Left), _op, nodeToString(e.Right))
+	}
+	op, ok := operators[_op]
+	if !ok {
+		return nil, fmt.Errorf("Unknown operator %v", _op)
+	}
+	left, err := f.exprFor(e.Left, true)
+	if err != nil {
+		return nil, err
+	}
+	right, err := f.exprFor(e.Right, true)
+	if err != nil {
+		return nil, err
+	}
+	return op(left, right), nil
+}
+
+func (f *fielded) andExprFor(e *sqlparser.AndExpr, defaultToSum bool) (interface{}, error) {
+	left, err := f.exprFor(e.Left, true)
+	if err != nil {
+		return "", err
+	}
+	right, err := f.exprFor(e.Right, true)
+	if err != nil {
+		return "", err
+	}
+	return expr.AND(left, right), nil
+}
+
+func (f *fielded) orExprFor(e *sqlparser.OrExpr, defaultToSum bool) (interface{}, error) {
+	left, err := f.exprFor(e.Left, true)
+	if err != nil {
+		return "", err
+	}
+	right, err := f.exprFor(e.Right, true)
+	if err != nil {
+		return "", err
+	}
+	return expr.OR(left, right), nil
 }
 
 func goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {

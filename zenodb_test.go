@@ -566,7 +566,8 @@ SELECT
 	*,
 	IF(b = true, i) AS i_filtered,
 	_points,
-	5.1 as cval
+	5.1 as cval,
+	_ AS present
 FROM test_a
 ASOF '%s' UNTIL '%s'
 WHERE b != true AND r IN (SELECT r FROM test_a)
@@ -593,6 +594,7 @@ ORDER BY u DESC
 				"ciii":       float64(31*42) / float64(1) / float64(2),
 				"cval":       5.1,
 				"z":          53,
+				"present":    1,
 			},
 		},
 		expectedRow{
@@ -612,6 +614,7 @@ ORDER BY u DESC
 				"ciii":       float64(122*244) / float64(3) / float64(2),
 				"cval":       5.1,
 				"z":          0,
+				"present":    1,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)

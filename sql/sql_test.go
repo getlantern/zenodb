@@ -42,7 +42,8 @@ SELECT
 	SUM(BOUNDED(bfield, 0, 100)) AS bounded,
 	5 as cval,
 	WAVG(a, b) AS weighted,
-	SHIFT(SUM(s), '1h') AS shifted
+	SHIFT(SUM(s), '1h') AS shifted,
+	IF(dim = 'test2', _) AS present
 FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -84,12 +85,12 @@ LIMIT 100, 10
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, shift(sum(s), '1h') as shifted", q.Fields.String())
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, shift(sum(s), '1h') as shifted, if(dim = 'test2', _) as present", q.Fields.String())
 	fields, err := q.Fields.Get(tableFields)
 	if !assert.NoError(t, err) {
 		return
 	}
-	if assert.Len(t, fields, 10) {
+	if assert.Len(t, fields, 11) {
 		field := fields[0]
 		expected := core.NewField("rate", rate).String()
 		actual := field.String()
@@ -142,6 +143,16 @@ LIMIT 100, 10
 
 		field = fields[9]
 		expected = core.NewField("shifted", SHIFT(SUM("s"), 1*time.Hour)).String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = fields[10]
+		cond, err = goexpr.Binary("==", goexpr.Param("dim"), goexpr.Constant("test2"))
+		if !assert.NoError(t, err) {
+			return
+		}
+		ifEx = IF(cond, GT(PointsField.Expr, CONST(0)))
+		expected = core.NewField("present", ifEx).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}
