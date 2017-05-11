@@ -361,7 +361,7 @@ var indexHTML = []byte(`
 			"inIframe": false,
     }});
     ractive.on("run", function() {
-      runQuery(false)
+      runQuery()
     });
 
     // Set up ace editor
@@ -375,7 +375,7 @@ var indexHTML = []byte(`
       if (!sqlInitialized) {
         if (context.querystring) {
           editor.setValue(context.querystring);
-          runQuery(true);
+          runQuery();
         }
         sqlInitialized = true;
       }
@@ -395,7 +395,7 @@ var indexHTML = []byte(`
       }
     }, 1000);
 
-		function runQuery(allowCaching, cachedLink) {
+		function runQuery(cachedLink) {
 			ractive.set("running", true);
       ractive.set("result", null);
 			ractive.set("error", null);
@@ -413,20 +413,18 @@ var indexHTML = []byte(`
 					url = cachedLink;
 				} else {
 					var query = editor.getValue();
-		      console.log("Running query", query);
 		      url = '/async?' + encodeURIComponent(query);
+					console.log("Running query", query);
 				}
 			}
+			console.log("Opening XHR to url", url)
 			xhr.open('GET', url, true);
-      if (!allowCaching) {
-        xhr.setRequestHeader("Cache-Control", "no-cache");
-      }
 
       xhr.onreadystatechange = function(e) {
 				if (this.readyState == 4) {
 					if (this.status == 202) {
 						var cachedLink = this.responseText;
-						runQuery(true, cachedLink);
+						runQuery(cachedLink);
 						return;
 					}
 					if (this.status == 200) {
@@ -449,7 +447,9 @@ var indexHTML = []byte(`
         }
       };
 
+			console.log("Sending xhr");
       xhr.send();
+			console.log("Sent xhr");
     }
 
     function plot(result) {
@@ -612,7 +612,7 @@ var indexHTML = []byte(`
     }
 
 		if (isReport) {
-			runQuery(true);
+			runQuery();
 		}
 
 		if (window.self !== window.top) {
