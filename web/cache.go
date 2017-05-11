@@ -52,8 +52,12 @@ func (ce cacheEntry) permalinkBytes() []byte {
 	return ce[idxPermalink : idxPermalink+widthPermalink]
 }
 
+func (ce cacheEntry) expires() time.Time {
+	return encoding.TimeFromBytes(ce[idxTime:])
+}
+
 func (ce cacheEntry) expired() bool {
-	return encoding.TimeFromBytes(ce[idxTime:]).Before(time.Now())
+	return ce.expires().Before(time.Now())
 }
 
 func (ce cacheEntry) status() byte {

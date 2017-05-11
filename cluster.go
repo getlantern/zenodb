@@ -65,6 +65,7 @@ func (f *follower) read() {
 
 func (f *follower) submit(entry *walEntry) {
 	if f.failed() {
+		close(f.entries)
 		return
 	}
 	f.entries <- entry
@@ -72,7 +73,6 @@ func (f *follower) submit(entry *walEntry) {
 
 func (f *follower) markFailed() {
 	atomic.StoreInt32(&f.hasFailed, 1)
-	close(f.entries)
 }
 
 func (f *follower) failed() bool {

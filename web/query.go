@@ -108,7 +108,8 @@ func (h *handler) respondWithCacheEntry(resp http.ResponseWriter, req *http.Requ
 
 func (h *handler) respondSuccess(resp http.ResponseWriter, req *http.Request, ce cacheEntry) {
 	resp.Header().Set("Content-Type", "application/json")
-	resp.Header().Set("Cache-control", fmt.Sprintf("max-age=%d", int64(h.CacheTTL.Seconds())))
+	resp.Header().Set("Expires", "0")
+	resp.Header().Set("Cache-control", "no-cache, no-store, must-revalidate")
 	resp.WriteHeader(http.StatusOK)
 	resp.Write(ce.data())
 }
