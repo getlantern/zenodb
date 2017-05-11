@@ -32,10 +32,7 @@ func TestWAVG(t *testing.T) {
 }
 
 func TestSUMConditional(t *testing.T) {
-	ex, err := IF(goexpr.Param("i"), SUM("b"))
-	if !assert.NoError(t, err) {
-		return
-	}
+	ex := IF(goexpr.Param("i"), SUM("b"))
 	doTestAggregate(t, ex, 1)
 }
 

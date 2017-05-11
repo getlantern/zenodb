@@ -3,6 +3,7 @@ package expr
 import (
 	"fmt"
 	"reflect"
+	"time"
 
 	"github.com/getlantern/goexpr"
 	"gopkg.in/vmihailenco/msgpack.v2"
@@ -51,17 +52,26 @@ func validateWrappedInBinary(wrapped Expr) error {
 		return fmt.Errorf("Binary expression cannot wrap nil expression")
 	}
 	typeOfWrapped := reflect.TypeOf(wrapped)
-	if typeOfWrapped == aggregateType || typeOfWrapped == ifType || typeOfWrapped == avgType || typeOfWrapped == constType {
+	if typeOfWrapped == aggregateType || typeOfWrapped == ifType || typeOfWrapped == avgType || typeOfWrapped == constType || typeOfWrapped == shiftType {
 		return nil
 	}
 	if typeOfWrapped == binaryType {
 		return wrapped.Validate()
 	}
-	return fmt.Errorf("Binary expression must wrap only aggregate, if and constant expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v of type %v", wrapped, typeOfWrapped)
+	return fmt.Errorf("Binary expression must wrap only aggregate, if, constant or shift expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v of type %v", wrapped, typeOfWrapped)
 }
 
 func (e *binaryExpr) EncodedWidth() int {
 	return e.Left.EncodedWidth() + e.Right.EncodedWidth()
+}
+
+func (e *binaryExpr) Shift() time.Duration {
+	a := e.Left.Shift()
+	b := e.Right.Shift()
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func (e *binaryExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
@@ -96,7 +106,7 @@ func (e *binaryExpr) SubMergers(subs []Expr) []SubMerge {
 	return result
 }
 
-func (e *binaryExpr) subMerge(data []byte, other []byte, metadata goexpr.Params) {
+func (e *binaryExpr) subMerge(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
 	e.Merge(data, data, other)
 }
 
@@ -109,13 +119,13 @@ func combinedSubMerge(left SubMerge, width int, right SubMerge) SubMerge {
 		return left
 	}
 	if left == nil {
-		return func(data []byte, other []byte, metadata goexpr.Params) {
-			right(data[width:], other, metadata)
+		return func(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
+			right(data[width:], other, otherRes, metadata)
 		}
 	}
-	return func(data []byte, other []byte, metadata goexpr.Params) {
-		left(data, other, metadata)
-		right(data[width:], other, metadata)
+	return func(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
+		left(data, other, otherRes, metadata)
+		right(data[width:], other, otherRes, metadata)
 	}
 }
 

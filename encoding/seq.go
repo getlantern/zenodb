@@ -241,9 +241,14 @@ func (seq Sequence) UpdateValue(ts time.Time, params expr.Params, metadata goexp
 }
 
 func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution time.Duration, otherResolution time.Duration, ex expr.Expr, otherEx expr.Expr, submerge expr.SubMerge, asOf time.Time, until time.Time, strideSlice time.Duration) (result Sequence) {
+	shiftBack := -1 * ex.Shift()
 	result = seq
 	otherWidth := otherEx.EncodedWidth()
-	other = other.Truncate(otherWidth, otherResolution, asOf, until)
+	otherAsOf := other.AsOf(otherEx.EncodedWidth(), otherResolution)
+	if otherAsOf.Before(asOf) {
+		otherAsOf = asOf
+	}
+	other = other.Truncate(otherWidth, otherResolution, asOf.Add(-1*shiftBack), until)
 	otherPeriods := other.NumPeriods(otherWidth)
 	if otherPeriods == 0 {
 		return
@@ -253,6 +258,23 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 	result = seq.Truncate(width, resolution, asOf, until)
 	resultUntil := result.Until()
 	otherUntil := other.Until()
+	if shiftBack > 0 {
+		shiftedOtherUntil := otherUntil.Add(shiftBack)
+		if shiftedOtherUntil.After(until) {
+			shiftedOtherUntil = until
+		}
+		growByPeriods := int(shiftedOtherUntil.Sub(otherUntil) / otherResolution)
+		if growByPeriods > 0 {
+			growBy := growByPeriods * otherWidth
+			// grow other to give us a chance to pick up the shifted values
+			grown := make(Sequence, len(other)+growBy)
+			grown.SetUntil(shiftedOtherUntil)
+			copy(grown[Width64bits+growBy:], other[Width64bits:])
+			other = grown
+			otherUntil = shiftedOtherUntil
+			otherPeriods = other.NumPeriods(otherWidth)
+		}
+	}
 	newUntil := RoundTimeUntilUp(otherUntil, resolution, until)
 	if len(result) <= Width64bits {
 		result = NewSequence(width, 1)
@@ -270,7 +292,6 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 		}
 	}
 
-	otherAsOf := other.AsOf(otherWidth, otherResolution)
 	oldAsOf := RoundTimeUntilUp(result.AsOf(width, resolution), resolution, resultUntil)
 	newAsOf := RoundTimeUntilDown(otherAsOf, resolution, resultUntil)
 	periodsToAppend := int(oldAsOf.Sub(newAsOf) / resolution)
@@ -292,7 +313,7 @@ func (seq Sequence) SubMerge(other Sequence, metadata goexpr.Params, resolution 
 			break
 		}
 		if strideSlice <= 0 || (po+untilOffset)%scale < strideSlicePeriods {
-			submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], metadata)
+			submerge(result[Width64bits+p*width:], other[Width64bits+po*otherWidth:], otherResolution, metadata)
 		}
 	}
 	return

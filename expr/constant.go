@@ -2,6 +2,7 @@ package expr
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/getlantern/goexpr"
 )
@@ -20,6 +21,10 @@ func (e *constant) Validate() error {
 }
 
 func (e *constant) EncodedWidth() int {
+	return 0
+}
+
+func (e *constant) Shift() time.Duration {
 	return 0
 }
 

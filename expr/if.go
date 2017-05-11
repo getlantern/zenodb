@@ -2,6 +2,7 @@ package expr
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/getlantern/goexpr"
 )
@@ -12,9 +13,9 @@ type ifExpr struct {
 	Width   int
 }
 
-func IF(cond goexpr.Expr, wrapped interface{}) (Expr, error) {
+func IF(cond goexpr.Expr, wrapped interface{}) Expr {
 	_wrapped := exprFor(wrapped)
-	return &ifExpr{cond, _wrapped, _wrapped.EncodedWidth()}, nil
+	return &ifExpr{cond, _wrapped, _wrapped.EncodedWidth()}
 }
 
 func (e *ifExpr) Validate() error {
@@ -23,6 +24,10 @@ func (e *ifExpr) Validate() error {
 
 func (e *ifExpr) EncodedWidth() int {
 	return e.Width
+}
+
+func (e *ifExpr) Shift() time.Duration {
+	return e.Wrapped.Shift()
 }
 
 func (e *ifExpr) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
@@ -62,14 +67,14 @@ func (e *ifExpr) condSubMerger(wrapped SubMerge) SubMerge {
 	if wrapped == nil {
 		return nil
 	}
-	return func(data []byte, other []byte, metadata goexpr.Params) {
+	return func(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
 		if e.include(metadata) {
-			wrapped(data, other, metadata)
+			wrapped(data, other, otherRes, metadata)
 		}
 	}
 }
 
-func (e *ifExpr) subMerge(data []byte, other []byte, metadata goexpr.Params) {
+func (e *ifExpr) subMerge(data []byte, other []byte, otherRes time.Duration, metadata goexpr.Params) {
 	e.Wrapped.Merge(data, data, other)
 }
 

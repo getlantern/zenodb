@@ -30,11 +30,12 @@ var (
 
 var (
 	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
-	ErrIFArity            = errors.New("The IF function requires two parameters, like IF(dim = 1, SUM(b))")
+	ErrIfArity            = errors.New("IF requires two parameters, like IF(dim = 1, SUM(b))")
+	ErrBoundedArity       = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
+	ErrShiftArity         = errors.New("SHIFT requires two parameters, like SHIFT(SUM(b), '1h')")
 	ErrCROSSTABArity      = errors.New("CROSSTAB requires at least one argument")
 	ErrCROSSTABUnique     = errors.New("Only one CROSSTAB statement allowed per query")
 	ErrAggregateArity     = errors.New("Aggregate functions take only one parameter, like SUM(b)")
-	ErrBoundedArity       = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
 	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
 	ErrNestedFunctionCall = errors.New("Nested function calls are not currently supported in SELECT")
 	ErrInvalidPeriod      = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
@@ -558,7 +559,7 @@ func (f *fielded) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, er
 		fname := strings.ToUpper(string(e.Name))
 		if fname == "IF" {
 			if len(e.Exprs) != 2 {
-				return nil, ErrIFArity
+				return nil, ErrIfArity
 			}
 			condEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
 			if !ok {
@@ -576,7 +577,7 @@ func (f *fielded) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, er
 			if boolErr != nil {
 				return nil, boolErr
 			}
-			return expr.IF(boolEx, valueEx)
+			return expr.IF(boolEx, valueEx), nil
 		}
 		if fname == "BOUNDED" {
 			if len(e.Exprs) != 3 {
@@ -607,6 +608,24 @@ func (f *fielded) exprFor(_e sqlparser.Expr, defaultToSum bool) (interface{}, er
 				return nil, fmt.Errorf("Unable to parse max parameter to BOUNDED: %v", err)
 			}
 			return expr.BOUNDED(wrapped, min, max), nil
+		}
+		if fname == "SHIFT" {
+			if len(e.Exprs) != 2 {
+				return nil, ErrShiftArity
+			}
+			_valueEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+			if !ok {
+				return nil, ErrWildcardNotAllowed
+			}
+			valueEx, valueErr := f.exprFor(_valueEx.Expr, true)
+			if valueErr != nil {
+				return nil, valueErr
+			}
+			offset, offsetErr := nodeToDuration(e.Exprs[1])
+			if offsetErr != nil {
+				return nil, offsetErr
+			}
+			return expr.SHIFT(valueEx, offset), nil
 		}
 		switch len(e.Exprs) {
 		case 1:

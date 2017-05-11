@@ -21,7 +21,7 @@ var (
 	until      = epoch
 
 	cond, _    = goexpr.Boolean(">", goexpr.Param("d"), goexpr.Constant(0))
-	eA, _      = IF(cond, SUM("a"))
+	eA         = IF(cond, SUM("a"))
 	eB         = SUM("b")
 	totalField = NewField("total", ADD(eA, eB))
 
@@ -151,10 +151,7 @@ func TestGroupCrosstabSingle(t *testing.T) {
 		if !assert.NoError(t, err) {
 			return
 		}
-		ifex, err := IF(cond, eAdd)
-		if !assert.NoError(t, err) {
-			return
-		}
+		ifex := IF(cond, eAdd)
 		expectedFields = append(expectedFields, NewField(i+"_add", ifex))
 	}
 	expectedFields = append(expectedFields, NewField("total_add", eAdd))
