@@ -31,7 +31,7 @@ func TestRoundTimeUp(t *testing.T) {
 }
 
 func TestSingleDB(t *testing.T) {
-	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
+	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool))) {
 		db, err := NewDB(&DBOpts{
 			Dir:            filepath.Join(tmpDir, "leader"),
 			SchemaFile:     tmpFile,
@@ -43,8 +43,8 @@ func TestSingleDB(t *testing.T) {
 		}
 		return db, func(t time.Time) {
 				db.clock.Advance(t)
-			}, func(tableName string, cb func(tbl *table)) {
-				cb(db.getTable(tableName))
+			}, func(tableName string, cb func(tbl *table, isFollower bool)) {
+				cb(db.getTable(tableName), false)
 			}
 	})
 }
@@ -66,7 +66,7 @@ func TestClusterNoPushdownMultiPartition(t *testing.T) {
 }
 
 func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
-	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table))) {
+	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool))) {
 		leader, err := NewDB(&DBOpts{
 			Dir:            filepath.Join(tmpDir, "leader"),
 			SchemaFile:     tmpFile,
@@ -117,16 +117,16 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 				for _, follower := range followers {
 					follower.clock.Advance(t)
 				}
-			}, func(tableName string, cb func(tbl *table)) {
-				cb(leader.getTable(tableName))
+			}, func(tableName string, cb func(tbl *table, isFollower bool)) {
+				cb(leader.getTable(tableName), false)
 				for _, follower := range followers {
-					cb(follower.getTable(tableName))
+					cb(follower.getTable(tableName), true)
 				}
 			}
 	})
 }
 
-func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table)))) {
+func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool)))) {
 	rand.Seed(0)
 	epoch := time.Date(2015, time.January, 1, 2, 3, 4, 5, time.UTC)
 
@@ -211,26 +211,32 @@ view_a:
 		}
 	}
 
+	nextField := 0
 	// This shuffles around fields to make sure that we're reading them correctly
 	// from the file stores.
 	shuffleFields := func() {
 		time.Sleep(100 * time.Millisecond)
-		if true {
-			// TODO: make sure that schema evolution works.
-			return
-		}
-		modifyTable("test_a", func(tab *table) {
-			tab.Fields[0], tab.Fields[1], tab.Fields[2] = tab.Fields[1], tab.Fields[2], tab.Fields[0]
+		modifyTable("test_a", func(tab *table, isFollower bool) {
+			fields := tab.getFields()
+			if !isFollower || rand.Float64() < 0.5 {
+				// On followers, only shuffle fields 50% of the time
+				fields[0], fields[1], fields[2] = fields[2], fields[0], fields[1]
+			}
+			nextField++
+			newFields := make(core.Fields, 0, len(fields)+1)
+			newFields = append(newFields, fields...)
+			newFields = append(newFields, core.NewField(fmt.Sprintf("newfield_%d", nextField), AVG(fmt.Sprintf("n_%d", nextField))))
+			tab.applyFields(newFields)
 		})
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	randAboveRes := func() time.Duration {
-		return time.Duration(1 * rand.Intn(int(resolution)))
+	randBelowResolution := func() time.Duration {
+		return time.Duration(rand.Intn(int(resolution)))
 	}
 
 	db.Insert("inbound",
-		now.Add(randAboveRes()),
+		now.Add(randBelowResolution()),
 		map[string]interface{}{
 			"r":  "A",
 			"u":  1,
@@ -246,7 +252,7 @@ view_a:
 
 	// This should get excluded by the filter
 	db.Insert("inbound",
-		now.Add(randAboveRes()),
+		now.Add(randBelowResolution()),
 		map[string]interface{}{
 			"r":  "B",
 			"u":  1,
@@ -261,7 +267,7 @@ view_a:
 	shuffleFields()
 
 	db.Insert("inbound",
-		now.Add(randAboveRes()),
+		now.Add(randBelowResolution()),
 		map[string]interface{}{
 			"r":  "A",
 			"u":  1,
@@ -275,23 +281,10 @@ view_a:
 		})
 	shuffleFields()
 
-	// Change the schema a bit
-	if false {
-		// TODO: make sure that schema evolution works.
-		modifyTable("test_a", func(tab *table) {
-			newFields := make([]core.Field, 0, len(tab.Fields)+1)
-			newFields = append(newFields, core.NewField("newfield", AVG("h")))
-			for _, field := range tab.Fields {
-				newFields = append(newFields, field)
-			}
-			tab.Fields = newFields
-		})
-	}
-
-	advance(resolution + randAboveRes())
+	advance(resolution)
 
 	db.Insert("inbound",
-		now,
+		now.Add(randBelowResolution()),
 		map[string]interface{}{
 			"r":  "A",
 			"u":  1,
@@ -306,7 +299,7 @@ view_a:
 	shuffleFields()
 
 	db.Insert("inbound",
-		now,
+		now.Add(randBelowResolution()),
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,
@@ -321,7 +314,7 @@ view_a:
 	shuffleFields()
 
 	db.Insert("inbound",
-		now,
+		now.Add(randBelowResolution()),
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,
@@ -338,9 +331,9 @@ view_a:
 	asOf := now.Add(time.Duration(1-scalingFactor) * resolution)
 	until := now.Add(resolution)
 
-	advance(5 * randAboveRes())
+	advance(5 * resolution)
 	db.Insert("inbound",
-		now,
+		now.Add(randBelowResolution()),
 		map[string]interface{}{
 			"r":  "A",
 			"u":  2,
@@ -358,10 +351,12 @@ view_a:
 	time.Sleep(10 * time.Second)
 
 	table := db.getTable("test_a")
-	table.iterate(context.Background(), table.Fields.Names(), true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	fields := table.getFields()
+	table.iterate(context.Background(), fields, true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		log.Debugf("Dims: %v")
-		for i, field := range table.Fields {
-			log.Debugf("Table Dump %v : %v", field.Name, vals[i].String(field.Expr, table.Resolution))
+		for i, val := range vals {
+			field := fields[i]
+			log.Debugf("Table Dump %v : %v", field.Name, val.String(field.Expr, table.Resolution))
 		}
 		return true, nil
 	})
@@ -390,39 +385,60 @@ ORDER BY _time`
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 2,
-				"i":       11,
-				"ii":      22,
-				"iii":     121,
-				"iv":      15,
-				"biv":     10,
-				"z":       0,
+				"_points":    2,
+				"i":          11,
+				"ii":         22,
+				"iii":        121,
+				"iv":         15,
+				"biv":        10,
+				"z":          0,
+				"newfield_1": 0,
+				"newfield_2": 0,
+				"newfield_3": 0,
+				"newfield_4": 0,
+				"newfield_5": 0,
+				"newfield_6": 0,
+				"newfield_7": 0,
 			},
 		},
 		expectedRow{
 			epoch.Add(resolution),
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 3,
-				"i":       30142,
-				"ii":      40264,
-				"iii":     404545829.3333333,
-				"iv":      30,
-				"biv":     0,
-				"z":       53,
+				"_points":    3,
+				"i":          30142,
+				"ii":         40264,
+				"iii":        404545829.3333333,
+				"iv":         30,
+				"biv":        0,
+				"z":          53,
+				"newfield_1": 0,
+				"newfield_2": 0,
+				"newfield_3": 0,
+				"newfield_4": 0,
+				"newfield_5": 0,
+				"newfield_6": 0,
+				"newfield_7": 0,
 			},
 		},
 		expectedRow{
-			epoch.Add(4 * resolution),
+			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 1,
-				"i":       500,
-				"ii":      600,
-				"iii":     300000,
-				"iv":      0,
-				"biv":     0,
-				"z":       700,
+				"_points":    1,
+				"i":          500,
+				"ii":         600,
+				"iii":        300000,
+				"iv":         0,
+				"biv":        0,
+				"z":          700,
+				"newfield_1": 0,
+				"newfield_2": 0,
+				"newfield_3": 0,
+				"newfield_4": 0,
+				"newfield_5": 0,
+				"newfield_6": 0,
+				"newfield_7": 0,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)
@@ -430,10 +446,10 @@ ORDER BY _time`
 
 func testStrideQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
 	sqlString := fmt.Sprintf(`
-SELECT *
+SELECT _points, i, ii, iii, iv, biv, z
 FROM test_a
 GROUP BY _, STRIDE(%v)
-ORDER BY _time`, resolution*4)
+ORDER BY _time`, resolution*6)
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
 	expectedResult{
@@ -451,7 +467,7 @@ ORDER BY _time`, resolution*4)
 			},
 		},
 		expectedRow{
-			epoch.Add(4 * resolution),
+			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
 				"_points": 1,
@@ -505,7 +521,7 @@ ORDER BY _time`, -1*resolution)
 			},
 		},
 		expectedRow{
-			epoch.Add(4 * resolution),
+			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
 				"_points":   1,
@@ -543,7 +559,7 @@ FROM (SELECT *
 			},
 		},
 		expectedRow{
-			epoch.Add(4 * resolution),
+			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
 				"_points": 1,
@@ -554,8 +570,6 @@ FROM (SELECT *
 }
 
 func testAggregateQuery(t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
-	log.Debugf("AsOf: %v  Until: %v", asOf, until)
-
 	period := resolution * time.Duration(scalingFactor)
 
 	sqlString := fmt.Sprintf(`
@@ -595,6 +609,13 @@ ORDER BY u DESC
 				"cval":       5.1,
 				"z":          53,
 				"present":    1,
+				"newfield_1": 0,
+				"newfield_2": 0,
+				"newfield_3": 0,
+				"newfield_4": 0,
+				"newfield_5": 0,
+				"newfield_6": 0,
+				"newfield_7": 0,
 			},
 		},
 		expectedRow{
@@ -615,6 +636,13 @@ ORDER BY u DESC
 				"cval":       5.1,
 				"z":          0,
 				"present":    1,
+				"newfield_1": 0,
+				"newfield_2": 0,
+				"newfield_3": 0,
+				"newfield_4": 0,
+				"newfield_5": 0,
+				"newfield_6": 0,
+				"newfield_7": 0,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)

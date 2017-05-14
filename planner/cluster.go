@@ -74,13 +74,7 @@ type clusterFlatRowSource struct {
 }
 
 func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onFields core.OnFields, onFlatRow core.OnFlatRow) error {
-	var fields core.Fields
-
-	return cs.doIterate(ctx, false, func(inFields core.Fields) error {
-		fields = inFields
-		return onFields(fields)
-	}, nil, func(row *core.FlatRow) (bool, error) {
-		row.SetFields(fields)
+	return cs.doIterate(ctx, false, onFields, nil, func(row *core.FlatRow) (bool, error) {
 		return onFlatRow(row)
 	})
 }

@@ -65,10 +65,11 @@ type TableOpts struct {
 type table struct {
 	*TableOpts
 	sql.Query
-	Fields              core.Fields
+	fields              core.Fields
 	db                  *DB
 	rowStore            *rowStore
 	log                 golog.Logger
+	fieldsMutex         sync.RWMutex
 	whereMutex          sync.RWMutex
 	stats               TableStats
 	statsMutex          sync.RWMutex
@@ -81,73 +82,11 @@ type table struct {
 
 // CreateTable creates a table based on the given opts.
 func (db *DB) CreateTable(opts *TableOpts) error {
-	q, err := sql.Parse(opts.SQL)
-	if err != nil {
-		return err
-	}
-	fields, err := q.Fields.Get(nil)
-	if err != nil {
-		return err
-	}
-	return db.doCreateTable(opts, q, fields)
-}
-
-// CreateView creates a view based on the given opts.
-func (db *DB) CreateView(opts *TableOpts) error {
-	table, err := sql.TableFor(opts.SQL)
+	q, fields, err := db.queryAndFields(opts)
 	if err != nil {
 		return err
 	}
 
-	// Get existing fields from existing table
-	t := db.getTable(table)
-	if t == nil {
-		return fmt.Errorf("Table '%v' not found", table)
-	}
-	q, err := sql.Parse(opts.SQL)
-	if err != nil {
-		return err
-	}
-
-	// Point view at same stream as table
-	// TODO: populate view with existing data from table
-	q.From = t.From
-
-	if q.GroupBy == nil {
-		q.GroupBy = t.GroupBy
-		q.GroupByAll = t.GroupByAll
-	}
-
-	if q.Resolution == 0 {
-		q.Resolution = t.Resolution
-	}
-
-	if len(opts.PartitionBy) == 0 {
-		opts.PartitionBy = t.PartitionBy
-	}
-
-	// Combine where clauses
-	if t.Where != nil {
-		if q.Where == nil {
-			q.Where = t.Where
-		} else {
-			combined, err := goexpr.Binary("AND", q.Where, t.Where)
-			if err != nil {
-				return err
-			}
-			q.Where = combined
-		}
-	}
-
-	fields, err := q.Fields.Get(t.Fields)
-	if err != nil {
-		return err
-	}
-
-	return db.doCreateTable(opts, q, fields)
-}
-
-func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query, fields core.Fields) error {
 	if !opts.Virtual {
 		if opts.RetentionPeriod <= 0 {
 			return errors.New("Please specify a positive RetentionPeriod")
@@ -162,27 +101,15 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query, fields core.Fields) e
 	}
 	opts.Name = strings.ToLower(opts.Name)
 
-	// prepend a magic _points field
-	newFields := make([]core.Field, 0, len(fields)+1)
-	newFields = append(newFields, sql.PointsField)
-	for _, field := range fields {
-		// Don't add _points twice
-		if field.Name != "_points" {
-			if field.Expr.Shift() != 0 {
-				return fmt.Errorf("%v uses SHIFT, which is not allowed in tables/views", field)
-			}
-			newFields = append(newFields, field)
-		}
-	}
-
 	t := &table{
 		TableOpts: opts,
 		Query:     *q,
-		Fields:    newFields,
+		fields:    fields,
 		db:        db,
 		log:       golog.LoggerFor("zenodb." + opts.Name),
 	}
 
+	t.log.Debugf("Fields will be: %v", fields)
 	t.applyWhere(q.Where)
 
 	var rsErr error
@@ -236,6 +163,89 @@ func (db *DB) doCreateTable(opts *TableOpts, q *sql.Query, fields core.Fields) e
 	return nil
 }
 
+func (t *table) Alter(opts *TableOpts) error {
+	q, fields, err := t.db.queryAndFields(opts)
+	if err != nil {
+		return err
+	}
+	t.applyWhere(q.Where)
+	t.applyFields(fields)
+	return nil
+}
+
+func (db *DB) queryAndFields(opts *TableOpts) (q *sql.Query, fields core.Fields, err error) {
+	q, err = sql.Parse(opts.SQL)
+	if err != nil {
+		return
+	}
+	if !opts.View {
+		fields, err = q.Fields.Get(nil)
+	} else {
+		// It's a view
+
+		// Get existing fields from existing table
+		t := db.getTable(q.From)
+		if t == nil {
+			err = fmt.Errorf("Table '%v' not found", t.Name)
+			return
+		}
+
+		// Point view at same stream as table
+		// TODO: populate view with existing data from table
+		q.From = t.From
+
+		if q.GroupBy == nil {
+			q.GroupBy = t.GroupBy
+			q.GroupByAll = t.GroupByAll
+		}
+
+		if q.Resolution == 0 {
+			q.Resolution = t.Resolution
+		}
+
+		if len(opts.PartitionBy) == 0 {
+			opts.PartitionBy = t.PartitionBy
+		}
+
+		// Combine where clauses
+		if t.Where != nil {
+			if q.Where == nil {
+				q.Where = t.Where
+			} else {
+				combined, binaryErr := goexpr.Binary("AND", q.Where, t.Where)
+				if binaryErr != nil {
+					err = binaryErr
+					return
+				}
+				q.Where = combined
+			}
+		}
+
+		fields, err = q.Fields.Get(t.getFields())
+	}
+
+	if err == nil {
+		fields = addPointsField(fields)
+	}
+
+	return
+}
+
+func addPointsField(fields core.Fields) core.Fields {
+	for _, field := range fields {
+		if field.Equals(sql.PointsField) {
+			// already have _points field, nothing to do
+			return fields
+		}
+	}
+
+	// prepend the magic _points field
+	newFields := make([]core.Field, 0, len(fields)+1)
+	newFields = append(newFields, sql.PointsField)
+	newFields = append(newFields, fields...)
+	return newFields
+}
+
 func (t *table) startFollowing(walOffset wal.Offset) {
 	newSubscriber := t.db.newStreamSubscriber[t.From]
 	if newSubscriber == nil {
@@ -264,11 +274,11 @@ func (t *table) startWALProcessing(walOffset wal.Offset) error {
 	}
 
 	if t.db.opts.Passthrough {
-		log.Debugf("Passthrough will not insert data to table %v", t.Name)
+		t.log.Debugf("Passthrough will not insert data to table %v", t.Name)
 		return nil
 	}
 
-	log.Debugf("%v will read inserts from %v at offset %v", t.Name, t.From, walOffset)
+	t.log.Debugf("Will read inserts from %v at offset %v", t.From, walOffset)
 	t.wal, walErr = w.NewReader(t.Name, walOffset)
 	if walErr != nil {
 		return fmt.Errorf("Unable to obtain WAL reader: %v", walErr)
@@ -278,10 +288,43 @@ func (t *table) startWALProcessing(walOffset wal.Offset) error {
 	return nil
 }
 
+func (t *table) applyFields(fields core.Fields) {
+	var fieldsChanged bool
+	t.fieldsMutex.Lock()
+	fieldsChanged = !fields.Equals(t.fields)
+	if fieldsChanged {
+		t.fields = fields
+	}
+	t.fieldsMutex.Unlock()
+	if fieldsChanged {
+		if !t.Virtual && !t.db.opts.Passthrough {
+			t.rowStore.fieldUpdates <- fields
+		}
+		t.log.Debugf("Updated fields to %v", fields)
+	} else {
+		t.log.Debug("Fields unchanged")
+	}
+}
+
+func (t *table) getFields() core.Fields {
+	t.fieldsMutex.RLock()
+	fields := make(core.Fields, len(t.fields))
+	copy(fields, t.fields)
+	t.fieldsMutex.RUnlock()
+	return fields
+}
+
 func (t *table) applyWhere(where goexpr.Expr) {
+	var whereChanged bool
 	t.whereMutex.Lock()
+	whereChanged = t.Where != where
 	t.Where = where
 	t.whereMutex.Unlock()
+	if whereChanged {
+		t.log.Debugf("Updated where to %v", where)
+	} else {
+		t.log.Debug("Where unchanged")
+	}
 }
 
 func (t *table) getWhere() goexpr.Expr {
@@ -302,8 +345,8 @@ func (t *table) backfillTo() time.Time {
 	return t.db.clock.Now().Add(-1 * t.Backfill)
 }
 
-func (t *table) iterate(ctx context.Context, fields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
-	return t.rowStore.iterate(ctx, fields, includeMemStore, onValue)
+func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+	return t.rowStore.iterate(ctx, outFields, includeMemStore, onValue)
 }
 
 // shouldSort determines whether or not a flush should be sorted. The flush will

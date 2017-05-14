@@ -14,8 +14,8 @@ import (
 
 func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
 	opts := &planner.Opts{
-		GetTable: func(table string, includedFields func(tableFields core.Fields) (core.Fields, error)) (planner.Table, error) {
-			return db.getQueryable(table, includedFields, includeMemStore)
+		GetTable: func(table string, outFields func(tableFields core.Fields) (core.Fields, error)) (planner.Table, error) {
+			return db.getQueryable(table, outFields, includeMemStore)
 		},
 		Now:             db.now,
 		IsSubQuery:      isSubQuery,
@@ -34,7 +34,7 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 	return plan, nil
 }
 
-func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fields) (core.Fields, error), includeMemStore bool) (*queryable, error) {
+func (db *DB) getQueryable(table string, outFields func(tableFields core.Fields) (core.Fields, error), includeMemStore bool) (*queryable, error) {
 	t := db.getTable(table)
 	if t == nil {
 		return nil, fmt.Errorf("Table %v not found", table)
@@ -44,11 +44,15 @@ func (db *DB) getQueryable(table string, includedFields func(tableFields core.Fi
 	}
 	until := encoding.RoundTimeUp(db.clock.Now(), t.Resolution)
 	asOf := encoding.RoundTimeUp(until.Add(-1*t.RetentionPeriod), t.Resolution)
-	included, err := includedFields(t.Fields)
+	fields := t.getFields()
+	out, err := outFields(fields)
 	if err != nil {
 		return nil, err
 	}
-	return &queryable{t, included, asOf, until, includeMemStore}, nil
+	if out == nil {
+		out = t.getFields()
+	}
+	return &queryable{t, out, asOf, until, includeMemStore}, nil
 }
 
 func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMetaData {
@@ -95,14 +99,14 @@ func (q *queryable) String() string {
 
 func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
 	// We report all fields from the table
-	err := onFields(q.t.Fields)
+	err := onFields(q.fields)
 	if err != nil {
 		return err
 	}
 
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
-	return q.t.iterate(ctx, q.fields.Names(), q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	return q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		return onRow(key, vals)
 	})
 }

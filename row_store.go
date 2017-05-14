@@ -20,15 +20,12 @@ import (
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/getlantern/zenodb/expr"
 	"github.com/golang/snappy"
 	"github.com/oxtoacart/emsort"
 )
 
 const (
 	// File format versions
-	FileVersion_2      = 2
-	FileVersion_3      = 3
 	FileVersion_4      = 4
 	CurrentFileVersion = FileVersion_4
 
@@ -37,8 +34,6 @@ const (
 
 var (
 	fieldsDelims = map[int]string{
-		FileVersion_2: ",",
-		FileVersion_3: "|",
 		FileVersion_4: "|",
 	}
 )
@@ -58,6 +53,8 @@ type insert struct {
 
 type rowStore struct {
 	t                   *table
+	fields              core.Fields
+	fieldUpdates        chan core.Fields
 	opts                *rowStoreOptions
 	memStore            *memstore
 	fileStore           *fileStore
@@ -68,9 +65,19 @@ type rowStore struct {
 }
 
 type memstore struct {
+	fields        core.Fields
 	tree          *bytetree.Tree
 	offset        wal.Offset
 	offsetChanged bool
+}
+
+func (ms *memstore) copy() *memstore {
+	return &memstore{
+		fields:        ms.fields,
+		tree:          ms.tree.Copy(),
+		offset:        ms.offset,
+		offsetChanged: ms.offsetChanged,
+	}
 }
 
 func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, error) {
@@ -104,45 +111,48 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 				continue
 			}
 
-			fileVersion := versionFor(existingFileName)
-			if fileVersion >= FileVersion_4 {
-				// Get WAL offset
-				file, err := os.Open(existingFileName)
-				if err != nil {
-					return nil, nil, fmt.Errorf("Unable to open existing file %v: %v", existingFileName, err)
+			// Version is currently unused, just read it to advance through file
+			versionFor(existingFileName)
+			// Get WAL offset
+			file, err := os.Open(existingFileName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("Unable to open existing file %v: %v", existingFileName, err)
+			}
+			defer file.Close()
+			r := snappy.NewReader(file)
+			// Skip header length
+			newWALOffset := make(wal.Offset, wal.OffsetSize+4)
+			_, err = io.ReadFull(r, newWALOffset)
+			if err != nil {
+				log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
+				rmErr := os.Remove(existingFileName)
+				if rmErr != nil {
+					return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
 				}
-				defer file.Close()
-				r := snappy.NewReader(file)
-				// Skip header length
-				newWALOffset := make(wal.Offset, wal.OffsetSize+4)
-				_, err = io.ReadFull(r, newWALOffset)
-				if err != nil {
-					log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
-					rmErr := os.Remove(existingFileName)
-					if rmErr != nil {
-						return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
-					}
-					continue
-				}
-				// Skip header length
-				newWALOffset = newWALOffset[4:]
-				if newWALOffset.After(walOffset) {
-					walOffset = newWALOffset
-				}
+				continue
+			}
+			// Skip header length
+			newWALOffset = newWALOffset[4:]
+			if newWALOffset.After(walOffset) {
+				walOffset = newWALOffset
 			}
 			t.log.Debugf("Initializing row store from %v", existingFileName)
 			break
 		}
 	}
 
+	fields := t.getFields()
 	rs := &rowStore{
 		opts:                opts,
 		t:                   t,
+		fields:              fields,
+		fieldUpdates:        make(chan core.Fields),
 		inserts:             make(chan *insert),
 		forceFlushes:        make(chan bool),
 		forceFlushCompletes: make(chan bool),
 		fileStore: &fileStore{
 			t:        t,
+			fields:   fields,
 			opts:     opts,
 			filename: existingFileName,
 		},
@@ -173,16 +183,14 @@ func (rs *rowStore) forceFlush() {
 	<-rs.forceFlushCompletes
 }
 
-func (t *table) newByteTree() *bytetree.Tree {
-	exprs := make([]expr.Expr, 0, len(t.Fields))
-	for _, field := range t.Fields {
-		exprs = append(exprs, field.Expr)
-	}
-	return bytetree.New(exprs, nil, t.Resolution, 0, time.Time{}, time.Time{}, 0)
+func (rs *rowStore) newMemStore() *memstore {
+	fields := rs.fields
+	tree := bytetree.New(fields.Exprs(), nil, rs.t.Resolution, 0, time.Time{}, time.Time{}, 0)
+	return &memstore{fields: fields, tree: tree}
 }
 
 func (rs *rowStore) processInserts() {
-	ms := &memstore{tree: rs.t.newByteTree()}
+	ms := rs.newMemStore()
 	rs.mx.Lock()
 	rs.memStore = ms
 	rs.mx.Unlock()
@@ -191,7 +199,7 @@ func (rs *rowStore) processInserts() {
 	flushTimer := time.NewTimer(flushInterval)
 	rs.t.log.Debugf("Will flush after %v", flushInterval)
 
-	flush := func(allowSort bool) {
+	flush := func(allowSort bool) *memstore {
 		if ms.tree.Length() == 0 {
 			rs.t.log.Trace("No data to flush")
 
@@ -206,16 +214,13 @@ func (rs *rowStore) processInserts() {
 
 			// Immediately reset flushTimer
 			flushTimer.Reset(flushInterval)
-			return
+			return nil
 		}
 		if rs.t.log.IsTraceEnabled() {
 			rs.t.log.Tracef("Requesting flush at memstore size: %v", humanize.Bytes(uint64(ms.tree.Bytes())))
 		}
-		flushDuration := rs.processFlush(ms, allowSort)
-		ms = &memstore{tree: rs.t.newByteTree()}
-		rs.mx.Lock()
-		rs.memStore = ms
-		rs.mx.Unlock()
+		newMS, flushDuration := rs.processFlush(ms, allowSort)
+		ms = newMS
 		flushInterval = flushDuration * 10
 		if flushInterval > rs.opts.maxFlushLatency {
 			flushInterval = rs.opts.maxFlushLatency
@@ -223,6 +228,7 @@ func (rs *rowStore) processInserts() {
 			flushInterval = rs.opts.minFlushLatency
 		}
 		flushTimer.Reset(flushInterval)
+		return newMS
 	}
 
 	for {
@@ -243,26 +249,41 @@ func (rs *rowStore) processInserts() {
 			rs.t.log.Debug("Forcing flush")
 			flush(true)
 			rs.forceFlushCompletes <- true
+		case fields := <-rs.fieldUpdates:
+			rs.t.log.Debugf("Updating fields to %v", fields)
+			// update fields immediately
+			rs.fields = fields
+
+			// force flush before processing any more inserts
+			ms = flush(false)
+
+			if ms == nil {
+				// nothing flushed, create a new memstore to pick up new fields
+				ms = rs.newMemStore()
+				rs.mx.Lock()
+				rs.memStore = ms
+				rs.mx.Unlock()
+			}
 		}
 	}
 }
 
-func (rs *rowStore) iterate(ctx context.Context, includedFields []string, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
 	guard := core.Guard(ctx)
 
 	rs.mx.RLock()
 	fs := rs.fileStore
-	var tree *bytetree.Tree
+	var ms *memstore
 	if includeMemStore {
-		tree = rs.memStore.tree.Copy()
+		ms = rs.memStore.copy()
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+	return fs.iterate(outFields, ms, false, false, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		return guard.ProceedAfter(onValue(key, columns))
-	}, false, false, tree, includedFields...)
+	})
 }
 
-func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
+func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.Duration) {
 	shouldSort := allowSort && rs.t.shouldSort()
 	willSort := "not sorted"
 	if shouldSort {
@@ -279,8 +300,8 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	defer out.Close()
 	sout := snappy.NewBufferedWriter(out)
 
-	fieldStrings := make([]string, 0, len(rs.t.Fields))
-	for _, field := range rs.t.Fields {
+	fieldStrings := make([]string, 0, len(rs.fields))
+	for _, field := range rs.fields {
 		fieldStrings = append(fieldStrings, field.String())
 	}
 	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
@@ -339,7 +360,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 
 		hasActiveSequence := false
 		for i, seq := range columns {
-			seq = seq.Truncate(rs.t.Fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore, time.Time{})
+			seq = seq.Truncate(rs.fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore, time.Time{})
 			columns[i] = seq
 			if seq != nil {
 				hasActiveSequence = true
@@ -416,7 +437,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	rs.mx.RUnlock()
-	fs.iterate(write, !shouldSort, true, ms.tree)
+	fs.iterate(rs.fields, ms, !shouldSort, true, write)
 	err = cout.Close()
 	if err != nil {
 		panic(err)
@@ -435,8 +456,11 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 		panic(err)
 	}
 
+	fs = &fileStore{rs.t, rs.fields, rs.opts, newFileStoreName}
+	ms = rs.newMemStore()
 	rs.mx.Lock()
-	rs.fileStore = &fileStore{rs.t, rs.opts, newFileStoreName}
+	rs.fileStore = fs
+	rs.memStore = ms
 	rs.mx.Unlock()
 
 	flushDuration := time.Now().Sub(start)
@@ -447,7 +471,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) time.Duration {
 	}
 
 	rs.t.updateHighWaterMarkDisk(highWaterMark)
-	return flushDuration
+	return ms, flushDuration
 }
 
 func (rs *rowStore) writeOffset(offset wal.Offset) error {
@@ -512,40 +536,29 @@ func (rs *rowStore) removeOldFiles() {
 // col*len is 64 bits
 type fileStore struct {
 	t        *table
+	fields   core.Fields
 	opts     *rowStoreOptions
 	filename string
 }
 
-func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error), okayToReuseBuffer bool, rawOkay bool, tree *bytetree.Tree, includedFields ...string) error {
+func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
-		fs.t.log.Tracef("Iterating with memstore ? %v from file %v", tree != nil, fs.filename)
+		fs.t.log.Tracef("Iterating with memstore ? %v from file %v", ms != nil, fs.filename)
 	}
 
 	truncateBefore := fs.t.truncateBefore()
-	var includeField func(int) bool
-	if len(includedFields) == 0 {
-		includeField = func(i int) bool {
-			return true
-		}
-	} else {
-		includedFieldIdxs := make([]bool, 0, len(fs.t.Fields))
-		for _, field := range fs.t.Fields {
-			includeThisField := len(includedFields) == 0
-			if !includeThisField {
-				for _, fieldName := range includedFields {
-					if fieldName == field.Name {
-						includeThisField = true
-						break
-					}
-				}
-			}
-			includedFieldIdxs = append(includedFieldIdxs, includeThisField)
-		}
-		includeField = func(i int) bool {
-			return includedFieldIdxs[i]
-		}
+	if len(outFields) == 0 {
+		// default outFields to in fields
+		outFields = fs.fields
+	}
+
+	// this function will map fields from the memstore into the right positions on
+	// the outbound row
+	var memToOut func(out []encoding.Sequence, i int, seq encoding.Sequence) bool
+	if ms != nil {
+		memToOut = rowMerger(outFields, ms.fields, fs.t.Resolution, truncateBefore)
 	}
 
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
@@ -556,60 +569,43 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []
 		r := snappy.NewReader(file)
 
 		fileVersion := versionFor(fs.filename)
-		fileFields := fs.t.Fields
-		if fileVersion >= FileVersion_2 {
-			// File contains header with field info, use it
-			headerLength := uint32(0)
-			lengthErr := binary.Read(r, encoding.Binary, &headerLength)
-			if lengthErr != nil {
-				return fmt.Errorf("Unexpected error reading header length: %v", lengthErr)
-			}
-			fieldsBytes := make([]byte, headerLength)
-			_, err = io.ReadFull(r, fieldsBytes)
-			if err != nil {
-				return err
-			}
-			if fileVersion >= FileVersion_4 {
-				// Strip offset
-				fieldsBytes = fieldsBytes[wal.OffsetSize:]
-			}
-			delim := fieldsDelims[fileVersion]
-			fieldStrings := strings.Split(string(fieldsBytes), delim)
-			fileFields = make([]core.Field, 0, len(fieldStrings))
-			for _, fieldString := range fieldStrings {
-				foundField := false
-				for _, field := range fs.t.Fields {
-					if fieldString == field.String() {
-						fileFields = append(fileFields, field)
-						foundField = true
-						break
-					}
-				}
-				if !foundField {
-					fs.t.log.Debugf("Unable to find field %v on table %v", fieldString, fs.t.Name)
-					fileFields = append(fileFields, core.Field{})
-					// It's not okay to use raw rows since field definitions have changed
-					rawOkay = false
+		// File contains header with field info, use it
+		headerLength := uint32(0)
+		lengthErr := binary.Read(r, encoding.Binary, &headerLength)
+		if lengthErr != nil {
+			return fmt.Errorf("Unexpected error reading header length: %v", lengthErr)
+		}
+		fieldsBytes := make([]byte, headerLength)
+		_, err = io.ReadFull(r, fieldsBytes)
+		if err != nil {
+			return err
+		}
+		// Strip offset
+		fieldsBytes = fieldsBytes[wal.OffsetSize:]
+		delim := fieldsDelims[fileVersion]
+		fieldStrings := strings.Split(string(fieldsBytes), delim)
+		fileFields := make(core.Fields, 0, len(fieldStrings))
+		for _, fieldString := range fieldStrings {
+			foundField := false
+			for _, field := range fs.fields {
+				if fieldString == field.String() {
+					fileFields = append(fileFields, field)
+					foundField = true
+					break
 				}
 			}
-			if len(fieldStrings) != len(fs.t.Fields) {
-				fs.t.log.Debug("File store has different set of fields than table, disabling raw passthrough")
-				rawOkay = false
+			if !foundField {
+				fs.t.log.Debugf("Unable to find file field %v in currently defined fields  %v", fieldString, fs.t.Name)
+				fileFields = append(fileFields, core.Field{})
 			}
 		}
 
-		reverseFileFieldIndexes := make([]int, 0, len(includedFields))
-		for _, candidate := range fileFields {
-			idx := -1
-			if candidate.Expr != nil {
-				for i, field := range fs.t.Fields {
-					if includeField(i) && field.String() == candidate.String() {
-						idx = i
-					}
-				}
-			}
-			reverseFileFieldIndexes = append(reverseFileFieldIndexes, idx)
-		}
+		// raw is only okay if the file fields match the out fields
+		rawOkay = rawOkay && fileFields.Equals(outFields)
+
+		// this function will map fields from the file into the right positions on
+		// the outbound row
+		fileToOut := rowMapper(outFields, fileFields)
 
 		var rowBuffer []byte
 		var row []byte
@@ -644,11 +640,11 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []
 			keyLength, row := encoding.ReadInt16(row)
 			key, row := encoding.ReadByteMap(row, keyLength)
 
-			var columns2 []encoding.Sequence
-			if tree != nil {
-				columns2 = tree.Remove(ctx, key)
+			var msColumns []encoding.Sequence
+			if ms != nil {
+				msColumns = ms.tree.Remove(ctx, key)
 			}
-			if columns2 == nil && rawOkay {
+			if msColumns == nil && rawOkay {
 				// There's nothing to merge in, just pass through the raw data
 				more, err := onRow(key, nil, raw)
 				if !more || err != nil {
@@ -656,6 +652,8 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []
 				}
 				continue
 			}
+			// At this point, we should never pass the raw data
+			raw = nil
 
 			numColumns, row := encoding.ReadInt16(row)
 			colLengths := make([]int, 0, numColumns)
@@ -669,19 +667,15 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []
 			}
 
 			includesAtLeastOneColumn := false
-			columns := make([]encoding.Sequence, len(fs.t.Fields))
+			columns := make([]encoding.Sequence, len(outFields))
 			for i, colLength := range colLengths {
 				var seq encoding.Sequence
 				if colLength > len(row) {
 					return fmt.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
 				}
 				seq, row = encoding.ReadSequence(row, colLength)
-				idx := reverseFileFieldIndexes[i]
-				if idx > -1 {
-					columns[idx] = seq
-					if seq != nil {
-						includesAtLeastOneColumn = true
-					}
+				if seq != nil && fileToOut(columns, i, seq) {
+					includesAtLeastOneColumn = true
 				}
 				if fs.t.log.IsTraceEnabled() {
 					fs.t.log.Tracef("File Read: %v", seq.String(fileFields[i].Expr, fs.t.Resolution))
@@ -689,28 +683,10 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []
 			}
 
 			// Merge memStore columns into fileStore columns
-			for i, field := range fs.t.Fields {
-				if !includeField(i) {
-					continue
+			for i, msColumn := range msColumns {
+				if memToOut(columns, i, msColumn) {
+					includesAtLeastOneColumn = true
 				}
-				if i >= len(columns2) {
-					continue
-				}
-				column2 := columns2[i]
-				if column2 == nil {
-					continue
-				}
-				includesAtLeastOneColumn = true
-				// Clear raw to prevent recipient from using passthrough data
-				raw = nil
-				column := columns[i]
-				if column == nil {
-					// Nothing to merge, just use column2
-					columns[i] = column2
-					continue
-				}
-				// merge
-				columns[i] = column.Merge(column2, field.Expr, fs.t.Resolution, truncateBefore)
 			}
 
 			var more bool
@@ -725,13 +701,11 @@ func (fs *fileStore) iterate(onRow func(bytemap.ByteMap, []encoding.Sequence, []
 	}
 
 	// Read remaining stuff from memstore
-	if tree != nil {
-		tree.Walk(ctx, func(key []byte, columns1 []encoding.Sequence) (bool, bool, error) {
-			columns := make([]encoding.Sequence, len(fs.t.Fields))
-			for i, column := range columns1 {
-				if includeField(i) {
-					columns[i] = column
-				}
+	if ms != nil {
+		ms.tree.Walk(ctx, func(key []byte, msColumns []encoding.Sequence) (bool, bool, error) {
+			columns := make([]encoding.Sequence, len(outFields))
+			for i, msColumn := range msColumns {
+				memToOut(columns, i, msColumn)
 			}
 			more, err := onRow(bytemap.ByteMap(key), columns, nil)
 			return more, false, err
@@ -753,4 +727,50 @@ func versionFor(filename string) int {
 		}
 	}
 	return fileVersion
+}
+
+func rowMapper(outFields core.Fields, inFields core.Fields) func(out []encoding.Sequence, i int, seq encoding.Sequence) bool {
+	outIdxs := outIdxsFor(outFields, inFields)
+
+	return func(out []encoding.Sequence, i int, seq encoding.Sequence) bool {
+		o := outIdxs[i]
+		if o >= 0 {
+			out[o] = seq
+			return true
+		}
+		return false
+	}
+}
+
+func rowMerger(outFields core.Fields, inFields core.Fields, resolution time.Duration, truncateBefore time.Time) func(out []encoding.Sequence, i int, seq encoding.Sequence) bool {
+	outIdxs := outIdxsFor(outFields, inFields)
+
+	return func(out []encoding.Sequence, i int, seq encoding.Sequence) bool {
+		if i >= len(outIdxs) {
+			return false
+		}
+
+		o := outIdxs[i]
+		if o >= 0 {
+			out[o] = out[o].Merge(seq, outFields[o].Expr, resolution, truncateBefore)
+			return true
+		}
+		return false
+	}
+}
+
+func outIdxsFor(outFields core.Fields, inFields core.Fields) []int {
+	outIdxs := make([]int, 0, len(inFields))
+	for _, inField := range inFields {
+		o := -1
+		for _o, outField := range outFields {
+			if inField.Equals(outField) {
+				o = _o
+				break
+			}
+		}
+		outIdxs = append(outIdxs, o)
+	}
+
+	return outIdxs
 }
