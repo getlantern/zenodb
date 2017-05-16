@@ -61,7 +61,7 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	}
 
 	if opts.MaxResponseBytes <= 0 {
-		opts.MaxResponseBytes = 10 * 1024 * 1024 // 10 MB
+		opts.MaxResponseBytes = 25 * 1024 * 1024 // 25 MB
 	}
 
 	hashKey := []byte(opts.HashKey)

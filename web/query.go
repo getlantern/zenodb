@@ -1,6 +1,8 @@
 package web
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -110,6 +112,7 @@ func (h *handler) respondSuccess(resp http.ResponseWriter, req *http.Request, ce
 	resp.Header().Set("Content-Type", "application/json")
 	resp.Header().Set("Expires", "0")
 	resp.Header().Set("Cache-control", "no-cache, no-store, must-revalidate")
+	resp.Header().Set("Content-Encoding", "gzip")
 	resp.WriteHeader(http.StatusOK)
 	resp.Write(ce.data())
 }
@@ -146,7 +149,7 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 			log.Error(err)
 			ce = ce.fail(err)
 		} else {
-			resultBytes, err := json.Marshal(result)
+			resultBytes, err := compress(json.Marshal(result))
 			if err != nil {
 				err = fmt.Errorf("Unable to marshal result: %v", err)
 				log.Error(err)
@@ -164,6 +167,28 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 	}()
 
 	return
+}
+
+func compress(resultBytes []byte, err error) ([]byte, error) {
+	if err != nil {
+		return nil, err
+	}
+	buf := bytes.NewBuffer(make([]byte, 0, len(resultBytes)))
+	gw, err := gzip.NewWriterLevel(buf, gzip.BestCompression)
+	if err != nil {
+		return nil, err
+	}
+	_, err = gw.Write(resultBytes)
+	if err != nil {
+		return nil, err
+	}
+	err = gw.Close()
+	if err != nil {
+		return nil, err
+	}
+	compressed := buf.Bytes()
+	log.Debugf("Compressed result from %v down to %v using gzip", humanize.Bytes(uint64(len(resultBytes))), humanize.Bytes(uint64(len(compressed))))
+	return compressed, nil
 }
 
 func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, error) {
