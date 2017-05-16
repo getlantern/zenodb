@@ -96,28 +96,24 @@ func (db *DB) ApplySchema(_schema Schema) error {
 	for _, opts := range bd.opts {
 		name := opts.Name
 		t := db.getTable(name)
+		tableType := "table"
+		if opts.View {
+			tableType = "view"
+		}
 		if t == nil {
-			tableType := "table"
-			create := db.CreateTable
-			if opts.View {
-				tableType = "view"
-				create = db.CreateView
-			}
 			log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
 			log.Debugf("MaxFlushLatency: %v    MinFlushLatency: %v", opts.MaxFlushLatency, opts.MinFlushLatency)
-			err := create(opts)
+			err := db.CreateTable(opts)
 			if err != nil {
 				return fmt.Errorf("Error creating table %v: %v", name, err)
 			}
 			log.Debugf("Created %v %v", tableType, name)
 		} else {
-			// TODO: support more comprehensive altering of tables (maybe)
-			q, err := sql.Parse(opts.SQL)
+			log.Debugf("Altering %v '%v' as \n%v", tableType, name, opts.SQL)
+			err := t.Alter(opts)
 			if err != nil {
 				return err
 			}
-			log.Debugf("Cowardly altering where and nothing else on table '%v': %v", name, q.Where)
-			t.applyWhere(q.Where)
 		}
 	}
 

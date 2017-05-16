@@ -40,6 +40,10 @@ func (f Field) String() string {
 	return fmt.Sprintf("%v (%v)", f.Name, f.Expr)
 }
 
+func (f Field) Equals(o Field) bool {
+	return f.String() == o.String()
+}
+
 type Fields []Field
 
 func (fields Fields) Names() []string {
@@ -56,6 +60,18 @@ func (fields Fields) Exprs() []expr.Expr {
 		exprs = append(exprs, field.Expr)
 	}
 	return exprs
+}
+
+func (fields Fields) Equals(o Fields) bool {
+	if len(fields) != len(o) {
+		return false
+	}
+	for i, field := range fields {
+		if !field.Equals(o[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // FieldSource is a source of Fields based on some known Fields.
