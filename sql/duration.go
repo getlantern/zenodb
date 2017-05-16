@@ -2,7 +2,13 @@ package sql
 
 import (
 	"errors"
+	"fmt"
 	"time"
+)
+
+const (
+	day  = 24 * time.Hour
+	week = 7 * day
 )
 
 var unitMap = map[string]int64{
@@ -14,8 +20,8 @@ var unitMap = map[string]int64{
 	"s":  int64(time.Second),
 	"m":  int64(time.Minute),
 	"h":  int64(time.Hour),
-	"d":  int64(24 * time.Hour),
-	"w":  int64(7 * 24 * time.Hour),
+	"d":  int64(day),
+	"w":  int64(week),
 }
 
 var errLeadingInt = errors.New("time: bad [0-9]*")
@@ -173,4 +179,22 @@ func ParseDuration(s string) (time.Duration, error) {
 		d = -d
 	}
 	return time.Duration(d), nil
+}
+
+func durationToString(dur time.Duration) string {
+	result := ""
+	weeks := dur / week
+	dur = dur % week
+	if weeks > 0 {
+		result = fmt.Sprintf("%dw", weeks)
+	}
+	days := dur / day
+	dur = dur % day
+	if days > 0 || (weeks > 0 && dur > 0) {
+		result = fmt.Sprintf("%v%dd", result, days)
+	}
+	if dur > 0 {
+		result = fmt.Sprintf("%v%v", result, dur)
+	}
+	return result
 }

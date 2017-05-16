@@ -20,7 +20,16 @@ func TestParseDuration(t *testing.T) {
 		d, _ := ParseDuration(s)
 		return d
 	}
-	assert.Equal(t, 7*24*time.Hour+2*24*time.Hour+3*time.Hour+4*time.Minute+5*time.Second, doParse("1w2d3h4m5s"))
+	assert.Equal(t, week+2*day+3*time.Hour+4*time.Minute+5*time.Second, doParse("1w2d3h4m5s"))
+}
+
+func TestDurationToString(t *testing.T) {
+	assert.Equal(t, "23h55m0s", durationToString(23*time.Hour+55*time.Minute))
+	assert.Equal(t, "1d23h55m0s", durationToString(day+23*time.Hour+55*time.Minute))
+	assert.Equal(t, "1w1d23h55m0s", durationToString(week+day+23*time.Hour+55*time.Minute))
+	assert.Equal(t, "1w0d23h55m0s", durationToString(week+23*time.Hour+55*time.Minute))
+	assert.Equal(t, "1w", durationToString(week))
+	assert.Equal(t, "1d", durationToString(day))
 }
 
 func TestSQLPlain(t *testing.T) {
@@ -42,8 +51,9 @@ SELECT
 	SUM(BOUNDED(bfield, 0, 100)) AS bounded,
 	5 as cval,
 	WAVG(a, b) AS weighted,
+	IF(dim = 'test2', _) AS present,
 	SHIFT(SUM(s), '1h') AS shifted,
-	IF(dim = 'test2', _) AS present
+	CROSSHIFT(SUM(cs), '-1d', '-1w') AS crosshifted
 FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -85,12 +95,12 @@ LIMIT 100, 10
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, shift(sum(s), '1h') as shifted, if(dim = 'test2', _) as present", q.Fields.String())
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(sum(cs), '-1d', '-1w') as crosshifted", q.Fields.String())
 	fields, err := q.Fields.Get(tableFields)
 	if !assert.NoError(t, err) {
 		return
 	}
-	if assert.Len(t, fields, 11) {
+	if assert.Len(t, fields, 18) {
 		field := fields[0]
 		expected := core.NewField("rate", rate).String()
 		actual := field.String()
@@ -142,11 +152,6 @@ LIMIT 100, 10
 		assert.Equal(t, expected, actual)
 
 		field = fields[9]
-		expected = core.NewField("shifted", SHIFT(SUM("s"), 1*time.Hour)).String()
-		actual = field.String()
-		assert.Equal(t, expected, actual)
-
-		field = fields[10]
 		cond, err = goexpr.Binary("==", goexpr.Param("dim"), goexpr.Constant("test2"))
 		if !assert.NoError(t, err) {
 			return
@@ -155,6 +160,22 @@ LIMIT 100, 10
 		expected = core.NewField("present", ifEx).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
+
+		field = fields[10]
+		expected = core.NewField("shifted", SHIFT(SUM("s"), 1*time.Hour)).String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		for i := time.Duration(0); i < 7; i++ {
+			field = fields[11+i]
+			as := "crosshifted"
+			if i > 0 {
+				as = fmt.Sprintf("crosshifted_%dd", i)
+			}
+			expected = core.NewField(as, SHIFT(SUM("cs"), i*-24*time.Hour)).String()
+			actual = field.String()
+			assert.Equal(t, expected, actual)
+		}
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)

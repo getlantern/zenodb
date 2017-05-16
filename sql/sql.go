@@ -29,17 +29,19 @@ var (
 )
 
 var (
-	ErrSelectNoName       = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
-	ErrIfArity            = errors.New("IF requires two parameters, like IF(dim = 1, SUM(b))")
-	ErrBoundedArity       = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
-	ErrShiftArity         = errors.New("SHIFT requires two parameters, like SHIFT(SUM(b), '1h')")
-	ErrCROSSTABArity      = errors.New("CROSSTAB requires at least one argument")
-	ErrCROSSTABUnique     = errors.New("Only one CROSSTAB statement allowed per query")
-	ErrAggregateArity     = errors.New("Aggregate functions take only one parameter, like SUM(b)")
-	ErrWildcardNotAllowed = errors.New("Wildcard * is not supported")
-	ErrNestedFunctionCall = errors.New("Nested function calls are not currently supported in SELECT")
-	ErrInvalidPeriod      = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
-	ErrInvalidStride      = errors.New("Please specify a stride in the form stride(5s) where 5s can be any valid Go duration expression")
+	ErrSelectNoName                = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
+	ErrIfArity                     = errors.New("IF requires two parameters, like IF(dim = 1, SUM(b))")
+	ErrBoundedArity                = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
+	ErrShiftArity                  = errors.New("SHIFT requires two parameters, like SHIFT(SUM(b), '-1h')")
+	ErrCrosshiftArity              = errors.New("CROSSHIFT requires three parameters, like CROSSHIFT(SUM(b), '-1h', '-1d')")
+	ErrCrosshiftZeroOffsetOrCutoff = errors.New("CROSSHIFT offset and cutoff must both be non-zero")
+	ErrCROSSTABArity               = errors.New("CROSSTAB requires at least one argument")
+	ErrCROSSTABUnique              = errors.New("Only one CROSSTAB statement allowed per query")
+	ErrAggregateArity              = errors.New("Aggregate functions take only one parameter, like SUM(b)")
+	ErrWildcardNotAllowed          = errors.New("Wildcard * is not supported")
+	ErrNestedFunctionCall          = errors.New("Nested function calls are not currently supported in SELECT")
+	ErrInvalidPeriod               = errors.New("Please specify a period in the form period(5s) where 5s can be any valid Go duration expression")
+	ErrInvalidStride               = errors.New("Please specify a stride in the form stride(5s) where 5s can be any valid Go duration expression")
 )
 
 var aggregateFuncs = map[string]func(interface{}) expr.Expr{
@@ -293,29 +295,100 @@ func (s *selectClause) Get(known core.Fields) (core.Fields, error) {
 				fields = s.addField(fields, field)
 			}
 		case *sqlparser.NonStarExpr:
-			if len(e.As) == 0 {
-				col, isColName := e.Expr.(*sqlparser.ColName)
-				if !isColName {
-					return nil, ErrSelectNoName
+			var err error
+			fe, ok := e.Expr.(*sqlparser.FuncExpr)
+			if ok && strings.ToUpper(string(fe.Name)) == "CROSSHIFT" {
+				// Special handling for CROSSHIFT
+				fields, err = s.addCrosshiftExpr(fields, fe, string(e.As), true)
+			} else {
+				if len(e.As) == 0 {
+					col, isColName := e.Expr.(*sqlparser.ColName)
+					if !isColName {
+						return nil, ErrSelectNoName
+					}
+					e.As = col.Name
 				}
-				e.As = col.Name
+				_fe, err := s.exprFor(e.Expr, true)
+				if err != nil {
+					return nil, err
+				}
+				fields, err = s.addExpr(fields, _fe, string(e.As))
 			}
-			_fe, err := s.exprFor(e.Expr, true)
 			if err != nil {
 				return nil, err
 			}
-			fe, ok := _fe.(expr.Expr)
-			if !ok {
-				return nil, fmt.Errorf("Not an Expr: %v", _fe)
-			}
-			err = fe.Validate()
-			if err != nil {
-				return nil, fmt.Errorf("Invalid expression for '%s': %v", e.As, err)
-			}
-			fields = s.addField(fields, core.NewField(strings.ToLower(string(e.As)), fe.(expr.Expr)))
 		}
 	}
 
+	return fields, nil
+}
+
+func (s *selectClause) addCrosshiftExpr(fields core.Fields, e *sqlparser.FuncExpr, as string, defaultToSum bool) (core.Fields, error) {
+	if len(e.Exprs) != 3 {
+		return nil, ErrCrosshiftArity
+	}
+
+	if len(as) == 0 {
+		return nil, ErrSelectNoName
+	}
+
+	_valueEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
+	if !ok {
+		return nil, ErrWildcardNotAllowed
+	}
+	valueEx, valueErr := s.exprFor(_valueEx.Expr, true)
+	if valueErr != nil {
+		return nil, valueErr
+	}
+	offset, offsetErr := nodeToDuration(e.Exprs[1])
+	if offsetErr != nil {
+		return nil, offsetErr
+	}
+	cutoff, cutoffErr := nodeToDuration(e.Exprs[2])
+	if cutoffErr != nil {
+		return nil, cutoffErr
+	}
+	if offset == 0 || cutoff == 0 {
+		return nil, ErrCrosshiftZeroOffsetOrCutoff
+	}
+	if offset > 0 && cutoff < 0 || offset < 0 && cutoff > 0 {
+		return nil, fmt.Errorf("CROSSHIFT cutoff %v doesn't match direction of offset %v", cutoff, offset)
+	}
+
+	interval := offset
+	limit := cutoff
+	if interval < 0 {
+		interval = interval * -1
+		limit = limit * -1
+	}
+
+	var err error
+	currentOffset := time.Duration(0)
+	for i := time.Duration(0); i < limit; i += interval {
+		newAs := as
+		if i != 0 {
+			newAs = fmt.Sprintf("%v_%v", as, durationToString(i))
+		}
+		fields, err = s.addExpr(fields, expr.SHIFT(valueEx, currentOffset), newAs)
+		if err != nil {
+			return nil, err
+		}
+		currentOffset += offset
+	}
+
+	return fields, nil
+}
+
+func (s *selectClause) addExpr(fields core.Fields, _fe interface{}, as string) (core.Fields, error) {
+	fe, ok := _fe.(expr.Expr)
+	if !ok {
+		return nil, fmt.Errorf("Not an Expr: %v", _fe)
+	}
+	err := fe.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("Invalid expression for '%s': %v", as, err)
+	}
+	fields = s.addField(fields, core.NewField(strings.ToLower(as), fe.(expr.Expr)))
 	return fields, nil
 }
 
