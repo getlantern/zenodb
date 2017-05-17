@@ -9,5 +9,5 @@ install:
 script:
 - glide install
 - ./test.sh
-# after_success:
-# - GOPATH=`pwd`:$GOPATH $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci
+after_success:
+- GOPATH=`pwd`:$GOPATH $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci

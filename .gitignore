@@ -3,3 +3,5 @@ zeno/zeno
 zeno-cli/zeno-cli
 vendor
 *.pem
+profile.cov
+profile_tmp.cov
