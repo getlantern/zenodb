@@ -1,7 +1,7 @@
 #! /usr/bin/env sh
 echo "mode: count" > profile.cov
 TP=$(find . -name "*_test.go" -printf '%h\n' | grep  -v vendor | grep -v glide | sort -u)
-CP=$$(echo -n $$TP | tr ' ', ',')
+CP=$(echo -n $TP | tr ' ', ',')
 set -x && \
 for pkg in $TP; do \
 	go test -v -tags="headless" -covermode=atomic -coverprofile=profile_tmp.cov $pkg || exit 1; \
