@@ -53,7 +53,7 @@ SELECT
 	WAVG(a, b) AS weighted,
 	IF(dim = 'test2', _) AS present,
 	SHIFT(SUM(s), '1h') AS shifted,
-	CROSSHIFT(cs, '-1d', '-1w')
+	CROSSHIFT(cs, '-1w', '1d')
 FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -95,7 +95,7 @@ LIMIT 100, 10
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1d', '-1w')", q.Fields.String())
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1w', '1d')", q.Fields.String())
 	fields, err := q.Fields.Get(tableFields)
 	if !assert.NoError(t, err) {
 		return

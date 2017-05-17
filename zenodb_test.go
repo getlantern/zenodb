@@ -362,11 +362,11 @@ view_a:
 	})
 
 	for _, includeMemStore := range []bool{true, false} {
-		// testSimpleQuery(t, db, includeMemStore, epoch, resolution)
-		// testStrideQuery(t, db, includeMemStore, epoch, resolution)
+		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
+		testStrideQuery(t, db, includeMemStore, epoch, resolution)
 		testShiftQuery(t, db, includeMemStore, epoch, resolution)
-		// testSubQuery(t, db, includeMemStore, epoch, resolution)
-		if false {
+		testSubQuery(t, db, includeMemStore, epoch, resolution)
+		if true {
 			testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
 		}
 	}
@@ -488,7 +488,7 @@ SELECT _points, CROSSHIFT(i, '%v', '%v') AS i
 FROM test_a
 GROUP BY _
 HAVING i_1s > 0 OR i > 0
-ORDER BY _time`, -1*resolution, -2*resolution)
+ORDER BY _time`, -2*resolution, 1*resolution)
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
 	expectedResult{
