@@ -299,20 +299,17 @@ func (s *selectClause) Get(known core.Fields) (core.Fields, error) {
 			fe, ok := e.Expr.(*sqlparser.FuncExpr)
 			if ok && strings.ToUpper(string(fe.Name)) == "CROSSHIFT" {
 				// Special handling for CROSSHIFT
-				fields, err = s.addCrosshiftExpr(fields, fe, string(e.As), true)
+				fields, err = s.addCrosshiftExpr(fields, fe, e.As, true)
 			} else {
-				if len(e.As) == 0 {
-					col, isColName := e.Expr.(*sqlparser.ColName)
-					if !isColName {
-						return nil, ErrSelectNoName
-					}
-					e.As = col.Name
+				as, asErr := asOrColName(e.As, e.Expr)
+				if asErr != nil {
+					return nil, asErr
 				}
-				_fe, err := s.exprFor(e.Expr, true)
-				if err != nil {
-					return nil, err
+				_fe, ferr := s.exprFor(e.Expr, true)
+				if ferr != nil {
+					return nil, ferr
 				}
-				fields, err = s.addExpr(fields, _fe, string(e.As))
+				fields, err = s.addExpr(fields, _fe, as)
 			}
 			if err != nil {
 				return nil, err
@@ -323,13 +320,9 @@ func (s *selectClause) Get(known core.Fields) (core.Fields, error) {
 	return fields, nil
 }
 
-func (s *selectClause) addCrosshiftExpr(fields core.Fields, e *sqlparser.FuncExpr, as string, defaultToSum bool) (core.Fields, error) {
+func (s *selectClause) addCrosshiftExpr(fields core.Fields, e *sqlparser.FuncExpr, asBytes []byte, defaultToSum bool) (core.Fields, error) {
 	if len(e.Exprs) != 3 {
 		return nil, ErrCrosshiftArity
-	}
-
-	if len(as) == 0 {
-		return nil, ErrSelectNoName
 	}
 
 	_valueEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
@@ -340,6 +333,11 @@ func (s *selectClause) addCrosshiftExpr(fields core.Fields, e *sqlparser.FuncExp
 	if valueErr != nil {
 		return nil, valueErr
 	}
+	as, asErr := asOrColName(asBytes, _valueEx.Expr)
+	if asErr != nil {
+		return nil, asErr
+	}
+
 	offset, offsetErr := nodeToDuration(e.Exprs[1])
 	if offsetErr != nil {
 		return nil, offsetErr
@@ -377,6 +375,17 @@ func (s *selectClause) addCrosshiftExpr(fields core.Fields, e *sqlparser.FuncExp
 	}
 
 	return fields, nil
+}
+
+func asOrColName(as []byte, e sqlparser.Expr) (string, error) {
+	if len(as) > 0 {
+		return string(as), nil
+	}
+	col, isColName := e.(*sqlparser.ColName)
+	if !isColName {
+		return "", ErrSelectNoName
+	}
+	return string(col.Name), nil
 }
 
 func (s *selectClause) addExpr(fields core.Fields, _fe interface{}, as string) (core.Fields, error) {

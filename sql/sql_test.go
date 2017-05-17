@@ -53,7 +53,7 @@ SELECT
 	WAVG(a, b) AS weighted,
 	IF(dim = 'test2', _) AS present,
 	SHIFT(SUM(s), '1h') AS shifted,
-	CROSSHIFT(SUM(cs), '-1d', '-1w') AS crosshifted
+	CROSSHIFT(cs, '-1d', '-1w')
 FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -95,7 +95,7 @@ LIMIT 100, 10
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(sum(cs), '-1d', '-1w') as crosshifted", q.Fields.String())
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1d', '-1w')", q.Fields.String())
 	fields, err := q.Fields.Get(tableFields)
 	if !assert.NoError(t, err) {
 		return
@@ -168,9 +168,9 @@ LIMIT 100, 10
 
 		for i := time.Duration(0); i < 7; i++ {
 			field = fields[11+i]
-			as := "crosshifted"
+			as := "cs"
 			if i > 0 {
-				as = fmt.Sprintf("crosshifted_%dd", i)
+				as = fmt.Sprintf("cs_%dd", i)
 			}
 			expected = core.NewField(as, SHIFT(SUM("cs"), i*-24*time.Hour)).String()
 			actual = field.String()
@@ -229,7 +229,7 @@ LIMIT 100, 10
 	assert.Equal(t, 5*time.Second, q.Resolution)
 	// TODO: reenable this
 	// assert.Equal(t, "(((dim_a LIKE 172.56.) AND (dim_b > 10)) OR (((((((dim_c == 20) OR (dim_d != thing)) AND (dim_e LIKE no such host)) AND (dim_f != true)) AND (dim_g == <nil>)) AND (dim_h != <nil>)) AND dim_i IN(5, 6, 7, 8)))", q.Where.String())
-	assert.Equal(t, "where dim_a like '172.56.' and dim_b > 10 or (dim_c = 20 or dim_d != 'thing') and dim_e not like 'no such host' and dim_f != true and dim_g is null and dim_h is not null and dim_i in (5, 6, 7, 8) and dim_j in (select subdim as subdim from subtable where subdim > 20) and rand() < 0.5", q.WhereSQL)
+	assert.Equal(t, "where dim_a like '172.56.' and dim_b > 10 or (dim_c = 20 or dim_d != 'thing') and dim_e not like 'no such host' and dim_f != true and dim_g is null and dim_h is not null and dim_i in (5, 6, 7, 8) and dim_j in (select subdim from subtable where subdim > 20) and rand() < 0.5", q.WhereSQL)
 	var subQueries []*SubQuery
 	q.Where.WalkLists(func(list goexpr.List) {
 		sq, ok := list.(*SubQuery)
@@ -238,7 +238,7 @@ LIMIT 100, 10
 		}
 	})
 	if assert.Len(t, subQueries, 1) {
-		assert.Equal(t, "select subdim as subdim from subtable where subdim > 20", subQueries[0].SQL)
+		assert.Equal(t, "select subdim from subtable where subdim > 20", subQueries[0].SQL)
 	}
 	assert.Equal(t, "rate > 15 and h < 2", q.Having.String())
 	expectedHaving := AND(GT(rate, 15), LT(SUM("h"), 2)).String()

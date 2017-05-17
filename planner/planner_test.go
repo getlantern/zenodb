@@ -105,7 +105,7 @@ func TestPlans(t *testing.T) {
 		"SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)",
 		"select * from TableA where dim in (select dim from tableb)",
 		func(source RowSource) Source {
-			return Flatten(RowFilter(source, "where dim in (select dim as dim from tableb)", nil))
+			return Flatten(RowFilter(source, "where dim in (select dim from tableb)", nil))
 		})
 
 	scenario("LIMIT and OFFSET",
