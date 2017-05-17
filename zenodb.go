@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	defaultMaxBackupWait = 30 * time.Minute
+	defaultMaxBackupWait = 1 * time.Hour
 )
 
 var (
@@ -386,11 +386,13 @@ func (db *DB) waitForBackupToFinish() {
 		}
 		if time.Now().Sub(fi.ModTime()) > db.opts.MaxBackupWait {
 			log.Debugf("%v is older than %v, continuing", lockFile, db.opts.MaxBackupWait)
+			return
 		}
 		log.Debugf("Waiting for backup to finish")
 		time.Sleep(5 * time.Second)
 		if time.Now().Sub(start) > db.opts.MaxBackupWait {
 			log.Debugf("Waited longer than %v for backup to finish, continuing", db.opts.MaxBackupWait)
+			return
 		}
 	}
 }
