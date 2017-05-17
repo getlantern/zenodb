@@ -515,6 +515,7 @@ func (rs *rowStore) removeOldFiles() {
 				foundLatest = true
 				continue
 			}
+			rs.t.db.waitForBackupToFinish()
 			// Okay to delete now
 			name := filepath.Join(rs.opts.dir, filename)
 			rs.t.log.Debugf("Removing old file %v", name)

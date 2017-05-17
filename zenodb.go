@@ -28,6 +28,10 @@ import (
 	"gopkg.in/redis.v5"
 )
 
+const (
+	defaultMaxBackupWait = 30 * time.Minute
+)
+
 var (
 	log = golog.LoggerFor("zenodb")
 
@@ -76,6 +80,9 @@ type DBOpts struct {
 	// MaxMemoryRatio caps the maximum memory of this process. When the system
 	// comes under memory pressure, it will start flushing table memstores.
 	MaxMemoryRatio float64
+	// MaxBackupWait limits how long we're willing to wait for a backup before
+	// resuming file operations
+	MaxBackupWait time.Duration
 	// Passthrough flags this node as a passthrough (won't store data in tables,
 	// just WAL). Passthrough nodes will also outsource queries to specific
 	// partition handlers. Requires that NumPartitions be specified.
@@ -133,6 +140,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.WALCompressionSize <= 0 {
 		opts.WALCompressionSize = opts.MaxWALSize / 10
+	}
+	if opts.MaxBackupWait <= 0 {
+		opts.MaxBackupWait = defaultMaxBackupWait
 	}
 
 	// Create db dir
@@ -275,6 +285,7 @@ func (db *DB) now(table string) time.Time {
 func (db *DB) capWALAge(wal *wal.WAL) {
 	for {
 		time.Sleep(1 * time.Minute)
+		db.waitForBackupToFinish()
 		err := wal.TruncateToSize(int64(db.opts.MaxWALSize))
 		if err != nil {
 			log.Errorf("Error truncating WAL: %v", err)
@@ -359,3 +370,27 @@ type byCurrentSize []*memStoreSize
 func (a byCurrentSize) Len() int           { return len(a) }
 func (a byCurrentSize) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a byCurrentSize) Less(i, j int) bool { return a[i].size > a[j].size }
+
+// waitForBackupToFinish waits until there's no .backup_lock file in the dbdir
+func (db *DB) waitForBackupToFinish() {
+	lockFile := filepath.Join(db.opts.Dir, ".backup_lock")
+	start := time.Now()
+	for {
+		fi, err := os.Stat(lockFile)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return
+			}
+			log.Errorf("Unable to stat %v, continuing: %v", lockFile, err)
+			return
+		}
+		if time.Now().Sub(fi.ModTime()) > db.opts.MaxBackupWait {
+			log.Debugf("%v is older than %v, continuing", lockFile, db.opts.MaxBackupWait)
+		}
+		log.Debugf("Waiting for backup to finish")
+		time.Sleep(5 * time.Second)
+		if time.Now().Sub(start) > db.opts.MaxBackupWait {
+			log.Debugf("Waited longer than %v for backup to finish, continuing", db.opts.MaxBackupWait)
+		}
+	}
+}
