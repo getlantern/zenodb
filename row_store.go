@@ -61,6 +61,7 @@ type rowStore struct {
 	inserts             chan *insert
 	forceFlushes        chan bool
 	forceFlushCompletes chan bool
+	flushCount          int
 	mx                  sync.RWMutex
 }
 
@@ -437,7 +438,14 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	rs.mx.RLock()
 	fs := rs.fileStore
 	rs.mx.RUnlock()
-	fs.iterate(rs.fields, ms, !shouldSort, true, write)
+	// We allow raw most of the time for efficiency purposes, but every 10 flushes
+	// we don't so that we have an opportunity to truncate old data.
+	disallowRaw := rs.flushCount%10 == 9
+	rs.flushCount++
+	if disallowRaw {
+		rs.t.log.Debug("Disallowing raw on flush to force truncation")
+	}
+	fs.iterate(rs.fields, ms, !shouldSort, !disallowRaw, write)
 	err = cout.Close()
 	if err != nil {
 		panic(err)
