@@ -361,7 +361,7 @@ var indexHTML = []byte(`
 			"inIframe": false,
     }});
     ractive.on("run", function() {
-      runQuery()
+      runQuery(false);
     });
 
     // Set up ace editor
@@ -375,7 +375,7 @@ var indexHTML = []byte(`
       if (!sqlInitialized) {
         if (context.querystring) {
           editor.setValue(context.querystring);
-          runQuery();
+          runQuery(true);
         }
         sqlInitialized = true;
       }
@@ -395,7 +395,7 @@ var indexHTML = []byte(`
       }
     }, 1000);
 
-		function runQuery(cachedLink) {
+		function runQuery(allowCaching, cachedLink) {
 			ractive.set("running", true);
       ractive.set("result", null);
 			ractive.set("error", null);
@@ -419,12 +419,15 @@ var indexHTML = []byte(`
 			}
 			console.log("Opening XHR to url", url)
 			xhr.open('GET', url, true);
+			if (!allowCaching) {
+				xhr.setRequestHeader("Cache-Control", "no-cache");
+			}
 
       xhr.onreadystatechange = function(e) {
 				if (this.readyState == 4) {
 					if (this.status == 202) {
 						var cachedLink = this.responseText;
-						runQuery(cachedLink);
+						runQuery(true, cachedLink);
 						return;
 					}
 					if (this.status == 200) {
@@ -612,7 +615,7 @@ var indexHTML = []byte(`
     }
 
 		if (isReport) {
-			runQuery();
+			runQuery(true);
 		}
 
 		if (window.self !== window.top) {
