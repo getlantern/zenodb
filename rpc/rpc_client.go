@@ -210,7 +210,15 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query pl
 		}
 	}
 
-	queryErr := query(stream.Context(), q.SQLString, q.IsSubQuery, q.SubQueryResults, q.Unflat, onFields, onRow, onFlatRow)
+	streamCtx := stream.Context()
+	if q.HasDeadline {
+		var cancel context.CancelFunc
+		streamCtx, cancel = context.WithDeadline(streamCtx, q.Deadline)
+		defer cancel()
+	}
+	streamCtx = common.WithIncludeMemStore(streamCtx, q.IncludeMemStore)
+
+	queryErr := query(streamCtx, q.SQLString, q.IsSubQuery, q.SubQueryResults, q.Unflat, onFields, onRow, onFlatRow)
 	result := &RemoteQueryResult{EndOfResults: true}
 	if queryErr != nil && queryErr != io.EOF {
 		result.Error = queryErr.Error()

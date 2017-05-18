@@ -4,17 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/getlantern/bytemap"
-	"github.com/getlantern/mtime"
-	"github.com/getlantern/zenodb/core"
-	"github.com/getlantern/zenodb/planner"
 	"sync"
 	"sync/atomic"
 	"time"
-)
 
-const (
-	keyIncludeMemStore = "zenodb.includeMemStore"
+	"github.com/getlantern/bytemap"
+	"github.com/getlantern/mtime"
+	"github.com/getlantern/zenodb/common"
+	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/planner"
 )
 
 func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {
@@ -40,17 +38,8 @@ func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryCluster
 	}
 }
 
-func withIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
-	return context.WithValue(ctx, keyIncludeMemStore, includeMemStore)
-}
-
-func shouldIncludeMemStore(ctx context.Context) bool {
-	include := ctx.Value(keyIncludeMemStore)
-	return include != nil && include.(bool)
-}
-
 func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
-	source, err := db.Query(sqlString, isSubQuery, subQueryResults, shouldIncludeMemStore(ctx))
+	source, err := db.Query(sqlString, isSubQuery, subQueryResults, common.ShouldIncludeMemStore(ctx))
 	if err != nil {
 		return err
 	}
@@ -76,7 +65,7 @@ type remoteResult struct {
 }
 
 func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
-	ctx = withIncludeMemStore(ctx, includeMemStore)
+	ctx = common.WithIncludeMemStore(ctx, includeMemStore)
 	numPartitions := db.opts.NumPartitions
 	results := make(chan *remoteResult, numPartitions*100000) // TODO: make this tunable
 	resultsByPartition := make(map[int]*int64)
