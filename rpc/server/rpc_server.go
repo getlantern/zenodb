@@ -167,12 +167,15 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 	}
 
 	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
-		sendErr := stream.SendMsg(&rpc.Query{
+		q := &rpc.Query{
 			SQLString:       sqlString,
 			IsSubQuery:      isSubQuery,
 			SubQueryResults: subQueryResults,
 			Unflat:          unflat,
-		})
+			IncludeMemStore: common.ShouldIncludeMemStore(ctx),
+		}
+		q.Deadline, q.HasDeadline = ctx.Deadline()
+		sendErr := stream.SendMsg(q)
 
 		m, recvErr := <-initialResultCh, <-initialErrCh
 

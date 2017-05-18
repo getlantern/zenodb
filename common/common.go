@@ -1,10 +1,16 @@
 package common
 
 import (
+	"context"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/encoding"
-	"time"
+)
+
+const (
+	keyIncludeMemStore = "zenodb.includeMemStore"
 )
 
 type Partition struct {
@@ -32,4 +38,13 @@ type QueryMetaData struct {
 	Until      time.Time
 	Resolution time.Duration
 	Plan       string
+}
+
+func WithIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
+	return context.WithValue(ctx, keyIncludeMemStore, includeMemStore)
+}
+
+func ShouldIncludeMemStore(ctx context.Context) bool {
+	include := ctx.Value(keyIncludeMemStore)
+	return include != nil && include.(bool)
 }

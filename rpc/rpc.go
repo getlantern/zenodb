@@ -2,6 +2,8 @@ package rpc
 
 import (
 	"context"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
@@ -41,6 +43,8 @@ type Query struct {
 	SubQueryResults [][]interface{}
 	IncludeMemStore bool
 	Unflat          bool
+	Deadline        time.Time
+	HasDeadline     bool
 }
 
 type Point struct {
