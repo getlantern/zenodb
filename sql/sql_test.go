@@ -79,6 +79,7 @@ GROUP BY
 	PCONCAT('|', part_a, part_b) AS joined,
 	TEST(dim_k) AS test_dim_k,
 	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
+	SISMEMBER('theset', 'themember') AS sim,
 	SPLIT(dim_o, ',', 2) AS spl,
 	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
@@ -189,7 +190,7 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 15) {
+	if assert.Len(t, q.GroupBy, 16) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), goexpr.P(redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m"))), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -212,6 +213,8 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("qlen", goexpr.Len(goexpr.Param("dim_q"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("sim", redis.SIsMember(goexpr.Constant("theset"), goexpr.Constant("themember"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("spl", goexpr.Split(goexpr.Param("dim_o"), goexpr.Constant(","), goexpr.Constant(2))).String(), q.GroupBy[idx].String())
 		assert.Equal(t, "c", q.GroupBy[idx].Expr.Eval(goexpr.MapParams{"dim_o": "a,b,c"}))

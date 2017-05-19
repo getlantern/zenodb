@@ -88,7 +88,8 @@ var unaryGoExpr = map[string]func(goexpr.Expr) goexpr.Expr{
 }
 
 var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
-	"HGET": redis.HGet,
+	"HGET":      redis.HGet,
+	"SISMEMBER": redis.SIsMember,
 }
 
 var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexpr.Expr{
