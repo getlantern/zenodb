@@ -53,7 +53,7 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 func fixupSubQuery(query *sql.Query, opts *Opts) {
 	if opts.IsSubQuery {
 		// Change field to _points field
-		query.Fields = core.StaticFieldSource{sql.PointsField}
+		query.Fields = core.StaticFieldSource{core.PointsField}
 	}
 }
 
@@ -61,7 +61,6 @@ func addGroupBy(source core.RowSource, query *sql.Query, applyResolution bool, r
 	opts := core.GroupOpts{
 		By:          query.GroupBy,
 		Crosstab:    query.Crosstab,
-		Having:      query.Having,
 		Fields:      query.Fields,
 		AsOf:        query.AsOf,
 		Until:       query.Until,

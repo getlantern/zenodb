@@ -45,7 +45,7 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 	}
 
 	needsGroupBy := asOfChanged || untilChanged || resolutionChanged ||
-		!query.GroupByAll || query.HasSpecificFields || query.Having != nil ||
+		!query.GroupByAll || query.HasSpecificFields || query.HasHaving ||
 		query.Crosstab != nil || strideSlice > 0
 	if needsGroupBy {
 		source = addGroupBy(source, query, resolutionTruncated || resolutionChanged, resolution, strideSlice)
@@ -53,7 +53,7 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 
 	flat := core.Flatten(source)
 
-	if query.Having != nil {
+	if query.HasHaving {
 		flat = addHaving(flat, query)
 	}
 
@@ -65,7 +65,7 @@ func sourceForSubQuery(query *sql.Query, opts *Opts) (core.RowSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	return core.Unflatten(subSource, query.Fields), nil
+	return core.Unflatten(subSource, query.FieldsNoHaving), nil
 }
 
 func sourceForTable(query *sql.Query, opts *Opts) (core.RowSource, error) {
@@ -85,19 +85,6 @@ func sourceForTable(query *sql.Query, opts *Opts) (core.RowSource, error) {
 		}
 		for _, field := range fields {
 			sms := field.Expr.SubMergers(tableExprs)
-			for i, sm := range sms {
-				if sm != nil {
-					includedFields[i] = true
-				}
-			}
-		}
-
-		if query.Having != nil {
-			having, err := query.Having.Get(append(tableFields, fields...))
-			if err != nil {
-				return nil, err
-			}
-			sms := having.SubMergers(tableExprs)
 			for i, sm := range sms {
 				if sm != nil {
 					includedFields[i] = true

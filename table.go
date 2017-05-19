@@ -233,7 +233,7 @@ func (db *DB) queryAndFields(opts *TableOpts) (q *sql.Query, fields core.Fields,
 
 func addPointsField(fields core.Fields) core.Fields {
 	for _, field := range fields {
-		if field.Equals(sql.PointsField) {
+		if field.Equals(core.PointsField) {
 			// already have _points field, nothing to do
 			return fields
 		}
@@ -241,7 +241,7 @@ func addPointsField(fields core.Fields) core.Fields {
 
 	// prepend the magic _points field
 	newFields := make([]core.Field, 0, len(fields)+1)
-	newFields = append(newFields, sql.PointsField)
+	newFields = append(newFields, core.PointsField)
 	newFields = append(newFields, fields...)
 	return newFields
 }

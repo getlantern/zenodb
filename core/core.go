@@ -12,10 +12,18 @@ import (
 	"time"
 )
 
+const (
+	// HavingFieldName is the name of the synthetic field for the HAVING clause.
+	HavingFieldName = "_having"
+)
+
 var (
 	// ErrDeadlineExceeded indicates that the deadline for iterating has been
 	// exceeded. Results may be incomplete.
 	ErrDeadlineExceeded = errors.New("deadline exceeded")
+
+	// PointsField is the synthetic field that counts number of submitted points.
+	PointsField = NewField("_points", expr.SUM("_point"))
 
 	reallyLongTime = 100 * 365 * 24 * time.Hour
 
