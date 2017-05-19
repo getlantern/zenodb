@@ -53,7 +53,7 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 func fixupSubQuery(query *sql.Query, opts *Opts) {
 	if opts.IsSubQuery {
 		// Change field to _points field
-		query.Fields = core.StaticFieldSource{sql.PointsField}
+		query.Fields = core.StaticFieldSource{core.PointsField}
 	}
 }
 

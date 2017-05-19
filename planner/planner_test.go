@@ -28,7 +28,7 @@ var (
 	fieldA = NewField("a", eA)
 	fieldB = NewField("b", eB)
 
-	defaultFields = Fields{sql.PointsField, NewField("a", eA), NewField("b", eB)}
+	defaultFields = Fields{PointsField, NewField("a", eA), NewField("b", eB)}
 
 	groupByX = NewGroupBy("x", goexpr.Param("x"))
 	groupByY = NewGroupBy("y", goexpr.Param("y"))
@@ -173,7 +173,7 @@ func TestPlans(t *testing.T) {
 				Flatten(
 					Group(source, GroupOpts{
 						Fields: textFieldSource("*, a+b > 0 AS _having"),
-					})), "_having", nil)
+					})), HavingFieldName, nil)
 		})
 
 	nonPushdownScenario("HAVING clause with single group by, pushdown not allowed",
@@ -186,7 +186,7 @@ func TestPlans(t *testing.T) {
 			})
 		},
 		func(source RowSource) Source {
-			return FlatRowFilter(Flatten(source), "_having", nil)
+			return FlatRowFilter(Flatten(source), HavingFieldName, nil)
 		},
 		GroupOpts{
 			By:     []GroupBy{groupByX},
@@ -202,7 +202,7 @@ func TestPlans(t *testing.T) {
 					Group(source, GroupOpts{
 						Fields: textFieldSource("*, a+b > 0 AS _having"),
 						By:     []GroupBy{groupByX, groupByY},
-					})), "_having", nil)
+					})), HavingFieldName, nil)
 		})
 
 	nonPushdownScenario("HAVING clause with complete group by and CROSSTAB, pushdown not allowed",
@@ -216,7 +216,7 @@ func TestPlans(t *testing.T) {
 			})
 		},
 		func(source RowSource) Source {
-			return FlatRowFilter(Flatten(source), "_having", nil)
+			return FlatRowFilter(Flatten(source), HavingFieldName, nil)
 		},
 		GroupOpts{
 			By:       []GroupBy{groupByX, groupByY},
@@ -243,7 +243,7 @@ func TestPlans(t *testing.T) {
 							Fields: textFieldSource("avg(a)+avg(b) as total, a+b > 0 AS _having"),
 						},
 					),
-				), "_having", nil)
+				), HavingFieldName, nil)
 		})
 
 	groupByLenXInner := NewGroupBy("len_x", goexpr.Len(goexpr.Param("x")))
@@ -269,7 +269,7 @@ func TestPlans(t *testing.T) {
 							By:     []GroupBy{groupByLenXOuter, groupByY},
 						},
 					),
-				), "_having", nil)
+				), HavingFieldName, nil)
 		})
 
 	// nonPushdownScenario("HAVING clause with contiguous group by in subselect but discontiguous group by in main select, pushdown of subquery allowed",
@@ -277,7 +277,7 @@ func TestPlans(t *testing.T) {
 	// 	"select * from TableA group by y, concat(',', x, 'thing') as xplus",
 	// 	func(source RowSource) RowSource {
 	// 		return Group(source, GroupOpts{
-	// 			Fields: StaticFieldSource{sql.PointsField, fieldA, fieldB},
+	// 			Fields: StaticFieldSource{PointsField, fieldA, fieldB},
 	// 			By:     []GroupBy{NewGroupBy("xplus", goexpr.Concat(goexpr.Constant(","), goexpr.Param("x"), goexpr.Constant("thing"))), groupByY},
 	// 		})
 	// 	},
@@ -291,7 +291,7 @@ func TestPlans(t *testing.T) {
 	// 						By:     []GroupBy{NewGroupBy("xplus", goexpr.Param("xplus")), groupByY},
 	// 					},
 	// 				),
-	// 			), "_having", nil)
+	// 			), HavingFieldName, nil)
 	// 	},
 	// 	GroupOpts{
 	// 		Fields: StaticFieldSource{avgTotal, fieldHaving},
@@ -317,7 +317,7 @@ func TestPlans(t *testing.T) {
 							By:     []GroupBy{groupByY},
 						},
 					),
-				), "_having", nil)
+				), HavingFieldName, nil)
 		},
 		func() Source {
 			t := &clusterFlatRowSource{
@@ -334,7 +334,7 @@ func TestPlans(t *testing.T) {
 							By:     []GroupBy{groupByY},
 						},
 					),
-				), "_having", nil)
+				), HavingFieldName, nil)
 		})
 
 	nonPushdownScenario("HAVING clause with discontiguous group by, pushdown not allowed",
@@ -347,7 +347,7 @@ func TestPlans(t *testing.T) {
 			})
 		},
 		func(source RowSource) Source {
-			return FlatRowFilter(Flatten(source), "_having", nil)
+			return FlatRowFilter(Flatten(source), HavingFieldName, nil)
 		},
 		GroupOpts{
 			Fields: textFieldSource("passthrough"),
@@ -364,7 +364,7 @@ func TestPlans(t *testing.T) {
 			})
 		},
 		func(source RowSource) Source {
-			return FlatRowFilter(Flatten(source), "_having", nil)
+			return FlatRowFilter(Flatten(source), HavingFieldName, nil)
 		},
 		GroupOpts{
 			Fields: textFieldSource("passthrough"),
@@ -513,7 +513,7 @@ func TestPlans(t *testing.T) {
 
 func verifyNoHaving(t *testing.T, fields Fields, plan Source, sqlString string) {
 	for _, field := range fields.Names() {
-		if !assert.NotEqual(t, "_having", field, sqlString) {
+		if !assert.NotEqual(t, HavingFieldName, field, sqlString) {
 			log.Debug(FormatSource(plan))
 		}
 	}
@@ -661,7 +661,7 @@ func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap,
 	}
 	key := bytemap.New(keyMap)
 	vals := make([]encoding.Sequence, 3)
-	vals[0] = encoding.NewFloatValue(sql.PointsField.Expr, ts, 1)
+	vals[0] = encoding.NewFloatValue(PointsField.Expr, ts, 1)
 	if a != 0 {
 		vals[1] = encoding.NewFloatValue(eA, ts, a)
 	}

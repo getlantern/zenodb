@@ -161,7 +161,7 @@ LIMIT 100, 10
 		if !assert.NoError(t, err) {
 			return
 		}
-		ifEx = IF(cond, GT(PointsField.Expr, CONST(0)))
+		ifEx = IF(cond, GT(core.PointsField.Expr, CONST(0)))
 		expected = core.NewField("present", ifEx).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
@@ -183,7 +183,7 @@ LIMIT 100, 10
 		}
 
 		field = fields[18]
-		expected = core.NewField("_having", AND(GT(rate, 15), LT(SUM("h"), 2))).String()
+		expected = core.NewField(core.HavingFieldName, AND(GT(rate, 15), LT(SUM("h"), 2))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 	}

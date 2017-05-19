@@ -9,7 +9,7 @@ import (
 )
 
 func addHaving(flat core.FlatRowSource, query *sql.Query) core.FlatRowSource {
-	base := core.FlatRowFilter(flat, "_having", func(ctx context.Context, row *core.FlatRow, fields core.Fields) (*core.FlatRow, error) {
+	base := core.FlatRowFilter(flat, core.HavingFieldName, func(ctx context.Context, row *core.FlatRow, fields core.Fields) (*core.FlatRow, error) {
 		havingIdx := len(fields) - 1
 		include := row.Values[havingIdx]
 		if include == 1 {
@@ -31,7 +31,7 @@ func (f *havingFilter) Iterate(ctx context.Context, onFields core.OnFields, onRo
 		// Remove the "_having" field
 		cleanedFields := make(core.Fields, 0, len(fields))
 		for _, field := range fields {
-			if field.Name != "_having" {
+			if field.Name != core.HavingFieldName {
 				cleanedFields = append(cleanedFields, field)
 			}
 		}

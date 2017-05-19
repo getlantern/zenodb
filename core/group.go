@@ -208,7 +208,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 					return ErrDeadlineExceeded
 				}
 				for _, outField := range origOutFields {
-					if outField.Name == "_having" {
+					if outField.Name == HavingFieldName {
 						// _having is not subjected to CROSSTAB treatment, save it and
 						// append later
 						havingField = outField
@@ -223,7 +223,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 				}
 			}
 			for _, outField := range origOutFields {
-				if outField.Name != "_having" {
+				if outField.Name != HavingFieldName {
 					outFields = append(outFields, NewField(fmt.Sprintf("total_%v", outField.Name), outField.Expr))
 				}
 			}

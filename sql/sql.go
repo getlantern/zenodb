@@ -24,8 +24,6 @@ import (
 
 var (
 	log = golog.LoggerFor("zenodb.sql")
-
-	PointsField = core.NewField("_points", expr.SUM("_point"))
 )
 
 var (
@@ -210,7 +208,7 @@ func parse(stmt *sqlparser.Select) (*Query, error) {
 	q.checkForFields(stmt)
 	q.HasHaving = stmt.Having != nil
 	if q.HasHaving {
-		q.HavingSQL = fmt.Sprintf("%v AS _having", nodeToString(stmt.Having.Expr))
+		q.HavingSQL = fmt.Sprintf("%v AS %v", nodeToString(stmt.Having.Expr), core.HavingFieldName)
 	}
 	hasSelect := len(stmt.SelectExprs) > 0
 	if hasSelect || q.HasHaving {
@@ -702,7 +700,7 @@ func (f *fielded) columnExprFor(e *sqlparser.ColName, defaultToSum bool) (interf
 	name := strings.ToLower(string(e.Name))
 	if name == "_" {
 		// This is a special name that stands for "value present"
-		return expr.GT(PointsField.Expr, expr.CONST(0)), nil
+		return expr.GT(core.PointsField.Expr, expr.CONST(0)), nil
 	}
 
 	// Default to a sum over the field
