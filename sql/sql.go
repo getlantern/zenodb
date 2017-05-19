@@ -149,8 +149,11 @@ func (sq *SubQuery) Values() []goexpr.Expr {
 // Query represents the result of parsing a SELECT query.
 type Query struct {
 	SQL string
-	// Fields are the fields from the SELECT clause in the order they appear.
-	Fields            core.FieldSource
+	// Fields are the fields from the SELECT clause in the order they appear,
+	// including the synthetic _having field if there's a HAVING clause.
+	Fields core.FieldSource
+	// FieldsNoHaving is like Fields but without the synthetic HAVING clause
+	FieldsNoHaving    core.FieldSource
 	HasSelectAll      bool
 	HasSpecificFields bool
 	// From is the Table from the FROM clause
@@ -169,11 +172,12 @@ type Query struct {
 	GroupBy    []core.GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab goexpr.Expr
-	Having   core.ExprSource
-	OrderBy  []core.OrderBy
-	Offset   int
-	Limit    int
+	Crosstab  goexpr.Expr
+	HasHaving bool
+	HavingSQL string
+	OrderBy   []core.OrderBy
+	Offset    int
+	Limit     int
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -204,8 +208,31 @@ func parse(stmt *sqlparser.Select) (*Query, error) {
 		return nil, err
 	}
 	q.checkForFields(stmt)
-	if len(stmt.SelectExprs) > 0 {
+	q.HasHaving = stmt.Having != nil
+	if q.HasHaving {
+		q.HavingSQL = fmt.Sprintf("%v AS _having", nodeToString(stmt.Having.Expr))
+	}
+	hasSelect := len(stmt.SelectExprs) > 0
+	if hasSelect || q.HasHaving {
+		var sql string
+		if hasSelect && q.HasHaving {
+			sql = fmt.Sprintf("%v, %v", nodeToString(stmt.SelectExprs), q.HavingSQL)
+		} else if hasSelect {
+			sql = nodeToString(stmt.SelectExprs)
+		} else {
+			sql = q.HavingSQL
+		}
+		combinedFields, combinedParseErr := sqlparser.Parse(fmt.Sprintf("SELECT %v FROM whatever", sql))
+		if combinedParseErr != nil {
+			return nil, fmt.Errorf("Unable to parse synthetic SQL query for combined fields: %v", combinedParseErr)
+		}
 		q.Fields = &selectClause{
+			stmt:    combinedFields.(*sqlparser.Select),
+			fielded: fielded{sql: sql},
+		}
+	}
+	if hasSelect {
+		q.FieldsNoHaving = &selectClause{
 			stmt:    stmt,
 			fielded: fielded{sql: nodeToString(stmt.SelectExprs)},
 		}
@@ -225,12 +252,6 @@ func parse(stmt *sqlparser.Select) (*Query, error) {
 	err = q.applyGroupBy(stmt)
 	if err != nil {
 		return nil, err
-	}
-	if stmt.Having != nil {
-		q.Having = &havingClause{
-			stmt:    stmt,
-			fielded: fielded{sql: nodeToString(stmt.Having.Expr)},
-		}
 	}
 	err = q.applyOrderBy(stmt)
 	if err != nil {

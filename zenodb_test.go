@@ -363,10 +363,11 @@ view_a:
 
 	for _, includeMemStore := range []bool{true, false} {
 		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
+		testCrosstabWithHavingQuery(t, db, includeMemStore, epoch, resolution)
 		testStrideQuery(t, db, includeMemStore, epoch, resolution)
 		testShiftQuery(t, db, includeMemStore, epoch, resolution)
 		testSubQuery(t, db, includeMemStore, epoch, resolution)
-		if true {
+		if false {
 			testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
 		}
 	}
@@ -439,6 +440,29 @@ ORDER BY _time`
 				"newfield_5": 0,
 				"newfield_6": 0,
 				"newfield_7": 0,
+			},
+		},
+	}.assert(t, db, sqlString, includeMemStore)
+}
+
+// testHavingQuery makes sure that a HAVING clause works even when the field in
+// that clause does not appear in the SELECT clause
+func testCrosstabWithHavingQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	sqlString := `
+SELECT i
+FROM test_a
+GROUP BY CROSSTAB(r)
+HAVING biv = 10
+ORDER BY _time`
+
+	epoch = encoding.RoundTimeUp(epoch, resolution)
+	expectedResult{
+		expectedRow{
+			epoch,
+			map[string]interface{}{},
+			map[string]float64{
+				"a_i":     11,
+				"total_i": 11,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)

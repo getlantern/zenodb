@@ -54,7 +54,6 @@ type keyedVals struct {
 type GroupOpts struct {
 	By          []GroupBy
 	Crosstab    goexpr.Expr
-	Having      ExprSource
 	Fields      FieldSource
 	Resolution  time.Duration
 	AsOf        time.Time
@@ -118,6 +117,11 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 				_, nonCrosstab := key.Split("_crosstab")
 				return nonCrosstab
 			}
+		} else if g.Crosstab != nil {
+			// Don't group by anything
+			sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
+				return nil
+			}
 		} else {
 			// Wildcard, select all and track all unique dims
 			sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
@@ -166,29 +170,12 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 		bt.Update(key, vals, nil, metadata)
 	}
 
-	addHaving := func() error {
-		if g.Having != nil {
-			having, err := g.Having.Get(outFields)
-			if err != nil {
-				return err
-			}
-			outFields = append(outFields, NewField("_having", having))
-		}
-		return nil
-	}
-
 	err := g.source.Iterate(ctx, func(fields Fields) error {
 		inFields = fields
 		var err error
 		outFields, err = g.Fields.Get(inFields)
 		if err != nil {
 			return err
-		}
-		if g.Crosstab == nil {
-			havingErr := addHaving()
-			if havingErr != nil {
-				return havingErr
-			}
 		}
 		return nil
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
@@ -215,11 +202,18 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 			}
 			sort.Strings(sortedCtabs)
 			outFields = make([]Field, 0, (len(sortedCtabs)+1)*len(origOutFields))
+			var havingField Field
 			for _, ctab := range sortedCtabs {
 				if guard.TimedOut() {
 					return ErrDeadlineExceeded
 				}
 				for _, outField := range origOutFields {
+					if outField.Name == "_having" {
+						// _having is not subjected to CROSSTAB treatment, save it and
+						// append later
+						havingField = outField
+						continue
+					}
 					cond, condErr := goexpr.Binary("=", g.Crosstab, goexpr.Constant(ctab))
 					if condErr != nil {
 						return condErr
@@ -229,11 +223,12 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 				}
 			}
 			for _, outField := range origOutFields {
-				outFields = append(outFields, NewField(fmt.Sprintf("total_%v", outField.Name), outField.Expr))
+				if outField.Name != "_having" {
+					outFields = append(outFields, NewField(fmt.Sprintf("total_%v", outField.Name), outField.Expr))
+				}
 			}
-			havingErr := addHaving()
-			if havingErr != nil {
-				return havingErr
+			if havingField.Name != "" {
+				outFields = append(outFields, havingField)
 			}
 
 			for _, kv := range kvs {
@@ -276,9 +271,6 @@ func (g *group) String() string {
 	}
 	if g.Crosstab != nil {
 		result.WriteString(fmt.Sprintf("\n       crosstab: %v", g.Crosstab))
-	}
-	if g.Having != nil {
-		result.WriteString(fmt.Sprintf("\n       having: %v", g.Having))
 	}
 	if g.Fields != nil {
 		result.WriteString(fmt.Sprintf("\n       fields: %v", g.Fields))

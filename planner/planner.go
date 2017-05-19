@@ -61,7 +61,6 @@ func addGroupBy(source core.RowSource, query *sql.Query, applyResolution bool, r
 	opts := core.GroupOpts{
 		By:          query.GroupBy,
 		Crosstab:    query.Crosstab,
-		Having:      query.Having,
 		Fields:      query.Fields,
 		AsOf:        query.AsOf,
 		Until:       query.Until,
