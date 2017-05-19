@@ -168,7 +168,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 
 	addHaving := func() error {
 		if g.Having != nil {
-			having, err := g.Having.Get(outFields)
+			having, err := g.Having.Get(inFields)
 			if err != nil {
 				return err
 			}
