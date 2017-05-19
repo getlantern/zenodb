@@ -3,6 +3,7 @@ package planner
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -206,6 +207,20 @@ func planClusterNonPushdown(opts *Opts, query *sql.Query) (core.FlatRowSource, e
 		sqlString = sqlString[:indexOfLimit]
 	}
 
+	hasHaving := query.Having != nil
+	if hasHaving {
+		// Insert having field
+		fromRegex, err := regexp.Compile(fmt.Sprintf("from\\s+%v", strings.ToLower(query.FromSQL)))
+		if err != nil {
+			return nil, fmt.Errorf("Unable to compile from regex: %v", err)
+		}
+		fromIndexes := fromRegex.FindStringIndex(lowerSQL)
+		if len(fromIndexes) == 0 {
+			return nil, fmt.Errorf("FROM clause not found!")
+		}
+		indexOfFrom := fromIndexes[0]
+		sqlString = fmt.Sprintf("%v, %v AS _having %v", sqlString[:indexOfFrom], query.Having.String(), sqlString[indexOfFrom:])
+	}
 	hasGroupBy := len(query.GroupBy) > 0
 	hasCrosstab := crosstabString != ""
 	var groupByParts []string
