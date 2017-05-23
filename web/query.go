@@ -60,6 +60,7 @@ func (h *handler) cachedQuery(resp http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	log.Debug(req.URL)
 	permalink := mux.Vars(req)["permalink"]
 	ce, err := h.cache.getByPermalink(permalink)
 	if ce == nil {
@@ -75,6 +76,7 @@ func (h *handler) sqlQuery(resp http.ResponseWriter, req *http.Request, timeout 
 		return
 	}
 
+	log.Debug(req.URL)
 	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
 
 	ce, err := h.query(req, sqlString)
