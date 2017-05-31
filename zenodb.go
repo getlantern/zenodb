@@ -62,6 +62,8 @@ type DBOpts struct {
 	// ISPProvider configures a provider of ISP lookups. Specify this to allow the
 	// use of ISP functions.
 	ISPProvider isp.Provider
+	// IPCacheSize determines the size of the ip cache for geo and ISP lookups
+	IPCacheSize int
 	// RedisClient provides a connection to redis which enables the use of Redis
 	// expressions like HGET.
 	RedisClient *redis.Client
@@ -153,7 +155,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 
 	if opts.EnableGeo {
 		log.Debug("Enabling geolocation functions")
-		err = geo.Init(filepath.Join(opts.Dir, "geoip.dat"))
+		err = geo.Init(filepath.Join(opts.Dir, "geoip.dat"), opts.IPCacheSize)
 		if err != nil {
 			return nil, fmt.Errorf("Unable to initialize geo: %v", err)
 		}
@@ -161,7 +163,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 
 	if opts.ISPProvider != nil {
 		log.Debugf("Setting ISP provider to %v", opts.ISPProvider)
-		isp.SetProvider(opts.ISPProvider)
+		isp.SetProvider(opts.ISPProvider, opts.IPCacheSize)
 	}
 
 	if opts.AliasesFile != "" {

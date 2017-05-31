@@ -30,7 +30,7 @@ imports:
 - name: github.com/getlantern/filepersist
   version: c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4
 - name: github.com/getlantern/goexpr
-  version: bbdd260b22517d4513d8042fdd080c6c299b0adf
+  version: fe2ff14f1ca2649a1c4e250aacc4a055d84be508
   subpackages:
   - geo
   - isp
