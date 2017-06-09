@@ -1,4 +1,4 @@
-ZenoDB [![Travis CI Status](https://travis-ci.org/getlantern/zenodb.svg?branch=master)](https://travis-ci.org/getlantern/zenodb)&nbsp;[![Coverage Status](https://coveralls.io/repos/getlantern/zenodb/badge.png)](https://coveralls.io/r/getlantern/zenodb)&nbsp;[![GoDoc](https://godoc.org/github.com/getlantern/zenodb?status.png)](http://godoc.org/github.com/getlantern/zenodb)
+ZenoDB [![Travis CI Status](https://travis-ci.org/getlantern/zenodb.svg?branch=master)](https://travis-ci.org/getlantern/zenodb)&nbsp;[![Coverage Status](https://coveralls.io/repos/getlantern/zenodb/badge.png)](https://coveralls.io/r/getlantern/zenodb)&nbsp;[![GoDoc](https://godoc.org/github.com/getlantern/zenodb?status.png)](http://godoc.org/github.com/getlantern/zenodb)&nbsp;[![Sourcegraph](https://sourcegraph.com/github.com/getlantern/zenodb/-/badge.svg)](https://sourcegraph.com/github.com/getlantern/zenodb?badge)
 ==========
 
 ZenoDB is a Go-based embeddable time series database optimized for performing
