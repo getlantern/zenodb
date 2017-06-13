@@ -58,7 +58,11 @@ func (e *logExpr) SubMergers(subs []Expr) []SubMerge {
 }
 
 func (e *logExpr) Get(b []byte) (float64, bool, []byte) {
-	return e.Wrapped.Get(b)
+	val, found, remain := e.Wrapped.Get(b)
+	if found {
+		val = e.LogFN(val)
+	}
+	return val, found, remain
 }
 
 func (e *logExpr) IsConstant() bool {

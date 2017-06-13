@@ -6,18 +6,18 @@ import (
 )
 
 func TestLN(t *testing.T) {
-	doTestLog(t, LN(CONST(math.E)), math.E)
+	doTestLog(t, LN(CONST(math.E)))
 }
 
 func TestLog2(t *testing.T) {
-	doTestLog(t, LOG2(CONST(2)), 2)
+	doTestLog(t, LOG2(CONST(2)))
 }
 
 func TestLog10(t *testing.T) {
-	doTestLog(t, LOG10(CONST(10)), 10)
+	doTestLog(t, LOG10(CONST(10)))
 }
 
-func doTestLog(t *testing.T, e Expr, base float64) {
+func doTestLog(t *testing.T, e Expr) {
 	val, _, _ := e.Get(nil)
-	assertFloatEquals(t, base, val)
+	assertFloatEquals(t, 1, val)
 }
