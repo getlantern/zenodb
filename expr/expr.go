@@ -41,6 +41,7 @@ func init() {
 	msgpack.RegisterExt(55, &avg{})
 	msgpack.RegisterExt(56, &binaryExpr{})
 	msgpack.RegisterExt(57, &shift{})
+	msgpack.RegisterExt(58, &logExpr{})
 }
 
 // Params is an interface for data structures that can contain named values.

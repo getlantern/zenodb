@@ -54,6 +54,12 @@ var binaryAggregateFuncs = map[string]func(interface{}, interface{}) expr.Expr{
 	"WAVG": expr.WAVG,
 }
 
+var unaryFuncs = map[string]func(interface{}) expr.Expr{
+	"LN":    expr.LN,
+	"LOG2":  expr.LOG2,
+	"LOG10": expr.LOG10,
+}
+
 var operators = map[string]func(interface{}, interface{}) expr.Expr{
 	"+": expr.ADD,
 	"-": expr.SUB,
@@ -792,6 +798,9 @@ func (f *fielded) shiftExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum
 
 func (f *fielded) unaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
 	fn, ok := aggregateFuncs[fname]
+	if !ok {
+		fn, ok = unaryFuncs[fname]
+	}
 	if !ok {
 		return nil, fmt.Errorf("Unknown function '%v'", fname)
 	}
