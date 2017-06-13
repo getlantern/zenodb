@@ -18,6 +18,6 @@ func TestLog10(t *testing.T) {
 }
 
 func doTestLog(t *testing.T, e Expr) {
-	val, _, _ := e.Get(nil)
+	val, _, _ := msgpacked(t, e).Get(nil)
 	assertFloatEquals(t, 1, val)
 }
