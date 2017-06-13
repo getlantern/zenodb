@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -599,11 +600,13 @@ func testAggregateQuery(t *testing.T, db *DB, includeMemStore bool, now time.Tim
 	sqlString := fmt.Sprintf(`
 SELECT
 	iii / 2 AS ciii,
+	LOG2(iii) AS liii,
 	IF(b != true, ii) AS ii,
 	biv / 10 AS biv,
 	*,
 	IF(b = true, i) AS i_filtered,
 	_points,
+	LOG10(_points) AS lpoints,
 	5.1 as cval,
 	_ AS present
 FROM test_a
@@ -623,6 +626,7 @@ ORDER BY u DESC
 			},
 			map[string]float64{
 				"_points":    1,
+				"lpoints":    math.Log10(1),
 				"i_filtered": 0,
 				"i":          31,
 				"ii":         42,
@@ -630,6 +634,7 @@ ORDER BY u DESC
 				"iv":         0,
 				"biv":        0,
 				"ciii":       float64(31*42) / float64(1) / float64(2),
+				"liii":       math.Log2(31 * 42),
 				"cval":       5.1,
 				"z":          53,
 				"present":    1,
@@ -650,6 +655,7 @@ ORDER BY u DESC
 			},
 			map[string]float64{
 				"_points":    3,
+				"lpoints":    math.Log10(3),
 				"i_filtered": 0,
 				"i":          122,
 				"ii":         244,
@@ -657,6 +663,7 @@ ORDER BY u DESC
 				"iv":         20,
 				"biv":        1,
 				"ciii":       float64(122*244) / float64(3) / float64(2),
+				"liii":       math.Log2(122 * 244),
 				"cval":       5.1,
 				"z":          0,
 				"present":    1,

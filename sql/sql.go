@@ -54,12 +54,6 @@ var binaryAggregateFuncs = map[string]func(interface{}, interface{}) expr.Expr{
 	"WAVG": expr.WAVG,
 }
 
-var unaryFuncs = map[string]func(interface{}) expr.Expr{
-	"LN":    expr.LN,
-	"LOG2":  expr.LOG2,
-	"LOG10": expr.LOG10,
-}
-
 var operators = map[string]func(interface{}, interface{}) expr.Expr{
 	"+": expr.ADD,
 	"-": expr.SUB,
@@ -797,14 +791,19 @@ func (f *fielded) shiftExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum
 }
 
 func (f *fielded) unaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
-	fn, ok := aggregateFuncs[fname]
-	if !ok {
-		fn, ok = unaryFuncs[fname]
+	var fn func(interface{}) (expr.Expr, error)
+	_fn, ok := aggregateFuncs[fname]
+	if ok {
+		log.Tracef("Found function: %v", fname)
+		fn = func(wrapped interface{}) (expr.Expr, error) {
+			return _fn(wrapped), nil
+		}
+	} else {
+		log.Tracef("Assuming unary math function: %v", fname)
+		fn = func(wrapped interface{}) (expr.Expr, error) {
+			return expr.UnaryMath(fname, wrapped)
+		}
 	}
-	if !ok {
-		return nil, fmt.Errorf("Unknown function '%v'", fname)
-	}
-	log.Tracef("Found function: %v", fname)
 	_param, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
 	if !ok {
 		return nil, ErrWildcardNotAllowed
@@ -813,7 +812,7 @@ func (f *fielded) unaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultT
 	if err != nil {
 		return nil, err
 	}
-	return fn(se), nil
+	return fn(se)
 }
 
 func (f *fielded) binaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {

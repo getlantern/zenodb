@@ -186,18 +186,23 @@ LIMIT 100, 10
 			assert.Equal(t, expected, actual)
 		}
 
+		unaryMath := func(name string, wrapped interface{}) Expr {
+			result, _ := UnaryMath(name, wrapped)
+			return result
+		}
+
 		field = fields[18]
-		expected = core.NewField("log1", LN("l1")).String()
+		expected = core.NewField("log1", unaryMath("LN", "l1")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
 		field = fields[19]
-		expected = core.NewField("log2", LOG2("l2")).String()
+		expected = core.NewField("log2", unaryMath("LOG2", "l2")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
 		field = fields[20]
-		expected = core.NewField("log3", LOG10("l3")).String()
+		expected = core.NewField("log3", unaryMath("LOG10", "l3")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
