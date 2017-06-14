@@ -41,6 +41,7 @@ func TestSQLPlain(t *testing.T) {
 	knownField := core.NewField("knownfield", known)
 	oKnownField := core.NewField("oknownfield", SUM("o"))
 	xKnownField := core.NewField("x", SUM("x"))
+	lKnownField := core.NewField("l", AVG("l"))
 	q, err := Parse(`
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
@@ -54,9 +55,9 @@ SELECT
 	IF(dim = 'test2', _) AS present,
 	SHIFT(SUM(s), '1h') AS shifted,
 	CROSSHIFT(cs, '-1w', '1d'),
-	LN(l1) AS log1,
-	LOG2(l2) AS log2,
-	LOG10(l3) AS log3
+	LN(l) AS log1,
+	LOG2(l) AS log2,
+	LOG10(l) AS log3
 FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -93,13 +94,13 @@ ORDER BY Rate DESC, x, y
 LIMIT 100, 10
 `)
 
-	tableFields := core.Fields{knownField, oKnownField, xKnownField}
+	tableFields := core.Fields{knownField, oKnownField, xKnownField, lKnownField}
 	if !assert.NoError(t, err) {
 		return
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1w', '1d'), ln(l1) as log1, log2(l2) as log2, log10(l3) as log3, rate > 15 and h < 2 AS _having", q.Fields.String())
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1w', '1d'), ln(l) as log1, log2(l) as log2, log10(l) as log3, rate > 15 and h < 2 AS _having", q.Fields.String())
 	fields, err := q.Fields.Get(tableFields)
 	if !assert.NoError(t, err) {
 		return
@@ -108,24 +109,30 @@ LIMIT 100, 10
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Len(t, fieldsNoHaving, 21)
-	if assert.Len(t, fields, 22) {
-		field := fields[0]
+	assert.Len(t, fieldsNoHaving, 22)
+	if assert.Len(t, fields, 23) {
+		idx := 0
+
+		field := fields[idx]
+		idx++
 		expected := core.NewField("rate", rate).String()
 		actual := field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[1]
+		field = fields[idx]
+		idx++
 		expected = core.NewField("myfield", myfield).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[2]
+		field = fields[idx]
+		idx++
 		expected = knownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[3]
+		field = fields[idx]
+		idx++
 		cond, err := goexpr.Binary("==", goexpr.Param("dim"), goexpr.Constant("test"))
 		if !assert.NoError(t, err) {
 			return
@@ -135,32 +142,44 @@ LIMIT 100, 10
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[4]
+		field = fields[idx]
+		idx++
 		expected = oKnownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[5]
+		field = fields[idx]
+		idx++
 		expected = xKnownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[6]
+		field = fields[idx]
+		idx++
+		expected = lKnownField.String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = fields[idx]
+		idx++
 		expected = core.NewField("bounded", SUM(BOUNDED("bfield", 0, 100))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[7]
+		field = fields[idx]
+		idx++
 		expected = core.NewField("cval", CONST(5)).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[8]
+		field = fields[idx]
+		idx++
 		expected = core.NewField("weighted", WAVG("a", "b")).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[9]
+		field = fields[idx]
+		idx++
 		cond, err = goexpr.Binary("==", goexpr.Param("dim"), goexpr.Constant("test2"))
 		if !assert.NoError(t, err) {
 			return
@@ -170,13 +189,15 @@ LIMIT 100, 10
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[10]
+		field = fields[idx]
+		idx++
 		expected = core.NewField("shifted", SHIFT(SUM("s"), 1*time.Hour)).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
 		for i := time.Duration(0); i < 7; i++ {
-			field = fields[11+i]
+			field = fields[idx]
+			idx++
 			as := "cs"
 			if i > 0 {
 				as = fmt.Sprintf("cs_%dd", i)
@@ -191,22 +212,26 @@ LIMIT 100, 10
 			return result
 		}
 
-		field = fields[18]
-		expected = core.NewField("log1", unaryMath("LN", "l1")).String()
+		field = fields[idx]
+		idx++
+		expected = core.NewField("log1", unaryMath("LN", AVG("l"))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[19]
-		expected = core.NewField("log2", unaryMath("LOG2", "l2")).String()
+		field = fields[idx]
+		idx++
+		expected = core.NewField("log2", unaryMath("LOG2", AVG("l"))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[20]
-		expected = core.NewField("log3", unaryMath("LOG10", "l3")).String()
+		field = fields[idx]
+		idx++
+		expected = core.NewField("log3", unaryMath("LOG10", AVG("l"))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
-		field = fields[21]
+		field = fields[idx]
+		idx++
 		expected = core.NewField(core.HavingFieldName, AND(GT(rate, 15), LT(SUM("h"), 2))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)

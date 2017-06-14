@@ -795,6 +795,7 @@ func (f *fielded) unaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultT
 	_fn, ok := aggregateFuncs[fname]
 	if ok {
 		log.Tracef("Found function: %v", fname)
+		defaultToSum = false
 		fn = func(wrapped interface{}) (expr.Expr, error) {
 			return _fn(wrapped), nil
 		}
@@ -808,7 +809,7 @@ func (f *fielded) unaryFuncExprFor(e *sqlparser.FuncExpr, fname string, defaultT
 	if !ok {
 		return nil, ErrWildcardNotAllowed
 	}
-	se, err := f.exprFor(_param.Expr, false)
+	se, err := f.exprFor(_param.Expr, defaultToSum)
 	if err != nil {
 		return nil, err
 	}
