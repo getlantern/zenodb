@@ -52,7 +52,14 @@ func (e *unaryMathExpr) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []b
 }
 
 func (e *unaryMathExpr) SubMergers(subs []Expr) []SubMerge {
-	return e.Wrapped.SubMergers(subs)
+	ssms := e.Wrapped.SubMergers(subs)
+	sms := make([]SubMerge, len(subs))
+	for i, sub := range subs {
+		if e.String() == sub.String() {
+			sms[i] = ssms[i]
+		}
+	}
+	return ssms
 }
 
 func (e *unaryMathExpr) Get(b []byte) (float64, bool, []byte) {
