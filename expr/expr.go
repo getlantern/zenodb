@@ -30,6 +30,7 @@ var (
 	avgType       = reflect.TypeOf((*avg)(nil))
 	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
 	shiftType     = reflect.TypeOf((*shift)(nil))
+	unaryMathType = reflect.TypeOf((*unaryMathExpr)(nil))
 )
 
 func init() {

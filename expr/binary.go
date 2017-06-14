@@ -52,7 +52,7 @@ func validateWrappedInBinary(wrapped Expr) error {
 		return fmt.Errorf("Binary expression cannot wrap nil expression")
 	}
 	typeOfWrapped := reflect.TypeOf(wrapped)
-	if typeOfWrapped == aggregateType || typeOfWrapped == ifType || typeOfWrapped == avgType || typeOfWrapped == constType || typeOfWrapped == shiftType {
+	if typeOfWrapped == aggregateType || typeOfWrapped == ifType || typeOfWrapped == avgType || typeOfWrapped == constType || typeOfWrapped == shiftType || typeOfWrapped == unaryMathType {
 		return nil
 	}
 	if typeOfWrapped == binaryType {
