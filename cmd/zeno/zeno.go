@@ -19,6 +19,7 @@ import (
 	"github.com/getlantern/tlsdefaults"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/cmd"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/rpc"
@@ -33,13 +34,7 @@ import (
 var (
 	log = golog.LoggerFor("zeno")
 
-	dbdir              = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
-	schema             = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
-	aliasesFile        = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
-	enablegeo          = flag.Bool("enablegeo", false, "enable geolocation functions")
-	ispformat          = flag.String("ispformat", "ip2location", "ip2location or maxmind")
-	ispdb              = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
-	vtime              = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
+	vtime              = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via inserts.")
 	walSync            = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	maxWALSize         = flag.Int("maxwalsize", 1024*1024*1024, "Maximum size of WAL segments on disk. Defaults to 1 GB.")
 	walCompressionSize = flag.Int("walcompressionsize", 30*1024*1024, "Size above which to start compressing WAL segments with snappy. Defaults to 30 MB.")
@@ -64,11 +59,6 @@ var (
 	numPartitions      = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition          = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 	maxFollowAge       = flag.Duration("maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
-	redisAddr          = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
-	redisCA            = flag.String("redisca", "", "Certificate for redislabs's CA")
-	redisClientPK      = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
-	redisClientCert    = flag.String("redisclientcert", "", "Certificate for authenticating client to redis's stunnel")
-	redisCacheSize     = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HGET operations, defaults to 25,000 per hash")
 )
 
 func main() {
@@ -95,19 +85,19 @@ func main() {
 
 	var ispProvider isp.Provider
 	var providerErr error
-	if *ispformat != "" && *ispdb != "" {
-		log.Debugf("Enabling ISP functions using format %v with db file at %v", *ispformat, *ispdb)
+	if *cmd.ISPFormat != "" && *cmd.ISPDB != "" {
+		log.Debugf("Enabling ISP functions using format %v with db file at %v", *cmd.ISPFormat, *cmd.ISPDB)
 
-		switch strings.ToLower(strings.TrimSpace(*ispformat)) {
+		switch strings.ToLower(strings.TrimSpace(*cmd.ISPFormat)) {
 		case "ip2location":
-			ispProvider, providerErr = ip2location.NewProvider(*ispdb)
+			ispProvider, providerErr = ip2location.NewProvider(*cmd.ISPDB)
 		case "maxmind":
-			ispProvider, providerErr = maxmind.NewProvider(*ispdb)
+			ispProvider, providerErr = maxmind.NewProvider(*cmd.ISPDB)
 		default:
-			log.Errorf("Unknown ispdb format %v", *ispformat)
+			log.Errorf("Unknown ispdb format %v", *cmd.ISPFormat)
 		}
 		if providerErr != nil {
-			log.Errorf("Unable to initialize ISP provider %v from %v: %v", *ispformat, *ispdb, err)
+			log.Errorf("Unable to initialize ISP provider %v from %v: %v", *cmd.ISPFormat, *cmd.ISPDB, err)
 			ispProvider = nil
 		}
 	}
@@ -254,29 +244,29 @@ func main() {
 	}
 
 	var redisClient *redis.Client
-	if *redisAddr != "" {
-		log.Debugf("Connecting to Redis at %v", *redisAddr)
+	if *cmd.RedisAddr != "" {
+		log.Debugf("Connecting to Redis at %v", *cmd.RedisAddr)
 		redisClient, err = lredis.NewClient(&lredis.Opts{
-			RedisURL:       *redisAddr,
-			RedisCAFile:    *redisCA,
-			ClientPKFile:   *redisClientPK,
-			ClientCertFile: *redisClientCert,
+			RedisURL:       *cmd.RedisAddr,
+			RedisCAFile:    *cmd.RedisCA,
+			ClientPKFile:   *cmd.RedisClientPK,
+			ClientCertFile: *cmd.RedisClientCert,
 		})
 		if err == nil {
-			log.Debugf("Connected to Redis at %v", *redisAddr)
+			log.Debugf("Connected to Redis at %v", *cmd.RedisAddr)
 		} else {
 			log.Errorf("Unable to connect to redis: %v", err)
 		}
 	}
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
-		Dir:                        *dbdir,
-		SchemaFile:                 *schema,
-		EnableGeo:                  *enablegeo,
+		Dir:                        *cmd.DBDir,
+		SchemaFile:                 *cmd.Schema,
+		EnableGeo:                  *cmd.EnableGeo,
 		ISPProvider:                ispProvider,
-		AliasesFile:                *aliasesFile,
+		AliasesFile:                *cmd.AliasesFile,
 		RedisClient:                redisClient,
-		RedisCacheSize:             *redisCacheSize,
+		RedisCacheSize:             *cmd.RedisCacheSize,
 		VirtualTime:                *vtime,
 		WALSyncInterval:            *walSync,
 		MaxWALSize:                 *maxWALSize,
@@ -292,9 +282,9 @@ func main() {
 	db.HandleShutdownSignal()
 
 	if err != nil {
-		log.Fatalf("Unable to open database at %v: %v", *dbdir, err)
+		log.Fatalf("Unable to open database at %v: %v", *cmd.DBDir, err)
 	}
-	fmt.Printf("Opened database at %v\n", *dbdir)
+	fmt.Printf("Opened database at %v\n", *cmd.DBDir)
 
 	fmt.Printf("Listening for gRPC connections at %v\n", l.Addr())
 	fmt.Printf("Listening for HTTP connections at %v\n", hl.Addr())
@@ -321,7 +311,7 @@ func serveHTTP(db *zenodb.DB, hl net.Listener) {
 		HashKey:           *cookieHashKey,
 		BlockKey:          *cookieBlockKey,
 		Password:          *password,
-		CacheDir:          filepath.Join(*dbdir, "_webcache"),
+		CacheDir:          filepath.Join(*cmd.DBDir, "_webcache"),
 	})
 	if err != nil {
 		log.Errorf("Unable to configure web: %v", err)
