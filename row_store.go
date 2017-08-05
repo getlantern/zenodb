@@ -154,7 +154,6 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 		fileStore: &fileStore{
 			t:        t,
 			fields:   fields,
-			opts:     opts,
 			filename: existingFileName,
 		},
 	}
@@ -288,26 +287,76 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	shouldSort := allowSort && rs.t.shouldSort()
 	willSort := "not sorted"
 	if shouldSort {
+	}
+
+	if shouldSort {
 		defer rs.t.stopSorting()
 		willSort = "sorted"
 	}
 
-	rs.t.log.Debugf("Starting flush, %v", willSort)
+	rs.mx.RLock()
+	fs := rs.fileStore
+	rs.mx.RUnlock()
+	// We allow raw most of the time for efficiency purposes, but every 10 flushes
+	// we don't so that we have an opportunity to truncate old data.
+	disallowRaw := rs.flushCount%10 == 9
+	rs.flushCount++
+	if disallowRaw {
+		rs.t.log.Debug("Disallowing raw on flush to force truncation")
+	}
+
+	fs.t.log.Debugf("Starting flush, %v", willSort)
 	start := time.Now()
+
 	out, err := ioutil.TempFile("", "nextrowstore")
 	if err != nil {
 		panic(err)
 	}
 	defer out.Close()
+
+	highWaterMark := fs.flush(out, rs.fields, ms, shouldSort, disallowRaw)
+
+	fi, err := out.Stat()
+	if err != nil {
+		fs.t.log.Errorf("Unable to stat output file to get size: %v", err)
+	}
+	// Note - we left-pad the unix nano value to the widest possible length to
+	// ensure lexicographical sort matches time-based sort (e.g. on directory
+	// listing).
+	newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
+	err = os.Rename(out.Name(), newFileStoreName)
+	if err != nil {
+		panic(err)
+	}
+
+	fs = &fileStore{rs.t, rs.fields, newFileStoreName}
+	ms = rs.newMemStore()
+	rs.mx.Lock()
+	rs.fileStore = fs
+	rs.memStore = ms
+	rs.mx.Unlock()
+
+	flushDuration := time.Now().Sub(start)
+	if fi != nil {
+		rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
+	} else {
+		rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
+	}
+
+	rs.t.updateHighWaterMarkDisk(highWaterMark)
+	return ms, flushDuration
+}
+
+func (fs *fileStore) flush(out *os.File, fields core.Fields, ms *memstore, shouldSort bool, disallowRaw bool) int64 {
 	sout := snappy.NewBufferedWriter(out)
 
-	fieldStrings := make([]string, 0, len(rs.fields))
-	for _, field := range rs.fields {
+	fieldStrings := make([]string, 0, len(fields))
+	for _, field := range fields {
 		fieldStrings = append(fieldStrings, field.String())
 	}
 	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
 	headerLength := uint32(len(ms.offset) + len(fieldsBytes))
-	err = binary.Write(sout, encoding.Binary, headerLength)
+	err := binary.Write(sout, encoding.Binary, headerLength)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header length: %v", err))
 	}
@@ -343,14 +392,14 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 		}
 
 		var sortErr error
-		cout, sortErr = emsort.New(sout, chunk, less, int(rs.t.db.maxMemoryBytes())/10)
+		cout, sortErr = emsort.New(sout, chunk, less, int(fs.t.db.maxMemoryBytes())/10)
 		if sortErr != nil {
 			panic(sortErr)
 		}
 	}
 
 	highWaterMark := int64(0)
-	truncateBefore := rs.t.truncateBefore()
+	truncateBefore := fs.t.truncateBefore()
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		if !shouldSort && raw != nil {
 			// This is an optimization that allows us to skip other processing by just
@@ -361,7 +410,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 		hasActiveSequence := false
 		for i, seq := range columns {
-			seq = seq.Truncate(rs.fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore, time.Time{})
+			seq = seq.Truncate(fields[i].Expr.EncodedWidth(), fs.t.Resolution, truncateBefore, time.Time{})
 			columns[i] = seq
 			if seq != nil {
 				hasActiveSequence = true
@@ -435,51 +484,13 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 		return true, nil
 	}
-	rs.mx.RLock()
-	fs := rs.fileStore
-	rs.mx.RUnlock()
-	// We allow raw most of the time for efficiency purposes, but every 10 flushes
-	// we don't so that we have an opportunity to truncate old data.
-	disallowRaw := rs.flushCount%10 == 9
-	rs.flushCount++
-	if disallowRaw {
-		rs.t.log.Debug("Disallowing raw on flush to force truncation")
-	}
-	fs.iterate(rs.fields, ms, !shouldSort, !disallowRaw, write)
+	fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
 	err = cout.Close()
 	if err != nil {
 		panic(err)
 	}
 
-	fi, err := out.Stat()
-	if err != nil {
-		rs.t.log.Errorf("Unable to stat output file to get size: %v", err)
-	}
-	// Note - we left-pad the unix nano value to the widest possible length to
-	// ensure lexicographical sort matches time-based sort (e.g. on directory
-	// listing).
-	newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
-	err = os.Rename(out.Name(), newFileStoreName)
-	if err != nil {
-		panic(err)
-	}
-
-	fs = &fileStore{rs.t, rs.fields, rs.opts, newFileStoreName}
-	ms = rs.newMemStore()
-	rs.mx.Lock()
-	rs.fileStore = fs
-	rs.memStore = ms
-	rs.mx.Unlock()
-
-	flushDuration := time.Now().Sub(start)
-	if fi != nil {
-		rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
-	} else {
-		rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
-	}
-
-	rs.t.updateHighWaterMarkDisk(highWaterMark)
-	return ms, flushDuration
+	return highWaterMark
 }
 
 func (rs *rowStore) writeOffset(offset wal.Offset) error {
@@ -546,7 +557,6 @@ func (rs *rowStore) removeOldFiles() {
 type fileStore struct {
 	t        *table
 	fields   core.Fields
-	opts     *rowStoreOptions
 	filename string
 }
 

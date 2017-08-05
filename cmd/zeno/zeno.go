@@ -34,6 +34,7 @@ import (
 var (
 	log = golog.LoggerFor("zeno")
 
+	dbdir              = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
 	vtime              = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via inserts.")
 	walSync            = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	maxWALSize         = flag.Int("maxwalsize", 1024*1024*1024, "Maximum size of WAL segments on disk. Defaults to 1 GB.")
@@ -41,7 +42,6 @@ var (
 	maxMemory          = flag.Float64("maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
 	addr               = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
 	httpsAddr          = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
-	pprofAddr          = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
 	password           = flag.String("password", "", "if specified, will authenticate clients using this password")
 	pkfile             = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
 	certfile           = flag.String("certfile", "cert.pem", "path to the certificate PEM file")
@@ -64,10 +64,10 @@ var (
 func main() {
 	iniflags.Parse()
 
-	if *pprofAddr != "" {
+	if *cmd.PprofAddr != "" {
 		go func() {
-			log.Debugf("Starting pprof page at http://%s/debug/pprof", *pprofAddr)
-			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+			log.Debugf("Starting pprof page at http://%s/debug/pprof", *cmd.PprofAddr)
+			if err := http.ListenAndServe(*cmd.PprofAddr, nil); err != nil {
 				log.Error(err)
 			}
 		}()
@@ -260,7 +260,7 @@ func main() {
 	}
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
-		Dir:                        *cmd.DBDir,
+		Dir:                        *dbdir,
 		SchemaFile:                 *cmd.Schema,
 		EnableGeo:                  *cmd.EnableGeo,
 		ISPProvider:                ispProvider,
@@ -282,9 +282,9 @@ func main() {
 	db.HandleShutdownSignal()
 
 	if err != nil {
-		log.Fatalf("Unable to open database at %v: %v", *cmd.DBDir, err)
+		log.Fatalf("Unable to open database at %v: %v", *dbdir, err)
 	}
-	fmt.Printf("Opened database at %v\n", *cmd.DBDir)
+	fmt.Printf("Opened database at %v\n", *dbdir)
 
 	fmt.Printf("Listening for gRPC connections at %v\n", l.Addr())
 	fmt.Printf("Listening for HTTP connections at %v\n", hl.Addr())
@@ -311,7 +311,7 @@ func serveHTTP(db *zenodb.DB, hl net.Listener) {
 		HashKey:           *cookieHashKey,
 		BlockKey:          *cookieBlockKey,
 		Password:          *password,
-		CacheDir:          filepath.Join(*cmd.DBDir, "_webcache"),
+		CacheDir:          filepath.Join(*dbdir, "_webcache"),
 	})
 	if err != nil {
 		log.Errorf("Unable to configure web: %v", err)

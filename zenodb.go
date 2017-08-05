@@ -106,6 +106,7 @@ type DBOpts struct {
 // DB is a zenodb database.
 type DB struct {
 	opts                 *DBOpts
+	isReadOnly           bool
 	clock                vtime.Clock
 	tables               map[string]*table
 	orderedTables        []*table
@@ -147,10 +148,15 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts.MaxBackupWait = defaultMaxBackupWait
 	}
 
-	// Create db dir
-	err = os.MkdirAll(opts.Dir, 0755)
-	if err != nil && !os.IsExist(err) {
-		return nil, fmt.Errorf("Unable to create db dir at %v: %v", opts.Dir, err)
+	db.isReadOnly = opts.Dir == ""
+	if db.isReadOnly {
+		log.Debugf("DB is ReadOnly, will not persist data to disk")
+	} else {
+		// Create db dir
+		err = os.MkdirAll(opts.Dir, 0755)
+		if err != nil && !os.IsExist(err) {
+			return nil, fmt.Errorf("Unable to create db dir at %v: %v", opts.Dir, err)
+		}
 	}
 
 	if opts.EnableGeo {
@@ -176,7 +182,11 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 
 	if opts.SchemaFile != "" {
-		err = db.pollForSchema(opts.SchemaFile)
+		if db.isReadOnly {
+			err = db.ApplySchemaFromFile(opts.SchemaFile)
+		} else {
+			err = db.pollForSchema(opts.SchemaFile)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("Unable to apply schema: %v", err)
 		}
@@ -187,10 +197,12 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.queryForRemote)
 	}
 
-	if db.opts.MaxMemoryRatio > 0 {
-		log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
+	if !db.isReadOnly {
+		if db.opts.MaxMemoryRatio > 0 {
+			log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
+		}
+		go db.trackMemStats()
 	}
-	go db.trackMemStats()
 
 	return db, err
 }

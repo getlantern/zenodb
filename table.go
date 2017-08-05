@@ -87,6 +87,11 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 		return err
 	}
 
+	if db.isReadOnly {
+		// treat all tables as Virtual on read-only databases
+		opts.Virtual = true
+	}
+
 	if !opts.Virtual {
 		if opts.RetentionPeriod <= 0 {
 			return errors.New("Please specify a positive RetentionPeriod")
