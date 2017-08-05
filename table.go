@@ -87,7 +87,7 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 		return err
 	}
 
-	if db.isReadOnly {
+	if db.opts.ReadOnly {
 		// treat all tables as Virtual on read-only databases
 		opts.Virtual = true
 	}

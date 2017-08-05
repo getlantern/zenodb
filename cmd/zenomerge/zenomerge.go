@@ -2,10 +2,10 @@ package main
 
 import (
 	"flag"
-	"net/http"
-	_ "net/http/pprof"
+	"strings"
 
 	"github.com/getlantern/golog"
+	"github.com/getlantern/zenodb"
 	"github.com/getlantern/zenodb/cmd"
 	"github.com/vharitonsky/iniflags"
 )
@@ -13,26 +13,41 @@ import (
 var (
 	log = golog.LoggerFor("zenotool")
 
-	outfile = flag.String("o", "", "Name of file to which to write output")
+	table   = flag.String("table", "", "Name of table corresponding to these files")
+	outFile = flag.String("out", "", "Name of file to which to write output")
 	filter  = flag.String("filter", "", "SQL WHERE clause for filtering rows")
 )
 
 func main() {
 	iniflags.Parse()
 
-	if *outfile == "" {
+	if *table == "" {
+		log.Fatal("Please specify a table using -table")
+	}
+
+	if *outFile == "" {
 		log.Fatal("Please specify an output file using -out")
 	}
 
-	if *cmd.PprofAddr != "" {
-		go func() {
-			log.Debugf("Starting pprof page at http://%s/debug/pprof", *cmd.PprofAddr)
-			if err := http.ListenAndServe(*cmd.PprofAddr, nil); err != nil {
-				log.Error(err)
-			}
-		}()
+	cmd.StartPprof()
+
+	db, err := zenodb.NewDB(&zenodb.DBOpts{
+		SchemaFile:     *cmd.Schema,
+		EnableGeo:      *cmd.EnableGeo,
+		ISPProvider:    cmd.ISPProvider(),
+		AliasesFile:    *cmd.AliasesFile,
+		RedisClient:    cmd.RedisClient(),
+		RedisCacheSize: *cmd.RedisCacheSize,
+	})
+	if err != nil {
+		log.Fatalf("Unable to initialize DB: %v", err)
 	}
 
-	infiles := flag.Args()
-	log.Debug(infiles)
+	inFiles := flag.Args()
+	err = db.Merge(*table, *filter, *outFile, inFiles...)
+	if err != nil {
+		log.Fatalf("Unable to perform merge: %v", err)
+	}
+
+	log.Debugf("Merged %v -> %v", strings.Join(inFiles, " + "), *outFile)
 }

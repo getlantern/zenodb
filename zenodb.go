@@ -49,6 +49,9 @@ func init() {
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
+	// ReadOnly puts the database into a mode whereby it does not persist anything
+	// to disk. This is useful for embedding the database in tools like zenomerge.
+	ReadOnly bool
 	// Dir points at the directory that contains the data files.
 	Dir string
 	// SchemaFile points at a YAML schema file that configures the tables and
@@ -106,7 +109,6 @@ type DBOpts struct {
 // DB is a zenodb database.
 type DB struct {
 	opts                 *DBOpts
-	isReadOnly           bool
 	clock                vtime.Clock
 	tables               map[string]*table
 	orderedTables        []*table
@@ -148,8 +150,8 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts.MaxBackupWait = defaultMaxBackupWait
 	}
 
-	db.isReadOnly = opts.Dir == ""
-	if db.isReadOnly {
+	db.opts.ReadOnly = opts.Dir == ""
+	if db.opts.ReadOnly {
 		log.Debugf("DB is ReadOnly, will not persist data to disk")
 	} else {
 		// Create db dir
@@ -182,7 +184,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 
 	if opts.SchemaFile != "" {
-		if db.isReadOnly {
+		if db.opts.ReadOnly {
 			err = db.ApplySchemaFromFile(opts.SchemaFile)
 		} else {
 			err = db.pollForSchema(opts.SchemaFile)
@@ -197,7 +199,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.queryForRemote)
 	}
 
-	if !db.isReadOnly {
+	if !db.opts.ReadOnly {
 		if db.opts.MaxMemoryRatio > 0 {
 			log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
 		}

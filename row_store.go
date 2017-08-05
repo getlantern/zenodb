@@ -16,6 +16,7 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/core"
@@ -114,26 +115,22 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 
 			// Version is currently unused, just read it to advance through file
 			versionFor(existingFileName)
+
 			// Get WAL offset
-			file, err := os.Open(existingFileName)
+			newWALOffset, opened, err := readWALOffset(existingFileName)
 			if err != nil {
-				return nil, nil, fmt.Errorf("Unable to open existing file %v: %v", existingFileName, err)
-			}
-			defer file.Close()
-			r := snappy.NewReader(file)
-			// Skip header length
-			newWALOffset := make(wal.Offset, wal.OffsetSize+4)
-			_, err = io.ReadFull(r, newWALOffset)
-			if err != nil {
-				log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
-				rmErr := os.Remove(existingFileName)
-				if rmErr != nil {
-					return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
+				if !opened {
+					return nil, nil, err
+				} else {
+					log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
+					rmErr := os.Remove(existingFileName)
+					if rmErr != nil {
+						return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
+					}
+					continue
 				}
-				continue
 			}
-			// Skip header length
-			newWALOffset = newWALOffset[4:]
+
 			if newWALOffset.After(walOffset) {
 				walOffset = newWALOffset
 			}
@@ -162,6 +159,28 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 	go rs.removeOldFiles()
 
 	return rs, walOffset, nil
+}
+
+func readWALOffset(filename string) (wal.Offset, bool, error) {
+	opened := false
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, opened, fmt.Errorf("Unable to open file %v: %v", filename, err)
+	}
+	defer file.Close()
+	opened = true
+
+	r := snappy.NewReader(file)
+
+	// Read WAL along with preceeding header length
+	walOffset := make(wal.Offset, wal.OffsetSize+4)
+	_, err = io.ReadFull(r, walOffset)
+	if err != nil {
+		return nil, opened, err
+	}
+
+	// Drop header length
+	return walOffset[4:], opened, nil
 }
 
 func (rs *rowStore) memStoreSize() int {
@@ -314,7 +333,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	}
 	defer out.Close()
 
-	highWaterMark := fs.flush(out, rs.fields, ms, shouldSort, disallowRaw)
+	highWaterMark := fs.flush(out, rs.fields, nil, ms.offset, ms, shouldSort, disallowRaw)
 
 	fi, err := out.Stat()
 	if err != nil {
@@ -347,7 +366,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	return ms, flushDuration
 }
 
-func (fs *fileStore) flush(out *os.File, fields core.Fields, ms *memstore, shouldSort bool, disallowRaw bool) int64 {
+func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offset wal.Offset, ms *memstore, shouldSort bool, disallowRaw bool) int64 {
 	sout := snappy.NewBufferedWriter(out)
 
 	fieldStrings := make([]string, 0, len(fields))
@@ -355,12 +374,12 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, ms *memstore, shoul
 		fieldStrings = append(fieldStrings, field.String())
 	}
 	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
-	headerLength := uint32(len(ms.offset) + len(fieldsBytes))
+	headerLength := uint32(len(offset) + len(fieldsBytes))
 	err := binary.Write(sout, encoding.Binary, headerLength)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header length: %v", err))
 	}
-	_, err = sout.Write(ms.offset)
+	_, err = sout.Write(offset)
 	if err != nil {
 		panic(fmt.Errorf("Unable to write header: %v", err))
 	}
@@ -406,6 +425,11 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, ms *memstore, shoul
 			// passing through the raw data
 			_, writeErr := cout.Write(raw)
 			return true, writeErr
+		}
+
+		if filter != nil && !filter.Eval(key).(bool) {
+			// Didn't meet filter criteria, remove key
+			return true, nil
 		}
 
 		hasActiveSequence := false
@@ -614,7 +638,6 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				}
 			}
 			if !foundField {
-				fs.t.log.Debugf("Unable to find file field %v in currently defined fields  %v", fieldString, fs.t.Name)
 				fileFields = append(fileFields, core.Field{})
 			}
 		}

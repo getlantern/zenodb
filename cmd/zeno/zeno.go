@@ -6,16 +6,11 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/getlantern/goexpr/isp"
-	"github.com/getlantern/goexpr/isp/ip2location"
-	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
-	lredis "github.com/getlantern/redis"
 	"github.com/getlantern/tlsdefaults"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
@@ -28,7 +23,6 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
-	"gopkg.in/redis.v5"
 )
 
 var (
@@ -64,14 +58,7 @@ var (
 func main() {
 	iniflags.Parse()
 
-	if *cmd.PprofAddr != "" {
-		go func() {
-			log.Debugf("Starting pprof page at http://%s/debug/pprof", *cmd.PprofAddr)
-			if err := http.ListenAndServe(*cmd.PprofAddr, nil); err != nil {
-				log.Error(err)
-			}
-		}()
-	}
+	cmd.StartPprof()
 
 	l, err := tlsdefaults.Listen(*addr, *pkfile, *certfile)
 	if err != nil {
@@ -81,25 +68,6 @@ func main() {
 	hl, err := tlsdefaults.Listen(*httpsAddr, *pkfile, *certfile)
 	if err != nil {
 		log.Fatalf("Unable to listen for HTTPS connections at %v: %v", *httpsAddr, err)
-	}
-
-	var ispProvider isp.Provider
-	var providerErr error
-	if *cmd.ISPFormat != "" && *cmd.ISPDB != "" {
-		log.Debugf("Enabling ISP functions using format %v with db file at %v", *cmd.ISPFormat, *cmd.ISPDB)
-
-		switch strings.ToLower(strings.TrimSpace(*cmd.ISPFormat)) {
-		case "ip2location":
-			ispProvider, providerErr = ip2location.NewProvider(*cmd.ISPDB)
-		case "maxmind":
-			ispProvider, providerErr = maxmind.NewProvider(*cmd.ISPDB)
-		default:
-			log.Errorf("Unknown ispdb format %v", *cmd.ISPFormat)
-		}
-		if providerErr != nil {
-			log.Errorf("Unable to initialize ISP provider %v from %v: %v", *cmd.ISPFormat, *cmd.ISPDB, err)
-			ispProvider = nil
-		}
 	}
 
 	clientSessionCache := tls.NewLRUClientSessionCache(10000)
@@ -243,29 +211,13 @@ func main() {
 		}
 	}
 
-	var redisClient *redis.Client
-	if *cmd.RedisAddr != "" {
-		log.Debugf("Connecting to Redis at %v", *cmd.RedisAddr)
-		redisClient, err = lredis.NewClient(&lredis.Opts{
-			RedisURL:       *cmd.RedisAddr,
-			RedisCAFile:    *cmd.RedisCA,
-			ClientPKFile:   *cmd.RedisClientPK,
-			ClientCertFile: *cmd.RedisClientCert,
-		})
-		if err == nil {
-			log.Debugf("Connected to Redis at %v", *cmd.RedisAddr)
-		} else {
-			log.Errorf("Unable to connect to redis: %v", err)
-		}
-	}
-
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		Dir:                        *dbdir,
 		SchemaFile:                 *cmd.Schema,
 		EnableGeo:                  *cmd.EnableGeo,
-		ISPProvider:                ispProvider,
+		ISPProvider:                cmd.ISPProvider(),
 		AliasesFile:                *cmd.AliasesFile,
-		RedisClient:                redisClient,
+		RedisClient:                cmd.RedisClient(),
 		RedisCacheSize:             *cmd.RedisCacheSize,
 		VirtualTime:                *vtime,
 		WALSyncInterval:            *walSync,
