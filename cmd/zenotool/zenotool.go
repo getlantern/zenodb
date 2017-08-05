@@ -44,7 +44,7 @@ func main() {
 	}
 
 	inFiles := flag.Args()
-	err = db.Merge(*table, *filter, *outFile, inFiles...)
+	err = db.FilterAndMerge(*table, *filter, *outFile, inFiles...)
 	if err != nil {
 		log.Fatalf("Unable to perform merge: %v", err)
 	}
