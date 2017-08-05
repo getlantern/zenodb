@@ -13,12 +13,14 @@ import (
 var (
 	log = golog.LoggerFor("zenotool")
 
-	table   = flag.String("table", "", "Name of table corresponding to these files")
-	outFile = flag.String("out", "", "Name of file to which to write output")
-	where   = flag.String("where", "", "SQL WHERE clause for filtering rows")
+	table      = flag.String("table", "", "Name of table corresponding to these files")
+	outFile    = flag.String("out", "", "Name of file to which to write output")
+	where      = flag.String("where", "", "SQL WHERE clause for filtering rows")
+	shouldSort = flag.Bool("sort", false, "Sort the output")
 )
 
 func main() {
+	iniflags.SetAllowUnknownFlags(true)
 	iniflags.Parse()
 
 	if *table == "" {
@@ -44,7 +46,7 @@ func main() {
 	}
 
 	inFiles := flag.Args()
-	err = db.FilterAndMerge(*table, *where, *outFile, inFiles...)
+	err = db.FilterAndMerge(*table, *where, *shouldSort, *outFile, inFiles...)
 	if err != nil {
 		log.Fatalf("Unable to perform merge: %v", err)
 	}

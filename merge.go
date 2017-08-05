@@ -20,17 +20,17 @@ var (
 // inFiles and outFiles are all valid filestore files. The schema is based on
 // the named table. If whereClause is specified, rows are filtered by comparing
 // them to the whereClause. The merge is performed as a disk-based merge in
-// order to use minimal memory.
-func (db *DB) FilterAndMerge(table string, whereClause string, outFile string, inFiles ...string) error {
+// order to use minimal memory. If shouldSort is true, the output will be sorted
+// by key.
+func (db *DB) FilterAndMerge(table string, whereClause string, shouldSort bool, outFile string, inFiles ...string) error {
 	t := db.getTable(table)
 	if t == nil {
 		return errors.New("Table %v not found", table)
 	}
-	return t.filterAndMerge(whereClause, outFile, inFiles)
+	return t.filterAndMerge(whereClause, shouldSort, outFile, inFiles)
 }
 
-func (t *table) filterAndMerge(whereClause string, outFile string, inFiles []string) error {
-	shouldSort := true
+func (t *table) filterAndMerge(whereClause string, shouldSort bool, outFile string, inFiles []string) error {
 	okayToReuseBuffers := false
 	rawOkay := false
 
@@ -76,7 +76,6 @@ func (t *table) filterAndMerge(whereClause string, outFile string, inFiles []str
 			filename: inFile,
 		}
 		err = fs.iterate(t.fields, nil, okayToReuseBuffers, rawOkay, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
-			log.Debug(columns)
 			_, writeErr := fs.doWrite(cout, t.fields, filter, truncateBefore, shouldSort, key, columns, raw)
 			return true, writeErr
 		})
