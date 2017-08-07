@@ -1,3 +1,5 @@
+// zeno is the executable for the ZenoDB database, and can run as a standalone
+// server, as a cluster leader or as a cluster follower.
 package main
 
 import (

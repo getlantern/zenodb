@@ -1,3 +1,4 @@
+// zenotool provides the ability to filter and merge zeno datafiles offline.
 package main
 
 import (
