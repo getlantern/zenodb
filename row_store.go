@@ -16,6 +16,8 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/errors"
+	"github.com/getlantern/goexpr"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/core"
@@ -114,26 +116,22 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 
 			// Version is currently unused, just read it to advance through file
 			versionFor(existingFileName)
+
 			// Get WAL offset
-			file, err := os.Open(existingFileName)
+			newWALOffset, opened, err := readWALOffset(existingFileName)
 			if err != nil {
-				return nil, nil, fmt.Errorf("Unable to open existing file %v: %v", existingFileName, err)
-			}
-			defer file.Close()
-			r := snappy.NewReader(file)
-			// Skip header length
-			newWALOffset := make(wal.Offset, wal.OffsetSize+4)
-			_, err = io.ReadFull(r, newWALOffset)
-			if err != nil {
-				log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
-				rmErr := os.Remove(existingFileName)
-				if rmErr != nil {
-					return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
+				if !opened {
+					return nil, nil, err
+				} else {
+					log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
+					rmErr := os.Remove(existingFileName)
+					if rmErr != nil {
+						return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
+					}
+					continue
 				}
-				continue
 			}
-			// Skip header length
-			newWALOffset = newWALOffset[4:]
+
 			if newWALOffset.After(walOffset) {
 				walOffset = newWALOffset
 			}
@@ -154,7 +152,6 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 		fileStore: &fileStore{
 			t:        t,
 			fields:   fields,
-			opts:     opts,
 			filename: existingFileName,
 		},
 	}
@@ -163,6 +160,28 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 	go rs.removeOldFiles()
 
 	return rs, walOffset, nil
+}
+
+func readWALOffset(filename string) (wal.Offset, bool, error) {
+	opened := false
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, opened, fmt.Errorf("Unable to open file %v: %v", filename, err)
+	}
+	defer file.Close()
+	opened = true
+
+	r := snappy.NewReader(file)
+
+	// Read WAL along with preceeding header length
+	walOffset := make(wal.Offset, wal.OffsetSize+4)
+	_, err = io.ReadFull(r, walOffset)
+	if err != nil {
+		return nil, opened, err
+	}
+
+	// Drop header length
+	return walOffset[4:], opened, nil
 }
 
 func (rs *rowStore) memStoreSize() int {
@@ -288,153 +307,13 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	shouldSort := allowSort && rs.t.shouldSort()
 	willSort := "not sorted"
 	if shouldSort {
+	}
+
+	if shouldSort {
 		defer rs.t.stopSorting()
 		willSort = "sorted"
 	}
 
-	rs.t.log.Debugf("Starting flush, %v", willSort)
-	start := time.Now()
-	out, err := ioutil.TempFile("", "nextrowstore")
-	if err != nil {
-		panic(err)
-	}
-	defer out.Close()
-	sout := snappy.NewBufferedWriter(out)
-
-	fieldStrings := make([]string, 0, len(rs.fields))
-	for _, field := range rs.fields {
-		fieldStrings = append(fieldStrings, field.String())
-	}
-	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
-	headerLength := uint32(len(ms.offset) + len(fieldsBytes))
-	err = binary.Write(sout, encoding.Binary, headerLength)
-	if err != nil {
-		panic(fmt.Errorf("Unable to write header length: %v", err))
-	}
-	_, err = sout.Write(ms.offset)
-	if err != nil {
-		panic(fmt.Errorf("Unable to write header: %v", err))
-	}
-	_, err = sout.Write(fieldsBytes)
-	if err != nil {
-		panic(fmt.Errorf("Unable to write header: %v", err))
-	}
-
-	var cout io.WriteCloser
-	if !shouldSort {
-		cout = sout
-	} else {
-		chunk := func(r io.Reader) ([]byte, error) {
-			rowLength := uint64(0)
-			readErr := binary.Read(r, encoding.Binary, &rowLength)
-			if readErr != nil {
-				return nil, readErr
-			}
-			_row := make([]byte, rowLength)
-			row := _row
-			encoding.Binary.PutUint64(row, rowLength)
-			row = row[encoding.Width64bits:]
-			_, err = io.ReadFull(r, row)
-			return _row, err
-		}
-
-		less := func(a []byte, b []byte) bool {
-			return bytes.Compare(a, b) < 0
-		}
-
-		var sortErr error
-		cout, sortErr = emsort.New(sout, chunk, less, int(rs.t.db.maxMemoryBytes())/10)
-		if sortErr != nil {
-			panic(sortErr)
-		}
-	}
-
-	highWaterMark := int64(0)
-	truncateBefore := rs.t.truncateBefore()
-	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
-		if !shouldSort && raw != nil {
-			// This is an optimization that allows us to skip other processing by just
-			// passing through the raw data
-			_, writeErr := cout.Write(raw)
-			return true, writeErr
-		}
-
-		hasActiveSequence := false
-		for i, seq := range columns {
-			seq = seq.Truncate(rs.fields[i].Expr.EncodedWidth(), rs.t.Resolution, truncateBefore, time.Time{})
-			columns[i] = seq
-			if seq != nil {
-				hasActiveSequence = true
-			}
-		}
-
-		if !hasActiveSequence {
-			// all encoding.Sequences expired, remove key
-			return true, nil
-		}
-
-		rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
-		for _, seq := range columns {
-			rowLength += encoding.Width64bits + len(seq)
-			ts := seq.UntilInt()
-			if ts > highWaterMark {
-				highWaterMark = ts
-			}
-		}
-
-		var o io.Writer = cout
-		var buf *bytes.Buffer
-		if shouldSort {
-			// When sorting, we need to write the entire row as a single byte array,
-			// so use a ByteBuffer. We don't do this otherwise because we're already
-			// using a buffered writer, so we can avoid the copying
-			b := make([]byte, 0, rowLength)
-			buf = bytes.NewBuffer(b)
-			o = buf
-		}
-
-		err = binary.Write(o, encoding.Binary, uint64(rowLength))
-		if err != nil {
-			panic(err)
-		}
-
-		err = binary.Write(o, encoding.Binary, uint16(len(key)))
-		if err != nil {
-			panic(err)
-		}
-		_, err = o.Write(key)
-		if err != nil {
-			panic(err)
-		}
-
-		err = binary.Write(o, encoding.Binary, uint16(len(columns)))
-		if err != nil {
-			panic(err)
-		}
-		for _, seq := range columns {
-			err = binary.Write(o, encoding.Binary, uint64(len(seq)))
-			if err != nil {
-				panic(err)
-			}
-		}
-		for _, seq := range columns {
-			_, err = o.Write(seq)
-			if err != nil {
-				panic(err)
-			}
-		}
-
-		if shouldSort {
-			// flush buffer
-			_b := buf.Bytes()
-			_, writeErr := cout.Write(_b)
-			if writeErr != nil {
-				panic(writeErr)
-			}
-		}
-
-		return true, nil
-	}
 	rs.mx.RLock()
 	fs := rs.fileStore
 	rs.mx.RUnlock()
@@ -445,15 +324,21 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	if disallowRaw {
 		rs.t.log.Debug("Disallowing raw on flush to force truncation")
 	}
-	fs.iterate(rs.fields, ms, !shouldSort, !disallowRaw, write)
-	err = cout.Close()
+
+	fs.t.log.Debugf("Starting flush, %v", willSort)
+	start := time.Now()
+
+	out, err := ioutil.TempFile("", "nextrowstore")
 	if err != nil {
 		panic(err)
 	}
+	defer out.Close()
+
+	highWaterMark := fs.flush(out, rs.fields, nil, ms.offset, ms, shouldSort, disallowRaw)
 
 	fi, err := out.Stat()
 	if err != nil {
-		rs.t.log.Errorf("Unable to stat output file to get size: %v", err)
+		fs.t.log.Errorf("Unable to stat output file to get size: %v", err)
 	}
 	// Note - we left-pad the unix nano value to the widest possible length to
 	// ensure lexicographical sort matches time-based sort (e.g. on directory
@@ -464,7 +349,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 		panic(err)
 	}
 
-	fs = &fileStore{rs.t, rs.fields, rs.opts, newFileStoreName}
+	fs = &fileStore{rs.t, rs.fields, newFileStoreName}
 	ms = rs.newMemStore()
 	rs.mx.Lock()
 	rs.fileStore = fs
@@ -480,6 +365,177 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	rs.t.updateHighWaterMarkDisk(highWaterMark)
 	return ms, flushDuration
+}
+
+func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offset wal.Offset, ms *memstore, shouldSort bool, disallowRaw bool) int64 {
+	cout, err := fs.createOutWriter(out, fields, offset, shouldSort)
+	if err != nil {
+		panic(err)
+	}
+
+	highWaterMark := int64(0)
+	truncateBefore := fs.t.truncateBefore()
+	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+		nextHighWaterMark, err := fs.doWrite(cout, fields, filter, truncateBefore, shouldSort, key, columns, raw)
+		if err != nil {
+			panic(err)
+		}
+		if nextHighWaterMark > highWaterMark {
+			highWaterMark = nextHighWaterMark
+		}
+		return true, nil
+	}
+
+	fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
+	err = cout.Close()
+	if err != nil {
+		panic(err)
+	}
+
+	return highWaterMark
+}
+
+func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offset wal.Offset, shouldSort bool) (io.WriteCloser, error) {
+	sout := snappy.NewBufferedWriter(out)
+
+	fieldStrings := make([]string, 0, len(fields))
+	for _, field := range fields {
+		fieldStrings = append(fieldStrings, field.String())
+	}
+	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
+	headerLength := uint32(len(offset) + len(fieldsBytes))
+	err := binary.Write(sout, encoding.Binary, headerLength)
+	if err != nil {
+		return nil, errors.New("Unable to write header length: %v", err)
+	}
+	_, err = sout.Write(offset)
+	if err != nil {
+		return nil, errors.New("Unable to write header: %v", err)
+	}
+	_, err = sout.Write(fieldsBytes)
+	if err != nil {
+		return nil, errors.New("Unable to write header: %v", err)
+	}
+
+	if !shouldSort {
+		return sout, nil
+	}
+	chunk := func(r io.Reader) ([]byte, error) {
+		rowLength := uint64(0)
+		readErr := binary.Read(r, encoding.Binary, &rowLength)
+		if readErr != nil {
+			return nil, readErr
+		}
+		_row := make([]byte, rowLength)
+		row := _row
+		encoding.Binary.PutUint64(row, rowLength)
+		row = row[encoding.Width64bits:]
+		_, err = io.ReadFull(r, row)
+		return _row, err
+	}
+
+	less := func(a []byte, b []byte) bool {
+		return bytes.Compare(a, b) < 0
+	}
+
+	cout, sortErr := emsort.New(sout, chunk, less, int(fs.t.db.maxMemoryBytes())/10)
+	if sortErr != nil {
+		panic(sortErr)
+	}
+
+	return cout, nil
+}
+
+func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goexpr.Expr, truncateBefore time.Time, shouldSort bool, key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (int64, error) {
+	highWaterMark := int64(0)
+
+	if !shouldSort && raw != nil {
+		// This is an optimization that allows us to skip other processing by just
+		// passing through the raw data
+		_, writeErr := cout.Write(raw)
+		return highWaterMark, writeErr
+	}
+
+	if filter != nil && !filter.Eval(key).(bool) {
+		// Didn't meet filter criteria, remove key
+		return highWaterMark, nil
+	}
+
+	hasActiveSequence := false
+	for i, seq := range columns {
+		seq = seq.Truncate(fields[i].Expr.EncodedWidth(), fs.t.Resolution, truncateBefore, time.Time{})
+		columns[i] = seq
+		if seq != nil {
+			hasActiveSequence = true
+		}
+	}
+
+	if !hasActiveSequence {
+		// all encoding.Sequences expired, remove key
+		return highWaterMark, nil
+	}
+
+	rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
+	for _, seq := range columns {
+		rowLength += encoding.Width64bits + len(seq)
+		ts := seq.UntilInt()
+		if ts > highWaterMark {
+			highWaterMark = ts
+		}
+	}
+
+	var o io.Writer = cout
+	var buf *bytes.Buffer
+	if shouldSort {
+		// When sorting, we need to write the entire row as a single byte array,
+		// so use a ByteBuffer. We don't do this otherwise because we're already
+		// using a buffered writer, so we can avoid the copying
+		b := make([]byte, 0, rowLength)
+		buf = bytes.NewBuffer(b)
+		o = buf
+	}
+
+	err := binary.Write(o, encoding.Binary, uint64(rowLength))
+	if err != nil {
+		return highWaterMark, errors.Wrap(err)
+	}
+
+	err = binary.Write(o, encoding.Binary, uint16(len(key)))
+	if err != nil {
+		return highWaterMark, errors.Wrap(err)
+	}
+	_, err = o.Write(key)
+	if err != nil {
+		return highWaterMark, errors.Wrap(err)
+	}
+
+	err = binary.Write(o, encoding.Binary, uint16(len(columns)))
+	if err != nil {
+		return highWaterMark, errors.Wrap(err)
+	}
+	for _, seq := range columns {
+		err = binary.Write(o, encoding.Binary, uint64(len(seq)))
+		if err != nil {
+			return highWaterMark, errors.Wrap(err)
+		}
+	}
+	for _, seq := range columns {
+		_, err = o.Write(seq)
+		if err != nil {
+			return highWaterMark, errors.Wrap(err)
+		}
+	}
+
+	if shouldSort {
+		// flush buffer
+		_b := buf.Bytes()
+		_, writeErr := cout.Write(_b)
+		if writeErr != nil {
+			return highWaterMark, errors.Wrap(err)
+		}
+	}
+
+	return highWaterMark, nil
 }
 
 func (rs *rowStore) writeOffset(offset wal.Offset) error {
@@ -546,7 +602,6 @@ func (rs *rowStore) removeOldFiles() {
 type fileStore struct {
 	t        *table
 	fields   core.Fields
-	opts     *rowStoreOptions
 	filename string
 }
 
@@ -604,7 +659,6 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				}
 			}
 			if !foundField {
-				fs.t.log.Debugf("Unable to find file field %v in currently defined fields  %v", fieldString, fs.t.Name)
 				fileFields = append(fileFields, core.Field{})
 			}
 		}

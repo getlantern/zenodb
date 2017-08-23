@@ -1,3 +1,5 @@
+// zeno is the executable for the ZenoDB database, and can run as a standalone
+// server, as a cluster leader or as a cluster follower.
 package main
 
 import (
@@ -6,19 +8,15 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	_ "net/http/pprof"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/getlantern/goexpr/isp"
-	"github.com/getlantern/goexpr/isp/ip2location"
-	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
-	lredis "github.com/getlantern/redis"
 	"github.com/getlantern/tlsdefaults"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb"
+	"github.com/getlantern/zenodb/cmd"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/rpc"
@@ -27,26 +25,19 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/vharitonsky/iniflags"
 	"golang.org/x/net/context"
-	"gopkg.in/redis.v5"
 )
 
 var (
 	log = golog.LoggerFor("zeno")
 
 	dbdir              = flag.String("dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
-	schema             = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
-	aliasesFile        = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
-	enablegeo          = flag.Bool("enablegeo", false, "enable geolocation functions")
-	ispformat          = flag.String("ispformat", "ip2location", "ip2location or maxmind")
-	ispdb              = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
-	vtime              = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via insterts.")
+	vtime              = flag.Bool("vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via inserts.")
 	walSync            = flag.Duration("walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	maxWALSize         = flag.Int("maxwalsize", 1024*1024*1024, "Maximum size of WAL segments on disk. Defaults to 1 GB.")
 	walCompressionSize = flag.Int("walcompressionsize", 30*1024*1024, "Size above which to start compressing WAL segments with snappy. Defaults to 30 MB.")
 	maxMemory          = flag.Float64("maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
 	addr               = flag.String("addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
 	httpsAddr          = flag.String("httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
-	pprofAddr          = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
 	password           = flag.String("password", "", "if specified, will authenticate clients using this password")
 	pkfile             = flag.String("pkfile", "pk.pem", "path to the private key PEM file")
 	certfile           = flag.String("certfile", "cert.pem", "path to the certificate PEM file")
@@ -64,24 +55,12 @@ var (
 	numPartitions      = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition          = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 	maxFollowAge       = flag.Duration("maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
-	redisAddr          = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
-	redisCA            = flag.String("redisca", "", "Certificate for redislabs's CA")
-	redisClientPK      = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
-	redisClientCert    = flag.String("redisclientcert", "", "Certificate for authenticating client to redis's stunnel")
-	redisCacheSize     = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HGET operations, defaults to 25,000 per hash")
 )
 
 func main() {
 	iniflags.Parse()
 
-	if *pprofAddr != "" {
-		go func() {
-			log.Debugf("Starting pprof page at http://%s/debug/pprof", *pprofAddr)
-			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
-				log.Error(err)
-			}
-		}()
-	}
+	cmd.StartPprof()
 
 	l, err := tlsdefaults.Listen(*addr, *pkfile, *certfile)
 	if err != nil {
@@ -91,25 +70,6 @@ func main() {
 	hl, err := tlsdefaults.Listen(*httpsAddr, *pkfile, *certfile)
 	if err != nil {
 		log.Fatalf("Unable to listen for HTTPS connections at %v: %v", *httpsAddr, err)
-	}
-
-	var ispProvider isp.Provider
-	var providerErr error
-	if *ispformat != "" && *ispdb != "" {
-		log.Debugf("Enabling ISP functions using format %v with db file at %v", *ispformat, *ispdb)
-
-		switch strings.ToLower(strings.TrimSpace(*ispformat)) {
-		case "ip2location":
-			ispProvider, providerErr = ip2location.NewProvider(*ispdb)
-		case "maxmind":
-			ispProvider, providerErr = maxmind.NewProvider(*ispdb)
-		default:
-			log.Errorf("Unknown ispdb format %v", *ispformat)
-		}
-		if providerErr != nil {
-			log.Errorf("Unable to initialize ISP provider %v from %v: %v", *ispformat, *ispdb, err)
-			ispProvider = nil
-		}
 	}
 
 	clientSessionCache := tls.NewLRUClientSessionCache(10000)
@@ -253,30 +213,14 @@ func main() {
 		}
 	}
 
-	var redisClient *redis.Client
-	if *redisAddr != "" {
-		log.Debugf("Connecting to Redis at %v", *redisAddr)
-		redisClient, err = lredis.NewClient(&lredis.Opts{
-			RedisURL:       *redisAddr,
-			RedisCAFile:    *redisCA,
-			ClientPKFile:   *redisClientPK,
-			ClientCertFile: *redisClientCert,
-		})
-		if err == nil {
-			log.Debugf("Connected to Redis at %v", *redisAddr)
-		} else {
-			log.Errorf("Unable to connect to redis: %v", err)
-		}
-	}
-
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
 		Dir:                        *dbdir,
-		SchemaFile:                 *schema,
-		EnableGeo:                  *enablegeo,
-		ISPProvider:                ispProvider,
-		AliasesFile:                *aliasesFile,
-		RedisClient:                redisClient,
-		RedisCacheSize:             *redisCacheSize,
+		SchemaFile:                 *cmd.Schema,
+		EnableGeo:                  *cmd.EnableGeo,
+		ISPProvider:                cmd.ISPProvider(),
+		AliasesFile:                *cmd.AliasesFile,
+		RedisClient:                cmd.RedisClient(),
+		RedisCacheSize:             *cmd.RedisCacheSize,
 		VirtualTime:                *vtime,
 		WALSyncInterval:            *walSync,
 		MaxWALSize:                 *maxWALSize,

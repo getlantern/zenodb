@@ -49,6 +49,9 @@ func init() {
 
 // DBOpts provides options for configuring the database.
 type DBOpts struct {
+	// ReadOnly puts the database into a mode whereby it does not persist anything
+	// to disk. This is useful for embedding the database in tools like zenomerge.
+	ReadOnly bool
 	// Dir points at the directory that contains the data files.
 	Dir string
 	// SchemaFile points at a YAML schema file that configures the tables and
@@ -147,10 +150,15 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts.MaxBackupWait = defaultMaxBackupWait
 	}
 
-	// Create db dir
-	err = os.MkdirAll(opts.Dir, 0755)
-	if err != nil && !os.IsExist(err) {
-		return nil, fmt.Errorf("Unable to create db dir at %v: %v", opts.Dir, err)
+	db.opts.ReadOnly = opts.Dir == ""
+	if db.opts.ReadOnly {
+		log.Debugf("DB is ReadOnly, will not persist data to disk")
+	} else {
+		// Create db dir
+		err = os.MkdirAll(opts.Dir, 0755)
+		if err != nil && !os.IsExist(err) {
+			return nil, fmt.Errorf("Unable to create db dir at %v: %v", opts.Dir, err)
+		}
 	}
 
 	if opts.EnableGeo {
@@ -176,7 +184,11 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 
 	if opts.SchemaFile != "" {
-		err = db.pollForSchema(opts.SchemaFile)
+		if db.opts.ReadOnly {
+			err = db.ApplySchemaFromFile(opts.SchemaFile)
+		} else {
+			err = db.pollForSchema(opts.SchemaFile)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("Unable to apply schema: %v", err)
 		}
@@ -187,10 +199,12 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.queryForRemote)
 	}
 
-	if db.opts.MaxMemoryRatio > 0 {
-		log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
+	if !db.opts.ReadOnly {
+		if db.opts.MaxMemoryRatio > 0 {
+			log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
+		}
+		go db.trackMemStats()
 	}
-	go db.trackMemStats()
 
 	return db, err
 }
