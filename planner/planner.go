@@ -59,12 +59,13 @@ func fixupSubQuery(query *sql.Query, opts *Opts) {
 
 func addGroupBy(source core.RowSource, query *sql.Query, applyResolution bool, resolution time.Duration, strideSlice time.Duration) core.RowSource {
 	opts := core.GroupOpts{
-		By:          query.GroupBy,
-		Crosstab:    query.Crosstab,
-		Fields:      query.Fields,
-		AsOf:        query.AsOf,
-		Until:       query.Until,
-		StrideSlice: strideSlice,
+		By:                    query.GroupBy,
+		Crosstab:              query.Crosstab,
+		CrosstabIncludesTotal: query.CrosstabIncludesTotal,
+		Fields:                query.Fields,
+		AsOf:                  query.AsOf,
+		Until:                 query.Until,
+		StrideSlice:           strideSlice,
 	}
 	if applyResolution {
 		opts.Resolution = resolution

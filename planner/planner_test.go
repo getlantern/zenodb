@@ -19,7 +19,7 @@ import (
 var (
 	epoch      = time.Date(2015, 1, 1, 0, 0, 0, 0, time.UTC)
 	resolution = 1 * time.Second
-	asOf       = epoch.Add(-10 * resolution)
+	asOf       = epoch.Add(-5 * 7 * 24 * time.Hour)
 	until      = epoch
 
 	eA = SUM("a")
@@ -153,16 +153,37 @@ func TestPlans(t *testing.T) {
 		"select * from TableA group by concat('_', ct1, concat('|', ct2)) as _crosstab",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
-				Fields:   textFieldSource("*"),
-				Crosstab: goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Concat(goexpr.Constant("|"), goexpr.Param("ct2"))),
+				Fields:                textFieldSource("*"),
+				Crosstab:              goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Concat(goexpr.Constant("|"), goexpr.Param("ct2"))),
+				CrosstabIncludesTotal: false,
 			})
 		},
 		func(source RowSource) Source {
 			return Flatten(source)
 		},
 		GroupOpts{
-			Fields:   textFieldSource("passthrough"),
-			Crosstab: goexpr.Param("_crosstab"),
+			Fields:                textFieldSource("passthrough"),
+			Crosstab:              goexpr.Param("_crosstab"),
+			CrosstabIncludesTotal: false,
+		})
+
+	nonPushdownScenario("CROSSTABT, pushdown not allowed",
+		"SELECT * FROM TableA GROUP BY CROSSTABT(ct1, CONCAT('|', ct2))",
+		"select * from TableA group by concat('_', ct1, concat('|', ct2)) as _crosstab",
+		func(source RowSource) RowSource {
+			return Group(source, GroupOpts{
+				Fields:                textFieldSource("*"),
+				Crosstab:              goexpr.Concat(goexpr.Constant("_"), goexpr.Param("ct1"), goexpr.Concat(goexpr.Constant("|"), goexpr.Param("ct2"))),
+				CrosstabIncludesTotal: true,
+			})
+		},
+		func(source RowSource) Source {
+			return Flatten(source)
+		},
+		GroupOpts{
+			Fields:                textFieldSource("passthrough"),
+			Crosstab:              goexpr.Param("_crosstab"),
+			CrosstabIncludesTotal: true,
 		})
 
 	pushdownScenario("HAVING clause",
@@ -381,6 +402,10 @@ func TestPlans(t *testing.T) {
 			}))
 		})
 
+	// AsOf too far
+	_, err := Plan("SELECT * FROM TableA ASOF '-6w'", defaultOpts())
+	assert.Error(t, err, "Too old ASOF should have given error")
+
 	pushdownScenario("ASOF UNTIL",
 		"SELECT * FROM TableA ASOF '-5w' UNTIL '-1d'",
 		"select * from TableA ASOF '-5w' UNTIL '-1d'",
@@ -407,12 +432,12 @@ func TestPlans(t *testing.T) {
 		})
 
 	nonPushdownScenario("Change Resolution Big",
-		"SELECT * FROM TableA GROUP BY period(2d)",
-		"select * from TableA group by period(48 as h0m0s)",
+		"SELECT * FROM TableA GROUP BY period(30d)",
+		"select * from TableA group by period(720 as h0m0s)",
 		func(source RowSource) RowSource {
 			return Group(source, GroupOpts{
 				Fields:     textFieldSource("*"),
-				Resolution: 10 * time.Second, // limited by window of data
+				Resolution: 720 * time.Hour, // limited by window of data
 			})
 		},
 		flatten,

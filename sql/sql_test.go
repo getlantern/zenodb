@@ -71,7 +71,7 @@ WHERE
 	RAND() < 0.5
 GROUP BY
 	dim_a,
-	CROSSTAB(dim_b, dim_ct),
+	CROSSTABT(dim_b, dim_ct),
 	PISP(ip) AS isp,
 	ORG(ip) AS org,
 	ASN(ip) AS asn,
@@ -276,6 +276,7 @@ LIMIT 100, 10
 	}
 	assert.False(t, q.GroupByAll)
 	assert.Equal(t, goexpr.Concat(goexpr.Constant("_"), goexpr.Param("dim_b"), goexpr.Param("dim_ct")), q.Crosstab)
+	assert.True(t, q.CrosstabIncludesTotal)
 	assert.Equal(t, -7*24*time.Hour, q.AsOfOffset)
 	assert.Equal(t, -15*time.Minute, q.UntilOffset)
 	assert.Equal(t, 24*time.Hour, q.Stride)

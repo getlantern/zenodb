@@ -312,13 +312,18 @@ func planAsIfLocal(opts *Opts, sqlString string) (core.FlatRowSource, error) {
 }
 
 func concatForCrosstab(sql string) string {
-	idx := strings.Index(strings.ToUpper(sql), "CROSSTAB")
+	crosstab := "CROSSTABT"
+	idx := strings.Index(strings.ToUpper(sql), crosstab)
+	if idx < 0 {
+		crosstab = "CROSSTAB"
+		idx = strings.Index(strings.ToUpper(sql), crosstab)
+	}
 	if idx < 0 {
 		return ""
 	}
 	var out []byte
 	out = append(out, []byte("concat('_', ")...)
-	idx += len("CROSSTAB(")
+	idx += len(crosstab + "(")
 	level := 1
 parseLoop:
 	for ; idx < len(sql); idx++ {

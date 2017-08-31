@@ -52,13 +52,14 @@ type keyedVals struct {
 }
 
 type GroupOpts struct {
-	By          []GroupBy
-	Crosstab    goexpr.Expr
-	Fields      FieldSource
-	Resolution  time.Duration
-	AsOf        time.Time
-	Until       time.Time
-	StrideSlice time.Duration
+	By                    []GroupBy
+	Crosstab              goexpr.Expr
+	CrosstabIncludesTotal bool
+	Fields                FieldSource
+	Resolution            time.Duration
+	AsOf                  time.Time
+	Until                 time.Time
+	StrideSlice           time.Duration
 }
 
 func Group(source RowSource, opts GroupOpts) RowSource {
@@ -222,9 +223,11 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 					outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", strings.ToLower(ctab), outField.Name), ifex))
 				}
 			}
-			for _, outField := range origOutFields {
-				if outField.Name != HavingFieldName {
-					outFields = append(outFields, NewField(fmt.Sprintf("total_%v", outField.Name), outField.Expr))
+			if g.CrosstabIncludesTotal {
+				for _, outField := range origOutFields {
+					if outField.Name != HavingFieldName {
+						outFields = append(outFields, NewField(fmt.Sprintf("total_%v", outField.Name), outField.Expr))
+					}
 				}
 			}
 			if havingField.Name != "" {
@@ -271,6 +274,7 @@ func (g *group) String() string {
 	}
 	if g.Crosstab != nil {
 		result.WriteString(fmt.Sprintf("\n       crosstab: %v", g.Crosstab))
+		result.WriteString(fmt.Sprintf("\n       crosstab includes total: %v", g.CrosstabIncludesTotal))
 	}
 	if g.Fields != nil {
 		result.WriteString(fmt.Sprintf("\n       fields: %v", g.Fields))

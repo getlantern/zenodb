@@ -97,16 +97,19 @@ var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexp
 	"SUBSTR": goexpr.Substr,
 }
 
+func crosstabExprFor(exprs ...goexpr.Expr) goexpr.Expr {
+	// Crosstab expressions are concatenated using underscore
+	allExprs := make([]goexpr.Expr, 1, len(exprs)+1)
+	allExprs[0] = goexpr.Constant("_")
+	allExprs = append(allExprs, exprs...)
+	return goexpr.Concat(allExprs...)
+}
+
 var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
-	"CONCAT": goexpr.Concat,
-	"CROSSTAB": func(exprs ...goexpr.Expr) goexpr.Expr {
-		// Crosstab expressions are concatenated using underscore
-		allExprs := make([]goexpr.Expr, 1, len(exprs)+1)
-		allExprs[0] = goexpr.Constant("_")
-		allExprs = append(allExprs, exprs...)
-		return goexpr.Concat(allExprs...)
-	},
-	"ANY": goexpr.Any,
+	"CONCAT":    goexpr.Concat,
+	"CROSSTAB":  crosstabExprFor,
+	"CROSSTABT": crosstabExprFor,
+	"ANY":       goexpr.Any,
 }
 
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {
@@ -171,12 +174,13 @@ type Query struct {
 	GroupBy    []core.GroupBy
 	GroupByAll bool
 	// Crosstab is the goexpr.Expr used for crosstabs (goes into columns rather than rows)
-	Crosstab  goexpr.Expr
-	HasHaving bool
-	HavingSQL string
-	OrderBy   []core.OrderBy
-	Offset    int
-	Limit     int
+	Crosstab              goexpr.Expr
+	CrosstabIncludesTotal bool
+	HasHaving             bool
+	HavingSQL             string
+	OrderBy               []core.OrderBy
+	Offset                int
+	Limit                 int
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -544,7 +548,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			q.Stride = stride
 		} else {
 			var nestedEx sqlparser.Expr
-			isCrosstab := ok && strings.EqualFold("CROSSTAB", string(fn.Name))
+			isCrosstab := ok && strings.HasPrefix(strings.ToUpper(string(fn.Name)), "CROSSTAB")
 			if isCrosstab {
 				log.Trace("Detected crosstab in group by")
 				if len(fn.Exprs) < 1 {
@@ -564,6 +568,7 @@ func (q *Query) applyGroupBy(stmt *sqlparser.Select) error {
 			}
 			if isCrosstab {
 				q.Crosstab = ex
+				q.CrosstabIncludesTotal = strings.HasSuffix(strings.ToUpper(string(fn.Name)), "T")
 			} else {
 				name := string(nse.As)
 				if len(name) == 0 {

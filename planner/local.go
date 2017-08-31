@@ -31,6 +31,10 @@ func planLocal(query *sql.Query, opts *Opts) (core.FlatRowSource, error) {
 
 	now := opts.Now(query.From)
 	asOf, asOfChanged, until, untilChanged := asOfUntilFor(query, opts, source, now)
+	sourceAsOf := source.GetAsOf()
+	if asOf.Before(sourceAsOf) {
+		return nil, fmt.Errorf("Query asOf of %v is before table asOf of %v", asOf, sourceAsOf)
+	}
 
 	resolution, strideSlice, resolutionChanged, resolutionTruncated, err := resolutionFor(query, opts, source, asOf, until)
 	if err != nil {

@@ -453,7 +453,7 @@ func testCrosstabWithHavingQuery(t *testing.T, db *DB, includeMemStore bool, epo
 SELECT i
 FROM test_a
 GROUP BY CROSSTAB(r)
-HAVING biv = 10
+HAVING biv = 10 AND i = 11
 ORDER BY _time`
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
@@ -462,8 +462,7 @@ ORDER BY _time`
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"a_i":     11,
-				"total_i": 11,
+				"a_i": 11,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)
