@@ -1,5 +1,5 @@
-hash: 21bd82fe4eb8db28aeddbf9623e76debb35218f4c04ab305ef50e2a0d9b9bfaf
-updated: 2017-09-04T10:42:48.372038779-07:00
+hash: 371a2fc34d9cca4a50180e59d3e0567f09ab7e613b369bc9af26b82b18e2d62c
+updated: 2017-09-04T10:47:30.465493671-07:00
 imports:
 - name: github.com/aristanetworks/goarista
   version: 316cb1751909fe30bb23726dd0d7a5ea1e44673f
@@ -55,14 +55,14 @@ imports:
   version: ba114e4a82b0d453c15c505073a5896453b5cbd2
 - name: github.com/getlantern/ops
   version: b70875f5d689a9438bca72aefd7142a2af889b18
-- name: github.com/getlantern/redis
-  version: 5e698a687bd9581c17d3b06be34aa5afdec98640
 - name: github.com/getlantern/sqlparser
   version: 57225f75cf94afde1b3a886b6376c7e5f0aef240
 - name: github.com/getlantern/stack
   version: 02f928aad224fbccd50d66edd776fc9d1e9f2f2b
 - name: github.com/getlantern/tlsdefaults
   version: 55d0dd468a195a4c8cb99ee0c1a2878cb7e72155
+- name: github.com/getlantern/tlsredis
+  version: e14f04c41d2ecdeebd3481c0dbfa5c21c8666973
 - name: github.com/getlantern/uuid
   version: 1318e7614b82cd38041b0b0bd3692d71f3901fb8
 - name: github.com/getlantern/vtime
