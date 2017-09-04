@@ -1,22 +1,22 @@
 hash: 21bd82fe4eb8db28aeddbf9623e76debb35218f4c04ab305ef50e2a0d9b9bfaf
-updated: 2017-04-09T14:30:29.303371002-05:00
+updated: 2017-09-04T10:42:48.372038779-07:00
 imports:
 - name: github.com/aristanetworks/goarista
-  version: 79baa1b1fe5f0e1dd4e6920d35180192939678c4
+  version: 316cb1751909fe30bb23726dd0d7a5ea1e44673f
   subpackages:
   - monotime
 - name: github.com/boltdb/bolt
-  version: e9cf4fae01b5a8ff89d0ec6b32f0d9c9f79aefdd
+  version: 2f1ce7a837dcb8da3ec595b1dac9d0632f0f99e8
 - name: github.com/chzyer/readline
   version: 41eea22f717c616615e1e59aa06cf831f9901f35
 - name: github.com/cloudfoundry/gosigar
-  version: dfaa4d491586af21e1ce06028df3926389a99654
+  version: f4030c18ce1a78252deadef2f5e460b35cce7ae5
 - name: github.com/davecgh/go-spew
-  version: 346938d642f2ec3594ed81d874461961cd0faa76
+  version: a476722483882dd40b8111f0eb64e1d7f43f56e4
   subpackages:
   - spew
 - name: github.com/dustin/go-humanize
-  version: 259d2a102b871d17f30e3cd9881a642961a1e486
+  version: 79e699ccd02f240a1f1fbbdcee7e64c1c12e41aa
 - name: github.com/getlantern/appdir
   version: 659a155d06e8f3dd8b9f79d6147445897499b56b
 - name: github.com/getlantern/byteexec
@@ -25,6 +25,10 @@ imports:
   version: 807aefefeb0978ae9572ddfe7ec99b68f3da03e2
 - name: github.com/getlantern/context
   version: 624d99b1798d7c5375ea1d3ca4c5b04d58f7c775
+- name: github.com/getlantern/elevate
+  version: a1e4813b4e263a37d95b569a21cf5a2943acfd26
+  subpackages:
+  - bin
 - name: github.com/getlantern/errors
   version: 99fa440517e8f3d1e4cd8d6dbed6b41f4c1ed3d6
 - name: github.com/getlantern/filepersist
@@ -38,13 +42,13 @@ imports:
   - isp/maxmind
   - redis
 - name: github.com/getlantern/golog
-  version: e69a4a00c012e476efd814128cdcd4e04e641dc7
+  version: cca714f7feb5df8e455f409b549d384441ac4578
 - name: github.com/getlantern/hex
   version: 083fba3033ad473db3dd31c9bb368473d37581a7
 - name: github.com/getlantern/hidden
   version: d52a649ab33af200943bb599898dbdcfdbc94cb7
 - name: github.com/getlantern/keyman
-  version: 10caeb5133f874e91d12e9b256f6e316dfaa5ae0
+  version: 92cbbdcae453b5e6cff5fed4d51c0780111b0715
   subpackages:
   - certimporter
 - name: github.com/getlantern/mtime
@@ -52,7 +56,7 @@ imports:
 - name: github.com/getlantern/ops
   version: b70875f5d689a9438bca72aefd7142a2af889b18
 - name: github.com/getlantern/redis
-  version: 54bdaa768b91d5b3fb4ef99b4e186aefcae9ec79
+  version: 5e698a687bd9581c17d3b06be34aa5afdec98640
 - name: github.com/getlantern/sqlparser
   version: 57225f75cf94afde1b3a886b6376c7e5f0aef240
 - name: github.com/getlantern/stack
@@ -68,24 +72,23 @@ imports:
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/go-ole/go-ole
-  version: de8695c8edbf8236f30d6e1376e20b198a028d42
+  version: 085abb85892dc1949567b726dff00fa226c60c45
   subpackages:
   - oleutil
 - name: github.com/golang/protobuf
-  version: 2bba0603135d7d7f5cb73b2125beeda19c09f4ef
+  version: 17ce1425424ab154092bbb43af630bd647f3bb0d
   subpackages:
   - proto
+  - ptypes
   - ptypes/any
+  - ptypes/duration
+  - ptypes/timestamp
 - name: github.com/golang/snappy
   version: 553a641470496b2327abcac10b36396bd98e45c9
-- name: github.com/google/go-genproto
-  version: 411e09b969b1170a9f0c467558eb4c4c110d9c77
-  subpackages:
-  - googleapis/rpc/status
 - name: github.com/gorilla/context
   version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/gorilla/mux
-  version: 599cba5e7b6137d46ddf58fb1765f5d928e69604
+  version: bb285ea687c5c77bb6935fdb2402b121d8efcbec
 - name: github.com/gorilla/securecookie
   version: e59506cc896acb7f7bf732d4fdf5e25f7ccd8983
 - name: github.com/hashicorp/golang-lru
@@ -95,19 +98,19 @@ imports:
 - name: github.com/jmcvetta/randutil
   version: 2bb1b664bcff821e02b2a0644cd29c7e824d54f8
 - name: github.com/oschwald/geoip2-golang
-  version: 0fd242da7906550802871efe101abfdb1cc550a8
+  version: 5b1dc16861f81d05d9836bb21c2d0d65282fc0b8
 - name: github.com/oschwald/maxminddb-golang
-  version: 697da8075d2061aa8ed639346443f5d3e8c80b30
+  version: 26fe5ace1c706491c2936119e1dc69c1a9c04d7f
 - name: github.com/oxtoacart/bpool
   version: 4e1c5567d7c2dd59fa4c7c83d34c2f3528b025d6
 - name: github.com/oxtoacart/emsort
   version: e467347e335434365584bc76ce22b8d23190da6e
 - name: github.com/retailnext/hllpp
-  version: 9fdfea05b3e55bebe7beb22d16c7db15d46cd518
+  version: 6e8b6d394466a6f3719bcd7f14988bbfb02ff087
 - name: github.com/rickar/props
-  version: c68a002e87c1dca1be6eebaf289dfe56db65c87e
+  version: 0b06aeb2f03788f2d5c2ec1c87168567b08bfb89
 - name: github.com/shirou/gopsutil
-  version: e49a95f3d5f824c3f9875ca49e54e4fef17f82cf
+  version: a452de7c734a0fa0f16d2e5725b0fa5934d9fbec
   subpackages:
   - cpu
   - host
@@ -118,13 +121,13 @@ imports:
 - name: github.com/shirou/w32
   version: bb4de0191aa41b5507caa14b0650cdbddcd9280b
 - name: github.com/spaolacci/murmur3
-  version: 0d12bf811670bf6a1a63828dfbd003eded177fce
+  version: 9f5d223c60793748f04a9d5b4b4eacddfc1f755d
 - name: github.com/StackExchange/wmi
-  version: 9f32b5905fd6ce7384093f9d048437e79f7b4d85
+  version: ea383cf3ba6ec950874b8486cd72356d007c768f
 - name: github.com/vharitonsky/iniflags
-  version: 94db042d45d83a94a8cfc494a6800ce1b5edd5e4
+  version: 643132d9585eb6cfdf0dd4d6651a0a94c729094c
 - name: github.com/Workiva/go-datastructures
-  version: ceededf711cf8d8a61cac7003a0f947546da4763
+  version: b9547a38b81ee66409d34781495d771dfa1e7e41
   subpackages:
   - trie/xfast
   - trie/yfast
@@ -136,7 +139,7 @@ imports:
   - dependency/hack
   - dependency/sqltypes
 - name: golang.org/x/net
-  version: d1e1b351919c6738fdeb9893d5c998b161464f0c
+  version: 66aacef3dd8a676686c7ae3716979581e8b03c47
   repo: https://github.com/golang/net
   vcs: git
   subpackages:
@@ -148,21 +151,21 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: f3918c30c5c2cb527c0b071a27c35120a6c0719a
+  version: 7ddbeae9ae08c6a06a59597f0c9edbc5ff2444ce
   repo: https://github.com/golang/sys
   vcs: git
   subpackages:
   - unix
   - windows
 - name: golang.org/x/text
-  version: f4b4367115ec2de254587813edaa901bc1c723a8
+  version: bd91bbf73e9a4a801adbfb97133c992678533126
   subpackages:
   - secure/bidirule
   - transform
   - unicode/bidi
   - unicode/norm
 - name: google.golang.org/appengine
-  version: 56d253d1dd14aa01937e12c73a0971bcfd797ff2
+  version: d9a072cfa7b9736e44311ef77b3e09d804bfa599
   subpackages:
   - datastore
   - internal
@@ -172,17 +175,25 @@ imports:
   - internal/log
   - internal/modules
   - internal/remote_api
-- name: google.golang.org/grpc
-  version: 9090ef91c3dbc363b02e1113c619d4d986a53248
+- name: google.golang.org/genproto
+  version: 595979c8a7bf586b2d293fb42246bf91a0b893d9
   subpackages:
+  - googleapis/rpc/status
+- name: google.golang.org/grpc
+  version: 91999f444f2aa89f2f873c8429a424701309bec4
+  subpackages:
+  - balancer
   - codes
+  - connectivity
   - credentials
+  - grpclb/grpc_lb_v1/messages
   - grpclog
   - internal
   - keepalive
   - metadata
   - naming
   - peer
+  - resolver
   - stats
   - status
   - tap
@@ -196,12 +207,12 @@ imports:
   - internal/pool
   - internal/proto
 - name: gopkg.in/vmihailenco/msgpack.v2
-  version: f784471e11a864303cc098fe5c48af8e79628f3e
+  version: f4f8982de4ef0de18be76456617cc3f5d8d8141e
   subpackages:
   - codes
 testImports:
 - name: github.com/kylelemons/godebug
-  version: a616ab194758ae0a11290d87ca46ee8c440117b0
+  version: d65d576e9348f5982d7f6d83682b694e731a45c6
   subpackages:
   - diff
   - pretty
@@ -210,6 +221,6 @@ testImports:
   subpackages:
   - difflib
 - name: github.com/stretchr/testify
-  version: 4d4bfba8f1d1027c4fdbe371823030df51419987
+  version: 890a5c3458b43e6104ff5da8dfa139d013d77544
   subpackages:
   - assert
