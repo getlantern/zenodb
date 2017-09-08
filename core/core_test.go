@@ -207,12 +207,13 @@ func TestGroupCrosstabSingle(t *testing.T) {
 	}
 
 	gx := Group(&goodSource{}, GroupOpts{
-		By:         []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
-		Crosstab:   goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")),
-		Fields:     StaticFieldSource{addField},
-		Resolution: resolution * 2,
-		AsOf:       asOf.Add(2 * resolution),
-		Until:      until.Add(-2 * resolution),
+		By:                    []GroupBy{NewGroupBy("x", goexpr.Param("x"))},
+		Crosstab:              goexpr.Concat(goexpr.Constant("_"), goexpr.Param("y")),
+		CrosstabIncludesTotal: true,
+		Fields:                StaticFieldSource{addField},
+		Resolution:            resolution * 2,
+		AsOf:                  asOf.Add(2 * resolution),
+		Until:                 until.Add(-2 * resolution),
 	})
 
 	var fields Fields
