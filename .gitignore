@@ -5,3 +5,4 @@ vendor
 *.pem
 profile.cov
 profile_tmp.cov
+cmd/zeno/zeno

@@ -329,8 +329,6 @@ GROUP BY A, period('10s')
 	if !assert.NotNil(t, q.FromSubQuery) {
 		return
 	}
-	assert.Equal(t, -2*time.Hour, q.AsOfOffset)
-	assert.Equal(t, -1*time.Hour, q.UntilOffset)
 	assert.Empty(t, pretty.Compare(q.FromSubQuery, subQuery))
 	assert.Equal(t, "avg(field) as the_avg, name, max(field) as field", q.Fields.String())
 	fields, err := q.Fields.Get(nil)
