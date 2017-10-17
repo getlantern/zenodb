@@ -95,6 +95,11 @@ var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
 var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexpr.Expr{
 	"SPLIT":  goexpr.Split,
 	"SUBSTR": goexpr.Substr,
+	"LUA": func(script goexpr.Expr, keys goexpr.Expr, args goexpr.Expr) goexpr.Expr {
+		_keys := keys.(*goexpr.ArrayExpr)
+		_args := args.(*goexpr.ArrayExpr)
+		return redis.Lua(script, _keys.Items, _args.Items...)
+	},
 }
 
 func crosstabExprFor(exprs ...goexpr.Expr) goexpr.Expr {
@@ -110,6 +115,7 @@ var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CROSSTAB":  crosstabExprFor,
 	"CROSSTABT": crosstabExprFor,
 	"ANY":       goexpr.Any,
+	"ARRAY":     goexpr.Array,
 }
 
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {

@@ -84,6 +84,7 @@ GROUP BY
 	TEST(dim_k) AS test_dim_k,
 	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
 	SISMEMBER('theset', 'themember') AS sim,
+	LUA('myscript', ARRAY('ka', 'kb'), ARRAY(dim_l1, dim_l2)) AS lua,
 	SPLIT(dim_o, ',', 2) AS spl,
 	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
@@ -238,7 +239,7 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 16) {
+	if assert.Len(t, q.GroupBy, 17) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), goexpr.P(redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m"))), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -257,6 +258,9 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("isp", goexpr.P(isp.ISP(goexpr.Param("ip")))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("joined", goexpr.P(goexpr.Concat(goexpr.Constant("|"), goexpr.Param("part_a"), goexpr.Param("part_b")))).String(), q.GroupBy[idx].String())
+		idx++
+		// LUA('myscript', ARRAY('ka', 'kb'), ARRAY(dim_l1, dim_l2)) AS lua,
+		assert.Equal(t, core.NewGroupBy("lua", redis.Lua(goexpr.Constant("myscript"), []goexpr.Expr{goexpr.Constant("ka"), goexpr.Constant("kb")}, goexpr.Param("dim_l1"), goexpr.Param("dim_l2"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
