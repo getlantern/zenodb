@@ -37,6 +37,7 @@ func TestSQLPlain(t *testing.T) {
 		return &testexpr{val}
 	})
 	RegisterAlias("MYALIAS", "ANY(%v, PHGET('hash', %v), %v)")
+	RegisterAlias("PLUA", "LUA('myscript', ARRAY('ka', 'kb'), ARRAY(%v, %v))")
 	known := AVG("k")
 	knownField := core.NewField("knownfield", known)
 	oKnownField := core.NewField("oknownfield", SUM("o"))
@@ -84,7 +85,7 @@ GROUP BY
 	TEST(dim_k) AS test_dim_k,
 	MyAlias(dim_l, dim_m, dim_n) AS any_of_three,
 	SISMEMBER('theset', 'themember') AS sim,
-	LUA('myscript', ARRAY('ka', 'kb'), ARRAY(dim_l1, dim_l2)) AS lua,
+	PLUA(dim_l1, dim_l2) AS lua,
 	SPLIT(dim_o, ',', 2) AS spl,
 	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
