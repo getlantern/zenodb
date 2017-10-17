@@ -1014,6 +1014,7 @@ func goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 		fname := strings.ToUpper(string(e.Name))
 		ge, err := goFnExprFor(e, fname)
 		if err != nil && fname[0] == 'P' {
+			log.Errorf("Error parsing function %v, looking for pushdown: %v", fname, err)
 			// this might be a pushdown, try without the leading P
 			ge, err = goFnExprFor(e, fname[1:])
 			if err == nil {
