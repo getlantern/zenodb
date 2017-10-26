@@ -248,7 +248,7 @@ func (s *server) authorize(stream grpc.ServerStream) error {
 		log.Debug("No password specified, allowing access to world")
 		return nil
 	}
-	md, ok := metadata.FromContext(stream.Context())
+	md, ok := metadata.FromIncomingContext(stream.Context())
 	if !ok {
 		return log.Error("No metadata provided, unable to authenticate")
 	}
