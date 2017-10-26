@@ -9,7 +9,7 @@ import (
 	"github.com/getlantern/goexpr/isp/ip2location"
 	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
-	lredis "github.com/getlantern/redis"
+	tlsredis "github.com/getlantern/tlsredis"
 	"gopkg.in/redis.v5"
 	"strings"
 )
@@ -74,7 +74,7 @@ func RedisClient() *redis.Client {
 		return nil
 	}
 	log.Debugf("Connecting to Redis at %v", *RedisAddr)
-	redisClient, err := lredis.NewClient(&lredis.Opts{
+	redisClient, err := tlsredis.GetClient(&tlsredis.Options{
 		RedisURL:       *RedisAddr,
 		RedisCAFile:    *RedisCA,
 		ClientPKFile:   *RedisClientPK,

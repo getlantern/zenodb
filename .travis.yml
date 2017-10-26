@@ -7,7 +7,7 @@ install:
 - go get -v github.com/axw/gocov/gocov
 - go get -v github.com/mattn/goveralls
 script:
-- glide install
+- glide up
 - ./test.sh
 after_success:
 - GOPATH=`pwd`:$GOPATH $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci
