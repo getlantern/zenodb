@@ -237,5 +237,5 @@ func (c *client) authenticated(ctx context.Context) context.Context {
 		return ctx
 	}
 	md := metadata.New(map[string]string{PasswordKey: c.password})
-	return metadata.NewContext(ctx, md)
+	return metadata.NewOutgoingContext(ctx, md)
 }

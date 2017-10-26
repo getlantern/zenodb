@@ -1,12 +1,12 @@
-hash: 21bd82fe4eb8db28aeddbf9623e76debb35218f4c04ab305ef50e2a0d9b9bfaf
-updated: 2017-10-26T12:54:35.71865-05:00
+hash: 371a2fc34d9cca4a50180e59d3e0567f09ab7e613b369bc9af26b82b18e2d62c
+updated: 2017-10-26T13:17:47.596024-05:00
 imports:
 - name: github.com/aristanetworks/goarista
   version: aa6ce169f053a4951175ecedfdecdc1920abd9d3
   subpackages:
   - monotime
 - name: github.com/boltdb/bolt
-  version: e9cf4fae01b5a8ff89d0ec6b32f0d9c9f79aefdd
+  version: fa5367d20c994db73282594be0146ab221657943
 - name: github.com/chzyer/readline
   version: 6a4bc7b4feaeff8feb63f87d5fb2cf3e3610a559
 - name: github.com/cloudfoundry/gosigar
@@ -55,8 +55,6 @@ imports:
   version: ba114e4a82b0d453c15c505073a5896453b5cbd2
 - name: github.com/getlantern/ops
   version: 37353306c90844c8e0591956f56611f46299d202
-- name: github.com/getlantern/tlsredis
-  version: e14f04c41d2ecdeebd3481c0dbfa5c21c8666973
 - name: github.com/getlantern/sqlparser
   version: a879d8035f3cd754fdda965da8305bb9d04ec439
   subpackages:
@@ -68,6 +66,8 @@ imports:
   version: 02f928aad224fbccd50d66edd776fc9d1e9f2f2b
 - name: github.com/getlantern/tlsdefaults
   version: cf35cfd0b1b460b031536c9846ffcd5f7811dddb
+- name: github.com/getlantern/tlsredis
+  version: e14f04c41d2ecdeebd3481c0dbfa5c21c8666973
 - name: github.com/getlantern/uuid
   version: 1318e7614b82cd38041b0b0bd3692d71f3901fb8
 - name: github.com/getlantern/vtime
@@ -77,14 +77,17 @@ imports:
 - name: github.com/getlantern/yaml
   version: 97d86b60f57eeca9d70c02763ed2565bafc17585
 - name: github.com/go-ole/go-ole
-  version: de8695c8edbf8236f30d6e1376e20b198a028d42
+  version: 2ecd927eaf828c4fc088fae349b28eed1480ff56
   subpackages:
   - oleutil
 - name: github.com/golang/protobuf
   version: 1643683e1b54a9e88ad26d98f81400c8c9d9f4f9
   subpackages:
   - proto
+  - ptypes
   - ptypes/any
+  - ptypes/duration
+  - ptypes/timestamp
 - name: github.com/golang/snappy
   version: 553a641470496b2327abcac10b36396bd98e45c9
 - name: github.com/gorilla/context
@@ -112,7 +115,7 @@ imports:
 - name: github.com/rickar/props
   version: 0b06aeb2f03788f2d5c2ec1c87168567b08bfb89
 - name: github.com/shirou/gopsutil
-  version: d371ba1293cb48fedc6850526ea48b3846c54f2c
+  version: 48fc5612898a1213aa5d6a0fb2d4f7b968e898fb
   subpackages:
   - cpu
   - host
@@ -125,11 +128,11 @@ imports:
 - name: github.com/spaolacci/murmur3
   version: 9f5d223c60793748f04a9d5b4b4eacddfc1f755d
 - name: github.com/StackExchange/wmi
-  version: 9f32b5905fd6ce7384093f9d048437e79f7b4d85
+  version: ea383cf3ba6ec950874b8486cd72356d007c768f
 - name: github.com/vharitonsky/iniflags
   version: e586d5c5197c636313580bf6eb2f54522bd65147
 - name: github.com/Workiva/go-datastructures
-  version: e740680cc77dafd9615b25918b39f4a0ef5ab955
+  version: e47d01bc9eaf75e75e0f250e221dcb7533c7a1b8
   subpackages:
   - trie/xfast
   - trie/yfast
@@ -150,7 +153,7 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: a1a1f1746d156bbc9954f29134b20ed4ce2752f1
+  version: 3e3646d2c706c21b222a5dbcaa6db12b3e0cc765
   repo: https://github.com/golang/sys
   vcs: git
   subpackages:
@@ -179,17 +182,23 @@ imports:
   subpackages:
   - googleapis/rpc/status
 - name: google.golang.org/grpc
-  version: 3c33c26290b747350f8650c7d38bcc51b42dc785
+  version: 0d399e6307b06024368bb2624572e1271c6eda3d
   subpackages:
+  - balancer
+  - balancer/roundrobin
   - codes
+  - connectivity
   - credentials
-  - grpclb/grpc_lb_v1
+  - grpclb/grpc_lb_v1/messages
   - grpclog
   - internal
   - keepalive
   - metadata
   - naming
   - peer
+  - resolver
+  - resolver/dns
+  - resolver/passthrough
   - stats
   - status
   - tap
@@ -208,7 +217,7 @@ imports:
   - codes
 testImports:
 - name: github.com/kylelemons/godebug
-  version: a616ab194758ae0a11290d87ca46ee8c440117b0
+  version: d65d576e9348f5982d7f6d83682b694e731a45c6
   subpackages:
   - diff
   - pretty
