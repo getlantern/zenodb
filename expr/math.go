@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/getlantern/goexpr"
-	"gopkg.in/vmihailenco/msgpack.v2"
+	"github.com/getlantern/msgpack"
 )
 
 var unaryMathFNs = map[string]func(float64) float64{

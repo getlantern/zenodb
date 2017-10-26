@@ -1,5 +1,5 @@
-hash: 371a2fc34d9cca4a50180e59d3e0567f09ab7e613b369bc9af26b82b18e2d62c
-updated: 2017-10-26T13:17:47.596024-05:00
+hash: 2dc2ca1beb1a63bf4bd50a98d0a4b956bc4535fd87eba537d92a4460c3cd527b
+updated: 2017-10-26T14:36:18.720388-05:00
 imports:
 - name: github.com/aristanetworks/goarista
   version: aa6ce169f053a4951175ecedfdecdc1920abd9d3
@@ -22,7 +22,7 @@ imports:
 - name: github.com/getlantern/byteexec
   version: 4cfb26ec74f460fda433dc06fddfbad7ddee3072
 - name: github.com/getlantern/bytemap
-  version: 807aefefeb0978ae9572ddfe7ec99b68f3da03e2
+  version: ae8427dbf355130b32e5261c108917a630f7c36c
 - name: github.com/getlantern/context
   version: 624d99b1798d7c5375ea1d3ca4c5b04d58f7c775
 - name: github.com/getlantern/elevate
@@ -34,7 +34,7 @@ imports:
 - name: github.com/getlantern/filepersist
   version: c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4
 - name: github.com/getlantern/goexpr
-  version: 51b3f384ecc855786e02d1ee391ca1c4aceba52e
+  version: 14f9f25038c8aeacad7093dc892c47b514a4ddc9
   subpackages:
   - geo
   - isp
@@ -51,6 +51,10 @@ imports:
   version: 9d65bff0c88a85449195d54c38322e254b2ac34b
   subpackages:
   - certimporter
+- name: github.com/getlantern/msgpack
+  version: 922e6dcf94043edab4e690df4aa2016117f92fb7
+  subpackages:
+  - codes
 - name: github.com/getlantern/mtime
   version: ba114e4a82b0d453c15c505073a5896453b5cbd2
 - name: github.com/getlantern/ops
@@ -211,10 +215,6 @@ imports:
   - internal/hashtag
   - internal/pool
   - internal/proto
-- name: gopkg.in/vmihailenco/msgpack.v2
-  version: f4f8982de4ef0de18be76456617cc3f5d8d8141e
-  subpackages:
-  - codes
 testImports:
 - name: github.com/kylelemons/godebug
   version: d65d576e9348f5982d7f6d83682b694e731a45c6

@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/getlantern/goexpr"
-	"gopkg.in/vmihailenco/msgpack.v2"
+	"github.com/getlantern/msgpack"
 )
 
 var aggregates = make(map[string]func(wrapped interface{}) *aggregate)

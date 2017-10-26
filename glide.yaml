@@ -33,7 +33,7 @@ import:
   - windows
   - unix
 - package: google.golang.org/grpc
-- package: gopkg.in/vmihailenco/msgpack.v2
+- package: github.com/getlantern/msgpack
 - package: github.com/getlantern/tlsredis
 testImport:
 - package: github.com/stretchr/testify

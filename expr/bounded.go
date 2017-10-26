@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/getlantern/goexpr"
-	"gopkg.in/vmihailenco/msgpack.v2"
+	"github.com/getlantern/msgpack"
 )
 
 // BOUNDED bounds the given expression to min <= val <= max. Any values that

@@ -1,7 +1,7 @@
 package rpc
 
 import (
-	"gopkg.in/vmihailenco/msgpack.v2"
+	"github.com/getlantern/msgpack"
 )
 
 type MsgPackCodec struct {
