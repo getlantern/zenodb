@@ -153,6 +153,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 			t:        t,
 			fields:   fields,
 			filename: existingFileName,
+			offset:   walOffset,
 		},
 	}
 
@@ -288,9 +289,12 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
-	guard := core.Guard(ctx)
+type iterator struct {
+	fs *fileStore
+	ms *memstore
+}
 
+func (rs *rowStore) iterator(includeMemStore bool) *iterator {
 	rs.mx.RLock()
 	fs := rs.fileStore
 	var ms *memstore
@@ -298,9 +302,27 @@ func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeM
 		ms = rs.memStore.copy()
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(outFields, ms, false, false, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+
+	return &iterator{
+		fs: fs,
+		ms: ms,
+	}
+}
+
+func (it *iterator) iterate(ctx context.Context, outFields core.Fields, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+	guard := core.Guard(ctx)
+
+	return it.fs.iterate(outFields, it.ms, false, false, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		return guard.ProceedAfter(onValue(key, columns))
 	})
+}
+
+func (it *iterator) walOffset() wal.Offset {
+	walOffset := it.fs.offset
+	if it.ms != nil && it.ms.offset.After(walOffset) {
+		walOffset = it.ms.offset
+	}
+	return walOffset
 }
 
 func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.Duration) {
@@ -349,7 +371,11 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 		panic(err)
 	}
 
-	fs = &fileStore{rs.t, rs.fields, newFileStoreName}
+	walOffset := fs.offset
+	if ms.offset.After(walOffset) {
+		walOffset = ms.offset
+	}
+	fs = &fileStore{rs.t, rs.fields, newFileStoreName, walOffset}
 	ms = rs.newMemStore()
 	rs.mx.Lock()
 	rs.fileStore = fs
@@ -603,6 +629,7 @@ type fileStore struct {
 	t        *table
 	fields   core.Fields
 	filename string
+	offset   wal.Offset
 }
 
 func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) error {

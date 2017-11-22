@@ -192,6 +192,8 @@ type Source interface {
 
 	GetUntil() time.Time
 
+	GetCurrentThrough() time.Time
+
 	String() string
 }
 
@@ -240,6 +242,10 @@ func (t *rowTransform) GetUntil() time.Time {
 	return t.source.GetUntil()
 }
 
+func (t *rowTransform) GetCurrentThrough() time.Time {
+	return t.source.GetCurrentThrough()
+}
+
 func (t *rowTransform) GetSource() Source {
 	return t.source
 }
@@ -262,6 +268,10 @@ func (t *flatRowTransform) GetAsOf() time.Time {
 
 func (t *flatRowTransform) GetUntil() time.Time {
 	return t.source.GetUntil()
+}
+
+func (t *flatRowTransform) GetCurrentThrough() time.Time {
+	return t.source.GetCurrentThrough()
 }
 
 func (t *flatRowTransform) GetSource() Source {

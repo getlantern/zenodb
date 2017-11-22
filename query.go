@@ -52,25 +52,26 @@ func (db *DB) getQueryable(table string, outFields func(tableFields core.Fields)
 	if out == nil {
 		out = t.getFields()
 	}
-	return &queryable{t, out, asOf, until, includeMemStore}, nil
+	return &queryable{t, t.iterator(includeMemStore), out, asOf, until}, nil
 }
 
 func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMetaData {
 	return &common.QueryMetaData{
-		FieldNames: fields.Names(),
-		AsOf:       source.GetAsOf(),
-		Until:      source.GetUntil(),
-		Resolution: source.GetResolution(),
-		Plan:       core.FormatSource(source),
+		FieldNames:     fields.Names(),
+		AsOf:           source.GetAsOf(),
+		Until:          source.GetUntil(),
+		CurrentThrough: source.GetCurrentThrough(),
+		Resolution:     source.GetResolution(),
+		Plan:           core.FormatSource(source),
 	}
 }
 
 type queryable struct {
-	t               *table
-	fields          core.Fields
-	asOf            time.Time
-	until           time.Time
-	includeMemStore bool
+	t      *table
+	it     *iterator
+	fields core.Fields
+	asOf   time.Time
+	until  time.Time
 }
 
 func (q *queryable) GetGroupBy() []core.GroupBy {
@@ -87,6 +88,10 @@ func (q *queryable) GetAsOf() time.Time {
 
 func (q *queryable) GetUntil() time.Time {
 	return q.until
+}
+
+func (q *queryable) GetCurrentThrough() time.Time {
+	return encoding.TimeFromInt(q.it.walOffset().FileSequence()).In(time.UTC)
 }
 
 func (q *queryable) GetPartitionBy() []string {
@@ -106,7 +111,7 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
-	return q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	return q.it.iterate(ctx, q.fields, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		return onRow(key, vals)
 	})
 }

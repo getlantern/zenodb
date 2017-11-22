@@ -55,6 +55,10 @@ func (f *havingFilter) GetUntil() time.Time {
 	return f.base.GetUntil()
 }
 
+func (f *havingFilter) GetCurrentThrough() time.Time {
+	return f.base.GetCurrentThrough()
+}
+
 func (f *havingFilter) GetSource() core.Source {
 	switch t := f.base.(type) {
 	case core.Transform:

@@ -656,6 +656,10 @@ func (t *testTable) GetUntil() time.Time {
 	return until
 }
 
+func (t *testTable) GetCurrentThrough() time.Time {
+	return until
+}
+
 func (t *testTable) GetPartitionBy() []string {
 	return []string{"x", "y"}
 }

@@ -353,7 +353,7 @@ view_a:
 
 	table := db.getTable("test_a")
 	fields := table.getFields()
-	table.iterate(context.Background(), fields, true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	table.iterator(true).iterate(context.Background(), fields, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		log.Debugf("Dims: %v")
 		for i, val := range vals {
 			field := fields[i]

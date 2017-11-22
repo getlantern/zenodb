@@ -432,6 +432,10 @@ func (s *testSource) GetUntil() time.Time {
 	return until
 }
 
+func (s *testSource) GetCurrentThrough() time.Time {
+	return until
+}
+
 type testRow struct {
 	key  bytemap.ByteMap
 	vals Vals

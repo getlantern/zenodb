@@ -33,11 +33,12 @@ type Follow struct {
 type QueryRemote func(sqlString string, includeMemStore bool, isSubQuery bool, subQueryResults [][]interface{}, onValue func(bytemap.ByteMap, []encoding.Sequence)) (hasReadResult bool, err error)
 
 type QueryMetaData struct {
-	FieldNames []string
-	AsOf       time.Time
-	Until      time.Time
-	Resolution time.Duration
-	Plan       string
+	FieldNames     []string
+	AsOf           time.Time
+	Until          time.Time
+	Resolution     time.Duration
+	CurrentThrough time.Time
+	Plan           string
 }
 
 func WithIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {

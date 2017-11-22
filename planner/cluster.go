@@ -58,6 +58,10 @@ func (cs *clusterSource) GetUntil() time.Time {
 	return cs.planAsIfLocal.GetUntil()
 }
 
+func (cs *clusterSource) GetCurrentThrough() time.Time {
+	return cs.planAsIfLocal.GetCurrentThrough()
+}
+
 type clusterRowSource struct {
 	clusterSource
 }
