@@ -445,7 +445,7 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 	}
 
 	log.Debugf("Following %v starting at %v", stream, offset)
-	r, err := w.NewReader(fmt.Sprintf("clusterfollower.%v", stream), offset)
+	r, err := w.NewReader(fmt.Sprintf("clusterfollower.%v", stream), offset, db.walBuffers.Get)
 	if err != nil {
 		return nil, errors.New("Unable to open wal reader for %v", stream)
 	}
@@ -471,10 +471,8 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 				// Ignore empty data
 				continue
 			}
-			dataCopy := make([]byte, len(data))
-			copy(dataCopy, data)
 			select {
-			case requests <- &partitionRequest{partitions, &walEntry{stream: stream, data: dataCopy, offset: r.Offset()}}:
+			case requests <- &partitionRequest{partitions, &walEntry{stream: stream, data: data, offset: r.Offset()}}:
 				// okay
 			case <-stop:
 				return

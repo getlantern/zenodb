@@ -86,6 +86,7 @@ func (t *table) processInserts(in chan *walRead) {
 			t.skip(read.offset)
 			skipped++
 		}
+		t.db.walBuffers.Put(read.data)
 		delta := time.Now().Sub(start)
 		if delta > 1*time.Minute {
 			t.log.Debugf("Read %v at %v per second", humanize.Bytes(uint64(bytesRead)), humanize.Bytes(uint64(float64(bytesRead)/delta.Seconds())))

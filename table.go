@@ -284,7 +284,7 @@ func (t *table) startWALProcessing(walOffset wal.Offset) error {
 	}
 
 	t.log.Debugf("Will read inserts from %v at offset %v", t.From, walOffset)
-	t.wal, walErr = w.NewReader(t.Name, walOffset)
+	t.wal, walErr = w.NewReader(t.Name, walOffset, t.db.walBuffers.Get)
 	if walErr != nil {
 		return fmt.Errorf("Unable to obtain WAL reader: %v", walErr)
 	}

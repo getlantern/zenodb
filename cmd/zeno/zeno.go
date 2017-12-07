@@ -3,9 +3,11 @@
 package main
 
 import (
+	"crypto/rand"
 	"crypto/tls"
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -24,6 +26,7 @@ import (
 	"github.com/getlantern/zenodb/web"
 	"github.com/gorilla/mux"
 	"github.com/vharitonsky/iniflags"
+	"golang.org/x/crypto/acme/autocert"
 	"golang.org/x/net/context"
 )
 
@@ -55,6 +58,7 @@ var (
 	numPartitions      = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition          = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 	maxFollowAge       = flag.Duration("maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
+	tlsDomain          = flag.String("tlsdomain", "", "Specify this to automatically use LetsEncrypt certs for this domain")
 )
 
 func main() {
@@ -67,9 +71,33 @@ func main() {
 		log.Fatalf("Unable to listen for gRPC over TLS connections at %v: %v", *addr, err)
 	}
 
-	hl, err := tlsdefaults.Listen(*httpsAddr, *pkfile, *certfile)
-	if err != nil {
-		log.Fatalf("Unable to listen for HTTPS connections at %v: %v", *httpsAddr, err)
+	var hl net.Listener
+
+	if *tlsDomain != "" {
+		m := autocert.Manager{
+			Prompt: autocert.AcceptTOS,
+			HostPolicy: func(_ context.Context, host string) error {
+				// Support any host
+				return nil
+			},
+			Cache:    autocert.DirCache("certs"),
+			Email:    "admin@getlantern.org",
+			ForceRSA: true, // we need to force RSA keys because CloudFront doesn't like our ECDSA cipher suites
+		}
+		tlsConfig := &tls.Config{
+			GetCertificate:           m.GetCertificate,
+			PreferServerCipherSuites: true,
+			SessionTicketKey:         getSessionTicketKey(),
+		}
+		hl, err = tls.Listen("tcp", *httpsAddr, tlsConfig)
+		if err != nil {
+			log.Fatalf("Unable to listen HTTPS: %v", err)
+		}
+	} else {
+		hl, err = tlsdefaults.Listen(*httpsAddr, *pkfile, *certfile)
+		if err != nil {
+			log.Fatalf("Unable to listen for HTTPS connections at %v: %v", *httpsAddr, err)
+		}
 	}
 
 	clientSessionCache := tls.NewLRUClientSessionCache(10000)
@@ -272,4 +300,31 @@ func serveHTTP(db *zenodb.DB, hl net.Listener) {
 		return
 	}
 	http.Serve(hl, router)
+}
+
+// this allows us to reuse a session ticket key across restarts, which avoids
+// excessive TLS renegotiation with old clients.
+func getSessionTicketKey() [32]byte {
+	var key [32]byte
+	keySlice, err := ioutil.ReadFile("session_ticket_key")
+	if err != nil {
+		keySlice = make([]byte, 32)
+		n, err := rand.Read(keySlice)
+		if err != nil {
+			log.Errorf("Unable to generate session ticket key: %v", err)
+			return key
+		}
+		if n != 32 {
+			log.Errorf("Generated unexpected length of random data %d", n)
+			return key
+		}
+		err = ioutil.WriteFile("session_ticket_key", keySlice, 0600)
+		if err != nil {
+			log.Errorf("Unable to save session_ticket_key: %v", err)
+		} else {
+			log.Debug("Saved new session_ticket_key")
+		}
+	}
+	copy(key[:], keySlice)
+	return key
 }

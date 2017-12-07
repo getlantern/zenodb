@@ -23,6 +23,7 @@ import (
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
+	"github.com/oxtoacart/bpool"
 	"github.com/rickar/props"
 	"github.com/shirou/gopsutil/process"
 	"gopkg.in/redis.v5"
@@ -112,6 +113,7 @@ type DB struct {
 	clock                vtime.Clock
 	tables               map[string]*table
 	orderedTables        []*table
+	walBuffers           *bpool.BytePool
 	streams              map[string]*wal.WAL
 	newStreamSubscriber  map[string]chan *tableWithOffset
 	tablesMutex          sync.RWMutex
@@ -132,6 +134,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts:                opts,
 		clock:               vtime.RealClock,
 		tables:              make(map[string]*table),
+		walBuffers:          bpool.NewBytePool(1000, 1024),
 		streams:             make(map[string]*wal.WAL),
 		newStreamSubscriber: make(map[string]chan *tableWithOffset),
 		followerJoined:      make(chan *follower, opts.NumPartitions),
