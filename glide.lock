@@ -1,5 +1,5 @@
 hash: 2dc2ca1beb1a63bf4bd50a98d0a4b956bc4535fd87eba537d92a4460c3cd527b
-updated: 2017-12-07T11:40:26.258127-06:00
+updated: 2017-12-09T06:48:56.541678-06:00
 imports:
 - name: github.com/aristanetworks/goarista
   version: 8d0e8f607a4080e7df3532e645440ed0900c64a4
@@ -8,7 +8,7 @@ imports:
 - name: github.com/boltdb/bolt
   version: 9da31745363232bc1e27dbab3569e77383a51585
 - name: github.com/chzyer/readline
-  version: a4d5111b617813c5d09df1ba6d76394ed71b1644
+  version: f6d7a1f6fbf35bbf9beb80dc63c56a29dcfb759f
 - name: github.com/cloudfoundry/gosigar
   version: dcb1afc219e4c99f21c37fb1ec22ed9ffe443317
   subpackages:
@@ -99,7 +99,7 @@ imports:
 - name: github.com/gorilla/context
   version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/gorilla/mux
-  version: 7904d2e42e7ebbdb4a6eb3e57eb201b11df25c57
+  version: 5ab525f4fb1678e197ae59401e9050fa0b6cb5fd
 - name: github.com/gorilla/securecookie
   version: e59506cc896acb7f7bf732d4fdf5e25f7ccd8983
 - name: github.com/hashicorp/golang-lru
@@ -123,7 +123,7 @@ imports:
 - name: github.com/rickar/props
   version: 0b06aeb2f03788f2d5c2ec1c87168567b08bfb89
 - name: github.com/shirou/gopsutil
-  version: 5c46042e0db59cd67a946f07245ad3afa6a3c755
+  version: b8c456e53432efdbba4ee9e55d27f69cb2dcf1ee
   subpackages:
   - cpu
   - host
@@ -148,8 +148,13 @@ imports:
   version: da747e0c62c4e145ebd7484cf69f92c0dd192305
   subpackages:
   - dependency/hack
+- name: golang.org/x/crypto
+  version: 94eea52f7b742c7cbe0b03b22f0c4c8631ece122
+  subpackages:
+  - acme
+  - acme/autocert
 - name: golang.org/x/net
-  version: faacc1b5e36e3ff02cbec9661c69ac63dd5a83ad
+  version: dc871a5d77e227f5bbf6545176ef3eeebf87e76e
   repo: https://github.com/golang/net
   vcs: git
   subpackages:
@@ -161,7 +166,7 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 9167dbfd0f8e88b731dd88cbf73a270701a37bb4
+  version: b8f5ef32195cae6470b728e8ca677f0dbed1a004
   repo: https://github.com/golang/sys
   vcs: git
   subpackages:
@@ -186,11 +191,11 @@ imports:
   - internal/modules
   - internal/remote_api
 - name: google.golang.org/genproto
-  version: 7f0da29060c682909f650ad8ed4e515bd74fa12a
+  version: 73cb5d0be5af113b42057925bd6c93e3cd9f60fd
   subpackages:
   - googleapis/rpc/status
 - name: google.golang.org/grpc
-  version: b8191e57b23de650278db4d23bf596219e5f3665
+  version: ec61302c8eeed1f9705bc51e6606220ce21f4a60
   subpackages:
   - balancer
   - balancer/base

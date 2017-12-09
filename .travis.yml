@@ -1,6 +1,6 @@
 language: go
 go:
-- 1.7.5
+- 1.9.2
 install:
 - cd /tmp && curl -L https://github.com/Masterminds/glide/releases/download/v0.12.3/glide-v0.12.3-linux-amd64.tar.gz -o glide.tar.gz && tar -xf glide.tar.gz && mkdir -p $GOPATH/bin && mv linux-amd64/glide $GOPATH/bin/ && cd -
 - go get golang.org/x/tools/cmd/cover
