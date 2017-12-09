@@ -89,6 +89,7 @@ GROUP BY
 	SPLIT(dim_o, ',', 2) AS spl,
 	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
+	REPLACEALL(dim_r, 'regex', 'replacement') AS replaced,
 	period('5s'), // period is a special function
 	STRIDE('1d')
 HAVING Rate > 15 AND H < 2
@@ -240,7 +241,7 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 17) {
+	if assert.Len(t, q.GroupBy, 18) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), goexpr.P(redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m"))), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -266,6 +267,8 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("org", isp.ORG(goexpr.Param("ip"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("qlen", goexpr.Len(goexpr.Param("dim_q"))).String(), q.GroupBy[idx].String())
+		idx++
+		assert.Equal(t, core.NewGroupBy("replaced", goexpr.ReplaceAll(goexpr.Param("dim_r"), goexpr.Constant("regex"), goexpr.Constant("replacement"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("sim", redis.SIsMember(goexpr.Constant("theset"), goexpr.Constant("themember"))).String(), q.GroupBy[idx].String())
 		idx++

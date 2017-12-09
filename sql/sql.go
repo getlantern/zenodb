@@ -93,8 +93,9 @@ var binaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr) goexpr.Expr{
 }
 
 var ternaryGoExpr = map[string]func(goexpr.Expr, goexpr.Expr, goexpr.Expr) goexpr.Expr{
-	"SPLIT":  goexpr.Split,
-	"SUBSTR": goexpr.Substr,
+	"SPLIT":      goexpr.Split,
+	"SUBSTR":     goexpr.Substr,
+	"REPLACEALL": goexpr.ReplaceAll,
 	"LUA": func(script goexpr.Expr, keys goexpr.Expr, args goexpr.Expr) goexpr.Expr {
 		_keys := keys.(*goexpr.ArrayExpr)
 		_args := args.(*goexpr.ArrayExpr)
