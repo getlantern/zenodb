@@ -373,7 +373,7 @@ ZenoDB relies on a schema file (by default `schema.yaml`).
 
 ### Example: How to add a view
 
-Defining a table as a view means that the data for this table comes from another table or view, rather than an input stream.
+A view is really a language construct for creating a table whose properties are derived from an existing table.  The data stream between the view and the table it inherits from is the same, however, it's stored separately. Consequently, a view can have different (and finer) granularity than its parent table.
 
 This is an example of a view defined in the YAML Schema:
 
