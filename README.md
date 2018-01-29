@@ -371,7 +371,74 @@ sort of stuff with data from thousands of servers and millions of clients!
 
 ZenoDB relies on a schema file (by default `schema.yaml`).
 
-TODO - fill this out
+### Example: How to add a view
+
+A view is really a language construct for creating a table whose properties are derived from an existing table.  The data stream between the view and the table it inherits from is the same, however, it's stored separately. Consequently, a view can have different (and finer) granularity than its parent table.
+
+This is an example of a view defined in the YAML Schema:
+
+```
+emojis_fetched:
+  view:             true
+  retentionperiod:  168h
+  backfill:         6h
+  minflushlatency:  1m
+  maxflushlatency:  1h
+  partitionby:      [client_ip]
+  sql: >
+    SELECT success_count, error_count, error_rate, emojis_fetched
+      FROM core
+      WHERE client_ip LIKE ‘192.-%’
+      GROUP BY client_ip, period(1h)
+```
+
+We start with the name of the view:
+
+`emojis_fetched`
+
+This means that the data for this table comes from another table or view, rather than an input stream:
+
+`view: true`
+
+This means that we keep 1 week worth of history
+
+`retentionperiod: 168h`
+
+This means that we won’t flush the memstore more frequently than every 1 minute:
+
+`minflushlatency: 1m`
+
+And flush at least every hour:
+
+`maxflushlatency:  1h`
+
+Flusing means storing the data held in memory until now, and saving it to the permanent on-disk storage for later retrieval.
+
+The physical storage happens on the follower nodes, so Zenodb needs to know how to distribute that data across nodes:
+
+`partitionby: [client_ip]`
+
+The next part is the definition of the contents of the table/view:
+
+```
+  sql: >
+    SELECT success_count, error_count, error_rate, emojis_fetched
+      FROM core
+      WHERE client_ip LIKE ‘192.-%’
+      GROUP BY client_ip, period(1h)
+```
+
+The `SELECT` row are the fields. In this case, success_count, error_count, error_rate and emojis_fetched. The rest of the statement are the grouping and filter operations, which are optional and can be adapted to the needs. This selects only measurements related to a group of IPs.
+
+`WHERE client_ip LIKE ‘192.-%’`
+
+For instance, if we wanted to change it to emojis:
+
+`WHERE emojis_fetched LIKE ‘smile-%’`
+
+This selects which dimensions to keep, and what resolution to use. This is usually the hardest part of creating a view, because you need to anticipate what questions will be asked:
+
+`GROUP BY client_ip, period(1h)`
 
 ## Functions
 
@@ -385,6 +452,36 @@ TODO - explain how subqueries work
 
 Check out the [zenodbdemo](zenodbdemo/zenodbdemo.go) for an example of how to
 embed zenodb.
+
+## Implementation Notes
+
+### Sequences
+
+These are the central units of data storage in Zenodb: https://github.com/getlantern/zenodb/blob/master/encoding/seq.go
+
+In short, we group by dimension, and then we summarize/roll-up fields. The summarization is done using an aggregation function like SUM, AVG, MIN, MAX, etc. That is key aspect to how Zenodb manages to discard data and achieve compression.
+For example, for a new view, let’s say we’re not grouping by anything (that would be `GROUP BY _, PERIOD(1h)`), and let’s look just at the success_count field, in storage, we would have a single row with no dimensions and an array of aggregated success_counts by time period:
+
+`success_count: [4000, 5000]`
+
+That would be the result of a series of points that add up to 4000 in the first period, and to 5000 in the second period (of 1h)
+
+Now let’s say that we did `GROUP BY geo_country, PERIOD(1h)`
+
+And let’s say that success_counts are evenly split between US and AU, then we would have two rows:
+
+```
+geo_country: US   success_count: [2000, 2500]
+geo_country: AU   success_count: [2000, 2500]
+```
+
+One important aspect is that each field is actually not just an array, the array is actually preceded by the timestamp high water mark, so it would actually be something like this:
+
+`geo_country: US   success_count: 20180118T05:00Z[1000, 1500]`
+
+### Views
+
+Since everything in zenodb comes in through input streams, views cannot actually be constructed from the underlying tables, so they need to be stored independently. This allows for views to have different granularities that the tables/views they are referring to. In other words, at runtime, views are actually just like tables that pull from that same input stream, the only difference is that when you define a view, it can take into account knowledge from the definition of the underlying table.
 
 ## Clustering
 
