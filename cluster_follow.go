@@ -46,6 +46,11 @@ func (f *follower) read() {
 		if f.failed() {
 			continue
 		}
+		// TODO: don't hardcode this
+		if len(entry.data) > 2000000 {
+			log.Debugf("Discarding entry greater than 2 MB")
+			continue
+		}
 		err := f.cb(entry.data, entry.offset)
 		if err != nil {
 			log.Errorf("Error on following for follower %d: %v", f.PartitionNumber, err)
