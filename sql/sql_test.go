@@ -43,6 +43,7 @@ func TestSQLPlain(t *testing.T) {
 	oKnownField := core.NewField("oknownfield", SUM("o"))
 	xKnownField := core.NewField("x", SUM("x"))
 	lKnownField := core.NewField("l", AVG("l"))
+	pKnownField := core.NewField("ptile", PERCENTILE(FIELD("p"), CONST(99.9), 0, 100, 2))
 	q, err := Parse(`
 SELECT
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
@@ -58,7 +59,8 @@ SELECT
 	CROSSHIFT(cs, '-1w', '1d'),
 	LN(l) AS log1,
 	LOG2(l) AS log2,
-	LOG10(l) AS log3
+	LOG10(l) AS log3,
+	PERCENTILE(ptile, 1, 0, 0, 0) AS ptile2
 FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
 	Dim_a LIKE '172.56.' AND
@@ -97,13 +99,13 @@ ORDER BY Rate DESC, x, y
 LIMIT 100, 10
 `)
 
-	tableFields := core.Fields{knownField, oKnownField, xKnownField, lKnownField}
+	tableFields := core.Fields{knownField, oKnownField, xKnownField, lKnownField, pKnownField}
 	if !assert.NoError(t, err) {
 		return
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1w', '1d'), ln(l) as log1, log2(l) as log2, log10(l) as log3, rate > 15 and h < 2 AS _having", q.Fields.String())
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1w', '1d'), ln(l) as log1, log2(l) as log2, log10(l) as log3, percentile(ptile, 1, 0, 0, 0) as ptile2, rate > 15 and h < 2 AS _having", q.Fields.String())
 	fields, err := q.Fields.Get(tableFields)
 	if !assert.NoError(t, err) {
 		return
@@ -112,8 +114,8 @@ LIMIT 100, 10
 	if !assert.NoError(t, err) {
 		return
 	}
-	assert.Len(t, fieldsNoHaving, 22)
-	if assert.Len(t, fields, 23) {
+	assert.Len(t, fieldsNoHaving, 24)
+	if assert.Len(t, fields, 25) {
 		idx := 0
 
 		field := fields[idx]
@@ -160,6 +162,12 @@ LIMIT 100, 10
 		field = fields[idx]
 		idx++
 		expected = lKnownField.String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = fields[idx]
+		idx++
+		expected = pKnownField.String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 
@@ -230,6 +238,12 @@ LIMIT 100, 10
 		field = fields[idx]
 		idx++
 		expected = core.NewField("log3", unaryMath("LOG10", AVG("l"))).String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = fields[idx]
+		idx++
+		expected = core.NewField("ptile2", PERCENTILE(pKnownField.Expr, CONST(1), 0, 0, 0)).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 

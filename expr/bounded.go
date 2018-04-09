@@ -8,8 +8,9 @@ import (
 	"github.com/getlantern/msgpack"
 )
 
-// BOUNDED bounds the given expression to min <= val <= max. Any values that
-// fall outside of the bounds will appear as unset.
+// BOUNDED bounds the given expression to min <= val <= max. Any values
+// that fall outside of the bounds will appear as unset (i.e. they are
+// discarded.)
 func BOUNDED(expr interface{}, min float64, max float64) Expr {
 	wrapped := exprFor(expr)
 	return &bounded{

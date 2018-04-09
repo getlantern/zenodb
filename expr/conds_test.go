@@ -66,9 +66,9 @@ func doTestCond(t *testing.T, e Expr, expected bool) {
 	if expected {
 		expectedFloat = 1
 	}
-	assertFloatEquals(t, expectedFloat, val)
+	AssertFloatEquals(t, expectedFloat, val)
 	readVal, wasSet, _ := e.Get(b)
 	if assert.True(t, wasSet) {
-		assertFloatEquals(t, expectedFloat, readVal)
+		AssertFloatEquals(t, expectedFloat, readVal)
 	}
 }
