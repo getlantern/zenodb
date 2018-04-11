@@ -11,10 +11,21 @@ import (
 
 // PERCENTILE tracks estimated percentile values for the given expression
 // assuming the given min and max possible values, to the given precision.
-// Inputs are automatically boundeded to the min/max using BOUNDED, such
-// that values falling outside the range are discarded. Percentile is input in
-// percent (e.g. 0-100). See
-// https://godoc.org/github.com/codahale/hdrhistogram.
+// Inputs are automatically bounded to the min/max using BOUNDED, such that
+// values falling outside the range are discarded. Percentile is input in
+// percent (e.g. 0-100). See https://godoc.org/github.com/codahale/hdrhistogram.
+//
+// It is possible to wrap an existing PERCENTILE with a new PERCENTILE to reuse
+// the original PERCENTILE's storage but look at a different percentile. In this
+// case, the min, max and precision parameters are ignored.
+//
+// WARNING - when PERCENTILEs that wrap existing PERCENTILEs are not stored and
+// as such are only suitable for use in querying but not in tables or views
+// unless those explicitly include the original PERCENTILE as well.
+//
+// WARNING - relative to other types of expressions, PERCENTILE types can be
+// very large (e.g. on the order of Kilobytes vs 8 or 16 bytes for most other
+// expressions) so it is best to keep these relatively low cardinality.
 func PERCENTILE(value interface{}, percentile interface{}, min float64, max float64, precision int) Expr {
 	valueExpr := exprFor(value)
 	switch t := valueExpr.(type) {
@@ -162,7 +173,9 @@ func (e *ptile) load(b []byte) (*hdrhistogram.Histogram, bool, []byte) {
 	numCounts := int(binaryEncoding.Uint64(b))
 	wasSet := numCounts > 0
 	var histo *hdrhistogram.Histogram
-	if wasSet {
+	if !wasSet {
+		histo = hdrhistogram.New(e.Min, e.Max, e.Precision)
+	} else {
 		counts := make([]int64, numCounts)
 		for i := 0; i < numCounts; i++ {
 			counts[i] = int64(binaryEncoding.Uint64(b[(i+1)*width64bits:]))
@@ -173,8 +186,6 @@ func (e *ptile) load(b []byte) (*hdrhistogram.Histogram, bool, []byte) {
 			SignificantFigures:    int64(e.Precision),
 			Counts:                counts,
 		})
-	} else {
-		histo = hdrhistogram.New(e.Min, e.Max, e.Precision)
 	}
 	return histo, wasSet, remain
 }
