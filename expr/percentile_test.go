@@ -15,8 +15,14 @@ func TestScaleInt(t *testing.T) {
 
 func TestPercentile(t *testing.T) {
 	e := msgpacked(t, PERCENTILE("a", 99, 0, 100, 1))
+	expected := float64(99)
+
 	eo := msgpacked(t, PERCENTILE(e, 50, 0, 100, 1))
-	eo2 := msgpacked(t, PERCENTILE(e, 1, 0, 100, 1))
+	expectedO := float64(51)
+
+	eo2 := msgpacked(t, PERCENTILE(eo, 1, 0, 100, 1))
+	expectedO2 := float64(1)
+
 	if !assert.True(t, IsPercentile(e)) {
 		return
 	}
@@ -29,10 +35,6 @@ func TestPercentile(t *testing.T) {
 	if !assert.IsType(t, &ptileOptimized{}, eo2) {
 		return
 	}
-
-	expected := float64(99)
-	expectedO := float64(51)
-	expectedO2 := float64(1)
 
 	checkValue := func(e Expr, b []byte, expected float64) {
 		val, wasSet, _ := e.Get(b)
@@ -48,14 +50,19 @@ func TestPercentile(t *testing.T) {
 		b := make([]byte, e.EncodedWidth())
 		for j := 0; j < 50; j++ {
 			// Do some direct updates
-			for k := float64(1); k <= 100; k++ {
+			for k := float64(1); k <= 50; k++ {
 				e.Update(b, Map{"a": k}, md)
 				// Also update the wrapped expressions to make sure this is a noop
 				eo.Update(b, Map{"a": k}, md)
 				eo2.Update(b, Map{"a": k}, md)
 			}
+
 			// Do some point merges
-			// for k :=
+			for k := float64(51); k <= 100; k++ {
+				b2 := make([]byte, e.EncodedWidth())
+				e.Update(b2, Map{"a": k}, md)
+				e.Merge(b, b, b2)
+			}
 		}
 		checkValue(e, b, expected)
 		checkValue(eo, b, expectedO)
