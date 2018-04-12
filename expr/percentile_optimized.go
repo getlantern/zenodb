@@ -25,32 +25,27 @@ func (e *ptileOptimized) Validate() error {
 }
 
 func (e *ptileOptimized) EncodedWidth() int {
-	return 0
+	return e.wrapped.EncodedWidth()
 }
 
 func (e *ptileOptimized) Shift() time.Duration {
-	return 0
+	return e.wrapped.Shift()
 }
 
 func (e *ptileOptimized) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
-	return b, 0, false
+	return e.wrapped.doUpdate(b, params, metadata, e.Percentile)
 }
 
 func (e *ptileOptimized) Merge(b []byte, x []byte, y []byte) ([]byte, []byte, []byte) {
-	return b, x, y
+	return e.wrapped.Merge(b, x, y)
 }
 
 func (e *ptileOptimized) SubMergers(subs []Expr) []SubMerge {
-	return nil
+	return e.wrapped.SubMergers(subs)
 }
 
 func (e *ptileOptimized) Get(b []byte) (float64, bool, []byte) {
-	histo, wasSet, remain := e.wrapped.load(b)
-	percentile, _, remain := e.Percentile.Get(remain)
-	if !wasSet {
-		return 0, wasSet, remain
-	}
-	return e.wrapped.calc(histo, percentile), wasSet, remain
+	return e.wrapped.doGet(b, e.Percentile)
 }
 
 func (e *ptileOptimized) IsConstant() bool {

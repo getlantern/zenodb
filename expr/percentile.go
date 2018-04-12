@@ -109,9 +109,13 @@ func (e *ptile) Shift() time.Duration {
 }
 
 func (e *ptile) Update(b []byte, params Params, metadata goexpr.Params) ([]byte, float64, bool) {
+	return e.doUpdate(b, params, metadata, e.Percentile)
+}
+
+func (e *ptile) doUpdate(b []byte, params Params, metadata goexpr.Params, percentileExpr Expr) ([]byte, float64, bool) {
 	histo, _, remain := e.load(b)
 	remain, value, updated := e.Value.Update(remain, params, metadata)
-	remain, percentile, _ := e.Percentile.Update(remain, params, metadata)
+	remain, percentile, _ := percentileExpr.Update(remain, params, metadata)
 	if updated {
 		histo.RecordValue(scaleToInt(value, e.Precision))
 		e.save(b, histo)
@@ -156,8 +160,12 @@ func (e *ptile) subMerge(data []byte, other []byte, otherRes time.Duration, meta
 }
 
 func (e *ptile) Get(b []byte) (float64, bool, []byte) {
+	return e.doGet(b, e.Percentile)
+}
+
+func (e *ptile) doGet(b []byte, percentileExpr Expr) (float64, bool, []byte) {
 	histo, wasSet, remain := e.load(b)
-	percentile, _, remain := e.Percentile.Get(remain)
+	percentile, _, remain := percentileExpr.Get(remain)
 	if !wasSet {
 		return 0, wasSet, remain
 	}

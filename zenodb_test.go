@@ -379,6 +379,10 @@ view_a:
 	})
 
 	for _, includeMemStore := range []bool{true, false} {
+		testWrappedPercentileQuery(t, db, includeMemStore, epoch, resolution)
+		if true {
+			continue
+		}
 		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
 		testCrosstabWithHavingQuery(t, db, includeMemStore, epoch, resolution)
 		testStrideQuery(t, db, includeMemStore, epoch, resolution)
@@ -460,6 +464,26 @@ ORDER BY _time`
 				"newfield_5": 0,
 				"newfield_6": 0,
 				"newfield_7": 0,
+			},
+		},
+	}.assert(t, db, sqlString, includeMemStore)
+}
+
+func testWrappedPercentileQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	sqlString := `
+SELECT pp, PERCENTILE(pp, 50) AS pp50
+FROM test_a
+GROUP BY _
+ORDER BY _time`
+
+	epoch = encoding.RoundTimeUp(epoch, resolution)
+	expectedResult{
+		expectedRow{
+			epoch,
+			map[string]interface{}{},
+			map[string]float64{
+				"pp":   99,
+				"pp50": 50,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)
