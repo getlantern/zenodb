@@ -30,7 +30,7 @@ var (
 	ErrSelectNoName                  = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
 	ErrIfArity                       = errors.New("IF requires two parameters, like IF(dim = 1, SUM(b))")
 	ErrBoundedArity                  = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
-	ErrPercentileArity               = errors.New("PERCENTILE requires five parameters, like PERCENTILE(b, 99.9, 0, 1000, 3)")
+	ErrPercentileArity               = errors.New("PERCENTILE requires five parameters, like PERCENTILE(b, 99.9, 0, 1000, 3) or two parameters if wrapping an existing PERCENTILE like PERCENTILE(other_percentile, 50)")
 	ErrShiftArity                    = errors.New("SHIFT requires two parameters, like SHIFT(SUM(b), '-1h')")
 	ErrCrosshiftArity                = errors.New("CROSSHIFT requires three parameters, like CROSSHIFT(SUM(b), '1h', '-1d')")
 	ErrCrosshiftZeroCutoffOrInterval = errors.New("CROSSHIFT cutoff and interval must be non-zero")
@@ -784,7 +784,7 @@ func (f *fielded) boundedExprFor(e *sqlparser.FuncExpr, fname string, defaultToS
 }
 
 func (f *fielded) percentileExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
-	if len(e.Exprs) != 5 {
+	if len(e.Exprs) == 0 {
 		return nil, ErrPercentileArity
 	}
 	_valueEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
@@ -793,19 +793,40 @@ func (f *fielded) percentileExprFor(e *sqlparser.FuncExpr, fname string, default
 	}
 	var valueEx interface{}
 	var valueField core.Field
+	var min float64
+	var max float64
+	var precision int64
 	switch t := _valueEx.Expr.(type) {
 	case *sqlparser.ColName:
 		valueField = f.fieldsMap[strings.ToLower(string(t.Name))]
 	}
 	if expr.IsPercentile(valueField.Expr) {
 		// existing field is a percentile, just wrap it
+		if len(e.Exprs) != 2 {
+			return nil, ErrPercentileArity
+		}
 		valueEx = valueField.Expr
 	} else {
 		// existing expression is not a percentile, need to get the field
-		var valueErr error
-		valueEx, valueErr = f.exprFor(_valueEx.Expr, false)
-		if valueErr != nil {
-			return nil, valueErr
+		if len(e.Exprs) != 5 {
+			return nil, ErrPercentileArity
+		}
+		var err error
+		valueEx, err = f.exprFor(_valueEx.Expr, false)
+		if err != nil {
+			return nil, err
+		}
+		min, err = nodeToFloat(e.Exprs[2])
+		if err != nil {
+			return nil, err
+		}
+		max, err = nodeToFloat(e.Exprs[3])
+		if err != nil {
+			return nil, err
+		}
+		precision, err = nodeToInt(e.Exprs[4])
+		if err != nil {
+			return nil, err
 		}
 	}
 	_percentileEx, ok := e.Exprs[1].(*sqlparser.NonStarExpr)
@@ -815,18 +836,6 @@ func (f *fielded) percentileExprFor(e *sqlparser.FuncExpr, fname string, default
 	percentileEx, percentileErr := f.exprFor(_percentileEx.Expr, false)
 	if percentileErr != nil {
 		return nil, percentileErr
-	}
-	min, err := nodeToFloat(e.Exprs[2])
-	if err != nil {
-		return nil, err
-	}
-	max, err := nodeToFloat(e.Exprs[3])
-	if err != nil {
-		return nil, err
-	}
-	precision, err := nodeToInt(e.Exprs[4])
-	if err != nil {
-		return nil, err
 	}
 	return expr.PERCENTILE(valueEx, percentileEx, min, max, int(precision)), nil
 }
