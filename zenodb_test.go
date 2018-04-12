@@ -160,6 +160,7 @@ Test_a:
       i * ii / COUNT(ii) AS iii,
       AVG(iv) AS iv,
       AVG(BOUNDED(iv, 0, 10)) as biv,
+      PERCENTILE(p, 99, 0, 1000, 3) as pp,
       z
     FROM inbound
     WHERE r = 'A'
@@ -250,6 +251,21 @@ view_a:
 			"iv": 10,
 		})
 	shuffleFields()
+
+	// Add a bunch of data for percentile calculation
+	for i := float64(1); i <= 100; i++ {
+		db.Insert("inbound",
+			now,
+			map[string]interface{}{
+				"r":  "A",
+				"u":  1,
+				"b":  false,
+				"md": "glub",
+			},
+			map[string]float64{
+				"p": i,
+			})
+	}
 
 	// This should get excluded by the filter
 	db.Insert("inbound",
@@ -387,12 +403,13 @@ ORDER BY _time`
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points":    2,
+				"_points":    102,
 				"i":          11,
 				"ii":         22,
 				"iii":        121,
 				"iv":         15,
 				"biv":        10,
+				"pp":         99,
 				"z":          0,
 				"newfield_1": 0,
 				"newfield_2": 0,
@@ -413,6 +430,7 @@ ORDER BY _time`
 				"iii":        404545829.3333333,
 				"iv":         30,
 				"biv":        0,
+				"pp":         0,
 				"z":          53,
 				"newfield_1": 0,
 				"newfield_2": 0,
@@ -433,6 +451,7 @@ ORDER BY _time`
 				"iii":        300000,
 				"iv":         0,
 				"biv":        0,
+				"pp":         0,
 				"z":          700,
 				"newfield_1": 0,
 				"newfield_2": 0,
@@ -481,7 +500,7 @@ ORDER BY _time`, resolution*6)
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 2,
+				"_points": 102,
 				"i":       11,
 				"ii":      22,
 				"iii":     121,
@@ -521,7 +540,7 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 2,
+				"_points": 102,
 				"i":       11,
 				"i_1s":    0,
 			},
@@ -570,7 +589,7 @@ FROM (SELECT *
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 2,
+				"_points": 102,
 				"i":       11,
 			},
 		},
@@ -738,6 +757,6 @@ func (erow expectedRow) assert(t *testing.T, fieldNames []string, row *core.Flat
 	}
 	for i, v := range row.Values {
 		fieldName := fieldNames[i]
-		assert.Equal(t, erow.vals[fieldName], v, "Row %d - mismatch on field %v", idx, fieldName)
+		AssertFloatWithin(t, 0.01, erow.vals[fieldName], v, fmt.Sprintf("Row %d - mismatch on field %v", idx, fieldName))
 	}
 }

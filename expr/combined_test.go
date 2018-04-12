@@ -39,14 +39,14 @@ func TestCombined(t *testing.T) {
 	e.Update(b, params1, md1)
 	e.Update(b, params2, md2)
 	val, _, _ := e.Get(b)
-	assertFloatEquals(t, 22.5, val)
+	AssertFloatEquals(t, 22.5, val)
 
 	b2 := make([]byte, e.EncodedWidth())
 	e.Update(b2, params3, md3)
 	b3 := make([]byte, e.EncodedWidth())
 	e.Merge(b3, b, b2)
 	val, _, _ = e.Get(b3)
-	assertFloatEquals(t, 7.33333333, val)
+	AssertFloatEquals(t, 7.33333333, val)
 
 	// Test SubMerge
 	bavgA := make([]byte, avgA.EncodedWidth())
@@ -75,18 +75,18 @@ func TestCombined(t *testing.T) {
 		}
 	}
 	val, _, _ = e.Get(be)
-	assertFloatEquals(t, 7.33333333, val)
+	AssertFloatEquals(t, 7.33333333, val)
 }
 
 func msgpacked(t *testing.T, e Expr) Expr {
 	b, err := msgpack.Marshal(e)
 	if !assert.NoError(t, err) {
-		return e
+		t.FailNow()
 	}
 	var e2 Expr
 	err = msgpack.Unmarshal(b, &e2)
 	if !assert.NoError(t, err) {
-		return e
+		t.FailNow()
 	}
 	return e2
 }

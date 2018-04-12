@@ -35,6 +35,7 @@ import:
 - package: google.golang.org/grpc
 - package: github.com/getlantern/msgpack
 - package: github.com/getlantern/tlsredis
+- package: github.com/codahale/hdrhistogram
 testImport:
 - package: github.com/stretchr/testify
   subpackages:

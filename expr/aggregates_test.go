@@ -94,7 +94,7 @@ func doTestAggregate(t *testing.T, e Expr, expected float64) {
 	e.Update(b, params6, md1)
 	val, wasSet, _ := e.Get(b)
 	if assert.True(t, wasSet) {
-		assertFloatEquals(t, expected, val)
+		AssertFloatEquals(t, expected, val)
 	}
 
 	// Test Merging
@@ -108,6 +108,6 @@ func doTestAggregate(t *testing.T, e Expr, expected float64) {
 	e.Merge(b3, b1, b2)
 	val, wasSet, _ = e.Get(b3)
 	if assert.True(t, wasSet) {
-		assertFloatEquals(t, expected, val)
+		AssertFloatEquals(t, expected, val)
 	}
 }

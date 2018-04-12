@@ -25,5 +25,5 @@ func doTestUnaryMath(t *testing.T, name string, in float64, expected float64) {
 		return
 	}
 	val, _, _ := msgpacked(t, e).Get(nil)
-	assertFloatEquals(t, expected, val)
+	AssertFloatEquals(t, expected, val)
 }

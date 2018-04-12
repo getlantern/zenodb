@@ -54,5 +54,5 @@ func doTestCalc(t *testing.T, e Expr, expected float64) {
 
 	b := make([]byte, e.EncodedWidth())
 	_, val, _ := e.Update(b, params, nil)
-	assertFloatEquals(t, expected, val)
+	AssertFloatEquals(t, expected, val)
 }
