@@ -1,5 +1,5 @@
 hash: 032392d0598f2acba0aa9106801d033f5d671363a495fac0484d260a9ccecf37
-updated: 2018-04-10T19:11:36.094795-05:00
+updated: 2018-04-16T07:39:18.394191-05:00
 imports:
 - name: github.com/aristanetworks/goarista
   version: bfd6294e8be0d922f04fadaa00b252228d30e3fd
@@ -131,7 +131,7 @@ imports:
 - name: github.com/rickar/props
   version: 0b06aeb2f03788f2d5c2ec1c87168567b08bfb89
 - name: github.com/shirou/gopsutil
-  version: cd915bdc31582b0a56405ede7fa2f4ab043f851b
+  version: a5c2888e464b14fa882c2a059e0f95716bd45cf1
   subpackages:
   - cpu
   - host
@@ -144,7 +144,7 @@ imports:
 - name: github.com/spaolacci/murmur3
   version: f09979ecbc725b9e6d41a297405f65e7e8804acc
 - name: github.com/StackExchange/wmi
-  version: 5d049714c4a64225c3c79a7cf7d02f7fb5b96338
+  version: cdffdb33acae0e14efff2628f9bae377b597840e
 - name: github.com/stretchr/testify
   version: c679ae2cc0cb27ec3293fea7e254e47386f05d69
   subpackages:
@@ -152,7 +152,7 @@ imports:
 - name: github.com/vharitonsky/iniflags
   version: e2b4a6da96d46d6660e977fe22eda5ea0f2b35d2
 - name: github.com/Workiva/go-datastructures
-  version: 900cfe0fd2681ca34fa97071e8fcf4f623679104
+  version: 01f52d4880ca171ab1033bb0ee03cda8e0a31cc3
   subpackages:
   - trie/xfast
   - trie/yfast
@@ -161,12 +161,12 @@ imports:
   subpackages:
   - dependency/hack
 - name: golang.org/x/crypto
-  version: f70185d77e8278766928032ee1355e3da47e7181
+  version: d6449816ce06963d9d136eee5a56fca5b0616e7e
   subpackages:
   - acme
   - acme/autocert
 - name: golang.org/x/net
-  version: 61147c48b25b599e5b561d2e9c4f3e1ef489ca41
+  version: 500e7a4f953ddaf55d316b4d3adc516aa0379622
   repo: https://github.com/golang/net
   vcs: git
   subpackages:
@@ -178,7 +178,7 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 3b87a42e500a6dc65dae1a55d0b641295971163e
+  version: 2f57af4873d00d535c5c9028850aa2152e6a5566
   repo: https://github.com/golang/sys
   vcs: git
   subpackages:
@@ -203,11 +203,11 @@ imports:
   - internal/modules
   - internal/remote_api
 - name: google.golang.org/genproto
-  version: 51d0944304c3cbce4afe9e5247e21100037bff78
+  version: 7fd901a49ba6a7f87732eb344f6e3c5b19d1b200
   subpackages:
   - googleapis/rpc/status
 - name: google.golang.org/grpc
-  version: 858463ac273fd87e6b2343eda6e96ed3a91e3b20
+  version: 35aeaeb587a630fded0670e42e084e2285f4c050
   subpackages:
   - balancer
   - balancer/base
