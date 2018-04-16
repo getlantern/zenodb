@@ -386,42 +386,53 @@ requestsLoop:
 func (db *DB) mapPartitionRequests(in chan *partitionRequest, mapped chan *partitionsResult) {
 	h := partitionHash()
 	for req := range in {
-		partitions := req.partitions
-		entry := req.entry
-		result := &partitionsResult{
-			entry:      entry,
-			partitions: make(map[string]*partitionResult),
-		}
-
-		data := entry.data
-		// Skip timestamp
-		_, remain := encoding.Read(data, encoding.Width64bits)
-		dimsLen, remain := encoding.ReadInt32(remain)
-		_dims, _ := encoding.Read(remain, dimsLen)
-		dims := bytemap.ByteMap(_dims)
-
-		whereResults := make(map[string]bool, 50)
-
-		for partitionKeys, partition := range partitions {
-			pid := db.partitionFor(h, dims, partition.keys)
-			pr := &partitionResult{pid: pid, wherePassed: make(map[string]bool, len(partition.tables))}
-			result.partitions[partitionKeys] = pr
-			for tableName, table := range partition.tables {
-				specs := table.followers[pid]
-				if len(specs) == 0 {
-					continue
-				}
-				wherePassed, found := whereResults[table.whereString]
-				if !found {
-					wherePassed = table.where == nil || table.where.Eval(dims).(bool)
-					whereResults[table.whereString] = wherePassed
-				}
-				pr.wherePassed[tableName] = wherePassed
-			}
-		}
-
-		mapped <- result
+		db.mapPartitionRequest(h, req, mapped)
 	}
+}
+
+func (db *DB) mapPartitionRequest(h hash.Hash32, req *partitionRequest, mapped chan *partitionsResult) {
+	defer func() {
+		p := recover()
+		if p != nil {
+			log.Errorf("Panic in following: %v", p)
+		}
+	}()
+
+	partitions := req.partitions
+	entry := req.entry
+	result := &partitionsResult{
+		entry:      entry,
+		partitions: make(map[string]*partitionResult),
+	}
+
+	data := entry.data
+	// Skip timestamp
+	_, remain := encoding.Read(data, encoding.Width64bits)
+	dimsLen, remain := encoding.ReadInt32(remain)
+	_dims, _ := encoding.Read(remain, dimsLen)
+	dims := bytemap.ByteMap(_dims)
+
+	whereResults := make(map[string]bool, 50)
+
+	for partitionKeys, partition := range partitions {
+		pid := db.partitionFor(h, dims, partition.keys)
+		pr := &partitionResult{pid: pid, wherePassed: make(map[string]bool, len(partition.tables))}
+		result.partitions[partitionKeys] = pr
+		for tableName, table := range partition.tables {
+			specs := table.followers[pid]
+			if len(specs) == 0 {
+				continue
+			}
+			wherePassed, found := whereResults[table.whereString]
+			if !found {
+				wherePassed = table.where == nil || table.where.Eval(dims).(bool)
+				whereResults[table.whereString] = wherePassed
+			}
+			pr.wherePassed[tableName] = wherePassed
+		}
+	}
+
+	mapped <- result
 }
 
 func (db *DB) reducePartitionRequests(parallelism int, mapped chan *partitionsResult, results chan *partitionsResult, queued chan int, drained chan bool) {
