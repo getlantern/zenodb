@@ -1,8 +1,8 @@
 hash: 032392d0598f2acba0aa9106801d033f5d671363a495fac0484d260a9ccecf37
-updated: 2018-04-16T07:39:18.394191-05:00
+updated: 2018-04-16T22:06:50.404382-05:00
 imports:
 - name: github.com/aristanetworks/goarista
-  version: bfd6294e8be0d922f04fadaa00b252228d30e3fd
+  version: d6a6101ae3096913e99232724ccc9ddea66cadc3
   subpackages:
   - monotime
 - name: github.com/boltdb/bolt
@@ -26,7 +26,7 @@ imports:
 - name: github.com/getlantern/byteexec
   version: 4cfb26ec74f460fda433dc06fddfbad7ddee3072
 - name: github.com/getlantern/bytemap
-  version: ae8427dbf355130b32e5261c108917a630f7c36c
+  version: c7bf952233bcc421fcbd185f601e117d45df89c7
 - name: github.com/getlantern/context
   version: 624d99b1798d7c5375ea1d3ca4c5b04d58f7c775
 - name: github.com/getlantern/elevate
@@ -101,7 +101,7 @@ imports:
 - name: github.com/gorilla/context
   version: 08b5f424b9271eedf6f9f0ce86cb9396ed337a42
 - name: github.com/gorilla/mux
-  version: 94231ffd98496cbcb1c15b7bf2a9edfd5f852cd4
+  version: b57cb1605fd11ba2ecfa7f68992b4b9cc791934d
 - name: github.com/gorilla/securecookie
   version: e59506cc896acb7f7bf732d4fdf5e25f7ccd8983
 - name: github.com/hashicorp/golang-lru
@@ -131,7 +131,7 @@ imports:
 - name: github.com/rickar/props
   version: 0b06aeb2f03788f2d5c2ec1c87168567b08bfb89
 - name: github.com/shirou/gopsutil
-  version: a5c2888e464b14fa882c2a059e0f95716bd45cf1
+  version: 63047d776e07105e370af46ecbd0ae96850f5ef2
   subpackages:
   - cpu
   - host
@@ -166,11 +166,12 @@ imports:
   - acme
   - acme/autocert
 - name: golang.org/x/net
-  version: 500e7a4f953ddaf55d316b4d3adc516aa0379622
+  version: 8d16fa6dc9a85c1cd3ed24ad08ff21cf94f10888
   repo: https://github.com/golang/net
   vcs: git
   subpackages:
   - context
+  - http/httpguts
   - http2
   - http2/hpack
   - idna
@@ -178,7 +179,7 @@ imports:
   - lex/httplex
   - trace
 - name: golang.org/x/sys
-  version: 2f57af4873d00d535c5c9028850aa2152e6a5566
+  version: ecfd8b563e1320e7282dccf28ad48ec2c68aaebf
   repo: https://github.com/golang/sys
   vcs: git
   subpackages:
@@ -207,7 +208,7 @@ imports:
   subpackages:
   - googleapis/rpc/status
 - name: google.golang.org/grpc
-  version: 35aeaeb587a630fded0670e42e084e2285f4c050
+  version: 5d8897144f741c0358f5f194503db84142d0a985
   subpackages:
   - balancer
   - balancer/base
