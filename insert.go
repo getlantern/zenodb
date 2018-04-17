@@ -101,6 +101,13 @@ func (t *table) processInserts(in chan *walRead) {
 }
 
 func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.Offset) bool {
+	defer func() {
+		p := recover()
+		if p != nil {
+			log.Errorf("Panic in inserting: %v", p)
+		}
+	}()
+
 	tsd, remain := encoding.Read(data, encoding.Width64bits)
 	ts := encoding.TimeFromBytes(tsd)
 	if ts.Before(t.truncateBefore()) {
