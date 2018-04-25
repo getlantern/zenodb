@@ -46,6 +46,11 @@ type ResultRow struct {
 	Vals []float64
 }
 
+type query struct {
+	sqlString string
+	ce        cacheEntry
+}
+
 func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
 	h.sqlQuery(resp, req, longTimeout)
 }
@@ -142,10 +147,17 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 		}
 	}
 
-	// Run the query in the background
-	go func() {
-		var result *QueryResult
-		result, err = h.doQuery(sqlString, ce.permalink())
+	// Request query to run in background
+	h.queries <- &query{sqlString, ce}
+
+	return
+}
+
+func (h *handler) processQueries() {
+	for query := range h.queries {
+		sqlString := query.sqlString
+		ce := query.ce
+		result, err := h.doQuery(sqlString, ce.permalink())
 		if err != nil {
 			err = fmt.Errorf("Unable to query: %v", err)
 			log.Error(err)
@@ -166,9 +178,7 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 		}
 		h.cache.put(sqlString, ce)
 		log.Debugf("Cached results for %v", sqlString)
-	}()
-
-	return
+	}
 }
 
 func compress(resultBytes []byte, err error) ([]byte, error) {

@@ -18,25 +18,27 @@ var (
 )
 
 type Opts struct {
-	OAuthClientID     string
-	OAuthClientSecret string
-	GitHubOrg         string
-	HashKey           string
-	BlockKey          string
-	CacheDir          string
-	CacheTTL          time.Duration
-	Password          string
-	QueryTimeout      time.Duration
-	MaxResponseBytes  int
+	OAuthClientID         string
+	OAuthClientSecret     string
+	GitHubOrg             string
+	HashKey               string
+	BlockKey              string
+	CacheDir              string
+	CacheTTL              time.Duration
+	Password              string
+	QueryTimeout          time.Duration
+	QueryConcurrencyLimit int
+	MaxResponseBytes      int
 }
 
 type handler struct {
 	Opts
-	db     *zenodb.DB
-	fs     http.Handler
-	sc     *securecookie.SecureCookie
-	client *http.Client
-	cache  *cache
+	db      *zenodb.DB
+	fs      http.Handler
+	sc      *securecookie.SecureCookie
+	client  *http.Client
+	cache   *cache
+	queries chan *query
 }
 
 func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
@@ -53,11 +55,15 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	}
 
 	if opts.CacheTTL <= 0 {
-		opts.CacheTTL = 1 * time.Hour
+		opts.CacheTTL = 2 * time.Hour
 	}
 
 	if opts.QueryTimeout <= 0 {
-		opts.QueryTimeout = 10 * time.Minute
+		opts.QueryTimeout = 30 * time.Minute
+	}
+
+	if opts.QueryConcurrencyLimit <= 0 {
+		opts.QueryConcurrencyLimit = 2
 	}
 
 	if opts.MaxResponseBytes <= 0 {
@@ -91,11 +97,17 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	}
 
 	h := &handler{
-		Opts:   *opts,
-		db:     db,
-		sc:     securecookie.New(hashKey, blockKey),
-		client: &http.Client{},
-		cache:  cache,
+		Opts:    *opts,
+		db:      db,
+		sc:      securecookie.New(hashKey, blockKey),
+		client:  &http.Client{},
+		cache:   cache,
+		queries: make(chan *query, opts.QueryConcurrencyLimit*1000),
+	}
+
+	log.Debugf("Starting %d goroutines to process queries", opts.QueryConcurrencyLimit)
+	for i := 0; i < opts.QueryConcurrencyLimit; i++ {
+		go h.processQueries()
 	}
 
 	router.StrictSlash(true)
