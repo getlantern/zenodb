@@ -58,7 +58,7 @@ You will learn how to use zeno to:
 Install [Go](https://golang.org/doc/install) if you haven't already.
 
 ```bash
-go install github.com/getlantern/zenodb/zeno
+go install github.com/getlantern/zenodb/cmd/zeno
 go install github.com/getlantern/zenodb/zeno-cli
 ```
 
@@ -115,14 +115,14 @@ Terminal 2
 
 ```bash
 > # Submit some data via the REST API. Omit the ts parameter to use current time.
-> curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html", "status": 200}, "vals": {"requests": 56}}
-quote> {"dims": {"server": "56.234.163.23", "path": "/login", "status": 200}, "vals": {"requests": 34}}
-quote> {"dims": {"server": "56.234.163.23", "path": "/login", "status": 500}, "vals": {"requests": 12}}
-quote> {"dims": {"server": "56.234.163.23"}, "vals": {"load_avg": 1.7}}
-quote> {"dims": {"server": "56.234.163.24", "path": "/index.html", "status": 200}, "vals": {"requests": 523}}
-quote> {"dims": {"server": "56.234.163.24", "path": "/login", "status": 200}, "vals": {"requests": 411}}
-quote> {"dims": {"server": "56.234.163.24", "path": "/login", "status": 500}, "vals": {"requests": 28}}
-quote> {"dims": {"server": "56.234.163.24"}, "vals": {"load_avg": 0.3}}' http://localhost:17713/insert/inbound
+> curl -i -H "Content-Type: application/json" -X POST -d '{"dims": {"server": "56.234.163.23", "path": "/index.html", "status": 200}, "vals": {"requests": 56}},
+{"dims": {"server": "56.234.163.23", "path": "/login", "status": 200}, "vals": {"requests": 34}},
+{"dims": {"server": "56.234.163.23", "path": "/login", "status": 500}, "vals": {"requests": 12}},
+{"dims": {"server": "56.234.163.23"}, "vals": {"load_avg": 1.7}},
+{"dims": {"server": "56.234.163.24", "path": "/index.html", "status": 200}, "vals": {"requests": 523}},
+{"dims": {"server": "56.234.163.24", "path": "/login", "status": 200}, "vals": {"requests": 411}},
+{"dims": {"server": "56.234.163.24", "path": "/login", "status": 500}, "vals": {"requests": 28}},
+{"dims": {"server": "56.234.163.24"}, "vals": {"load_avg": 0.3}}' http://127.0.0.1:17713/insert/inbound
 HTTP/1.1 201 Created
 Date: Mon, 29 Aug 2016 03:00:38 GMT
 Content-Length: 0
