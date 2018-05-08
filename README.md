@@ -197,10 +197,34 @@ Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.23    <nil>        
 Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.24    <nil>          2.0000       0.0000      0.3000
 ```
 
-Notice that the number of rows hasn't changed, Zeno just aggregated the data
+As long as you're submitted the 2nd batch of data soon after the first, you
+should see that the number of rows hasn't changed, Zeno just aggregated the data
 on the existing timestamps.  The requests figures all doubled, since these are
 aggregated as a `SUM`. The load_avg figures remained unchanged since they're
 being aggregated as an `AVG`.
+
+Note - if enough time has elapsed that we have a new timestamp, you will see
+additional rows like this:
+
+```
+# time                             path           server           status        _points    requests    load_avg
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.24    200            1.0000    523.0000      0.0000
+Mon, 29 Aug 2016 03:05:00 UTC      /index.html    56.234.163.24    200            1.0000    523.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    200            1.0000    411.0000      0.0000
+Mon, 29 Aug 2016 03:05:00 UTC      /login         56.234.163.24    200            1.0000    411.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /index.html    56.234.163.23    200            1.0000     56.0000      0.0000
+Mon, 29 Aug 2016 03:05:00 UTC      /index.html    56.234.163.23    200            1.0000     56.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    200            1.0000     34.0000      0.0000
+Mon, 29 Aug 2016 03:05:00 UTC      /login         56.234.163.23    200            1.0000     34.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.24    500            1.0000     28.0000      0.0000
+Mon, 29 Aug 2016 03:05:00 UTC      /login         56.234.163.24    500            1.0000     28.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      /login         56.234.163.23    500            1.0000     12.0000      0.0000
+Mon, 29 Aug 2016 03:05:00 UTC      /login         56.234.163.23    500            1.0000     12.0000      0.0000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.23    <nil>          1.0000      0.0000      1.7000
+Mon, 29 Aug 2016 03:05:00 UTC      <nil>          56.234.163.23    <nil>          1.0000      0.0000      1.7000
+Mon, 29 Aug 2016 03:00:00 UTC      <nil>          56.234.163.24    <nil>          1.0000      0.0000      0.3000
+Mon, 29 Aug 2016 03:05:00 UTC      <nil>          56.234.163.24    <nil>          1.0000      0.0000      0.3000
+```
 
 **Core Concept** - Zeno knows how to aggregate fields based on the schema, so
 you don't need to include aggregation operators in your query.  What happens if
