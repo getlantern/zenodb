@@ -42,12 +42,8 @@ type handler struct {
 }
 
 func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
-	if opts.OAuthClientID == "" || opts.OAuthClientSecret == "" {
-		return errors.New("Unable to start web server, missing OAuthClientID and/or OAuthClientSecret")
-	}
-
-	if opts.GitHubOrg == "" {
-		return errors.New("Unable to start web server, no GitHubOrg specified")
+	if opts.OAuthClientID == "" || opts.OAuthClientSecret == "" || opts.GitHubOrg == "" {
+		log.Errorf("WARNING - Missing OAuthClientID, OAuthClientSecret and/or GitHubOrg, web API will not authenticate!")
 	}
 
 	if opts.CacheDir == "" {

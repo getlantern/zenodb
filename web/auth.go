@@ -26,6 +26,11 @@ type AuthData struct {
 }
 
 func (h *handler) authenticate(resp http.ResponseWriter, req *http.Request) bool {
+	if h.Opts.OAuthClientID == "" || h.Opts.OAuthClientSecret == "" {
+		log.Debug("OAuth not configured, not authenticating!")
+		return true
+	}
+
 	// First check for static auth token
 	if h.Opts.Password != "" {
 		password := req.Header.Get(authheader)
