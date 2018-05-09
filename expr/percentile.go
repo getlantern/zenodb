@@ -34,15 +34,24 @@ func PERCENTILE(value interface{}, percentile interface{}, min float64, max floa
 	case *ptileOptimized:
 		return newPtileOptimized(t.wrapped, exprFor(percentile))
 	default:
-		sampleHisto := hdrhistogram.New(scaleToInt(min, precision), scaleToInt(max, precision), precision)
+		// Figure out what precision to use for HDR
+		hdrPrecision := precision
+		if hdrPrecision < 1 {
+			hdrPrecision = 1
+		} else if hdrPrecision > 5 {
+			hdrPrecision = 5
+		}
+
+		sampleHisto := hdrhistogram.New(scaleToInt(min, precision), scaleToInt(max, precision), hdrPrecision)
 		numCounts := len(sampleHisto.Export().Counts)
 		return &ptile{
-			Value:      BOUNDED(valueExpr, min, max),
-			Percentile: exprFor(percentile),
-			Min:        scaleToInt(min, precision),
-			Max:        scaleToInt(max, precision),
-			Precision:  precision,
-			Width:      (1+numCounts)*width64bits + valueExpr.EncodedWidth(),
+			Value:        BOUNDED(valueExpr, min, max),
+			Percentile:   exprFor(percentile),
+			Min:          scaleToInt(min, precision),
+			Max:          scaleToInt(max, precision),
+			Precision:    precision,
+			HDRPrecision: hdrPrecision,
+			Width:        (1+numCounts)*width64bits + valueExpr.EncodedWidth(),
 		}
 	}
 }
@@ -73,18 +82,16 @@ func scaleFromFloat(value float64, precision int) float64 {
 }
 
 type ptile struct {
-	Value      Expr
-	Percentile Expr
-	Min        int64
-	Max        int64
-	Precision  int
-	Width      int
+	Value        Expr
+	Percentile   Expr
+	Min          int64
+	Max          int64
+	Precision    int
+	HDRPrecision int
+	Width        int
 }
 
 func (e *ptile) Validate() error {
-	if e.Precision < 0 || e.Precision > 5 {
-		return fmt.Errorf("Precision must be between 0 and 5 (inclusive), was %d", e.Precision)
-	}
 	err := validateWrappedInAggregate(e.Value)
 	if err != nil {
 		return err
@@ -174,7 +181,7 @@ func (e *ptile) load(b []byte) (*hdrhistogram.Histogram, bool, []byte) {
 	wasSet := numCounts > 0
 	var histo *hdrhistogram.Histogram
 	if !wasSet {
-		histo = hdrhistogram.New(e.Min, e.Max, e.Precision)
+		histo = hdrhistogram.New(e.Min, e.Max, e.HDRPrecision)
 	} else {
 		counts := make([]int64, numCounts)
 		for i := 0; i < numCounts; i++ {
@@ -183,7 +190,7 @@ func (e *ptile) load(b []byte) (*hdrhistogram.Histogram, bool, []byte) {
 		histo = hdrhistogram.Import(&hdrhistogram.Snapshot{
 			LowestTrackableValue:  e.Min,
 			HighestTrackableValue: e.Max,
-			SignificantFigures:    int64(e.Precision),
+			SignificantFigures:    int64(e.HDRPrecision),
 			Counts:                counts,
 		})
 	}
