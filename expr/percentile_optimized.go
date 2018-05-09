@@ -57,6 +57,10 @@ func (e *ptileOptimized) IsConstant() bool {
 	return false
 }
 
+func (e *ptileOptimized) DeAggregate() Expr {
+	return PERCENTILE(e.wrapped.DeAggregate(), e.Percentile.DeAggregate(), scaleFromInt(e.wrapped.Min, e.wrapped.Precision), scaleFromInt(e.wrapped.Max, e.wrapped.Precision), e.wrapped.Precision)
+}
+
 func (e *ptileOptimized) String() string {
 	return fmt.Sprintf("PERCENTILE(%v, %v)", e.wrapped.String(), e.Percentile)
 }

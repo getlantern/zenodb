@@ -136,6 +136,10 @@ func (e *avg) IsConstant() bool {
 	return e.Value.IsConstant()
 }
 
+func (e *avg) DeAggregate() Expr {
+	return e.Value.DeAggregate()
+}
+
 func (e *avg) String() string {
 	return fmt.Sprintf("AVG(%v)", e.Value)
 }

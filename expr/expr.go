@@ -114,6 +114,9 @@ type Expr interface {
 	// IsConstant indicates whether or not this is a constant expression
 	IsConstant() bool
 
+	// DeAggregate strips aggregates from this expression and returns the result
+	DeAggregate() Expr
+
 	String() string
 }
 

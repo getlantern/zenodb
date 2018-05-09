@@ -83,6 +83,10 @@ func (e *shift) IsConstant() bool {
 	return e.Wrapped.IsConstant()
 }
 
+func (e *shift) DeAggregate() Expr {
+	return SHIFT(e.Wrapped.DeAggregate(), e.Offset)
+}
+
 func (e *shift) String() string {
 	return fmt.Sprintf("SHIFT(%v, %v)", e.Wrapped, e.Offset)
 }

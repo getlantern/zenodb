@@ -132,6 +132,10 @@ func (e *aggregate) IsConstant() bool {
 	return e.Wrapped.IsConstant()
 }
 
+func (e *aggregate) DeAggregate() Expr {
+	return e.Wrapped.DeAggregate()
+}
+
 func (e *aggregate) String() string {
 	return fmt.Sprintf("%v(%v)", e.Name, e.Wrapped)
 }

@@ -13,8 +13,13 @@ func TestScaleInt(t *testing.T) {
 	AssertFloatEquals(t, 5.12, scaleFromInt(scaleToInt(v, 2), 2))
 }
 
+func TestDeAggregatePercentile(t *testing.T) {
+	e := msgpacked(t, PERCENTILE("p", 99, 0, 100, 1))
+	assert.Equal(t, FIELD("p").String(), e.DeAggregate().String())
+}
+
 func TestPercentile(t *testing.T) {
-	e := msgpacked(t, PERCENTILE("a", 99, 0, 100, 1))
+	e := msgpacked(t, PERCENTILE(SUM("a"), 99, 0, 100, 1))
 	expected := float64(99)
 
 	eo := msgpacked(t, PERCENTILE(e, 50, 0, 100, 1))
