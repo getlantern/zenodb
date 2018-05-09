@@ -62,6 +62,7 @@ SELECT
 	LOG10(l) AS log3,
 	SUM(p) AS p,
 	PERCENTILE(ptile, 1, 0, 0, 1) AS ptile2,
+	PERCENTILE(ptile, 2) AS ptile2_opt,
 	PERCENTILE(myfield / 10, 1, 0, 0, 1) AS ptile3
 FROM Table_A ASOF '-1w' UNTIL '-15m'
 WHERE
@@ -107,7 +108,7 @@ LIMIT 100, 10
 	}
 	rate := MULT(DIV(AVG("a"), ADD(ADD(SUM("a"), SUM("b")), SUM("c"))), 2)
 	myfield := SUM("myfield")
-	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1w', '1d'), ln(l) as log1, log2(l) as log2, log10(l) as log3, sum(p) as p, percentile(ptile, 1, 0, 0, 1) as ptile2, percentile(myfield/10, 1, 0, 0, 1) as ptile3, rate > 15 and h < 2 AS _having", q.Fields.String())
+	assert.Equal(t, "avg(a)/(sum(a)+sum(b)+sum(c))*2 as rate, myfield, knownfield, if(dim = 'test', avg(myfield)) as the_avg, *, sum(bounded(bfield, 0, 100)) as bounded, 5 as cval, wavg(a, b) as weighted, if(dim = 'test2', _) as present, shift(sum(s), '1h') as shifted, crosshift(cs, '-1w', '1d'), ln(l) as log1, log2(l) as log2, log10(l) as log3, sum(p) as p, percentile(ptile, 1, 0, 0, 1) as ptile2, percentile(ptile, 2) as ptile2_opt, percentile(myfield/10, 1, 0, 0, 1) as ptile3, rate > 15 and h < 2 AS _having", q.Fields.String())
 	fields, err := q.Fields.Get(tableFields)
 	if !assert.NoError(t, err) {
 		return
@@ -116,7 +117,7 @@ LIMIT 100, 10
 	if !assert.NoError(t, err) {
 		return
 	}
-	numFields := 27
+	numFields := 28
 	assert.Len(t, fieldsNoHaving, numFields-1)
 	if assert.Len(t, fields, numFields) {
 		idx := 0
@@ -253,6 +254,12 @@ LIMIT 100, 10
 		field = fields[idx]
 		idx++
 		expected = core.NewField("ptile2", PERCENTILE(pKnownField.Expr, CONST(1), 0, 0, 1)).String()
+		actual = field.String()
+		assert.Equal(t, expected, actual)
+
+		field = fields[idx]
+		idx++
+		expected = core.NewField("ptile2_opt", PERCENTILE(pKnownField.Expr, CONST(2), 0, 0, 1)).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 

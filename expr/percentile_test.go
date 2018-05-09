@@ -25,7 +25,7 @@ func TestPercentile(t *testing.T) {
 	eo := msgpacked(t, PERCENTILE(e, 50, 0, 100, 1))
 	expectedO := float64(51)
 
-	eo2 := msgpacked(t, PERCENTILE(eo, 1, 0, 100, 1))
+	eo2 := msgpacked(t, PERCENTILEOPT(eo, 1))
 	expectedO2 := float64(1)
 
 	if !assert.True(t, IsPercentile(e)) {

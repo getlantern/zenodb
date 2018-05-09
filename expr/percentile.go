@@ -30,9 +30,9 @@ func PERCENTILE(value interface{}, percentile interface{}, min float64, max floa
 	valueExpr := exprFor(value)
 	switch t := valueExpr.(type) {
 	case *ptile:
-		return newPtileOptimized(t, exprFor(percentile))
+		return PERCENTILEOPT(t, exprFor(percentile))
 	case *ptileOptimized:
-		return newPtileOptimized(t.wrapped, exprFor(percentile))
+		return PERCENTILEOPT(t, exprFor(percentile))
 	default:
 		// Remove aggregates
 		valueExpr = valueExpr.DeAggregate()
