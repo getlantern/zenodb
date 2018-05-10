@@ -30,10 +30,12 @@ func PERCENTILE(value interface{}, percentile interface{}, min float64, max floa
 	valueExpr := exprFor(value)
 	switch t := valueExpr.(type) {
 	case *ptile:
-		return newPtileOptimized(t, exprFor(percentile))
+		return PERCENTILEOPT(t, exprFor(percentile))
 	case *ptileOptimized:
-		return newPtileOptimized(t.wrapped, exprFor(percentile))
+		return PERCENTILEOPT(t, exprFor(percentile))
 	default:
+		// Remove aggregates
+		valueExpr = valueExpr.DeAggregate()
 		// Figure out what precision to use for HDR
 		hdrPrecision := precision
 		if hdrPrecision < 1 {
@@ -209,6 +211,10 @@ func (e *ptile) save(b []byte, histo *hdrhistogram.Histogram) []byte {
 
 func (e *ptile) IsConstant() bool {
 	return e.Value.IsConstant()
+}
+
+func (e *ptile) DeAggregate() Expr {
+	return e.Value.(*bounded).wrapped.DeAggregate()
 }
 
 func (e *ptile) String() string {

@@ -71,6 +71,10 @@ func (e *bounded) IsConstant() bool {
 	return e.wrapped.IsConstant()
 }
 
+func (e *bounded) DeAggregate() Expr {
+	return BOUNDED(e.wrapped.DeAggregate(), e.min, e.max)
+}
+
 func (e *bounded) String() string {
 	return fmt.Sprintf("BOUNDED(%v, %v, %v)", e.wrapped, e.min, e.max)
 }

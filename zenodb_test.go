@@ -160,7 +160,8 @@ Test_a:
       i * ii / COUNT(ii) AS iii,
       AVG(iv) AS iv,
       AVG(BOUNDED(iv, 0, 10)) as biv,
-      PERCENTILE(p, 99, 0, 1000, -1) as pp,
+      PERCENTILE(p * 1, 99, 0, 1000, -1) as pp,
+      PERCENTILE(p, 5, 0, 1000, 2) AS pp_5p,
       z
     FROM inbound
     WHERE r = 'A'
@@ -410,6 +411,7 @@ ORDER BY _time`
 				"iv":         15,
 				"biv":        10,
 				"pp":         90,
+				"pp_5p":      5,
 				"z":          0,
 				"newfield_1": 0,
 				"newfield_2": 0,
@@ -431,6 +433,7 @@ ORDER BY _time`
 				"iv":         30,
 				"biv":        0,
 				"pp":         0,
+				"pp_5p":      0,
 				"z":          53,
 				"newfield_1": 0,
 				"newfield_2": 0,
@@ -452,6 +455,7 @@ ORDER BY _time`
 				"iv":         0,
 				"biv":        0,
 				"pp":         0,
+				"pp_5p":      0,
 				"z":          700,
 				"newfield_1": 0,
 				"newfield_2": 0,

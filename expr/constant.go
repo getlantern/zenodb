@@ -48,6 +48,10 @@ func (e *constant) IsConstant() bool {
 	return true
 }
 
+func (e *constant) DeAggregate() Expr {
+	return e
+}
+
 func (e *constant) String() string {
 	return fmt.Sprintf("%f", e.Value)
 }

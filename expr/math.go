@@ -74,6 +74,12 @@ func (e *unaryMathExpr) IsConstant() bool {
 	return e.Wrapped.IsConstant()
 }
 
+func (e *unaryMathExpr) DeAggregate() Expr {
+	// We can safely ignore the error because e.Name has already passed validation
+	result, _ := UnaryMath(e.Name, e.Wrapped.DeAggregate())
+	return result
+}
+
 func (e *unaryMathExpr) String() string {
 	return fmt.Sprintf("%v(%v)", e.Name, e.Wrapped)
 }

@@ -33,6 +33,8 @@ func TestDIVZeroZero(t *testing.T) {
 func TestValidateBinary(t *testing.T) {
 	bad := MULT(FIELD("a"), FIELD("b"))
 	assert.Error(t, bad.Validate())
+	dok := bad.DeAggregate()
+	assert.NoError(t, dok.Validate())
 	ok := MULT(CONST(1), SUM(FIELD("b")))
 	assert.NoError(t, ok.Validate())
 	ok2 := MULT(CONST(1), AVG(FIELD("b")))

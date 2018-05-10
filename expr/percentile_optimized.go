@@ -8,10 +8,17 @@ import (
 	"github.com/getlantern/msgpack"
 )
 
-// newPtileOptimized creates a percentile that wraps an existing percentile and
-// reuses its storage, simply using a different percentile value.
-func newPtileOptimized(wrapped *ptile, percentile Expr) Expr {
-	return &ptileOptimized{Wrapped: wrapped, wrapped: wrapped, Percentile: percentile}
+// PERCENTILEOPT returns an optimized PERCENTILE that wraps an existing
+// PERCENTILE and reuses its storage.
+func PERCENTILEOPT(wrapped interface{}, percentile interface{}) Expr {
+	var expr Expr
+	switch t := wrapped.(type) {
+	case *ptileOptimized:
+		expr = t.wrapped
+	default:
+		expr = wrapped.(*ptile)
+	}
+	return &ptileOptimized{Wrapped: expr, wrapped: expr.(*ptile), Percentile: exprFor(percentile)}
 }
 
 type ptileOptimized struct {
@@ -55,6 +62,10 @@ func (e *ptileOptimized) Get(b []byte) (float64, bool, []byte) {
 
 func (e *ptileOptimized) IsConstant() bool {
 	return false
+}
+
+func (e *ptileOptimized) DeAggregate() Expr {
+	return PERCENTILE(e.wrapped.DeAggregate(), e.Percentile.DeAggregate(), scaleFromInt(e.wrapped.Min, e.wrapped.Precision), scaleFromInt(e.wrapped.Max, e.wrapped.Precision), e.wrapped.Precision)
 }
 
 func (e *ptileOptimized) String() string {

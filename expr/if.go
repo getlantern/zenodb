@@ -94,6 +94,10 @@ func (e *ifExpr) IsConstant() bool {
 	return e.Wrapped.IsConstant()
 }
 
+func (e *ifExpr) DeAggregate() Expr {
+	return IF(e.Cond, e.Wrapped.DeAggregate())
+}
+
 func (e *ifExpr) String() string {
 	return fmt.Sprintf("IF(%v, %v)", e.Cond, e.Wrapped)
 }

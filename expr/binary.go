@@ -33,21 +33,22 @@ func registerBinaryExpr(op string, calc calcFN) {
 type calcFN func(left float64, right float64) float64
 
 type binaryExpr struct {
-	Op    string
-	Left  Expr
-	Right Expr
-	calc  calcFN
+	Op           string
+	Left         Expr
+	Right        Expr
+	DeAggregated bool
+	calc         calcFN
 }
 
 func (e *binaryExpr) Validate() error {
-	err := validateWrappedInBinary(e.Left)
+	err := e.validateWrappedInBinary(e.Left)
 	if err == nil {
-		err = validateWrappedInBinary(e.Right)
+		err = e.validateWrappedInBinary(e.Right)
 	}
 	return err
 }
 
-func validateWrappedInBinary(wrapped Expr) error {
+func (e *binaryExpr) validateWrappedInBinary(wrapped Expr) error {
 	if wrapped == nil {
 		return fmt.Errorf("Binary expression cannot wrap nil expression")
 	}
@@ -57,6 +58,9 @@ func validateWrappedInBinary(wrapped Expr) error {
 	}
 	if typeOfWrapped == binaryType {
 		return wrapped.Validate()
+	}
+	if e.DeAggregated {
+		return nil
 	}
 	return fmt.Errorf("Binary expression must wrap only aggregate, if, constant or shift expressions, or other binary expressions that wrap only aggregate or constant expressions, not %v of type %v", wrapped, typeOfWrapped)
 }
@@ -140,6 +144,12 @@ func (e *binaryExpr) Get(b []byte) (float64, bool, []byte) {
 
 func (e *binaryExpr) IsConstant() bool {
 	return e.Left.IsConstant() && e.Right.IsConstant()
+}
+
+func (e *binaryExpr) DeAggregate() Expr {
+	result := binaryExprFor(e.Op, e.Left.DeAggregate(), e.Right.DeAggregate())
+	result.DeAggregated = true
+	return result
 }
 
 func (e *binaryExpr) String() string {

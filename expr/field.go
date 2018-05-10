@@ -63,6 +63,10 @@ func (e *field) IsConstant() bool {
 	return false
 }
 
+func (e *field) DeAggregate() Expr {
+	return e
+}
+
 func (e *field) String() string {
 	return e.Name
 }

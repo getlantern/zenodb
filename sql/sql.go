@@ -30,7 +30,8 @@ var (
 	ErrSelectNoName                  = errors.New("All expressions in SELECT must either reference a column name or include an AS alias")
 	ErrIfArity                       = errors.New("IF requires two parameters, like IF(dim = 1, SUM(b))")
 	ErrBoundedArity                  = errors.New("BOUNDED requires three parameters, like BOUNDED(b, 0, 100)")
-	ErrPercentileArity               = errors.New("PERCENTILE requires five parameters, like PERCENTILE(b, 99.9, 0, 1000, 3)")
+	ErrPercentileArity               = errors.New("PERCENTILE requires either two or five parameters, like PERCENTILE(b, 99.9, 0, 1000, 3)")
+	ErrPercentileOptWrap             = errors.New("PERCENTILE with two parameters may only wrap an existing PERCENTILE expression")
 	ErrShiftArity                    = errors.New("SHIFT requires two parameters, like SHIFT(SUM(b), '-1h')")
 	ErrCrosshiftArity                = errors.New("CROSSHIFT requires three parameters, like CROSSHIFT(SUM(b), '1h', '-1d')")
 	ErrCrosshiftZeroCutoffOrInterval = errors.New("CROSSHIFT cutoff and interval must be non-zero")
@@ -784,9 +785,11 @@ func (f *fielded) boundedExprFor(e *sqlparser.FuncExpr, fname string, defaultToS
 }
 
 func (f *fielded) percentileExprFor(e *sqlparser.FuncExpr, fname string, defaultToSum bool) (interface{}, error) {
-	if len(e.Exprs) != 5 {
+	isOptimized := len(e.Exprs) == 2
+	if len(e.Exprs) != 2 && len(e.Exprs) != 5 {
 		return nil, ErrPercentileArity
 	}
+
 	_valueEx, ok := e.Exprs[0].(*sqlparser.NonStarExpr)
 	if !ok {
 		return nil, ErrWildcardNotAllowed
@@ -801,6 +804,10 @@ func (f *fielded) percentileExprFor(e *sqlparser.FuncExpr, fname string, default
 		// existing field is a percentile, just wrap it
 		valueEx = valueField.Expr
 	} else {
+		if isOptimized {
+			// tried to wrap a non-percentile expression in a PERCENTILEOPT
+			return nil, ErrPercentileOptWrap
+		}
 		// existing expression is not a percentile, need to get the field
 		var valueErr error
 		valueEx, valueErr = f.exprFor(_valueEx.Expr, false)
@@ -816,6 +823,12 @@ func (f *fielded) percentileExprFor(e *sqlparser.FuncExpr, fname string, default
 	if percentileErr != nil {
 		return nil, percentileErr
 	}
+
+	if isOptimized {
+		// don't bother with rest
+		return expr.PERCENTILEOPT(valueEx, percentileEx), nil
+	}
+
 	min, err := nodeToFloat(e.Exprs[2])
 	if err != nil {
 		return nil, err
