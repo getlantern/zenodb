@@ -22,15 +22,17 @@ const (
 var (
 	binaryEncoding = binary.BigEndian
 
-	fieldType     = reflect.TypeOf((*field)(nil))
-	constType     = reflect.TypeOf((*constant)(nil))
-	boundedType   = reflect.TypeOf((*bounded)(nil))
-	aggregateType = reflect.TypeOf((*aggregate)(nil))
-	ifType        = reflect.TypeOf((*ifExpr)(nil))
-	avgType       = reflect.TypeOf((*avg)(nil))
-	binaryType    = reflect.TypeOf((*binaryExpr)(nil))
-	shiftType     = reflect.TypeOf((*shift)(nil))
-	unaryMathType = reflect.TypeOf((*unaryMathExpr)(nil))
+	fieldType               = reflect.TypeOf((*field)(nil))
+	constType               = reflect.TypeOf((*constant)(nil))
+	boundedType             = reflect.TypeOf((*bounded)(nil))
+	aggregateType           = reflect.TypeOf((*aggregate)(nil))
+	ifType                  = reflect.TypeOf((*ifExpr)(nil))
+	avgType                 = reflect.TypeOf((*avg)(nil))
+	binaryType              = reflect.TypeOf((*binaryExpr)(nil))
+	shiftType               = reflect.TypeOf((*shift)(nil))
+	unaryMathType           = reflect.TypeOf((*unaryMathExpr)(nil))
+	percentileType          = reflect.TypeOf((*ptile)(nil))
+	percentileOptimizedType = reflect.TypeOf((*ptileOptimized)(nil))
 )
 
 func init() {

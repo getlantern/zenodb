@@ -160,7 +160,7 @@ Test_a:
       i * ii / COUNT(ii) AS iii,
       AVG(iv) AS iv,
       AVG(BOUNDED(iv, 0, 10)) as biv,
-      PERCENTILE(p * 1, 99, 0, 1000, -1) as pp,
+      IF(TRUE = TRUE, PERCENTILE(p * 1, 99, 0, 1000, -1)) as pp,
       PERCENTILE(p, 5, 0, 1000, 2) AS pp_5p,
       z
     FROM inbound
