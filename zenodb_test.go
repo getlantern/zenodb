@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -379,19 +380,31 @@ view_a:
 		return true, nil
 	})
 
+	var wg sync.WaitGroup
+
 	for _, includeMemStore := range []bool{true, false} {
-		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
-		testCrosstabWithHavingQuery(t, db, includeMemStore, epoch, resolution)
-		testStrideQuery(t, db, includeMemStore, epoch, resolution)
-		testShiftQuery(t, db, includeMemStore, epoch, resolution)
-		testSubQuery(t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testSimpleQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testCrosstabWithHavingQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testStrideQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testShiftQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testSubQuery(&wg, t, db, includeMemStore, epoch, resolution)
 		if false {
-			testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
+			wg.Add(1)
+			go testAggregateQuery(&wg, t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
 		}
 	}
+
+	wg.Wait()
 }
 
-func testSimpleQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testSimpleQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := `
 SELECT *
 FROM test_a
@@ -471,7 +484,9 @@ ORDER BY _time`
 
 // testHavingQuery makes sure that a HAVING clause works even when the field in
 // that clause does not appear in the SELECT clause
-func testCrosstabWithHavingQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testCrosstabWithHavingQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := `
 SELECT i
 FROM test_a
@@ -491,7 +506,9 @@ ORDER BY _time`
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testStrideQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testStrideQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := fmt.Sprintf(`
 SELECT _points, i, ii, iii, iv, biv, z
 FROM test_a
@@ -529,7 +546,9 @@ ORDER BY _time`, resolution*6)
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testShiftQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testShiftQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := fmt.Sprintf(`
 SELECT _points, CROSSHIFT(i, '%v', '%v') AS i
 FROM test_a
@@ -579,7 +598,9 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testSubQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testSubQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := `
 SELECT _points, i
 FROM (SELECT *
@@ -616,7 +637,9 @@ FROM (SELECT *
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testAggregateQuery(t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
+func testAggregateQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
+	defer wg.Done()
+
 	period := resolution * time.Duration(scalingFactor)
 
 	sqlString := fmt.Sprintf(`
