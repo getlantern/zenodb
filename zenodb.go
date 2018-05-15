@@ -31,6 +31,8 @@ import (
 
 const (
 	defaultMaxBackupWait = 1 * time.Hour
+
+	defaultIterationCoalesceInterval = 15 * time.Second
 )
 
 var (
@@ -86,6 +88,9 @@ type DBOpts struct {
 	// MaxMemoryRatio caps the maximum memory of this process. When the system
 	// comes under memory pressure, it will start flushing table memstores.
 	MaxMemoryRatio float64
+	// IterationCoalesceInterval specifies how long we wait between iteration
+	// requests in order to coalesce multiple related ones.
+	IterationCoalesceInterval time.Duration
 	// MaxBackupWait limits how long we're willing to wait for a backup before
 	// resuming file operations
 	MaxBackupWait time.Duration
@@ -124,6 +129,7 @@ type DB struct {
 	followerJoined       chan *follower
 	processFollowersOnce sync.Once
 	remoteQueryHandlers  map[int]chan planner.QueryClusterFN
+	requestedIterations  chan *iteration
 	closed               bool
 }
 
@@ -139,6 +145,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		newStreamSubscriber: make(map[string]chan *tableWithOffset),
 		followerJoined:      make(chan *follower, opts.NumPartitions),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
+		requestedIterations: make(chan *iteration, 1000), // TODO, make the iteration backlog tunable
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
@@ -148,6 +155,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.WALCompressionSize <= 0 {
 		opts.WALCompressionSize = opts.MaxWALSize / 10
+	}
+	if opts.IterationCoalesceInterval <= 0 {
+		opts.IterationCoalesceInterval = defaultIterationCoalesceInterval
 	}
 	if opts.MaxBackupWait <= 0 {
 		opts.MaxBackupWait = defaultMaxBackupWait
@@ -207,6 +217,10 @@ func NewDB(opts *DBOpts) (*DB, error) {
 			log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
 		}
 		go db.trackMemStats()
+	}
+
+	if !db.opts.Passthrough {
+		go db.coalesceIterations()
 	}
 
 	return db, err

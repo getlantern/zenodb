@@ -369,16 +369,18 @@ view_a:
 	// Give processing time to catch up
 	time.Sleep(10 * time.Second)
 
-	table := db.getTable("test_a")
-	fields := table.getFields()
-	table.iterate(context.Background(), fields, true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
-		log.Debugf("Dims: %v")
-		for i, val := range vals {
-			field := fields[i]
-			log.Debugf("Table Dump %v : %v", field.Name, val.String(field.Expr, table.Resolution))
-		}
-		return true, nil
-	})
+	if !isClustered {
+		table := db.getTable("test_a")
+		fields := table.getFields()
+		table.iterate(context.Background(), fields, true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+			log.Debugf("Dims: %v")
+			for i, val := range vals {
+				field := fields[i]
+				log.Debugf("Table Dump %v : %v", field.Name, val.String(field.Expr, table.Resolution))
+			}
+			return true, nil
+		})
+	}
 
 	var wg sync.WaitGroup
 
