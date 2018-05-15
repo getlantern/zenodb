@@ -465,13 +465,15 @@ coalesceLoop:
 			}
 			itMore, err := it.onValue(dims, itVals)
 			if err != nil {
+				log.Errorf("Error while iterating: %v", err)
 				return false, err
 			}
 			if !itMore {
 				// This iteration doesn't want any more data, stop feeding it
 				delete(remainingIterations, i)
+			} else {
+				more = true
 			}
-			more = true
 		}
 		return more, nil
 	}
