@@ -83,7 +83,15 @@ func (e *ifExpr) include(metadata goexpr.Params) bool {
 		return true
 	}
 	val := e.Cond.Eval(metadata)
-	return val != nil && val.(bool)
+	if val == nil {
+		return false
+	}
+	valBool, ok := val.(bool)
+	if !ok {
+		fmt.Printf("Result %v for expression %v is not a bool!\n", val, e.Cond)
+		return false
+	}
+	return valBool
 }
 
 func (e *ifExpr) Get(b []byte) (float64, bool, []byte) {

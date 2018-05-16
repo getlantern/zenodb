@@ -19,8 +19,7 @@ func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) 
 	db.tablesMutex.Lock()
 	handlersCh := db.remoteQueryHandlers[partition]
 	if handlersCh == nil {
-		// TODO: maybe make size based on configuration or something
-		handlersCh = make(chan planner.QueryClusterFN, 100)
+		handlersCh = make(chan planner.QueryClusterFN, db.opts.ClusterQueryConcurrency)
 	}
 	db.remoteQueryHandlers[partition] = handlersCh
 	db.tablesMutex.Unlock()

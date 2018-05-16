@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
@@ -24,6 +25,10 @@ import (
 	"testing"
 )
 
+const (
+	clusterQueryConcurrency = 100
+)
+
 func TestRoundTimeUp(t *testing.T) {
 	ts := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	rounded := encoding.RoundTimeUp(ts, time.Second)
@@ -34,10 +39,11 @@ func TestRoundTimeUp(t *testing.T) {
 func TestSingleDB(t *testing.T) {
 	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool))) {
 		db, err := NewDB(&DBOpts{
-			Dir:            filepath.Join(tmpDir, "leader"),
-			SchemaFile:     tmpFile,
-			VirtualTime:    true,
-			MaxMemoryRatio: 0.00001,
+			Dir:                     filepath.Join(tmpDir, "leader"),
+			SchemaFile:              tmpFile,
+			VirtualTime:             true,
+			MaxMemoryRatio:          0.00001,
+			ClusterQueryConcurrency: clusterQueryConcurrency,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -99,11 +105,24 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 							// Re-register when finished
 							defer register()
-							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, onRow, onFlatRow)
+							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+								copyOfKey := make(bytemap.ByteMap, len(key))
+								copy(copyOfKey, key)
+								copyOfVals := make(core.Vals, 0, len(vals))
+								for _, val := range vals {
+									copyOfVal := make(encoding.Sequence, len(val))
+									copy(copyOfVal, val)
+									copyOfVals = append(copyOfVals, copyOfVal)
+								}
+								return onRow(copyOfKey, copyOfVals)
+							}, onFlatRow)
 						})
 					}
 
-					register()
+					// Continously handle queries
+					for j := 0; j < clusterQueryConcurrency; j++ {
+						go register()
+					}
 				},
 			})
 			if !assert.NoError(t, followerErr, "Unable to create follower DB") {
@@ -368,30 +387,44 @@ view_a:
 	// Give processing time to catch up
 	time.Sleep(10 * time.Second)
 
-	table := db.getTable("test_a")
-	fields := table.getFields()
-	table.iterate(context.Background(), fields, true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
-		log.Debugf("Dims: %v")
-		for i, val := range vals {
-			field := fields[i]
-			log.Debugf("Table Dump %v : %v", field.Name, val.String(field.Expr, table.Resolution))
-		}
-		return true, nil
-	})
+	if !isClustered {
+		table := db.getTable("test_a")
+		fields := table.getFields()
+		table.iterate(context.Background(), fields, true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+			log.Debugf("Dims: %v")
+			for i, val := range vals {
+				field := fields[i]
+				log.Debugf("Table Dump %v : %v", field.Name, val.String(field.Expr, table.Resolution))
+			}
+			return true, nil
+		})
+	}
+
+	var wg sync.WaitGroup
 
 	for _, includeMemStore := range []bool{true, false} {
-		testSimpleQuery(t, db, includeMemStore, epoch, resolution)
-		testCrosstabWithHavingQuery(t, db, includeMemStore, epoch, resolution)
-		testStrideQuery(t, db, includeMemStore, epoch, resolution)
-		testShiftQuery(t, db, includeMemStore, epoch, resolution)
-		testSubQuery(t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testSimpleQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testCrosstabWithHavingQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testStrideQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testShiftQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
+		go testSubQuery(&wg, t, db, includeMemStore, epoch, resolution)
 		if false {
-			testAggregateQuery(t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
+			wg.Add(1)
+			go testAggregateQuery(&wg, t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
 		}
 	}
+
+	wg.Wait()
 }
 
-func testSimpleQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testSimpleQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := `
 SELECT *
 FROM test_a
@@ -471,7 +504,9 @@ ORDER BY _time`
 
 // testHavingQuery makes sure that a HAVING clause works even when the field in
 // that clause does not appear in the SELECT clause
-func testCrosstabWithHavingQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testCrosstabWithHavingQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := `
 SELECT i
 FROM test_a
@@ -491,7 +526,9 @@ ORDER BY _time`
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testStrideQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testStrideQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := fmt.Sprintf(`
 SELECT _points, i, ii, iii, iv, biv, z
 FROM test_a
@@ -529,7 +566,9 @@ ORDER BY _time`, resolution*6)
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testShiftQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testShiftQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := fmt.Sprintf(`
 SELECT _points, CROSSHIFT(i, '%v', '%v') AS i
 FROM test_a
@@ -579,7 +618,9 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testSubQuery(t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+func testSubQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
 	sqlString := `
 SELECT _points, i
 FROM (SELECT *
@@ -616,7 +657,9 @@ FROM (SELECT *
 	}.assert(t, db, sqlString, includeMemStore)
 }
 
-func testAggregateQuery(t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
+func testAggregateQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
+	defer wg.Done()
+
 	period := resolution * time.Duration(scalingFactor)
 
 	sqlString := fmt.Sprintf(`

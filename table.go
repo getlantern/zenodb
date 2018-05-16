@@ -75,9 +75,20 @@ type table struct {
 	statsMutex          sync.RWMutex
 	wal                 *wal.Reader
 	readOffset          wal.Offset
+	iterations          *iteration
 	highWaterMarkDisk   int64
 	highWaterMarkMemory int64
 	highWaterMarkMx     sync.RWMutex
+}
+
+type iteration struct {
+	t               *table
+	ctx             context.Context
+	outFields       core.Fields
+	includeMemStore bool
+	onValue         func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)
+	fieldMappings   map[int]int
+	errCh           chan error
 }
 
 // CreateTable creates a table based on the given opts.
@@ -351,7 +362,142 @@ func (t *table) backfillTo() time.Time {
 }
 
 func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
-	return t.rowStore.iterate(ctx, outFields, includeMemStore, onValue)
+	it := &iteration{
+		t:               t,
+		ctx:             ctx,
+		outFields:       outFields,
+		includeMemStore: includeMemStore,
+		onValue:         onValue,
+		errCh:           make(chan error, 1),
+	}
+	t.db.requestedIterations <- it
+	return <-it.errCh
+}
+
+// coalesceIterations coalesces multiple parallel iterations for a single table,
+// which avoids having to do multiple table scans of the same table. It is
+// single-threaded, meaning that each ZenoDB instance performs only one scan at
+// a time. Since ZenoDB instances are meant to be sized small, this shouldn't be
+// a performance issue.
+func (db *DB) coalesceIterations() {
+	for it := range db.requestedIterations {
+		db.coalesceIteration(it)
+	}
+}
+
+func (db *DB) coalesceIteration(it *iteration) {
+	iterations := append([]*iteration(nil), it)
+	iterationsForOtherTables := make([]*iteration, 0)
+
+coalesceLoop:
+	for {
+		select {
+		case it2 := <-db.requestedIterations:
+			if it2.t == it.t {
+				iterations = append(iterations, it2)
+			} else {
+				iterationsForOtherTables = append(iterationsForOtherTables, it2)
+			}
+		case <-time.After(db.opts.IterationCoalesceInterval):
+			// stop waiting to coalesce
+			break coalesceLoop
+		}
+	}
+
+	// re-enqueue iterations for other tables since we won't be handling them
+	// here
+	for _, otherIt := range iterationsForOtherTables {
+		db.requestedIterations <- otherIt
+	}
+
+	var maxDeadline time.Time
+	includeMemStore := false
+	allOutFields := make(core.Fields, 0)
+	hasOutField := func(field core.Field) bool {
+		for _, existingField := range allOutFields {
+			if existingField.String() == field.String() {
+				return true
+			}
+		}
+		return false
+	}
+
+	for _, it := range iterations {
+		includeMemStore = includeMemStore || it.includeMemStore
+		deadline, hasDeadline := it.ctx.Deadline()
+		if hasDeadline && deadline.After(maxDeadline) {
+			maxDeadline = deadline
+		}
+		// default outFields to table fields
+		if it.outFields == nil {
+			it.outFields = it.t.fields
+		}
+		for _, field := range it.outFields {
+			if !hasOutField(field) {
+				allOutFields = append(allOutFields, field)
+			}
+		}
+	}
+
+	for _, it := range iterations {
+		it.fieldMappings = make(map[int]int, len(allOutFields))
+		for i, field := range allOutFields {
+			it.fieldMappings[i] = it.indexOfOutField(field)
+		}
+	}
+
+	log.Debugf("Coalescing %d iterations on %v", len(iterations), it.t.Name)
+
+	remainingIterations := make(map[int]*iteration, len(iterations))
+	for i, it := range iterations {
+		remainingIterations[i] = it
+	}
+
+	combinedOnValue := func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+		more := false
+		for i, it := range remainingIterations {
+			itVals := make([]encoding.Sequence, len(it.outFields))
+			for i, val := range vals {
+				itI := it.fieldMappings[i]
+				if itI >= 0 {
+					itVals[itI] = val
+				}
+			}
+			itMore, err := it.onValue(dims, itVals)
+			if err != nil {
+				log.Errorf("Error while iterating: %v", err)
+				return false, err
+			}
+			if !itMore {
+				// This iteration doesn't want any more data, stop feeding it
+				delete(remainingIterations, i)
+			} else {
+				more = true
+			}
+		}
+		return more, nil
+	}
+
+	newCtx := context.Background()
+	if !maxDeadline.IsZero() {
+		var cancel context.CancelFunc
+		newCtx, cancel = context.WithDeadline(newCtx, maxDeadline)
+		defer cancel()
+	}
+	err := it.t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
+	for _, it := range iterations {
+		it.errCh <- err
+	}
+	return
+}
+
+func (it *iteration) indexOfOutField(field core.Field) int {
+	for i, existingField := range it.outFields {
+		if existingField.String() == field.String() {
+			return i
+		}
+	}
+	return -1
 }
 
 // shouldSort determines whether or not a flush should be sorted. The flush will
