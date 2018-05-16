@@ -25,6 +25,10 @@ import (
 	"testing"
 )
 
+const (
+	clusterQueryConcurrency = 100
+)
+
 func TestRoundTimeUp(t *testing.T) {
 	ts := time.Date(2015, 5, 6, 7, 8, 9, 10, time.UTC)
 	rounded := encoding.RoundTimeUp(ts, time.Second)
@@ -35,10 +39,11 @@ func TestRoundTimeUp(t *testing.T) {
 func TestSingleDB(t *testing.T) {
 	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool))) {
 		db, err := NewDB(&DBOpts{
-			Dir:            filepath.Join(tmpDir, "leader"),
-			SchemaFile:     tmpFile,
-			VirtualTime:    true,
-			MaxMemoryRatio: 0.00001,
+			Dir:                     filepath.Join(tmpDir, "leader"),
+			SchemaFile:              tmpFile,
+			VirtualTime:             true,
+			MaxMemoryRatio:          0.00001,
+			ClusterQueryConcurrency: clusterQueryConcurrency,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -100,11 +105,24 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 							// Re-register when finished
 							defer register()
-							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, onRow, onFlatRow)
+							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+								copyOfKey := make(bytemap.ByteMap, len(key))
+								copy(copyOfKey, key)
+								copyOfVals := make(core.Vals, 0, len(vals))
+								for _, val := range vals {
+									copyOfVal := make(encoding.Sequence, len(val))
+									copy(copyOfVal, val)
+									copyOfVals = append(copyOfVals, copyOfVal)
+								}
+								return onRow(copyOfKey, copyOfVals)
+							}, onFlatRow)
 						})
 					}
 
-					register()
+					// Continously handle queries
+					for j := 0; j < clusterQueryConcurrency; j++ {
+						go register()
+					}
 				},
 			})
 			if !assert.NoError(t, followerErr, "Unable to create follower DB") {

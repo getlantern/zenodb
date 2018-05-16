@@ -33,6 +33,8 @@ const (
 	defaultMaxBackupWait = 1 * time.Hour
 
 	defaultIterationCoalesceInterval = 15 * time.Second
+
+	defaultClusterQueryConcurrency = 1000
 )
 
 var (
@@ -103,6 +105,9 @@ type DBOpts struct {
 	NumPartitions int
 	// Partition identies the partition owned by this follower
 	Partition int
+	// ClusterQueryConcurrency specifies the maximum concurrency for clustered
+	// query handlers.
+	ClusterQueryConcurrency int
 	// MaxFollowAge limits how far back to go when follower pulls data from
 	// leader
 	MaxFollowAge time.Duration
@@ -161,6 +166,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.MaxBackupWait <= 0 {
 		opts.MaxBackupWait = defaultMaxBackupWait
+	}
+	if opts.ClusterQueryConcurrency <= 0 {
+		opts.ClusterQueryConcurrency = defaultClusterQueryConcurrency
 	}
 
 	db.opts.ReadOnly = opts.Dir == ""
