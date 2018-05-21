@@ -33,12 +33,13 @@ type Opts struct {
 
 type handler struct {
 	Opts
-	db      *zenodb.DB
-	fs      http.Handler
-	sc      *securecookie.SecureCookie
-	client  *http.Client
-	cache   *cache
-	queries chan *query
+	db               *zenodb.DB
+	fs               http.Handler
+	sc               *securecookie.SecureCookie
+	client           *http.Client
+	cache            *cache
+	queries          chan *query
+	coalescedQueries chan []*query
 }
 
 func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
@@ -93,15 +94,17 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	}
 
 	h := &handler{
-		Opts:    *opts,
-		db:      db,
-		sc:      securecookie.New(hashKey, blockKey),
-		client:  &http.Client{},
-		cache:   cache,
-		queries: make(chan *query, opts.QueryConcurrencyLimit*1000),
+		Opts:             *opts,
+		db:               db,
+		sc:               securecookie.New(hashKey, blockKey),
+		client:           &http.Client{},
+		cache:            cache,
+		queries:          make(chan *query, opts.QueryConcurrencyLimit*1000),
+		coalescedQueries: make(chan []*query, opts.QueryConcurrencyLimit),
 	}
 
 	log.Debugf("Starting %d goroutines to process queries", opts.QueryConcurrencyLimit)
+	go h.coalesceQueries()
 	for i := 0; i < opts.QueryConcurrencyLimit; i++ {
 		go h.processQueries()
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/sql"
 	"github.com/gorilla/mux"
 	"github.com/retailnext/hllpp"
 )
@@ -48,6 +49,7 @@ type ResultRow struct {
 
 type query struct {
 	sqlString string
+	parsed    *sql.Query
 	ce        cacheEntry
 }
 
@@ -130,6 +132,11 @@ func (h *handler) respondError(resp http.ResponseWriter, req *http.Request, ce c
 }
 
 func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err error) {
+	parsed, parseErr := sql.Parse(sqlString)
+	if parseErr != nil {
+		return nil, parseErr
+	}
+
 	if req.Header.Get("Cache-control") == "no-cache" {
 		ce, err = h.cache.begin(sqlString)
 		if err != nil {
@@ -148,36 +155,67 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 	}
 
 	// Request query to run in background
-	h.queries <- &query{sqlString, ce}
+	h.queries <- &query{sqlString, parsed, ce}
 
 	return
 }
 
+func (h *handler) coalesceQueries() {
+	for {
+		var coalescedQueries []*query
+		var remainingQueries []*query
+		table := ""
+	coalesceLoop:
+		for {
+			select {
+			case query := <-h.queries:
+				if table == "" || table == query.parsed.From {
+					coalescedQueries = append(coalescedQueries)
+					table = query.parsed.From
+				} else {
+					remainingQueries = append(remainingQueries, query)
+				}
+			case <-time.After(15 * time.Second):
+				break coalesceLoop
+			}
+		}
+
+		log.Debugf("Coalesced %d queries to %v", len(coalescedQueries), table)
+		// re-queue queries that weren't included in this run
+		for _, query := range remainingQueries {
+			h.queries <- query
+		}
+		h.coalescedQueries <- coalescedQueries
+	}
+}
+
 func (h *handler) processQueries() {
-	for query := range h.queries {
-		sqlString := query.sqlString
-		ce := query.ce
-		result, err := h.doQuery(sqlString, ce.permalink())
-		if err != nil {
-			err = fmt.Errorf("Unable to query: %v", err)
-			log.Error(err)
-			ce = ce.fail(err)
-		} else {
-			resultBytes, err := compress(json.Marshal(result))
+	for queries := range h.coalescedQueries {
+		for _, query := range queries {
+			sqlString := query.sqlString
+			ce := query.ce
+			result, err := h.doQuery(sqlString, ce.permalink())
 			if err != nil {
-				err = fmt.Errorf("Unable to marshal result: %v", err)
-				log.Error(err)
-				ce = ce.fail(err)
-			} else if len(resultBytes) > h.MaxResponseBytes {
-				err = fmt.Errorf("Query result size %v exceeded limit of %v", humanize.Bytes(uint64(len(resultBytes))), humanize.Bytes(uint64(h.MaxResponseBytes)))
+				err = fmt.Errorf("Unable to query: %v", err)
 				log.Error(err)
 				ce = ce.fail(err)
 			} else {
-				ce = ce.succeed(resultBytes)
+				resultBytes, err := compress(json.Marshal(result))
+				if err != nil {
+					err = fmt.Errorf("Unable to marshal result: %v", err)
+					log.Error(err)
+					ce = ce.fail(err)
+				} else if len(resultBytes) > h.MaxResponseBytes {
+					err = fmt.Errorf("Query result size %v exceeded limit of %v", humanize.Bytes(uint64(len(resultBytes))), humanize.Bytes(uint64(h.MaxResponseBytes)))
+					log.Error(err)
+					ce = ce.fail(err)
+				} else {
+					ce = ce.succeed(resultBytes)
+				}
 			}
+			h.cache.put(sqlString, ce)
+			log.Debugf("Cached results for %v", sqlString)
 		}
-		h.cache.put(sqlString, ce)
-		log.Debugf("Cached results for %v", sqlString)
 	}
 }
 
