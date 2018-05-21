@@ -1,6 +1,7 @@
 package expr
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/getlantern/goexpr"
@@ -78,4 +79,9 @@ func TestPercentile(t *testing.T) {
 	checkValue(e, merged, expected)
 	checkValue(eo, merged, expectedO)
 	checkValue(eo2, merged, expectedO2)
+}
+
+func TestPercentileSize(t *testing.T) {
+	p := PERCENTILE("A", 50, 0, 120, 1)
+	fmt.Println(p.(*ptile).Width)
 }
