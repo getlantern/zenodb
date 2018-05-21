@@ -182,6 +182,8 @@ func (h *handler) coalesceQueries() {
 		log.Debugf("Coalesced %d queries to %v", len(coalescedQueries), table)
 		// re-queue queries that weren't included in this run
 		for _, query := range remainingQueries {
+			// TODO: this could theoretically deadlock if h.queries fills up, since
+			// this goroutine is the only that reads from it.
 			h.queries <- query
 		}
 		h.coalescedQueries <- coalescedQueries
