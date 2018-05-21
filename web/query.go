@@ -170,7 +170,7 @@ func (h *handler) coalesceQueries() {
 			select {
 			case query := <-h.queries:
 				if table == query.parsed.From {
-					coalescedQueries = append(coalescedQueries)
+					coalescedQueries = append(coalescedQueries, query)
 				} else {
 					remainingQueries = append(remainingQueries, query)
 				}
