@@ -161,17 +161,16 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 }
 
 func (h *handler) coalesceQueries() {
-	for {
-		var coalescedQueries []*query
+	for q := range h.queries {
+		coalescedQueries := append([]*query(nil), q)
 		var remainingQueries []*query
-		table := ""
+		table := q.parsed.From
 	coalesceLoop:
 		for {
 			select {
 			case query := <-h.queries:
-				if table == "" || table == query.parsed.From {
+				if table == query.parsed.From {
 					coalescedQueries = append(coalescedQueries)
-					table = query.parsed.From
 				} else {
 					remainingQueries = append(remainingQueries, query)
 				}
