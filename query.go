@@ -13,6 +13,8 @@ import (
 )
 
 func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
+	db.capMemorySize()
+
 	opts := &planner.Opts{
 		GetTable: func(table string, outFields func(tableFields core.Fields) (core.Fields, error)) (planner.Table, error) {
 			return db.getQueryable(table, outFields, includeMemStore)

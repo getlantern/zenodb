@@ -58,7 +58,7 @@ var (
 	feedOverride              = flag.String("feedoverride", "", "if specified, dial network connection for -feed using this address, but verify TLS connection using the address from -feed")
 	numPartitions             = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition                 = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
-	clusterQueryConcurrency   = flag.Int("clusterqueryconcurrency", 1000, "specifies the maximum concurrency for clustered queries")
+	clusterQueryConcurrency   = flag.Int("clusterqueryconcurrency", 100, "specifies the maximum concurrency for clustered queries")
 	maxFollowAge              = flag.Duration("maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
 	tlsDomain                 = flag.String("tlsdomain", "", "Specify this to automatically use LetsEncrypt certs for this domain")
 	webQueryCacheTTL          = flag.Duration("webquerycachettl", 2*time.Hour, "specifies how long to cache web query results")

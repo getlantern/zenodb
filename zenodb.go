@@ -34,7 +34,7 @@ const (
 
 	defaultIterationCoalesceInterval = 15 * time.Second
 
-	defaultClusterQueryConcurrency = 1000
+	defaultClusterQueryConcurrency = 100
 )
 
 var (
@@ -222,7 +222,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 
 	if !db.opts.ReadOnly {
 		if db.opts.MaxMemoryRatio > 0 {
-			log.Debugf("Limiting maximum memstore memory to %v", humanize.Bytes(db.maxMemoryBytes()))
+			log.Debugf("Limiting maximum memory to %v", humanize.Bytes(db.maxMemoryBytes()))
 		}
 		go db.trackMemStats()
 	}
@@ -362,9 +362,18 @@ func (db *DB) updateMemStats() {
 	log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
 }
 
-func (db *DB) capMemStoreSize() {
+func (db *DB) capMemorySize() {
 	if db.opts.MaxMemoryRatio <= 0 {
 		return
+	}
+
+	actual := atomic.LoadUint64(&db.memory)
+	allowed := db.maxMemoryBytes()
+	if actual > allowed {
+		// First try to regain memory with GC
+		log.Debugf("Memory usage of %v exceeds allowed %v, forcing GC", humanize.Bytes(actual), humanize.Bytes(allowed))
+		debug.FreeOSMemory()
+		db.updateMemStats()
 	}
 
 	db.tablesMutex.RLock()
@@ -377,22 +386,16 @@ func (db *DB) capMemStoreSize() {
 	db.tablesMutex.RUnlock()
 
 	db.flushMutex.Lock()
-	actual := atomic.LoadUint64(&db.memory)
-	allowed := db.maxMemoryBytes()
-	if actual > allowed {
-		// First try to regain memory with GC
-		log.Debugf("Memory usage of %v exceeds allowed %v, forcing GC", humanize.Bytes(actual), humanize.Bytes(allowed))
-		debug.FreeOSMemory()
-		db.updateMemStats()
-	}
-	actual = atomic.LoadUint64(&db.memory)
-	if actual > allowed {
-		// Force flushing on the table with the largest memstore
-		sort.Sort(sizes)
-		log.Debugf("Memory usage of %v exceeds allowed %v even after GC, forcing flush on %v", humanize.Bytes(actual), humanize.Bytes(allowed), sizes[0].t.Name)
-		sizes[0].t.forceFlush()
-		db.updateMemStats()
-		log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
+	if !db.opts.Passthrough {
+		actual = atomic.LoadUint64(&db.memory)
+		if actual > allowed {
+			// Force flushing on the table with the largest memstore
+			sort.Sort(sizes)
+			log.Debugf("Memory usage of %v exceeds allowed %v even after GC, forcing flush on %v", humanize.Bytes(actual), humanize.Bytes(allowed), sizes[0].t.Name)
+			sizes[0].t.forceFlush()
+			db.updateMemStats()
+			log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
+		}
 	}
 	db.flushMutex.Unlock()
 }

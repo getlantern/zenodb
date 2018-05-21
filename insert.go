@@ -177,7 +177,7 @@ func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMa
 	}
 
 	tsparams := encoding.NewTSParams(ts, vals)
-	t.db.capMemStoreSize()
+	t.db.capMemorySize()
 	t.rowStore.insert(&insert{key, tsparams, dims, offset})
 	t.statsMutex.Lock()
 	t.stats.InsertedPoints++
