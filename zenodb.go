@@ -32,9 +32,10 @@ import (
 const (
 	defaultMaxBackupWait = 1 * time.Hour
 
-	defaultIterationCoalesceInterval = 3 * time.Second
+	DefaultIterationCoalesceInterval = 3 * time.Second
+	DefaultIterationConcurrency      = 2
 
-	defaultClusterQueryConcurrency = 100
+	DefaultClusterQueryConcurrency = 100
 )
 
 var (
@@ -93,6 +94,9 @@ type DBOpts struct {
 	// IterationCoalesceInterval specifies how long we wait between iteration
 	// requests in order to coalesce multiple related ones.
 	IterationCoalesceInterval time.Duration
+	// IterationConcurrency specifies how many iterations can be performed in
+	// parallel
+	IterationConcurrency int
 	// MaxBackupWait limits how long we're willing to wait for a backup before
 	// resuming file operations
 	MaxBackupWait time.Duration
@@ -162,13 +166,16 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts.WALCompressionSize = opts.MaxWALSize / 10
 	}
 	if opts.IterationCoalesceInterval <= 0 {
-		opts.IterationCoalesceInterval = defaultIterationCoalesceInterval
+		opts.IterationCoalesceInterval = DefaultIterationCoalesceInterval
+	}
+	if opts.IterationConcurrency <= 0 {
+		opts.IterationConcurrency = DefaultIterationConcurrency
 	}
 	if opts.MaxBackupWait <= 0 {
 		opts.MaxBackupWait = defaultMaxBackupWait
 	}
 	if opts.ClusterQueryConcurrency <= 0 {
-		opts.ClusterQueryConcurrency = defaultClusterQueryConcurrency
+		opts.ClusterQueryConcurrency = DefaultClusterQueryConcurrency
 	}
 
 	db.opts.ReadOnly = opts.Dir == ""
@@ -228,7 +235,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 
 	if !db.opts.Passthrough {
-		go db.coalesceIterations()
+		for i := 0; i < db.opts.IterationConcurrency; i++ {
+			go db.coalesceIterations()
+		}
 	}
 
 	return db, err
