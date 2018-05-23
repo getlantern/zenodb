@@ -32,7 +32,7 @@ import (
 const (
 	defaultMaxBackupWait = 1 * time.Hour
 
-	DefaultIterationCoalesceInterval = 3 * time.Second
+	DefaultIterationCoalesceInterval = 15 * time.Second
 	DefaultIterationConcurrency      = 2
 
 	DefaultClusterQueryConcurrency = 100
