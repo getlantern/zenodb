@@ -192,32 +192,40 @@ func (h *handler) coalesceQueries() {
 
 func (h *handler) processQueries() {
 	for queries := range h.coalescedQueries {
+		var wg sync.WaitGroup
+		wg.Add(len(queries))
 		for _, query := range queries {
-			sqlString := query.sqlString
-			ce := query.ce
-			result, err := h.doQuery(sqlString, ce.permalink())
-			if err != nil {
-				err = fmt.Errorf("Unable to query: %v", err)
-				log.Error(err)
-				ce = ce.fail(err)
-			} else {
-				resultBytes, err := compress(json.Marshal(result))
-				if err != nil {
-					err = fmt.Errorf("Unable to marshal result: %v", err)
-					log.Error(err)
-					ce = ce.fail(err)
-				} else if len(resultBytes) > h.MaxResponseBytes {
-					err = fmt.Errorf("Query result size %v exceeded limit of %v", humanize.Bytes(uint64(len(resultBytes))), humanize.Bytes(uint64(h.MaxResponseBytes)))
-					log.Error(err)
-					ce = ce.fail(err)
-				} else {
-					ce = ce.succeed(resultBytes)
-				}
-			}
-			h.cache.put(sqlString, ce)
-			log.Debugf("Cached results for %v", sqlString)
+			go h.execQuery(&wg, query)
+		}
+		wg.Wait()
+	}
+}
+
+func (h *handler) execQuery(wg *sync.WaitGroup, query *query) {
+	defer wg.Done()
+	sqlString := query.sqlString
+	ce := query.ce
+	result, err := h.doQuery(sqlString, ce.permalink())
+	if err != nil {
+		err = fmt.Errorf("Unable to query: %v", err)
+		log.Error(err)
+		ce = ce.fail(err)
+	} else {
+		resultBytes, err := compress(json.Marshal(result))
+		if err != nil {
+			err = fmt.Errorf("Unable to marshal result: %v", err)
+			log.Error(err)
+			ce = ce.fail(err)
+		} else if len(resultBytes) > h.MaxResponseBytes {
+			err = fmt.Errorf("Query result size %v exceeded limit of %v", humanize.Bytes(uint64(len(resultBytes))), humanize.Bytes(uint64(h.MaxResponseBytes)))
+			log.Error(err)
+			ce = ce.fail(err)
+		} else {
+			ce = ce.succeed(resultBytes)
 		}
 	}
+	h.cache.put(sqlString, ce)
+	log.Debugf("Cached results for %v", sqlString)
 }
 
 func compress(resultBytes []byte, err error) ([]byte, error) {
