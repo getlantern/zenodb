@@ -139,11 +139,16 @@ type DB struct {
 	processFollowersOnce sync.Once
 	remoteQueryHandlers  map[int]chan planner.QueryClusterFN
 	requestedIterations  chan *iteration
+	coalescedIterations  chan []*iteration
 	closed               bool
 }
 
 // NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
+	if opts.IterationConcurrency <= 0 {
+		opts.IterationConcurrency = DefaultIterationConcurrency
+	}
+
 	var err error
 	db := &DB{
 		opts:                opts,
@@ -155,6 +160,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		followerJoined:      make(chan *follower, opts.NumPartitions),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 		requestedIterations: make(chan *iteration, 1000), // TODO, make the iteration backlog tunable
+		coalescedIterations: make(chan []*iteration, opts.IterationConcurrency),
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
@@ -167,9 +173,6 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.IterationCoalesceInterval <= 0 {
 		opts.IterationCoalesceInterval = DefaultIterationCoalesceInterval
-	}
-	if opts.IterationConcurrency <= 0 {
-		opts.IterationConcurrency = DefaultIterationConcurrency
 	}
 	if opts.MaxBackupWait <= 0 {
 		opts.MaxBackupWait = defaultMaxBackupWait
@@ -235,8 +238,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 
 	if !db.opts.Passthrough {
+		go db.coalesceIterations()
 		for i := 0; i < db.opts.IterationConcurrency; i++ {
-			go db.coalesceIterations()
+			go db.processIterations()
 		}
 	}
 

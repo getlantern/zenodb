@@ -375,10 +375,7 @@ func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemSt
 }
 
 // coalesceIterations coalesces multiple parallel iterations for a single table,
-// which avoids having to do multiple table scans of the same table. It is
-// single-threaded, meaning that each ZenoDB instance performs only one scan at
-// a time. Since ZenoDB instances are meant to be sized small, this shouldn't be
-// a performance issue.
+// which avoids having to do multiple table scans of the same table.
 func (db *DB) coalesceIterations() {
 	for it := range db.requestedIterations {
 		db.coalesceIteration(it)
@@ -410,6 +407,16 @@ coalesceLoop:
 		db.requestedIterations <- otherIt
 	}
 
+	db.coalescedIterations <- iterations
+}
+
+func (db *DB) processIterations() {
+	for iterations := range db.coalescedIterations {
+		db.doProcessIterations(iterations)
+	}
+}
+
+func (db *DB) doProcessIterations(iterations []*iteration) {
 	var maxDeadline time.Time
 	includeMemStore := false
 	allOutFields := make(core.Fields, 0)
@@ -446,7 +453,7 @@ coalesceLoop:
 		}
 	}
 
-	log.Debugf("Coalescing %d iterations on %v", len(iterations), it.t.Name)
+	log.Debugf("Coalescing %d iterations on %v", len(iterations), iterations[0].t.Name)
 
 	remainingIterations := make(map[int]*iteration, len(iterations))
 	for i, it := range iterations {
@@ -484,11 +491,10 @@ coalesceLoop:
 		newCtx, cancel = context.WithDeadline(newCtx, maxDeadline)
 		defer cancel()
 	}
-	err := it.t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
+	err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
 	for _, it := range iterations {
 		it.errCh <- err
 	}
-	return
 }
 
 func (it *iteration) indexOfOutField(field core.Field) int {
