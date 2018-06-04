@@ -117,6 +117,7 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	router.PathPrefix("/cached/{permalink}").HandlerFunc(h.cachedQuery)
 	router.PathPrefix("/favicon").Handler(http.NotFoundHandler())
 	router.PathPrefix("/report/{permalink}").HandlerFunc(h.index)
+	router.PathPrefix("/metrics").HandlerFunc(h.metrics)
 	router.PathPrefix("/").HandlerFunc(h.index)
 
 	return nil
