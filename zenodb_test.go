@@ -102,10 +102,10 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
 					var register func()
 					register = func() {
-						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onMetadata core.OnMetadata, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 							// Re-register when finished
 							defer register()
-							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onMetadata, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
 								copyOfKey := make(bytemap.ByteMap, len(key))
 								copy(copyOfKey, key)
 								copyOfVals := make(core.Vals, 0, len(vals))
@@ -390,7 +390,7 @@ view_a:
 	if !isClustered {
 		table := db.getTable("test_a")
 		fields := table.getFields()
-		table.iterate(context.Background(), fields, true, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+		table.iterate(context.Background(), fields, true, func(wal.Offset) error { return nil }, func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 			log.Debugf("Dims: %v")
 			for i, val := range vals {
 				field := fields[i]
@@ -754,8 +754,8 @@ func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeM
 	}
 
 	var fields core.Fields
-	err = source.Iterate(context.Background(), func(inFields core.Fields) error {
-		fields = inFields
+	err = source.Iterate(context.Background(), func(md *core.Metadata) error {
+		fields = md.Fields
 		return nil
 	}, func(row *core.FlatRow) (bool, error) {
 		rows = append(rows, row)

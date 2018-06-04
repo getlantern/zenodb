@@ -32,12 +32,12 @@ type unflatten struct {
 	fields FieldSource
 }
 
-func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (f *unflatten) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
 	var inFields, outFields Fields
 	var numIn, numOut int
 
-	return f.source.Iterate(ctx, func(fields Fields) error {
-		inFields = fields
+	return f.source.Iterate(ctx, func(md *Metadata) error {
+		inFields = md.Fields
 		var err error
 		outFields, err = f.fields.Get(nil)
 		if err != nil {
@@ -45,7 +45,7 @@ func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 		}
 		numIn = len(inFields)
 		numOut = len(outFields)
-		return onFields(outFields)
+		return onMetadata(md.WithFields(outFields))
 	}, func(row *FlatRow) (bool, error) {
 		ts := encoding.TimeFromInt(row.TS)
 		outRow := make(Vals, numOut)

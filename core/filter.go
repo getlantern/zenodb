@@ -20,13 +20,13 @@ type rowFilter struct {
 	Label   string
 }
 
-func (f *rowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (f *rowFilter) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
 	guard := Guard(ctx)
 
 	var fields Fields
-	return f.source.Iterate(ctx, func(inFields Fields) error {
-		fields = inFields
-		return onFields(inFields)
+	return f.source.Iterate(ctx, func(md *Metadata) error {
+		fields = md.Fields
+		return onMetadata(md)
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var err error
 		key, vals, err = f.Include(ctx, key, fields, vals)
@@ -58,13 +58,13 @@ type flatRowFilter struct {
 	Label   string
 }
 
-func (f *flatRowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+func (f *flatRowFilter) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnFlatRow) error {
 	guard := Guard(ctx)
 
 	var fields Fields
-	return f.source.Iterate(ctx, func(inFields Fields) error {
-		fields = inFields
-		return onFields(inFields)
+	return f.source.Iterate(ctx, func(md *Metadata) error {
+		fields = md.Fields
+		return onMetadata(md)
 	}, func(row *FlatRow) (bool, error) {
 		var err error
 		row, err = f.Include(ctx, row, fields)

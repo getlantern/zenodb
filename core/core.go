@@ -195,10 +195,22 @@ type Source interface {
 	String() string
 }
 
-type OnFields func(fields Fields) error
+type Metadata struct {
+	Fields
+	More interface{}
+}
 
-// FieldsIgnored is a placeholder for an OnFields that does nothing.
-func FieldsIgnored(fields Fields) error {
+func (md Metadata) WithFields(newFields Fields) *Metadata {
+	return &Metadata{
+		Fields: newFields,
+		More:   md.More,
+	}
+}
+
+type OnMetadata func(metadata *Metadata) error
+
+// FieldsIgnored is a placeholder for an OnMetadata that does nothing.
+func FieldsIgnored(md *Metadata) error {
 	return nil
 }
 
@@ -206,14 +218,14 @@ type OnRow func(key bytemap.ByteMap, vals Vals) (bool, error)
 
 type RowSource interface {
 	Source
-	Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error
+	Iterate(ctx context.Context, OnMetadata OnMetadata, onRow OnRow) error
 }
 
 type OnFlatRow func(flatRow *FlatRow) (bool, error)
 
 type FlatRowSource interface {
 	Source
-	Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error
+	Iterate(ctx context.Context, OnMetadata OnMetadata, onRow OnFlatRow) error
 }
 
 type Transform interface {

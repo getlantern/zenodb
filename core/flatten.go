@@ -16,7 +16,7 @@ type flatten struct {
 	rowTransform
 }
 
-func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+func (f *flatten) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnFlatRow) error {
 	guard := Guard(ctx)
 
 	resolution := f.GetResolution()
@@ -24,15 +24,15 @@ func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRo
 	var fields Fields
 	var numFields int
 
-	return f.source.Iterate(ctx, func(inFields Fields) error {
-		fields = inFields
-		numFields = len(inFields)
+	return f.source.Iterate(ctx, func(md *Metadata) error {
+		fields = md.Fields
+		numFields = len(fields)
 		// Transform to flattened version of fields
-		outFields := make(Fields, 0, len(inFields))
-		for _, field := range inFields {
+		outFields := make(Fields, 0, len(fields))
+		for _, field := range fields {
 			outFields = append(outFields, NewField(field.Name, expr.FIELD(field.Name)))
 		}
-		return onFields(outFields)
+		return onMetadata(md.WithFields(outFields))
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		var until time.Time
 		var asOf time.Time

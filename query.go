@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/wal"
+
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
@@ -24,8 +26,8 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 		SubQueryResults: subQueryResults,
 	}
 	if db.opts.Passthrough {
-		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
-			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onFields, onRow, onFlatRow)
+		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onMetadata core.OnMetadata, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onMetadata, onRow, onFlatRow)
 		}
 	}
 	plan, err := planner.Plan(sqlString, opts)
@@ -99,16 +101,13 @@ func (q *queryable) String() string {
 	return q.t.Name
 }
 
-func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
-	// We report all fields from the table
-	err := onFields(q.fields)
-	if err != nil {
-		return err
-	}
-
+func (q *queryable) Iterate(ctx context.Context, onMetadata core.OnMetadata, onRow core.OnRow) error {
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
-	return q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	return q.t.iterate(ctx, q.fields, q.includeMemStore, func(offset wal.Offset) error {
+		// We report all fields from the table
+		return onMetadata(&core.Metadata{Fields: q.fields, More: offset})
+	}, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		return onRow(key, vals)
 	})
 }

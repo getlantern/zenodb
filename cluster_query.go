@@ -37,7 +37,7 @@ func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryCluster
 	}
 }
 
-func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onMetadata core.OnMetadata, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	source, err := db.Query(sqlString, isSubQuery, subQueryResults, common.ShouldIncludeMemStore(ctx))
 	if err != nil {
 		return err
@@ -47,14 +47,14 @@ func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery b
 		log.Debugf("Processed query in %v: %v", elapsed(), sqlString)
 	}()
 	if unflat {
-		return core.UnflattenOptimized(source).Iterate(ctx, onFields, onRow)
+		return core.UnflattenOptimized(source).Iterate(ctx, onMetadata, onRow)
 	}
-	return source.Iterate(ctx, onFields, onFlatRow)
+	return source.Iterate(ctx, onMetadata, onFlatRow)
 }
 
 type remoteResult struct {
 	partition int
-	fields    core.Fields
+	metadata  *core.Metadata
 	key       bytemap.ByteMap
 	vals      core.Vals
 	flatRow   *core.FlatRow
@@ -63,7 +63,7 @@ type remoteResult struct {
 	err       error
 }
 
-func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onMetadata core.OnMetadata, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	ctx = common.WithIncludeMemStore(ctx, includeMemStore)
 	numPartitions := db.opts.NumPartitions
 	results := make(chan *remoteResult, numPartitions*100000) // TODO: make this tunable
@@ -160,10 +160,10 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 				}
 
-				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, func(fields core.Fields) error {
+				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, func(md *core.Metadata) error {
 					results <- &remoteResult{
 						partition: partition,
-						fields:    fields,
+						metadata:  md,
 					}
 					return nil
 				}, partOnRow, partOnFlatRow)
@@ -198,11 +198,11 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		select {
 		case result := <-results:
 			// first handle fields
-			partitionFields := result.fields
+			partitionFields := result.metadata.Fields
 			if partitionFields != nil {
 				if canonicalFields == nil {
 					log.Debugf("fields: %v", partitionFields)
-					err := onFields(partitionFields)
+					err := onMetadata(result.metadata.WithFields(partitionFields))
 					if err != nil {
 						fail(err)
 					}

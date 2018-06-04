@@ -16,7 +16,7 @@ const (
 	backtick = "`"
 )
 
-type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error
+type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onMetadata core.OnMetadata, onRow core.OnRow, onFlatRow core.OnFlatRow) error
 
 type clusterSource struct {
 	opts          *Opts
@@ -24,7 +24,7 @@ type clusterSource struct {
 	planAsIfLocal core.Source
 }
 
-func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onMetadata core.OnMetadata, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
 	var subQueryResults [][]interface{}
 	if cs.query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(cs.opts, cs.query)
@@ -39,7 +39,7 @@ func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onFields co
 		}
 	}
 
-	return cs.opts.QueryCluster(ctx, cs.query.SQL, cs.opts.IsSubQuery, subQueryResults, unflat, onFields, onRow, onFlatRow)
+	return cs.opts.QueryCluster(ctx, cs.query.SQL, cs.opts.IsSubQuery, subQueryResults, unflat, onMetadata, onRow, onFlatRow)
 }
 
 func (cs *clusterSource) GetGroupBy() []core.GroupBy {
@@ -62,8 +62,8 @@ type clusterRowSource struct {
 	clusterSource
 }
 
-func (cs *clusterRowSource) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
-	return cs.doIterate(ctx, true, onFields, onRow, nil)
+func (cs *clusterRowSource) Iterate(ctx context.Context, onMetadata core.OnMetadata, onRow core.OnRow) error {
+	return cs.doIterate(ctx, true, onMetadata, onRow, nil)
 }
 
 func (cs *clusterRowSource) String() string {
@@ -74,8 +74,8 @@ type clusterFlatRowSource struct {
 	clusterSource
 }
 
-func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onFields core.OnFields, onFlatRow core.OnFlatRow) error {
-	return cs.doIterate(ctx, false, onFields, nil, func(row *core.FlatRow) (bool, error) {
+func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onMetadata core.OnMetadata, onFlatRow core.OnFlatRow) error {
+	return cs.doIterate(ctx, false, onMetadata, nil, func(row *core.FlatRow) (bool, error) {
 		return onFlatRow(row)
 	})
 }

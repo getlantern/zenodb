@@ -53,14 +53,14 @@ type sorter struct {
 	by []OrderBy
 }
 
-func (s *sorter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+func (s *sorter) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnFlatRow) error {
 	guard := Guard(ctx)
 
 	rows := orderedRows{
 		orderBy: s.by,
 	}
 
-	err := s.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
+	err := s.source.Iterate(ctx, onMetadata, func(row *FlatRow) (bool, error) {
 		rows.rows = append(rows.rows, row)
 		return guard.Proceed()
 	})

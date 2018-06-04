@@ -86,6 +86,7 @@ type iteration struct {
 	ctx             context.Context
 	outFields       core.Fields
 	includeMemStore bool
+	onOffset        func(wal.Offset) error
 	onValue         func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)
 	fieldMappings   map[int]int
 	errCh           chan error
@@ -361,12 +362,13 @@ func (t *table) backfillTo() time.Time {
 	return t.db.clock.Now().Add(-1 * t.Backfill)
 }
 
-func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onOffset func(wal.Offset) error, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
 	it := &iteration{
 		t:               t,
 		ctx:             ctx,
 		outFields:       outFields,
 		includeMemStore: includeMemStore,
+		onOffset:        onOffset,
 		onValue:         onValue,
 		errCh:           make(chan error, 1),
 	}
@@ -460,6 +462,17 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 		remainingIterations[i] = it
 	}
 
+	combinedOnOffset := func(offset wal.Offset) error {
+		for _, it := range remainingIterations {
+			err := it.onOffset(offset)
+			if err != nil {
+				return log.Errorf("Error while reporting offset: %v", err)
+			}
+		}
+
+		return nil
+	}
+
 	combinedOnValue := func(dims bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		more := false
 		for i, it := range remainingIterations {
@@ -472,8 +485,7 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 			}
 			itMore, err := it.onValue(dims, itVals)
 			if err != nil {
-				log.Errorf("Error while iterating: %v", err)
-				return false, err
+				return false, log.Errorf("Error while iterating: %v", err)
 			}
 			if !itMore {
 				// This iteration doesn't want any more data, stop feeding it
@@ -491,7 +503,7 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 		newCtx, cancel = context.WithDeadline(newCtx, maxDeadline)
 		defer cancel()
 	}
-	err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
+	err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnOffset, combinedOnValue)
 	for _, it := range iterations {
 		it.errCh <- err
 	}

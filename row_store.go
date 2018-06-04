@@ -155,6 +155,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 			filename: existingFileName,
 		},
 	}
+	rs.fileStore.rs = rs
 
 	go rs.processInserts()
 	go rs.removeOldFiles()
@@ -288,7 +289,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onOffset func(wal.Offset) error, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
 	guard := core.Guard(ctx)
 
 	rs.mx.RLock()
@@ -298,7 +299,7 @@ func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeM
 		ms = rs.memStore.copy()
 	}
 	rs.mx.RUnlock()
-	return fs.iterate(outFields, ms, false, false, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+	return fs.iterate(outFields, ms, false, false, onOffset, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		return guard.ProceedAfter(onValue(key, columns))
 	})
 }
@@ -349,7 +350,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 		panic(err)
 	}
 
-	fs = &fileStore{rs.t, rs.fields, newFileStoreName}
+	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}
 	ms = rs.newMemStore()
 	rs.mx.Lock()
 	rs.fileStore = fs
@@ -386,7 +387,7 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 		return true, nil
 	}
 
-	fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
+	fs.iterate(fields, ms, !shouldSort, !disallowRaw, func(wal.Offset) error { return nil }, write)
 	err = cout.Close()
 	if err != nil {
 		panic(err)
@@ -601,11 +602,12 @@ func (rs *rowStore) removeOldFiles() {
 // col*len is 64 bits
 type fileStore struct {
 	t        *table
+	rs       *rowStore
 	fields   core.Fields
 	filename string
 }
 
-func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) error {
+func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onOffset func(wal.Offset) error, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) error {
 	ctx := time.Now().UnixNano()
 
 	if fs.t.log.IsTraceEnabled() {
@@ -625,10 +627,36 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		memToOut = rowMerger(outFields, ms.fields, fs.t.Resolution, truncateBefore)
 	}
 
+	origOnOffset := onOffset
+	onOffset = func(offset wal.Offset) error {
+		// report memstore offset if we're using the memstore and it's more recent
+		if ms != nil && ms.offset.After(offset) {
+			return origOnOffset(ms.offset)
+		} else {
+			return origOnOffset(offset)
+		}
+	}
+
+	failWithoutOffset := func(err error) error {
+		onOffset(nil)
+		return err
+	}
+
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
-	if !os.IsNotExist(err) {
+	if os.IsNotExist(err) {
+		// no filestore available (yet), try reading the offset file
+		var offset wal.Offset
+		o, err := ioutil.ReadFile(filepath.Join(fs.rs.opts.dir, offsetFilename))
+		if err == nil && len(o) == wal.OffsetSize {
+			offset = wal.Offset(o)
+		}
+		onOffsetErr := onOffset(offset)
+		if onOffsetErr != nil {
+			return onOffsetErr
+		}
+	} else {
 		if err != nil {
-			return fmt.Errorf("Unable to open file %v: %v", fs.filename, err)
+			return failWithoutOffset(fmt.Errorf("Unable to open file %v: %v", fs.filename, err))
 		}
 		r := snappy.NewReader(file)
 
@@ -637,14 +665,19 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		headerLength := uint32(0)
 		lengthErr := binary.Read(r, encoding.Binary, &headerLength)
 		if lengthErr != nil {
-			return fmt.Errorf("Unexpected error reading header length: %v", lengthErr)
+			return failWithoutOffset(fmt.Errorf("Unexpected error reading header length: %v", lengthErr))
 		}
 		fieldsBytes := make([]byte, headerLength)
 		_, err = io.ReadFull(r, fieldsBytes)
 		if err != nil {
-			return err
+			return failWithoutOffset(err)
 		}
 		// Strip offset
+		offset := wal.Offset(fieldsBytes[:wal.OffsetSize])
+		onOffsetErr := onOffset(offset)
+		if onOffsetErr != nil {
+			return onOffsetErr
+		}
 		fieldsBytes = fieldsBytes[wal.OffsetSize:]
 		delim := fieldsDelims[fileVersion]
 		fieldStrings := strings.Split(string(fieldsBytes), delim)

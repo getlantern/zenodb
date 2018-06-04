@@ -143,8 +143,8 @@ func TestGroupSingle(t *testing.T) {
 
 	totalByX := make(map[int]float64, 0)
 	var fields Fields
-	err := gx.Iterate(context.Background(), func(inFields Fields) error {
-		fields = inFields
+	err := gx.Iterate(context.Background(), func(md *Metadata) error {
+		fields = md.Fields
 		return nil
 	}, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		t.Log(key.AsMap())
@@ -217,8 +217,8 @@ func TestGroupCrosstabSingle(t *testing.T) {
 	})
 
 	var fields Fields
-	err := gx.Iterate(context.Background(), func(inFields Fields) error {
-		fields = inFields
+	err := gx.Iterate(context.Background(), func(md *Metadata) error {
+		fields = md.Fields
 		if assert.Equal(t, len(expectedFields), len(fields)) {
 			for i, expected := range expectedFields {
 				assert.Equal(t, expected.String(), fields[i].String())
@@ -490,8 +490,8 @@ type goodSource struct {
 	testSource
 }
 
-func (s *goodSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
-	onFields(s.getFields())
+func (s *goodSource) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
+	onMetadata(&Metadata{Fields: s.getFields()})
 
 	guard := Guard(ctx)
 	for _, row := range testRows {
@@ -515,8 +515,8 @@ type infiniteSource struct {
 	testSource
 }
 
-func (s *infiniteSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
-	onFields(s.getFields())
+func (s *infiniteSource) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
+	onMetadata(&Metadata{Fields: s.getFields()})
 
 	for {
 		for _, row := range testRows {
@@ -536,7 +536,7 @@ type errorSource struct {
 	testSource
 }
 
-func (s *errorSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (s *errorSource) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
 	return errTest
 }
 
@@ -552,8 +552,8 @@ func (s *totalingSource) getFields() Fields {
 	return Fields{totalField}
 }
 
-func (s *totalingSource) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
-	return s.goodSource.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+func (s *totalingSource) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
+	return s.goodSource.Iterate(ctx, onMetadata, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		a, _ := vals[0].ValueAt(0, eA)
 		b, _ := vals[0].ValueAt(0, eB)
 		val := encoding.NewValue(totalField.Expr, vals[0].Until(), Map{"a": a, "b": b}, key)
