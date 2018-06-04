@@ -107,7 +107,7 @@ func (g *group) GetUntil() time.Time {
 	return g.Until
 }
 
-func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (g *group) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
 	guard := Guard(ctx)
 
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
@@ -147,6 +147,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 	var bt *bytetree.Tree
 	var ctabs map[string]interface{}
 	var kvs []*keyedVals
+	var inMetadata *Metadata
 	var inFields Fields
 	var outFields Fields
 	if g.Fields == nil {
@@ -171,8 +172,9 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 		bt.Update(key, vals, nil, metadata)
 	}
 
-	err := g.source.Iterate(ctx, func(fields Fields) error {
-		inFields = fields
+	err := g.source.Iterate(ctx, func(md *Metadata) error {
+		inMetadata = md
+		inFields = md.Fields
 		var err error
 		outFields, err = g.Fields.Get(inFields)
 		if err != nil {
@@ -242,7 +244,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 			}
 		}
 
-		onFieldsErr := onFields(outFields)
+		onFieldsErr := onMetadata(inMetadata.WithFields(outFields))
 		if onFieldsErr != nil {
 			return onFieldsErr
 		}

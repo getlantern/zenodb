@@ -555,8 +555,8 @@ LIMIT 1
 
 	verify := func(plan FlatRowSource) {
 		var rows []*FlatRow
-		plan.Iterate(context.Background(), func(fields Fields) error {
-			verifyNoHaving(t, fields, plan, sqlString)
+		plan.Iterate(context.Background(), func(md *Metadata) error {
+			verifyNoHaving(t, md.Fields, plan, sqlString)
 			return nil
 		}, func(row *FlatRow) (bool, error) {
 			rows = append(rows, row)
@@ -603,7 +603,7 @@ func defaultOpts() *Opts {
 	}
 }
 
-func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields OnFields, onRow OnRow, onFlatRow OnFlatRow) error {
+func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onMetadata OnMetadata, onRow OnRow, onFlatRow OnFlatRow) error {
 	numPartitions := 1
 	for i := 0; i < numPartitions; i++ {
 		opts := defaultOpts()
@@ -624,9 +624,9 @@ func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQue
 			return err
 		}
 		if unflat {
-			return UnflattenOptimized(plan).Iterate(ctx, onFields, onRow)
+			return UnflattenOptimized(plan).Iterate(ctx, onMetadata, onRow)
 		} else {
-			err = plan.Iterate(ctx, onFields, onFlatRow)
+			err = plan.Iterate(ctx, onMetadata, onFlatRow)
 			if err != nil {
 				return err
 			}
@@ -660,8 +660,8 @@ func (t *testTable) GetPartitionBy() []string {
 	return []string{"x", "y"}
 }
 
-func (t *testTable) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
-	onFields(t.fields)
+func (t *testTable) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
+	onMetadata(&Metadata{Fields: t.fields})
 
 	onRow(makeRow(epoch.Add(-9*resolution), 1, 0, 10, 0))
 	onRow(makeRow(epoch.Add(-8*resolution), 0, 3, 0, 20))
@@ -707,8 +707,8 @@ type partition struct {
 	numPartitions int
 }
 
-func (t *partition) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
-	return t.testTable.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
+func (t *partition) Iterate(ctx context.Context, onMetadata OnMetadata, onRow OnRow) error {
+	return t.testTable.Iterate(ctx, onMetadata, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		// This mimics the logic in the actual clustering code
 		h := murmur3.New32()
 		x := key.GetBytes("x")

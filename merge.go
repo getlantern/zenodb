@@ -75,7 +75,7 @@ func (t *table) filterAndMerge(whereClause string, shouldSort bool, outFile stri
 			fields:   t.fields,
 			filename: inFile,
 		}
-		err = fs.iterate(t.fields, nil, okayToReuseBuffers, rawOkay, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+		err = fs.iterate(t.fields, nil, okayToReuseBuffers, rawOkay, func(wal.Offset) error { return nil }, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 			_, writeErr := fs.doWrite(cout, t.fields, filter, truncateBefore, shouldSort, key, columns, raw)
 			return true, writeErr
 		})
