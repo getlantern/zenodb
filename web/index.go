@@ -247,7 +247,7 @@ var indexHTML = []byte(`
 	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
 	      </button>
 			  {{#if !running}}
-	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: <b>{{ date }}</b>&nbsp;&nbsp;Partitions: <b>{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }}</b>{{#if result.Stats.MissingPartitions }&nbsp;&nbsp;Missing Partitions: <b>{{ result.Stats.MissingPartitions }}{{/if}}&nbsp;&nbsp;Complete To: <b>{{ completeUpTo }}</b></span>{{/if}}
+	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: <b>{{ date }}</b>&nbsp;&nbsp;Partitions: <b>{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }}</b>{{#if result.Stats.MissingPartitions }}&nbsp;&nbsp;Missing Partitions: <b>{{ result.Stats.MissingPartitions }}{{/if}}&nbsp;&nbsp;Complete To: <b>{{ completeUpTo }}</b></span>{{/if}}
 	      {{/if}}
 	    </div>
 
