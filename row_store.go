@@ -111,6 +111,8 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 				} else {
 					walOffset = wal.Offset(o)
 				}
+				// clear existingFileName so we don't use it for filestore
+				existingFileName = ""
 				continue
 			}
 
@@ -630,16 +632,22 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if os.IsNotExist(err) {
-		// no filestore available (yet), try reading the offset file
-		o, err := ioutil.ReadFile(filepath.Join(fs.rs.opts.dir, offsetFilename))
-		if err == nil && len(o) == wal.OffsetSize {
+		log.Debugf("No filestore available at %v , (yet), try reading the offset file", fs.filename)
+		offsetFile := filepath.Join(fs.rs.opts.dir, offsetFilename)
+		o, err := ioutil.ReadFile(offsetFile)
+		if err != nil {
+			log.Errorf("Error reading offset file %v: %v", offsetFile, err)
+		} else if len(o) != wal.OffsetSize {
+			log.Errorf("Offset file contents of wrong length: %v %d", offsetFile, len(o))
+		} else {
 			highWaterMark = wal.Offset(o).TS()
 			log.Debugf("Set highWaterMark from offset file: %v", highWaterMark)
 		}
 	} else {
 		if err != nil {
-			return highWaterMark, fmt.Errorf("Unable to open file %v: %v", fs.filename, err)
+			return highWaterMark, log.Errorf("Unable to open file %v: %v", fs.filename, err)
 		}
+		log.Debugf("Found filestore at %v", fs.filename)
 		r := snappy.NewReader(file)
 
 		fileVersion := versionFor(fs.filename)
@@ -647,12 +655,12 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		headerLength := uint32(0)
 		lengthErr := binary.Read(r, encoding.Binary, &headerLength)
 		if lengthErr != nil {
-			return highWaterMark, fmt.Errorf("Unexpected error reading header length: %v", lengthErr)
+			return highWaterMark, log.Errorf("Unexpected error reading header length: %v", lengthErr)
 		}
 		fieldsBytes := make([]byte, headerLength)
 		_, err = io.ReadFull(r, fieldsBytes)
 		if err != nil {
-			return highWaterMark, err
+			return highWaterMark, log.Errorf("Unable to read fields: %v", err)
 		}
 		highWaterMark = wal.Offset(fieldsBytes[:wal.OffsetSize]).TS()
 		log.Debugf("Set highWaterMark from data file: %v", highWaterMark)
@@ -692,7 +700,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				break
 			}
 			if err != nil {
-				return highWaterMark, fmt.Errorf("Unexpected error reading row length: %v", err)
+				return highWaterMark, log.Errorf("Unexpected error reading row length: %v", err)
 			}
 
 			useBuffer := okayToReuseBuffer && int(rowLength) <= cap(rowBuffer)
@@ -708,7 +716,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
 			if err != nil {
-				return highWaterMark, fmt.Errorf("Unexpected error while reading row: %v", err)
+				return highWaterMark, log.Errorf("Unexpected error while reading row: %v", err)
 			}
 
 			keyLength, row := encoding.ReadInt16(row)
@@ -722,7 +730,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				// There's nothing to merge in, just pass through the raw data
 				more, err := onRow(key, nil, raw)
 				if !more || err != nil {
-					return highWaterMark, err
+					return highWaterMark, log.Errorf("Error processing row: %v", err)
 				}
 				continue
 			}
@@ -733,7 +741,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
 				if len(row) < 8 {
-					return highWaterMark, fmt.Errorf("Not enough data left to decode column length!")
+					return highWaterMark, log.Errorf("Not enough data left to decode column length!")
 				}
 				var colLength int
 				colLength, row = encoding.ReadInt64(row)
@@ -745,7 +753,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			for i, colLength := range colLengths {
 				var seq encoding.Sequence
 				if colLength > len(row) {
-					return highWaterMark, fmt.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
+					return highWaterMark, log.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
 				}
 				seq, row = encoding.ReadSequence(row, colLength)
 				if seq != nil && fileToOut(columns, i, seq) {
@@ -766,6 +774,9 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			var more bool
 			if includesAtLeastOneColumn {
 				more, err = onRow(key, columns, raw)
+				if err != nil {
+					log.Errorf("Error processing row: %v", err)
+				}
 			}
 
 			if !more || err != nil {
