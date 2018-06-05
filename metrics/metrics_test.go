@@ -36,6 +36,11 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, 2, s.Followers[3].Partition)
 	assert.Equal(t, 44, s.Followers[3].Queued)
 
+	assert.Equal(t, 1, s.Partitions[0].Partition)
+	assert.Equal(t, 2, s.Partitions[0].NumFollowers)
+	assert.Equal(t, 2, s.Partitions[1].Partition)
+	assert.Equal(t, 2, s.Partitions[1].NumFollowers)
+
 	// Fail a couple of followers. Fail each twice to make sure we don't double-
 	// subtract.
 	FollowerFailed(2)
@@ -49,4 +54,9 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, 11, s.Followers[0].Queued)
 	assert.Equal(t, 2, s.Followers[1].Partition)
 	assert.Equal(t, 44, s.Followers[1].Queued)
+
+	assert.Equal(t, 1, s.Partitions[0].Partition)
+	assert.Equal(t, 1, s.Partitions[0].NumFollowers)
+	assert.Equal(t, 2, s.Partitions[1].Partition)
+	assert.Equal(t, 1, s.Partitions[1].NumFollowers)
 }
