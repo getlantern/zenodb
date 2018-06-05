@@ -433,6 +433,10 @@ var indexHTML = []byte(`
 					}
 					if (this.status == 200) {
             var result = JSON.parse(this.responseText);
+						if (!result.Stats) {
+							// default Stats for backward compatibility with historical queries
+							result.Stats = {};
+						}
             ractive.set("date", formatTS(result.TS));
 						ractive.set("completeUpTo", formatTS(result.Stats.LowestHighWaterMark));
             ractive.set("result", result);
