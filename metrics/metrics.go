@@ -9,8 +9,9 @@ import (
 )
 
 var (
-	leaderStats   *LeaderStats
-	followerStats map[int]*FollowerStats
+	leaderStats    *LeaderStats
+	followerStats  map[int]*FollowerStats
+	partitionStats map[int]*PartitionStats
 
 	mx sync.RWMutex
 )
@@ -22,12 +23,14 @@ func init() {
 func reset() {
 	leaderStats = &LeaderStats{}
 	followerStats = make(map[int]*FollowerStats, 0)
+	partitionStats = make(map[int]*PartitionStats, 0)
 }
 
 // Stats are the overall stats
 type Stats struct {
-	Leader    *LeaderStats
-	Followers sortedFollowerStats
+	Leader     *LeaderStats
+	Followers  sortedFollowerStats
+	Partitions sortedPartitionStats
 }
 
 // LeaderStats provides stats for the cluster leader
@@ -36,11 +39,17 @@ type LeaderStats struct {
 	CurrentlyReadingWAL time.Time
 }
 
-// FollowerStats provides stats for a single Follower
+// FollowerStats provides stats for a single follower
 type FollowerStats struct {
 	followerId int
 	Partition  int
 	Queued     int
+}
+
+// PartitionStats provides stats for a single partition
+type PartitionStats struct {
+	Partition    int
+	NumFollowers int
 }
 
 type sortedFollowerStats []*FollowerStats
@@ -52,6 +61,14 @@ func (s sortedFollowerStats) Less(i, j int) bool {
 		return true
 	}
 	return s[i].followerId < s[j].followerId
+}
+
+type sortedPartitionStats []*PartitionStats
+
+func (s sortedPartitionStats) Len() int      { return len(s) }
+func (s sortedPartitionStats) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+func (s sortedPartitionStats) Less(i, j int) bool {
+	return s[i].Partition < s[j].Partition
 }
 
 func CurrentlyReadingWAL(offset wal.Offset) {
@@ -71,6 +88,12 @@ func FollowerJoined(followerID int, partition int) {
 		Partition:  partition,
 		Queued:     0,
 	}
+	ps := partitionStats[partition]
+	if ps == nil {
+		ps = &PartitionStats{Partition: partition}
+		partitionStats[partition] = ps
+	}
+	ps.NumFollowers++
 }
 
 // FollowerFailed records the fact that a follower failed (which is analogous to leaving)
@@ -78,10 +101,11 @@ func FollowerFailed(followerID int) {
 	mx.Lock()
 	defer mx.Unlock()
 	// Only delete once
-	_, found := followerStats[followerID]
+	fs, found := followerStats[followerID]
 	if found {
 		leaderStats.ConnectedFollowers--
 		delete(followerStats, followerID)
+		partitionStats[fs.Partition].NumFollowers--
 	}
 }
 
@@ -95,15 +119,20 @@ func QueuedForFollower(followerID int, queued int) {
 func GetStats() *Stats {
 	mx.RLock()
 	s := &Stats{
-		Leader:    leaderStats,
-		Followers: make(sortedFollowerStats, 0, len(followerStats)),
+		Leader:     leaderStats,
+		Followers:  make(sortedFollowerStats, 0, len(followerStats)),
+		Partitions: make(sortedPartitionStats, 0, len(partitionStats)),
 	}
 
-	for _, followerStat := range followerStats {
-		s.Followers = append(s.Followers, followerStat)
+	for _, fs := range followerStats {
+		s.Followers = append(s.Followers, fs)
+	}
+	for _, ps := range partitionStats {
+		s.Partitions = append(s.Partitions, ps)
 	}
 	mx.RUnlock()
 
 	sort.Sort(s.Followers)
+	sort.Sort(s.Partitions)
 	return s
 }
