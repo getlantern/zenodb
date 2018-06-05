@@ -65,8 +65,7 @@ var indexHTML = []byte(`
 
     .summary {
       font-size: 0.75em;
-			font-weight: bold;
-      vertical-align: middle;
+			vertical-align: middle;
       margin-left: 10px;
     }
 
@@ -244,7 +243,7 @@ var indexHTML = []byte(`
 			<div id="sql">{{ sql }}</div>
 
 		  <div style="margin-top: 10px;">
-			  <button type="button" class="btn btn-default" aria-label="Left Align" on-click="run" {{#if running}}disabled{{/if}}>
+			  <button type="button" class="btn btn-default" aria-label="Left Align" style="font-size: 10px" on-click="run" {{#if running}}disabled{{/if}}>
 	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
 	      </button>
 			  {{#if !running}}

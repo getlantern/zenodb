@@ -634,6 +634,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		o, err := ioutil.ReadFile(filepath.Join(fs.rs.opts.dir, offsetFilename))
 		if err == nil && len(o) == wal.OffsetSize {
 			highWaterMark = wal.Offset(o).TS()
+			log.Debugf("Set highWaterMark from offset file: %v", highWaterMark)
 		}
 	} else {
 		if err != nil {
@@ -654,6 +655,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			return highWaterMark, err
 		}
 		highWaterMark = wal.Offset(fieldsBytes[:wal.OffsetSize]).TS()
+		log.Debugf("Set highWaterMark from data file: %v", highWaterMark)
 		fieldsBytes = fieldsBytes[wal.OffsetSize:]
 		delim := fieldsDelims[fileVersion]
 		fieldStrings := strings.Split(string(fieldsBytes), delim)
@@ -777,6 +779,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		msts := ms.offset.TS()
 		if msts.After(highWaterMark) {
 			highWaterMark = msts
+			log.Debugf("Set highWaterMark from memstore: %v", highWaterMark)
 		}
 		ms.tree.Walk(ctx, func(key []byte, msColumns []encoding.Sequence) (bool, bool, error) {
 			columns := make([]encoding.Sequence, len(outFields))

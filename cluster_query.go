@@ -105,12 +105,12 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		defer finalMx.Unlock()
 		if result.err == nil {
 			stats.NumSuccessfulPartitions++
-		}
-		if stats.LowestHighWaterMark == 0 || stats.LowestHighWaterMark > result.highWaterMark {
-			stats.LowestHighWaterMark = result.highWaterMark
-		}
-		if stats.HighestHighWaterMark < result.highWaterMark {
-			stats.HighestHighWaterMark = result.highWaterMark
+			if stats.LowestHighWaterMark == 0 || stats.LowestHighWaterMark > result.highWaterMark {
+				stats.LowestHighWaterMark = result.highWaterMark
+			}
+			if stats.HighestHighWaterMark < result.highWaterMark {
+				stats.HighestHighWaterMark = result.highWaterMark
+			}
 		}
 	}
 
