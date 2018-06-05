@@ -155,6 +155,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 			filename: existingFileName,
 		},
 	}
+	rs.fileStore.rs = rs
 
 	go rs.processInserts()
 	go rs.removeOldFiles()
@@ -288,7 +289,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) (time.Time, error) {
 	guard := core.Guard(ctx)
 
 	rs.mx.RLock()
@@ -349,7 +350,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 		panic(err)
 	}
 
-	fs = &fileStore{rs.t, rs.fields, newFileStoreName}
+	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}
 	ms = rs.newMemStore()
 	rs.mx.Lock()
 	rs.fileStore = fs
@@ -601,12 +602,14 @@ func (rs *rowStore) removeOldFiles() {
 // col*len is 64 bits
 type fileStore struct {
 	t        *table
+	rs       *rowStore
 	fields   core.Fields
 	filename string
 }
 
-func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) error {
+func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) (time.Time, error) {
 	ctx := time.Now().UnixNano()
+	var highWaterMark time.Time
 
 	if fs.t.log.IsTraceEnabled() {
 		fs.t.log.Tracef("Iterating with memstore ? %v from file %v", ms != nil, fs.filename)
@@ -626,9 +629,15 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 	}
 
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
-	if !os.IsNotExist(err) {
+	if os.IsNotExist(err) {
+		// no filestore available (yet), try reading the offset file
+		o, err := ioutil.ReadFile(filepath.Join(fs.rs.opts.dir, offsetFilename))
+		if err == nil && len(o) == wal.OffsetSize {
+			highWaterMark = wal.Offset(o).TS()
+		}
+	} else {
 		if err != nil {
-			return fmt.Errorf("Unable to open file %v: %v", fs.filename, err)
+			return highWaterMark, fmt.Errorf("Unable to open file %v: %v", fs.filename, err)
 		}
 		r := snappy.NewReader(file)
 
@@ -637,14 +646,14 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		headerLength := uint32(0)
 		lengthErr := binary.Read(r, encoding.Binary, &headerLength)
 		if lengthErr != nil {
-			return fmt.Errorf("Unexpected error reading header length: %v", lengthErr)
+			return highWaterMark, fmt.Errorf("Unexpected error reading header length: %v", lengthErr)
 		}
 		fieldsBytes := make([]byte, headerLength)
 		_, err = io.ReadFull(r, fieldsBytes)
 		if err != nil {
-			return err
+			return highWaterMark, err
 		}
-		// Strip offset
+		highWaterMark = wal.Offset(fieldsBytes[:wal.OffsetSize]).TS()
 		fieldsBytes = fieldsBytes[wal.OffsetSize:]
 		delim := fieldsDelims[fileVersion]
 		fieldStrings := strings.Split(string(fieldsBytes), delim)
@@ -681,7 +690,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				break
 			}
 			if err != nil {
-				return fmt.Errorf("Unexpected error reading row length: %v", err)
+				return highWaterMark, fmt.Errorf("Unexpected error reading row length: %v", err)
 			}
 
 			useBuffer := okayToReuseBuffer && int(rowLength) <= cap(rowBuffer)
@@ -697,7 +706,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
 			if err != nil {
-				return fmt.Errorf("Unexpected error while reading row: %v", err)
+				return highWaterMark, fmt.Errorf("Unexpected error while reading row: %v", err)
 			}
 
 			keyLength, row := encoding.ReadInt16(row)
@@ -711,7 +720,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				// There's nothing to merge in, just pass through the raw data
 				more, err := onRow(key, nil, raw)
 				if !more || err != nil {
-					return err
+					return highWaterMark, err
 				}
 				continue
 			}
@@ -722,7 +731,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
 				if len(row) < 8 {
-					return fmt.Errorf("Not enough data left to decode column length!")
+					return highWaterMark, fmt.Errorf("Not enough data left to decode column length!")
 				}
 				var colLength int
 				colLength, row = encoding.ReadInt64(row)
@@ -734,7 +743,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			for i, colLength := range colLengths {
 				var seq encoding.Sequence
 				if colLength > len(row) {
-					return fmt.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
+					return highWaterMark, fmt.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
 				}
 				seq, row = encoding.ReadSequence(row, colLength)
 				if seq != nil && fileToOut(columns, i, seq) {
@@ -758,13 +767,17 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			}
 
 			if !more || err != nil {
-				return err
+				return highWaterMark, err
 			}
 		}
 	}
 
 	// Read remaining stuff from memstore
 	if ms != nil {
+		msts := ms.offset.TS()
+		if msts.After(highWaterMark) {
+			highWaterMark = msts
+		}
 		ms.tree.Walk(ctx, func(key []byte, msColumns []encoding.Sequence) (bool, bool, error) {
 			columns := make([]encoding.Sequence, len(outFields))
 			for i, msColumn := range msColumns {
@@ -775,7 +788,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		})
 	}
 
-	return nil
+	return highWaterMark, nil
 }
 
 func versionFor(filename string) int {

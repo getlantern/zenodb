@@ -20,7 +20,7 @@ type rowFilter struct {
 	Label   string
 }
 
-func (f *rowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (f *rowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) (interface{}, error) {
 	guard := Guard(ctx)
 
 	var fields Fields
@@ -58,7 +58,7 @@ type flatRowFilter struct {
 	Label   string
 }
 
-func (f *flatRowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+func (f *flatRowFilter) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) (interface{}, error) {
 	guard := Guard(ctx)
 
 	var fields Fields

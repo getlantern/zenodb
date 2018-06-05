@@ -247,7 +247,7 @@ var indexHTML = []byte(`
 	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
 	      </button>
 			  {{#if !running}}
-	        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{result.Rows.length}}{{else}}No{{/if}} results as of {{ date }}</span>{{/if}}
+	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: {{ date }}&nbsp;|&nbsp;Complete Up To: {{ formatTS(result) }}&nbsp;|&nbsp;{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }} partitions&nbsp;|&nbsp;</span>{{/if}}
 	      {{/if}}
 	    </div>
 
@@ -601,7 +601,7 @@ var indexHTML = []byte(`
     }
 
     function formatTS(ts) {
-      return new Date(ts).toString();
+      return new Date(ts).toISOString();
     }
 
     // Courtesty of http://stackoverflow.com/questions/25594478/different-color-for-each-bar-in-a-bar-chart-chartjs

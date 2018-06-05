@@ -18,7 +18,7 @@ type offset struct {
 	offset int
 }
 
-func (o *offset) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+func (o *offset) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) (interface{}, error) {
 	guard := Guard(ctx)
 
 	idx := int64(0)

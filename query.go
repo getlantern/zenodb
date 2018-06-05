@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
+
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
@@ -24,7 +25,7 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 		SubQueryResults: subQueryResults,
 	}
 	if db.opts.Passthrough {
-		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onFields, onRow, onFlatRow)
 		}
 	}
@@ -99,16 +100,38 @@ func (q *queryable) String() string {
 	return q.t.Name
 }
 
-func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
+func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) (interface{}, error) {
 	// We report all fields from the table
 	err := onFields(q.fields)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
-	return q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	highWaterMark, err := q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		return onRow(key, vals)
 	})
+	numSuccessfulPartitions := 0
+	numFailedPartitions := 0
+	errorString := ""
+	if err != nil {
+		numFailedPartitions = 1
+		errorString = err.Error()
+	} else {
+		numSuccessfulPartitions = 1
+	}
+	return &common.QueryStats{
+		NumPartitions:           1,
+		NumSuccessfulPartitions: numSuccessfulPartitions,
+		NumFailedPartitions:     numFailedPartitions,
+		LowestHighWaterMark:     common.TimeToMillis(highWaterMark),
+		HighestHighWaterMark:    common.TimeToMillis(highWaterMark),
+		Partitions: []*common.PartitionStats{
+			&common.PartitionStats{
+				HighWaterMark: common.TimeToMillis(highWaterMark),
+				Error:         errorString,
+			},
+		},
+	}, err
 }

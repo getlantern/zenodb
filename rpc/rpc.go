@@ -57,6 +57,7 @@ type RemoteQueryResult struct {
 	Key          bytemap.ByteMap
 	Vals         core.Vals
 	Row          *core.FlatRow
+	Stats        *common.QueryStats
 	Error        string
 	EndOfResults bool
 }

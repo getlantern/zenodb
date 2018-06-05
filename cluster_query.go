@@ -3,6 +3,7 @@ package zenodb
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,10 @@ import (
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
+)
+
+var (
+	ErrMissingQueryHandler = errors.New("Missing query handler for partition")
 )
 
 func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {
@@ -37,10 +42,10 @@ func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryCluster
 	}
 }
 
-func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 	source, err := db.Query(sqlString, isSubQuery, subQueryResults, common.ShouldIncludeMemStore(ctx))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	elapsed := mtime.Stopwatch()
 	defer func() {
@@ -53,36 +58,79 @@ func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery b
 }
 
 type remoteResult struct {
-	partition int
-	fields    core.Fields
-	key       bytemap.ByteMap
-	vals      core.Vals
-	flatRow   *core.FlatRow
-	totalRows int
-	elapsed   time.Duration
-	err       error
+	partition     int
+	fields        core.Fields
+	key           bytemap.ByteMap
+	vals          core.Vals
+	flatRow       *core.FlatRow
+	totalRows     int
+	elapsed       time.Duration
+	highWaterMark int64
+	err           error
 }
 
-func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 	ctx = common.WithIncludeMemStore(ctx, includeMemStore)
 	numPartitions := db.opts.NumPartitions
 	results := make(chan *remoteResult, numPartitions*100000) // TODO: make this tunable
 	resultsByPartition := make(map[int]*int64)
+
+	stats := &common.QueryStats{Partitions: make([]*common.PartitionStats, numPartitions)}
 	var _finalErr error
-	var finalErrMx sync.RWMutex
+	var finalMx sync.RWMutex
+
+	finalStats := func() *common.QueryStats {
+		finalMx.RLock()
+		defer finalMx.RUnlock()
+
+		for _, pstats := range stats.Partitions {
+			stats.NumPartitions++
+			if pstats.Error == "" {
+				stats.NumSuccessfulPartitions++
+			} else {
+				stats.NumFailedPartitions++
+			}
+			if stats.LowestHighWaterMark == 0 || stats.LowestHighWaterMark > pstats.HighWaterMark {
+				stats.LowestHighWaterMark = pstats.HighWaterMark
+			}
+			if stats.HighestHighWaterMark < pstats.HighWaterMark {
+				stats.HighestHighWaterMark = pstats.HighWaterMark
+			}
+		}
+		return stats
+	}
+
 	finalErr := func() error {
-		finalErrMx.RLock()
+		finalMx.RLock()
+		defer finalMx.RUnlock()
 		result := _finalErr
-		finalErrMx.RUnlock()
 		return result
 	}
-	fail := func(err error) {
-		finalErrMx.Lock()
+
+	fail := func(partition int, err error) {
+		finalMx.Lock()
+		defer finalMx.Unlock()
+		pstats := stats.Partitions[partition]
+		if pstats == nil {
+			pstats = &common.PartitionStats{Error: err.Error()}
+			stats.Partitions[partition] = pstats
+		}
 		if _finalErr != nil {
 			_finalErr = err
 		}
-		finalErrMx.Unlock()
 	}
+
+	finish := func(result *remoteResult) {
+		finalMx.Lock()
+		defer finalMx.Unlock()
+		pstats := stats.Partitions[result.partition]
+		if pstats == nil {
+			pstats = &common.PartitionStats{}
+			stats.Partitions[result.partition] = pstats
+		}
+		pstats.HighWaterMark = result.highWaterMark
+	}
+
 	_stopped := int64(0)
 	stopped := func() bool {
 		return atomic.LoadInt64(&_stopped) == 1
@@ -118,7 +166,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 						partition: partition,
 						totalRows: 0,
 						elapsed:   elapsed(),
-						err:       nil,
+						err:       ErrMissingQueryHandler,
 					}
 					break
 				}
@@ -160,7 +208,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 				}
 
-				err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, func(fields core.Fields) error {
+				qstats, err := query(subCtx, sqlString, isSubQuery, subQueryResults, unflat, func(fields core.Fields) error {
 					results <- &remoteResult{
 						partition: partition,
 						fields:    fields,
@@ -171,11 +219,16 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
 					continue
 				}
+				var highWaterMark int64
+				if qstats != nil {
+					highWaterMark = qstats.(*common.QueryStats).HighestHighWaterMark
+				}
 				results <- &remoteResult{
-					partition: partition,
-					totalRows: int(atomic.LoadInt64(resultsForPartition)),
-					elapsed:   elapsed(),
-					err:       err,
+					partition:     partition,
+					totalRows:     int(atomic.LoadInt64(resultsForPartition)),
+					elapsed:       elapsed(),
+					highWaterMark: highWaterMark,
+					err:           err,
 				}
 				break
 			}
@@ -204,7 +257,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					log.Debugf("fields: %v", partitionFields)
 					err := onFields(partitionFields)
 					if err != nil {
-						fail(err)
+						fail(result.partition, err)
 					}
 					canonicalFields = partitionFields
 				}
@@ -223,9 +276,8 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					continue
 				}
 				more, err := onRow(result.key, partitionRowMappers[result.partition](result.vals))
-				if err != nil {
-					fail(err)
-				} else if !more {
+				if err == nil && !more {
+					fail(result.partition, err)
 					stop()
 				}
 				continue
@@ -240,8 +292,8 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				flatRow.SetFields(fieldsByPartition[result.partition])
 				more, err := onFlatRow(flatRow)
 				if err != nil {
-					fail(err)
-					return err
+					fail(result.partition, err)
+					return finalStats(), err
 				} else if !more {
 					stop()
 				}
@@ -253,12 +305,12 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 			pendingPartitions--
 			if result.err != nil {
 				log.Errorf("Error from partition %d: %v", result.partition, result.err)
-				fail(result.err)
+				fail(result.partition, result.err)
 			}
+			finish(result)
 			log.Debugf("%d/%d got %d results from partition %d in %v", resultCount, db.opts.NumPartitions, result.totalRows, result.partition, result.elapsed)
 			delete(resultsByPartition, result.partition)
 		case <-timeout.C:
-			fail(core.ErrDeadlineExceeded)
 			log.Errorf("Failed to get results by deadline, %d of %d partitions reporting", resultCount, numPartitions)
 			msg := bytes.NewBuffer([]byte("Missing partitions: "))
 			first := true
@@ -268,13 +320,14 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				}
 				first = false
 				msg.WriteString(fmt.Sprintf("%d (%d)", partition, results))
+				fail(partition, core.ErrDeadlineExceeded)
 			}
 			log.Debug(msg.String())
-			return finalErr()
+			return finalStats(), finalErr()
 		}
 	}
 
-	return finalErr()
+	return finalStats(), finalErr()
 }
 
 func partitionRowMapper(canonicalFields core.Fields, partitionFields core.Fields) func(core.Vals) core.Vals {

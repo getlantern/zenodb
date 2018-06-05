@@ -218,8 +218,12 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query pl
 	}
 	streamCtx = common.WithIncludeMemStore(streamCtx, q.IncludeMemStore)
 
-	queryErr := query(streamCtx, q.SQLString, q.IsSubQuery, q.SubQueryResults, q.Unflat, onFields, onRow, onFlatRow)
-	result := &RemoteQueryResult{EndOfResults: true}
+	_stats, queryErr := query(streamCtx, q.SQLString, q.IsSubQuery, q.SubQueryResults, q.Unflat, onFields, onRow, onFlatRow)
+	var stats *common.QueryStats
+	if _stats != nil {
+		stats = _stats.(*common.QueryStats)
+	}
+	result := &RemoteQueryResult{Stats: stats, EndOfResults: true}
 	if queryErr != nil && queryErr != io.EOF {
 		result.Error = queryErr.Error()
 	}

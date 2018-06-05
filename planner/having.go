@@ -26,7 +26,7 @@ type havingFilter struct {
 	base core.FlatRowSource
 }
 
-func (f *havingFilter) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnFlatRow) error {
+func (f *havingFilter) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnFlatRow) (interface{}, error) {
 	return f.base.Iterate(ctx, func(fields core.Fields) error {
 		// Remove the "_having" field
 		cleanedFields := make(core.Fields, 0, len(fields))

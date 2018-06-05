@@ -120,7 +120,7 @@ func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 	}
 
 	rr := &rpc.RemoteQueryResult{}
-	err = source.Iterate(stream.Context(), func(fields core.Fields) error {
+	stats, err := source.Iterate(stream.Context(), func(fields core.Fields) error {
 		// Send query metadata
 		md := zenodb.MetaDataFor(source, fields)
 		return stream.SendMsg(md)
@@ -134,6 +134,9 @@ func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 
 	// Send end of results
 	rr.Row = nil
+	if stats != nil {
+		rr.Stats = stats.(*common.QueryStats)
+	}
 	rr.EndOfResults = true
 	return stream.SendMsg(rr)
 }
@@ -166,7 +169,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		}
 	}
 
-	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 		q := &rpc.Query{
 			SQLString:       sqlString,
 			IsSubQuery:      isSubQuery,
@@ -184,7 +187,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		if sendErr != nil {
 			err := errors.New("Unable to send query: %v", sendErr)
 			finish(err)
-			return err
+			return nil, err
 		}
 
 		var finalErr error
@@ -227,7 +230,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		}
 
 		finish(finalErr)
-		return finalErr
+		return m.Stats, finalErr
 	})
 
 	// Block on reading initial result to keep connection open

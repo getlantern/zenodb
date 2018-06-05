@@ -206,14 +206,14 @@ type OnRow func(key bytemap.ByteMap, vals Vals) (bool, error)
 
 type RowSource interface {
 	Source
-	Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error
+	Iterate(ctx context.Context, onFields OnFields, onRow OnRow) (metadata interface{}, err error)
 }
 
 type OnFlatRow func(flatRow *FlatRow) (bool, error)
 
 type FlatRowSource interface {
 	Source
-	Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error
+	Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) (metadata interface{}, err error)
 }
 
 type Transform interface {
