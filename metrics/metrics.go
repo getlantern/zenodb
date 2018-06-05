@@ -102,6 +102,7 @@ func FollowerJoined(followerID int, partition int) {
 	if ps == nil {
 		ps = &PartitionStats{Partition: partition}
 		partitionStats[partition] = ps
+		leaderStats.ConnectedPartitions++
 	}
 	ps.NumFollowers++
 }
@@ -116,6 +117,9 @@ func FollowerFailed(followerID int) {
 		leaderStats.ConnectedFollowers--
 		delete(followerStats, followerID)
 		partitionStats[fs.Partition].NumFollowers--
+		if partitionStats[fs.Partition].NumFollowers == 0 {
+			leaderStats.ConnectedPartitions--
+		}
 	}
 }
 
