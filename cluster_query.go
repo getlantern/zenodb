@@ -75,7 +75,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	results := make(chan *remoteResult, numPartitions*100000) // TODO: make this tunable
 	resultsByPartition := make(map[int]*int64)
 
-	stats := &common.QueryStats{}
+	stats := &common.QueryStats{NumPartitions: numPartitions}
 	var _finalErr error
 	var finalMx sync.RWMutex
 

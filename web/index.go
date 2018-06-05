@@ -64,7 +64,7 @@ var indexHTML = []byte(`
     }
 
     .summary {
-      font-size: 1.5em;
+      font-size: 0.75em;
       vertical-align: middle;
       margin-left: 10px;
     }
@@ -247,7 +247,7 @@ var indexHTML = []byte(`
 	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
 	      </button>
 			  {{#if !running}}
-	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: {{ date }}&nbsp;|&nbsp;Complete Up To: {{ formatTS(result) }}&nbsp;|&nbsp;{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }} partitions&nbsp;|&nbsp;</span>{{/if}}
+	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: {{ date }}&nbsp;|&nbsp;{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }} partitions&nbsp;|&nbsp;Complete Up To: {{ completeUpTo }}</span>{{/if}}
 	      {{/if}}
 	    </div>
 
@@ -356,6 +356,7 @@ var indexHTML = []byte(`
 			"error": null,
       "formatTS": formatTS,
       "date": null,
+			"completeUpTo": null,
       "showTimeSeriesChart": false,
       "showOtherChart": false,
 			"inIframe": false,
@@ -433,6 +434,7 @@ var indexHTML = []byte(`
 					if (this.status == 200) {
             var result = JSON.parse(this.responseText);
             ractive.set("date", formatTS(result.TS));
+						ractive.set("completeUpTo", formatTS(result.LowestHighWaterMark));
             ractive.set("result", result);
 						if (isReport) {
 							isReport = false;
@@ -601,6 +603,9 @@ var indexHTML = []byte(`
     }
 
     function formatTS(ts) {
+			if (!ts) {
+				return "";
+			}
       return new Date(ts).toISOString();
     }
 
