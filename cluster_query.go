@@ -5,6 +5,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,12 +78,18 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	resultsByPartition := make(map[int]*int64)
 
 	stats := &common.QueryStats{NumPartitions: numPartitions}
+	missingPartitions := make(map[int]bool, numPartitions)
 	var _finalErr error
 	var finalMx sync.RWMutex
 
 	finalStats := func() *common.QueryStats {
 		finalMx.RLock()
 		defer finalMx.RUnlock()
+		mps := make([]string, 0, len(missingPartitions))
+		for partition := range missingPartitions {
+			mps = append(mps, strconv.Itoa(partition))
+		}
+		stats.MissingPartitions = strings.Join(mps, ",")
 		return stats
 	}
 
@@ -98,6 +106,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		if _finalErr != nil {
 			_finalErr = err
 		}
+		missingPartitions[partition] = true
 	}
 
 	finish := func(result *remoteResult) {

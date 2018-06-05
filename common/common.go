@@ -49,6 +49,7 @@ type QueryStats struct {
 	NumSuccessfulPartitions int
 	LowestHighWaterMark     int64
 	HighestHighWaterMark    int64
+	MissingPartitions       string
 }
 
 func WithIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
