@@ -65,6 +65,7 @@ var indexHTML = []byte(`
 
     .summary {
       font-size: 0.75em;
+			font-weight: bold;
       vertical-align: middle;
       margin-left: 10px;
     }
@@ -247,7 +248,7 @@ var indexHTML = []byte(`
 	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
 	      </button>
 			  {{#if !running}}
-	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: {{ date }} , Partitions: {{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }} , Complete To: {{ completeUpTo }}</span>{{/if}}
+	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: <b>{{ date }}</b>&nbsp;&nbsp;Partitions: <b>{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }}</b>&nbsp;&nbsp;Complete To: <b>{{ completeUpTo }}</b></span>{{/if}}
 	      {{/if}}
 	    </div>
 
@@ -434,7 +435,7 @@ var indexHTML = []byte(`
 					if (this.status == 200) {
             var result = JSON.parse(this.responseText);
             ractive.set("date", formatTS(result.TS));
-						ractive.set("completeUpTo", formatTS(result.LowestHighWaterMark));
+						ractive.set("completeUpTo", formatTS(result.Stats.LowestHighWaterMark));
             ractive.set("result", result);
 						if (isReport) {
 							isReport = false;
