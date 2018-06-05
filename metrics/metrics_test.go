@@ -25,7 +25,7 @@ func TestMetrics(t *testing.T) {
 
 	s := GetStats()
 	assert.Equal(t, 4, s.Leader.ConnectedFollowers)
-	assert.Equal(t, ts.Format(time.RFC3339), s.Leader.CurrentlyReadingWAL.Format(time.RFC3339))
+	assert.Equal(t, ts.Format(time.RFC3339), s.Leader.CurrentlyReadingWAL)
 
 	assert.Equal(t, 1, s.Followers[0].Partition)
 	assert.Equal(t, 11, s.Followers[0].Queued)

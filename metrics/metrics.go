@@ -35,8 +35,10 @@ type Stats struct {
 
 // LeaderStats provides stats for the cluster leader
 type LeaderStats struct {
+	NumPartitions       int
+	ConnectedPartitions int
 	ConnectedFollowers  int
-	CurrentlyReadingWAL time.Time
+	CurrentlyReadingWAL string
 }
 
 // FollowerStats provides stats for a single follower
@@ -71,10 +73,18 @@ func (s sortedPartitionStats) Less(i, j int) bool {
 	return s[i].Partition < s[j].Partition
 }
 
+// SetNumPartitions sets the number of partitions in the cluster
+func SetNumPartitions(numPartitions int) {
+	mx.Lock()
+	leaderStats.NumPartitions = numPartitions
+	mx.Unlock()
+}
+
+// CurrentlyReadingWAL indicates that we're currently reading the WAL at a given offset
 func CurrentlyReadingWAL(offset wal.Offset) {
 	ts := offset.TS()
 	mx.Lock()
-	leaderStats.CurrentlyReadingWAL = ts
+	leaderStats.CurrentlyReadingWAL = ts.Format(time.RFC3339)
 	mx.Unlock()
 }
 

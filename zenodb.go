@@ -21,6 +21,7 @@ import (
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
+	"github.com/getlantern/zenodb/metrics"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/oxtoacart/bpool"
@@ -148,6 +149,8 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.IterationConcurrency <= 0 {
 		opts.IterationConcurrency = DefaultIterationConcurrency
 	}
+
+	metrics.SetNumPartitions(opts.NumPartitions)
 
 	var err error
 	db := &DB{
