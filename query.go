@@ -113,25 +113,13 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 		return onRow(key, vals)
 	})
 	numSuccessfulPartitions := 0
-	numFailedPartitions := 0
-	errorString := ""
-	if err != nil {
-		numFailedPartitions = 1
-		errorString = err.Error()
-	} else {
+	if err == nil {
 		numSuccessfulPartitions = 1
 	}
 	return &common.QueryStats{
 		NumPartitions:           1,
 		NumSuccessfulPartitions: numSuccessfulPartitions,
-		NumFailedPartitions:     numFailedPartitions,
 		LowestHighWaterMark:     common.TimeToMillis(highWaterMark),
 		HighestHighWaterMark:    common.TimeToMillis(highWaterMark),
-		Partitions: []*common.PartitionStats{
-			&common.PartitionStats{
-				HighWaterMark: common.TimeToMillis(highWaterMark),
-				Error:         errorString,
-			},
-		},
 	}, err
 }

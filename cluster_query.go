@@ -75,28 +75,13 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	results := make(chan *remoteResult, numPartitions*100000) // TODO: make this tunable
 	resultsByPartition := make(map[int]*int64)
 
-	stats := &common.QueryStats{Partitions: make([]*common.PartitionStats, numPartitions)}
+	stats := &common.QueryStats{}
 	var _finalErr error
 	var finalMx sync.RWMutex
 
 	finalStats := func() *common.QueryStats {
 		finalMx.RLock()
 		defer finalMx.RUnlock()
-
-		for _, pstats := range stats.Partitions {
-			stats.NumPartitions++
-			if pstats.Error == "" {
-				stats.NumSuccessfulPartitions++
-			} else {
-				stats.NumFailedPartitions++
-			}
-			if stats.LowestHighWaterMark == 0 || stats.LowestHighWaterMark > pstats.HighWaterMark {
-				stats.LowestHighWaterMark = pstats.HighWaterMark
-			}
-			if stats.HighestHighWaterMark < pstats.HighWaterMark {
-				stats.HighestHighWaterMark = pstats.HighWaterMark
-			}
-		}
 		return stats
 	}
 
@@ -110,11 +95,6 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	fail := func(partition int, err error) {
 		finalMx.Lock()
 		defer finalMx.Unlock()
-		pstats := stats.Partitions[partition]
-		if pstats == nil {
-			pstats = &common.PartitionStats{Error: err.Error()}
-			stats.Partitions[partition] = pstats
-		}
 		if _finalErr != nil {
 			_finalErr = err
 		}
@@ -123,12 +103,15 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	finish := func(result *remoteResult) {
 		finalMx.Lock()
 		defer finalMx.Unlock()
-		pstats := stats.Partitions[result.partition]
-		if pstats == nil {
-			pstats = &common.PartitionStats{}
-			stats.Partitions[result.partition] = pstats
+		if result.err == nil {
+			stats.NumSuccessfulPartitions++
 		}
-		pstats.HighWaterMark = result.highWaterMark
+		if stats.LowestHighWaterMark == 0 || stats.LowestHighWaterMark > result.highWaterMark {
+			stats.LowestHighWaterMark = result.highWaterMark
+		}
+		if stats.HighestHighWaterMark < result.highWaterMark {
+			stats.HighestHighWaterMark = result.highWaterMark
+		}
 	}
 
 	_stopped := int64(0)

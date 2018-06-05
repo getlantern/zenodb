@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/getlantern/bytemap"
-	"github.com/getlantern/msgpack"
 	"github.com/getlantern/wal"
 
 	"github.com/getlantern/zenodb/encoding"
@@ -48,22 +47,8 @@ type QueryMetaData struct {
 type QueryStats struct {
 	NumPartitions           int
 	NumSuccessfulPartitions int
-	NumFailedPartitions     int
 	LowestHighWaterMark     int64
 	HighestHighWaterMark    int64
-	Partitions              []*PartitionStats
-}
-
-// PartitionStats captures metadata about a specific partition's contribution
-// to a query
-type PartitionStats struct {
-	HighWaterMark int64
-	Error         string
-}
-
-func init() {
-	msgpack.RegisterExt(10, &QueryStats{})
-	msgpack.RegisterExt(11, &PartitionStats{})
 }
 
 func WithIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
