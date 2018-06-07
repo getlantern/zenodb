@@ -166,7 +166,16 @@ func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.Call
 	return next, nil
 }
 
-func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error {
+func (c *client) ProcessRemoteQueries(ctx context.Context, partition int, query planner.QueryClusterFN, concurrency int, opts ...grpc.CallOption) error {
+	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)
+	if err != nil {
+		return errors.New("Unable to obtain client stream: %v", err)
+	}
+	defer stream.CloseSend()
+
+}
+
+func (c *client) processRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN) {
 	elapsed := mtime.Stopwatch()
 	defer func() {
 		log.Debugf("Finished processing query in %v", elapsed())

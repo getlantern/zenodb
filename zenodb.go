@@ -124,24 +124,25 @@ type DBOpts struct {
 
 // DB is a zenodb database.
 type DB struct {
-	opts                 *DBOpts
-	clock                vtime.Clock
-	tables               map[string]*table
-	orderedTables        []*table
-	walBuffers           *bpool.BytePool
-	streams              map[string]*wal.WAL
-	newStreamSubscriber  map[string]chan *tableWithOffset
-	tablesMutex          sync.RWMutex
-	isSorting            bool
-	nextTableToSort      int
-	memory               uint64
-	flushMutex           sync.Mutex
-	followerJoined       chan *follower
-	processFollowersOnce sync.Once
-	remoteQueryHandlers  map[int]chan planner.QueryClusterFN
-	requestedIterations  chan *iteration
-	coalescedIterations  chan []*iteration
-	closed               bool
+	opts                     *DBOpts
+	clock                    vtime.Clock
+	tables                   map[string]*table
+	orderedTables            []*table
+	walBuffers               *bpool.BytePool
+	streams                  map[string]*wal.WAL
+	newStreamSubscriber      map[string]chan *tableWithOffset
+	tablesMutex              sync.RWMutex
+	isSorting                bool
+	nextTableToSort          int
+	memory                   uint64
+	flushMutex               sync.Mutex
+	followerJoined           chan *follower
+	processFollowersOnce     sync.Once
+	nextRemoteQueryHandlerID int
+	remoteQueryHandlers      map[int]map[int]planner.QueryClusterFN
+	requestedIterations      chan *iteration
+	coalescedIterations      chan []*iteration
+	closed                   bool
 }
 
 // NewDB creates a database using the given options.
@@ -161,7 +162,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		streams:             make(map[string]*wal.WAL),
 		newStreamSubscriber: make(map[string]chan *tableWithOffset),
 		followerJoined:      make(chan *follower, opts.NumPartitions),
-		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
+		remoteQueryHandlers: make(map[int]map[int]planner.QueryClusterFN),
 		requestedIterations: make(chan *iteration, 1000), // TODO, make the iteration backlog tunable
 		coalescedIterations: make(chan []*iteration, opts.IterationConcurrency),
 	}

@@ -100,29 +100,19 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 					leader.Follow(f(), cb)
 				},
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
-					var register func()
-					register = func() {
-						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
-							// Re-register when finished
-							defer register()
-							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
-								copyOfKey := make(bytemap.ByteMap, len(key))
-								copy(copyOfKey, key)
-								copyOfVals := make(core.Vals, 0, len(vals))
-								for _, val := range vals {
-									copyOfVal := make(encoding.Sequence, len(val))
-									copy(copyOfVal, val)
-									copyOfVals = append(copyOfVals, copyOfVal)
-								}
-								return onRow(copyOfKey, copyOfVals)
-							}, onFlatRow)
-						})
-					}
-
-					// Continously handle queries
-					for j := 0; j < clusterQueryConcurrency; j++ {
-						go register()
-					}
+					leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
+						return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+							copyOfKey := make(bytemap.ByteMap, len(key))
+							copy(copyOfKey, key)
+							copyOfVals := make(core.Vals, 0, len(vals))
+							for _, val := range vals {
+								copyOfVal := make(encoding.Sequence, len(val))
+								copy(copyOfVal, val)
+								copyOfVals = append(copyOfVals, copyOfVal)
+							}
+							return onRow(copyOfKey, copyOfVals)
+						}, onFlatRow)
+					})
 				},
 			})
 			if !assert.NoError(t, followerErr, "Unable to create follower DB") {

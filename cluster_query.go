@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 	"github.com/getlantern/mtime"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/metrics"
 	"github.com/getlantern/zenodb/planner"
 )
 
@@ -22,26 +24,48 @@ var (
 	ErrMissingQueryHandler = errors.New("Missing query handler for partition")
 )
 
-func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) {
+// RegisterQueryHandler registers a query handler function that executes against
+// a remote query node (follower). It is expected that these query handler
+// functions can be reused. The returned int is a unique ID for the registered
+// query handler that can be used to unregister it with UnregisterQueryHandler.
+func (db *DB) RegisterQueryHandler(partition int, query planner.QueryClusterFN) (id int) {
 	db.tablesMutex.Lock()
-	handlersCh := db.remoteQueryHandlers[partition]
-	if handlersCh == nil {
-		handlersCh = make(chan planner.QueryClusterFN, db.opts.ClusterQueryConcurrency)
+	handlers := db.remoteQueryHandlers[partition]
+	if handlers == nil {
+		handlers = make(map[int]planner.QueryClusterFN)
+		db.remoteQueryHandlers[partition] = handlers
 	}
-	db.remoteQueryHandlers[partition] = handlersCh
+	id = db.nextRemoteQueryHandlerID
+	db.nextRemoteQueryHandlerID++
+	handlers[id] = query
+	log.Debugf("Added remote query handler %d for partition %d", id, partition)
 	db.tablesMutex.Unlock()
-	handlersCh <- query
+	metrics.QueryHandlerJoined(partition)
+	return id
+}
+
+// UnregisterQueryHandler unregisters the query handler with the given id on the
+// given partition.
+func (db *DB) UnregisterQueryHandler(partition int, id int) {
+	db.tablesMutex.Lock()
+	delete(db.remoteQueryHandlers[partition], id)
+	db.tablesMutex.Unlock()
+	metrics.QueryHandlerLeft(partition)
 }
 
 func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryClusterFN {
 	db.tablesMutex.RLock()
 	defer db.tablesMutex.RUnlock()
-	select {
-	case handler := <-db.remoteQueryHandlers[partition]:
-		return handler
-	default:
-		return nil
+	handlers := db.remoteQueryHandlers[partition]
+	idx := rand.Intn(len(handlers))
+	i := 0
+	for _, handler := range handlers {
+		if i == idx {
+			return handler
+		}
+		i++
 	}
+	return nil
 }
 
 func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {

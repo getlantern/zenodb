@@ -38,6 +38,7 @@ type InsertReport struct {
 }
 
 type Query struct {
+	ID              int
 	SQLString       string
 	IsSubQuery      bool
 	SubQueryResults [][]interface{}
@@ -45,6 +46,7 @@ type Query struct {
 	Unflat          bool
 	Deadline        time.Time
 	HasDeadline     bool
+	Ping            bool
 }
 
 type Point struct {

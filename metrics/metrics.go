@@ -43,15 +43,16 @@ type LeaderStats struct {
 
 // FollowerStats provides stats for a single follower
 type FollowerStats struct {
-	followerId int
+	followerID int
 	Partition  int
 	Queued     int
 }
 
 // PartitionStats provides stats for a single partition
 type PartitionStats struct {
-	Partition    int
-	NumFollowers int
+	Partition        int
+	NumFollowers     int
+	NumQueryHandlers int
 }
 
 type sortedFollowerStats []*FollowerStats
@@ -62,7 +63,7 @@ func (s sortedFollowerStats) Less(i, j int) bool {
 	if s[i].Partition < s[j].Partition {
 		return true
 	}
-	return s[i].followerId < s[j].followerId
+	return s[i].followerID < s[j].followerID
 }
 
 type sortedPartitionStats []*PartitionStats
@@ -94,17 +95,11 @@ func FollowerJoined(followerID int, partition int) {
 	defer mx.Unlock()
 	leaderStats.ConnectedFollowers++
 	followerStats[followerID] = &FollowerStats{
-		followerId: followerID,
+		followerID: followerID,
 		Partition:  partition,
 		Queued:     0,
 	}
-	ps := partitionStats[partition]
-	if ps == nil {
-		ps = &PartitionStats{Partition: partition}
-		partitionStats[partition] = ps
-		leaderStats.ConnectedPartitions++
-	}
-	ps.NumFollowers++
+	getPartitionStats(partition).NumFollowers++
 }
 
 // FollowerFailed records the fact that a follower failed (which is analogous to leaving)
@@ -116,11 +111,26 @@ func FollowerFailed(followerID int) {
 	if found {
 		leaderStats.ConnectedFollowers--
 		delete(followerStats, followerID)
-		partitionStats[fs.Partition].NumFollowers--
-		if partitionStats[fs.Partition].NumFollowers == 0 {
+		ps := getPartitionStats(fs.Partition)
+		ps.NumFollowers--
+		if ps.NumFollowers == 0 {
 			leaderStats.ConnectedPartitions--
 		}
 	}
+}
+
+// QueryHandlerJoined reports when a query handler for a partition has joined
+func QueryHandlerJoined(partition int) {
+	mx.Lock()
+	getPartitionStats(partition).NumQueryHandlers++
+	mx.Unlock()
+}
+
+// QueryHandlerLeft reports when a query handler for a partition has left
+func QueryHandlerLeft(partition int) {
+	mx.Lock()
+	getPartitionStats(partition).NumQueryHandlers--
+	mx.Unlock()
 }
 
 // QueuedForFollower records how many measurements are queued for a given Follower
@@ -130,6 +140,17 @@ func QueuedForFollower(followerID int, queued int) {
 	followerStats[followerID].Queued = queued
 }
 
+func getPartitionStats(partition int) *PartitionStats {
+	ps := partitionStats[partition]
+	if ps == nil {
+		ps = &PartitionStats{Partition: partition}
+		partitionStats[partition] = ps
+		leaderStats.ConnectedPartitions++
+	}
+	return ps
+}
+
+// GetStats returns stats for this cluster
 func GetStats() *Stats {
 	mx.RLock()
 	s := &Stats{
