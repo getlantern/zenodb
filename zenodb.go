@@ -36,6 +36,7 @@ const (
 	DefaultIterationConcurrency      = 2
 
 	DefaultClusterQueryConcurrency = 100
+	DefaultClusterQueryTimeout     = 1 * time.Hour
 )
 
 var (
@@ -112,6 +113,9 @@ type DBOpts struct {
 	// ClusterQueryConcurrency specifies the maximum concurrency for clustered
 	// query handlers.
 	ClusterQueryConcurrency int
+	// ClusterQueryTimeout specifies the maximum amount of time leader will wait
+	// for followers to answer a query
+	ClusterQueryTimeout time.Duration
 	// MaxFollowAge limits how far back to go when follower pulls data from
 	// leader
 	MaxFollowAge time.Duration
@@ -179,6 +183,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.ClusterQueryConcurrency <= 0 {
 		opts.ClusterQueryConcurrency = DefaultClusterQueryConcurrency
+	}
+	if opts.ClusterQueryTimeout <= 0 {
+		opts.ClusterQueryTimeout = DefaultClusterQueryTimeout
 	}
 
 	db.opts.ReadOnly = opts.Dir == ""
