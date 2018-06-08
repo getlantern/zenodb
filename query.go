@@ -2,6 +2,7 @@ package zenodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,9 +14,11 @@ import (
 	"github.com/getlantern/zenodb/planner"
 )
 
-func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
-	db.capMemorySize()
+var (
+	ErrOutOfMemory = errors.New("out of memory")
+)
 
+func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
 	opts := &planner.Opts{
 		GetTable: func(table string, outFields func(tableFields core.Fields) (core.Fields, error)) (planner.Table, error) {
 			return db.getQueryable(table, outFields, includeMemStore)
@@ -55,7 +58,7 @@ func (db *DB) getQueryable(table string, outFields func(tableFields core.Fields)
 	if out == nil {
 		out = t.getFields()
 	}
-	return &queryable{t, out, asOf, until, includeMemStore}, nil
+	return &queryable{db, t, out, asOf, until, includeMemStore}, nil
 }
 
 func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMetaData {
@@ -69,6 +72,7 @@ func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMet
 }
 
 type queryable struct {
+	db              *DB
 	t               *table
 	fields          core.Fields
 	asOf            time.Time
@@ -107,11 +111,23 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 		return nil, err
 	}
 
+	i := 0
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
 	highWaterMark, err := q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+		if i%1000 == 0 {
+			// every 1000 rows, check and cap memory size
+			if !q.db.capMemorySize(false) || true {
+				log.Error("Returning ErrOutOfMemory")
+				return false, ErrOutOfMemory
+			}
+		}
+		i++
 		return onRow(key, vals)
 	})
+	if err != nil {
+		log.Errorf("Error on iterating: %v", err)
+	}
 	numSuccessfulPartitions := 0
 	if err == nil {
 		numSuccessfulPartitions = 1

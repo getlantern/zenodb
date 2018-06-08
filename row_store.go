@@ -730,7 +730,8 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				// There's nothing to merge in, just pass through the raw data
 				more, err := onRow(key, nil, raw)
 				if !more || err != nil {
-					return highWaterMark, log.Errorf("Error processing row: %v", err)
+					log.Errorf("Error processing row: %v", err)
+					return highWaterMark, err
 				}
 				continue
 			}

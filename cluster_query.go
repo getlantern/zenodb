@@ -47,11 +47,12 @@ func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryCluster
 func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 	source, err := db.Query(sqlString, isSubQuery, subQueryResults, common.ShouldIncludeMemStore(ctx))
 	if err != nil {
+		log.Errorf("Error on querying for remote: %v", err)
 		return nil, err
 	}
 	elapsed := mtime.Stopwatch()
 	defer func() {
-		log.Debugf("Processed query in %v: %v", elapsed(), sqlString)
+		log.Debugf("Processed query in %v, error?: %v : %v", elapsed(), err, sqlString)
 	}()
 	if unflat {
 		return core.UnflattenOptimized(source).Iterate(ctx, onFields, onRow)
@@ -207,9 +208,13 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 					return nil
 				}, partOnRow, partOnFlatRow)
-				if err != nil && atomic.LoadInt64(resultsForPartition) == 0 {
-					log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
-					continue
+				if err != nil {
+					if atomic.LoadInt64(resultsForPartition) == 0 {
+						log.Debugf("Failed on partition %d, haven't read anything, continuing: %v", partition, err)
+						continue
+					} else {
+						log.Errorf("Failed on partition %d after having read something, will abort: %v", partition, err)
+					}
 				}
 				var highWaterMark int64
 				if qstats != nil {

@@ -253,6 +253,7 @@ func compress(resultBytes []byte, err error) ([]byte, error) {
 func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, error) {
 	rs, err := h.db.Query(sqlString, false, nil, false)
 	if err != nil {
+		log.Errorf("Error running query: %v", err)
 		return nil, err
 	}
 

@@ -494,6 +494,9 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 		defer cancel()
 	}
 	highWaterMark, err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
+	if err != nil {
+		log.Errorf("Got error while iterating: %v", err)
+	}
 	for _, it := range iterations {
 		it.highWaterMarkCh <- highWaterMark
 		it.errCh <- err

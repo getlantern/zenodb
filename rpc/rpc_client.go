@@ -225,6 +225,7 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query pl
 	}
 	result := &RemoteQueryResult{Stats: stats, EndOfResults: true}
 	if queryErr != nil && queryErr != io.EOF {
+		log.Debugf("Error on querying: %v", queryErr)
 		result.Error = queryErr.Error()
 	}
 	stream.SendMsg(result)
