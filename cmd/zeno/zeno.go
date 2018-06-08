@@ -60,6 +60,7 @@ var (
 	numPartitions             = flag.Int("numpartitions", 1, "The number of partitions available to distribute amongst followers")
 	partition                 = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 	clusterQueryConcurrency   = flag.Int("clusterqueryconcurrency", zenodb.DefaultClusterQueryConcurrency, "specifies the maximum concurrency for clustered queries")
+	clusterQueryTimeout       = flag.Duration("clusterquerytimeout", zenodb.DefaultClusterQueryTimeout, "specifies the maximum time leader will wait for followers to answer a query")
 	maxFollowAge              = flag.Duration("maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
 	tlsDomain                 = flag.String("tlsdomain", "", "Specify this to automatically use LetsEncrypt certs for this domain")
 	webQueryCacheTTL          = flag.Duration("webquerycachettl", 2*time.Hour, "specifies how long to cache web query results")
@@ -266,6 +267,7 @@ func main() {
 		NumPartitions:              *numPartitions,
 		Partition:                  *partition,
 		ClusterQueryConcurrency:    *clusterQueryConcurrency,
+		ClusterQueryTimeout:        *clusterQueryTimeout,
 		Follow:                     follow,
 		MaxFollowAge:               *maxFollowAge,
 		RegisterRemoteQueryHandler: registerQueryHandler,

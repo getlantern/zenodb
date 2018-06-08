@@ -228,7 +228,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	}
 
 	start := time.Now()
-	deadline := start.Add(10 * time.Minute)
+	deadline := start.Add(db.opts.ClusterQueryTimeout)
 	if ctxHasDeadline {
 		deadline = ctxDeadline
 	}
