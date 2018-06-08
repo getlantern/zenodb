@@ -9,6 +9,7 @@ import (
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/encoding"
+	"github.com/getlantern/zenodb/metrics"
 	"github.com/spaolacci/murmur3"
 	"hash"
 	"runtime"
@@ -36,9 +37,10 @@ type followSpec struct {
 
 type follower struct {
 	common.Follow
-	cb        func(data []byte, offset wal.Offset) error
-	entries   chan *walEntry
-	hasFailed int32
+	followerId int
+	cb         func(data []byte, offset wal.Offset) error
+	entries    chan *walEntry
+	hasFailed  int32
 }
 
 func (f *follower) read() {
@@ -69,6 +71,7 @@ func (f *follower) submit(entry *walEntry) {
 
 func (f *follower) markFailed() {
 	atomic.StoreInt32(&f.hasFailed, 1)
+	metrics.FollowerFailed(f.followerId)
 }
 
 func (f *follower) failed() bool {
@@ -109,6 +112,8 @@ func (db *DB) processFollowers() {
 	newlyJoinedStreams := make(map[string]bool)
 	onFollowerJoined := func(f *follower) {
 		nextFollowerID++
+		f.followerId = nextFollowerID
+		metrics.FollowerJoined(nextFollowerID, f.PartitionNumber)
 		log.Debugf("Follower joined: %d -> %d", nextFollowerID, f.PartitionNumber)
 		followers[nextFollowerID] = f
 
@@ -296,7 +301,9 @@ func (db *DB) processFollowers() {
 			stats = make([]int, db.opts.NumPartitions)
 
 			for _, f := range followers {
-				log.Debugf("Queued for follower %d: %v", f.PartitionNumber, humanize.Comma(int64(len(f.entries))))
+				queued := int64(len(f.entries))
+				metrics.QueuedForFollower(f.followerId, int(queued))
+				log.Debugf("Queued for follower %d: %v", f.PartitionNumber, humanize.Comma(queued))
 			}
 		}
 	}

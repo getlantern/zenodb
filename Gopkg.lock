@@ -211,7 +211,7 @@
   branch = "master"
   name = "github.com/getlantern/wal"
   packages = ["."]
-  revision = "028a06aadcb93566469b90c0765fd2c1354718cc"
+  revision = "e99945fbd2d236833907d9539e79b7a8ea604b04"
 
 [[projects]]
   name = "github.com/getlantern/yaml"
