@@ -188,7 +188,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		if sendErr != nil {
 			err := errors.New("Unable to send query: %v", sendErr)
 			finish(err)
-			return nil, err
+			return nil, common.MarkRetriable(err)
 		}
 
 		var finalErr error
@@ -200,6 +200,9 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 			if recvErr != nil {
 				m.Error = recvErr.Error()
 				finalErr = errors.New("Unable to receive result: %v", recvErr)
+				if first {
+					finalErr = common.MarkRetriable(finalErr)
+				}
 				break
 			}
 

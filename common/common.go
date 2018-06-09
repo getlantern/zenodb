@@ -52,6 +52,24 @@ type QueryStats struct {
 	MissingPartitions       string
 }
 
+// Retriable is a marker for retriable errors
+type Retriable interface {
+	error
+}
+
+type retriable struct {
+	wrapped error
+}
+
+func (err *retriable) Error() string {
+	return err.wrapped.Error()
+}
+
+// MarkRetriable marks the given error as retriable
+func MarkRetriable(err error) Retriable {
+	return &retriable{err}
+}
+
 func WithIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
 	return context.WithValue(ctx, keyIncludeMemStore, includeMemStore)
 }
