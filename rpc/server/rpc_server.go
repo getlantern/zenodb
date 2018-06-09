@@ -157,17 +157,15 @@ func (s *server) Follow(f *common.Follow, stream grpc.ServerStream) error {
 
 func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.ServerStream) error {
 	initialResultCh := make(chan *rpc.RemoteQueryResult)
-	initialErrCh := make(chan error)
-	finalErrCh := make(chan error)
+	initialErrCh := make(chan error, 1)
+	finalErrCh := make(chan error, 1)
 
 	finish := func(err error) {
 		select {
 		case finalErrCh <- err:
 			// ok
-			log.Debugf("Posted final err: %v", err)
 		default:
 			// ignore
-			log.Debug("Already had final err!")
 		}
 	}
 
