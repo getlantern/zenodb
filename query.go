@@ -111,13 +111,13 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 		return nil, err
 	}
 
-	i := 0
+	i := 1
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
 	highWaterMark, err := q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		if i%1000 == 0 {
 			// every 1000 rows, check and cap memory size
-			if !q.db.capMemorySize(false) || true {
+			if !q.db.capMemorySize(false) {
 				log.Error("Returning ErrOutOfMemory")
 				return false, ErrOutOfMemory
 			}

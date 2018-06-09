@@ -164,7 +164,6 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		select {
 		case finalErrCh <- err:
 			// ok
-			log.Debugf("Posted final err for partition %d: %v", r.Partition, err)
 		default:
 			// ignore
 		}
@@ -206,14 +205,12 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 				break
 			}
 
-			log.Debugf("For partition %d, result has error? %v", r.Partition, m.Error)
 			if first {
 				// First message contains only fields information
 				onFields(m.Fields)
 				first = false
 			} else {
 				if m.Error != "" {
-					log.Debugf("Setting final error for partition %d: %v", r.Partition, m.Error)
 					finalErr = errors.New(m.Error)
 				}
 				// Subsequent messages contain data
@@ -228,7 +225,6 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 					more, err = onFlatRow(m.Row)
 				}
 				if !more || err != nil {
-					log.Debugf("Setting final error for partition %d: %v", r.Partition, err)
 					finalErr = err
 					break receiveLoop
 				}
@@ -254,7 +250,6 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		// Wait for final error so we don't close the connection prematurely
 		err = <-finalErrCh
 	}
-	log.Debugf("Returning err for partition %d?: %v", r.Partition, err)
 	return err
 }
 
