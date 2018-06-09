@@ -210,12 +210,14 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 					return nil
 				}, partOnRow, partOnFlatRow)
-				switch err.(type) {
-				case common.Retriable:
-					log.Debugf("Failed on partition %d but error is retriable, continuing: %v", partition, err)
-					continue
-				default:
-					log.Debugf("Failed on partition %d and error is not retriable, will abort: %v", partition, err)
+				if err != nil {
+					switch err.(type) {
+					case common.Retriable:
+						log.Debugf("Failed on partition %d but error is retriable, continuing: %v", partition, err)
+						continue
+					default:
+						log.Debugf("Failed on partition %d and error is not retriable, will abort: %v", partition, err)
+					}
 				}
 				var highWaterMark int64
 				if qstats != nil {
