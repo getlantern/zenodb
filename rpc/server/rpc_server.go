@@ -164,8 +164,10 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		select {
 		case finalErrCh <- err:
 			// ok
+			log.Debugf("Posted final err: %v", err)
 		default:
 			// ignore
+			log.Debug("Already had final err!")
 		}
 	}
 
@@ -201,8 +203,6 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 				finalErr = errors.New("Unable to receive result: %v", recvErr)
 				break
 			}
-
-			log.Debugf("First? %v  Response Error?: %v", first, m.Error)
 
 			if first {
 				// First message contains only fields information
@@ -243,8 +243,9 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 
 	if err == nil {
 		// Wait for final error so we don't close the connection prematurely
-		return <-finalErrCh
+		err = <-finalErrCh
 	}
+	log.Debugf("Returning err?: %v", err)
 	return err
 }
 
