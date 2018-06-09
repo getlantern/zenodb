@@ -44,20 +44,22 @@ func (db *DB) remoteQueryHandlerForPartition(partition int) planner.QueryCluster
 	}
 }
 
-func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
-	source, err := db.Query(sqlString, isSubQuery, subQueryResults, common.ShouldIncludeMemStore(ctx))
-	if err != nil {
-		log.Errorf("Error on querying for remote: %v", err)
-		return nil, err
+func (db *DB) queryForRemote(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (result interface{}, err error) {
+	source, prepareErr := db.Query(sqlString, isSubQuery, subQueryResults, common.ShouldIncludeMemStore(ctx))
+	if prepareErr != nil {
+		log.Errorf("Error on preparing query for remote: %v", prepareErr)
+		return nil, prepareErr
 	}
 	elapsed := mtime.Stopwatch()
 	defer func() {
 		log.Debugf("Processed query in %v, error?: %v : %v", elapsed(), err, sqlString)
 	}()
 	if unflat {
-		return core.UnflattenOptimized(source).Iterate(ctx, onFields, onRow)
+		result, err = core.UnflattenOptimized(source).Iterate(ctx, onFields, onRow)
+	} else {
+		result, err = source.Iterate(ctx, onFields, onFlatRow)
 	}
-	return source.Iterate(ctx, onFields, onFlatRow)
+	return
 }
 
 type remoteResult struct {

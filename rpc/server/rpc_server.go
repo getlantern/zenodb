@@ -202,6 +202,8 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 				break
 			}
 
+			log.Debugf("First? %v  Response Error?: %v", first, m.Error)
+
 			if first {
 				// First message contains only fields information
 				onFields(m.Fields)
