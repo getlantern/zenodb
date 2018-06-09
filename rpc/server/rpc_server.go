@@ -164,6 +164,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		select {
 		case finalErrCh <- err:
 			// ok
+			log.Debugf("Posted final err for partition %d: %v", r.Partition, err)
 		default:
 			// ignore
 		}
@@ -243,7 +244,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		// Wait for final error so we don't close the connection prematurely
 		err = <-finalErrCh
 	}
-	log.Debugf("Returning err?: %v", err)
+	log.Debugf("Returning err for partition %d?: %v", r.Partition, err)
 	return err
 }
 
