@@ -265,6 +265,10 @@ func (db *DB) Close() {
 		stream.Close()
 		delete(db.streams, name)
 	}
+	for name, table := range db.tables {
+		log.Debugf("Force flushing table: %v", name)
+		table.forceFlush()
+	}
 	db.tablesMutex.Unlock()
 }
 
