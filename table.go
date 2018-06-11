@@ -544,7 +544,9 @@ func (t *table) memStoreSize() int {
 }
 
 func (t *table) forceFlush() {
-	t.rowStore.forceFlush()
+	if t.rowStore != nil {
+		t.rowStore.forceFlush()
+	}
 }
 
 func (t *table) logHighWaterMark() {
