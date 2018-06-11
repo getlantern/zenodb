@@ -166,11 +166,8 @@ func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.Call
 	return next, nil
 }
 
-func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error {
+func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, timeout time.Duration, opts ...grpc.CallOption) error {
 	elapsed := mtime.Stopwatch()
-	defer func() {
-		log.Debugf("Finished processing query in %v", elapsed())
-	}()
 
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[2], c.cc, "/zenodb/remoteQuery", opts...)
 	if err != nil {
@@ -182,15 +179,35 @@ func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query pl
 		return errors.New("Unable to send registration message: %v", err)
 	}
 
-	q := &Query{}
-	recvErr := stream.RecvMsg(q)
-	if recvErr != nil {
-		return errors.New("Unable to read query: %v", recvErr)
+	queryCh := make(chan *Query)
+	queryErrCh := make(chan error)
+
+	go func() {
+		q := &Query{}
+		recvErr := stream.RecvMsg(q)
+		if recvErr != nil {
+			queryErrCh <- recvErr
+		}
+		queryCh <- q
+	}()
+
+	var q *Query
+	select {
+	case q = <-queryCh:
+		log.Debug("Got query!")
+		if q.SQLString == "" {
+			log.Debug("Query was a noop, ignoring")
+			return nil
+		}
+	case queryErr := <-queryErrCh:
+		return errors.New("Unable to read query: %v", queryErr)
+	case <-time.After(timeout):
+		return errors.New("Didn't receive query within %v, closing connection", timeout)
 	}
-	if q.SQLString == "" {
-		// It's a noop query, ignore
-		return nil
-	}
+
+	defer func() {
+		log.Debugf("Finished processing query in %v", elapsed())
+	}()
 
 	onFields := func(fields core.Fields) error {
 		return stream.SendMsg(&RemoteQueryResult{Fields: fields})

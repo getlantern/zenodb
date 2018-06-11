@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/getlantern/bytemap"
@@ -62,7 +63,7 @@ type retriable struct {
 }
 
 func (err *retriable) Error() string {
-	return err.wrapped.Error()
+	return fmt.Sprintf("%v (retriable)", err.wrapped.Error())
 }
 
 // MarkRetriable marks the given error as retriable

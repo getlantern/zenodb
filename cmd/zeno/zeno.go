@@ -61,6 +61,7 @@ var (
 	partition                 = flag.Int("partition", 0, "use with -follow, the partition number assigned to this follower")
 	clusterQueryConcurrency   = flag.Int("clusterqueryconcurrency", zenodb.DefaultClusterQueryConcurrency, "specifies the maximum concurrency for clustered queries")
 	clusterQueryTimeout       = flag.Duration("clusterquerytimeout", zenodb.DefaultClusterQueryTimeout, "specifies the maximum time leader will wait for followers to answer a query")
+	nextQueryTimeout          = flag.Duration("nextquerytimeout", 5*time.Minute, "specifies the maximum time follower will wait for leader to send a query on an open connection")
 	maxFollowAge              = flag.Duration("maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
 	tlsDomain                 = flag.String("tlsdomain", "", "Specify this to automatically use LetsEncrypt certs for this domain")
 	webQueryCacheTTL          = flag.Duration("webquerycachettl", 2*time.Hour, "specifies how long to cache web query results")
@@ -230,7 +231,7 @@ func main() {
 						// Continually handle queries and then reconnect for next query
 						waitTime := minWaitTime
 						for {
-							handleErr := client.ProcessRemoteQuery(context.Background(), partition, query)
+							handleErr := client.ProcessRemoteQuery(context.Background(), partition, query, *nextQueryTimeout)
 							if handleErr == nil {
 								waitTime = minWaitTime
 							} else {

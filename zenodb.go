@@ -36,7 +36,7 @@ const (
 	DefaultIterationCoalesceInterval = 3 * time.Second
 	DefaultIterationConcurrency      = 2
 
-	DefaultClusterQueryConcurrency = 100
+	DefaultClusterQueryConcurrency = 25
 	DefaultClusterQueryTimeout     = 1 * time.Hour
 )
 

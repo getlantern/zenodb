@@ -73,7 +73,7 @@ type Client interface {
 
 	Follow(ctx context.Context, in *common.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
 
-	ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, opts ...grpc.CallOption) error
+	ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, timeout time.Duration, opts ...grpc.CallOption) error
 
 	Close() error
 }
