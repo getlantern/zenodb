@@ -126,6 +126,11 @@ type DBOpts struct {
 	RegisterRemoteQueryHandler func(partition int, query planner.QueryClusterFN)
 }
 
+type memoryInfo struct {
+	mi       *process.MemoryInfoStat
+	memstats *runtime.MemStats
+}
+
 // DB is a zenodb database.
 type DB struct {
 	opts                 *DBOpts
@@ -139,6 +144,7 @@ type DB struct {
 	isSorting            bool
 	nextTableToSort      int
 	memory               uint64
+	logMemStatsCh        chan *memoryInfo
 	flushMutex           sync.Mutex
 	followerJoined       chan *follower
 	processFollowersOnce sync.Once
@@ -164,6 +170,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		walBuffers:          bpool.NewBytePool(1000, 1024),
 		streams:             make(map[string]*wal.WAL),
 		newStreamSubscriber: make(map[string]chan *tableWithOffset),
+		logMemStatsCh:       make(chan *memoryInfo),
 		followerJoined:      make(chan *follower, opts.NumPartitions),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 		requestedIterations: make(chan *iteration, 1000), // TODO, make the iteration backlog tunable
@@ -191,6 +198,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts.ClusterQueryTimeout = DefaultClusterQueryTimeout
 	}
 
+	go db.logMemStats()
 	db.opts.ReadOnly = opts.Dir == ""
 	if db.opts.ReadOnly {
 		log.Debugf("DB is ReadOnly, will not persist data to disk")
@@ -386,7 +394,37 @@ func (db *DB) updateMemStats() {
 	memstats := &runtime.MemStats{}
 	runtime.ReadMemStats(memstats)
 	atomic.StoreUint64(&db.memory, memstats.Alloc)
-	log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
+	mem := &memoryInfo{
+		mi:       mi,
+		memstats: memstats,
+	}
+	select {
+	case db.logMemStatsCh <- mem:
+		// will get logged
+	default:
+		// won't get logged because we're busy
+	}
+}
+
+// log the most recent available memstats every 10 seconds
+func (db *DB) logMemStats() {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+
+	var mem *memoryInfo
+	var more bool
+	for {
+		select {
+		case mem, more = <-db.logMemStatsCh:
+			if !more {
+				return
+			}
+		case <-t.C:
+			mi := mem.mi
+			memstats := mem.memstats
+			log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
+		}
+	}
 }
 
 // capMemorySize attempts to keep the database's memory size below the
