@@ -25,7 +25,7 @@ func TestMetrics(t *testing.T) {
 
 	s := GetStats()
 	assert.Equal(t, 4, s.Leader.ConnectedFollowers)
-	assert.Equal(t, ts.Format(time.RFC3339), s.Leader.CurrentlyReadingWAL.Format(time.RFC3339))
+	assert.Equal(t, ts.Format(time.RFC3339), s.Leader.CurrentlyReadingWAL)
 
 	assert.Equal(t, 1, s.Followers[0].Partition)
 	assert.Equal(t, 11, s.Followers[0].Queued)
@@ -36,6 +36,7 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, 2, s.Followers[3].Partition)
 	assert.Equal(t, 44, s.Followers[3].Queued)
 
+	assert.Equal(t, 2, s.Leader.ConnectedPartitions)
 	assert.Equal(t, 1, s.Partitions[0].Partition)
 	assert.Equal(t, 2, s.Partitions[0].NumFollowers)
 	assert.Equal(t, 2, s.Partitions[1].Partition)
@@ -55,8 +56,18 @@ func TestMetrics(t *testing.T) {
 	assert.Equal(t, 2, s.Followers[1].Partition)
 	assert.Equal(t, 44, s.Followers[1].Queued)
 
+	assert.Equal(t, 2, s.Leader.ConnectedPartitions)
 	assert.Equal(t, 1, s.Partitions[0].Partition)
 	assert.Equal(t, 1, s.Partitions[0].NumFollowers)
 	assert.Equal(t, 2, s.Partitions[1].Partition)
 	assert.Equal(t, 1, s.Partitions[1].NumFollowers)
+
+	// Fail remaining followers.
+	FollowerFailed(1)
+	FollowerFailed(1)
+	FollowerFailed(4)
+	FollowerFailed(4)
+
+	assert.Equal(t, 0, s.Leader.ConnectedFollowers)
+	assert.Equal(t, 0, s.Leader.ConnectedPartitions)
 }

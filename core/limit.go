@@ -18,7 +18,7 @@ type limit struct {
 	limit int
 }
 
-func (l *limit) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+func (l *limit) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) (interface{}, error) {
 	idx := int64(0)
 	return l.source.Iterate(ctx, onFields, func(row *FlatRow) (bool, error) {
 		newIdx := atomic.AddInt64(&idx, 1)

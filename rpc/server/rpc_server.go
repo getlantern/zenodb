@@ -120,7 +120,7 @@ func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 	}
 
 	rr := &rpc.RemoteQueryResult{}
-	err = source.Iterate(stream.Context(), func(fields core.Fields) error {
+	stats, err := source.Iterate(stream.Context(), func(fields core.Fields) error {
 		// Send query metadata
 		md := zenodb.MetaDataFor(source, fields)
 		return stream.SendMsg(md)
@@ -134,6 +134,9 @@ func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 
 	// Send end of results
 	rr.Row = nil
+	if stats != nil {
+		rr.Stats = stats.(*common.QueryStats)
+	}
 	rr.EndOfResults = true
 	return stream.SendMsg(rr)
 }
@@ -154,8 +157,8 @@ func (s *server) Follow(f *common.Follow, stream grpc.ServerStream) error {
 
 func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.ServerStream) error {
 	initialResultCh := make(chan *rpc.RemoteQueryResult)
-	initialErrCh := make(chan error)
-	finalErrCh := make(chan error)
+	initialErrCh := make(chan error, 1)
+	finalErrCh := make(chan error, 1)
 
 	finish := func(err error) {
 		select {
@@ -166,7 +169,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		}
 	}
 
-	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+	s.db.RegisterQueryHandler(r.Partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 		q := &rpc.Query{
 			SQLString:       sqlString,
 			IsSubQuery:      isSubQuery,
@@ -184,7 +187,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 		if sendErr != nil {
 			err := errors.New("Unable to send query: %v", sendErr)
 			finish(err)
-			return err
+			return nil, common.MarkRetriable(err)
 		}
 
 		var finalErr error
@@ -196,6 +199,9 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 			if recvErr != nil {
 				m.Error = recvErr.Error()
 				finalErr = errors.New("Unable to receive result: %v", recvErr)
+				if first {
+					finalErr = common.MarkRetriable(finalErr)
+				}
 				break
 			}
 
@@ -204,6 +210,9 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 				onFields(m.Fields)
 				first = false
 			} else {
+				if m.Error != "" {
+					finalErr = errors.New(m.Error)
+				}
 				// Subsequent messages contain data
 				if m.EndOfResults {
 					break
@@ -226,8 +235,9 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 			recvErr = stream.RecvMsg(m)
 		}
 
+		log.Debugf("Finishing partition %d with finalErr: %v", r.Partition, finalErr)
 		finish(finalErr)
-		return finalErr
+		return m.Stats, finalErr
 	})
 
 	// Block on reading initial result to keep connection open
@@ -238,7 +248,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 
 	if err == nil {
 		// Wait for final error so we don't close the connection prematurely
-		return <-finalErrCh
+		err = <-finalErrCh
 	}
 	return err
 }

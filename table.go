@@ -88,6 +88,7 @@ type iteration struct {
 	includeMemStore bool
 	onValue         func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)
 	fieldMappings   map[int]int
+	highWaterMarkCh chan time.Time
 	errCh           chan error
 }
 
@@ -361,17 +362,18 @@ func (t *table) backfillTo() time.Time {
 	return t.db.clock.Now().Add(-1 * t.Backfill)
 }
 
-func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) error {
+func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) (time.Time, error) {
 	it := &iteration{
 		t:               t,
 		ctx:             ctx,
 		outFields:       outFields,
 		includeMemStore: includeMemStore,
 		onValue:         onValue,
+		highWaterMarkCh: make(chan time.Time, 1),
 		errCh:           make(chan error, 1),
 	}
 	t.db.requestedIterations <- it
-	return <-it.errCh
+	return <-it.highWaterMarkCh, <-it.errCh
 }
 
 // coalesceIterations coalesces multiple parallel iterations for a single table,
@@ -491,8 +493,12 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 		newCtx, cancel = context.WithDeadline(newCtx, maxDeadline)
 		defer cancel()
 	}
-	err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
+	highWaterMark, err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
+	if err != nil {
+		log.Errorf("Got error while iterating: %v", err)
+	}
 	for _, it := range iterations {
+		it.highWaterMarkCh <- highWaterMark
 		it.errCh <- err
 	}
 }
@@ -538,7 +544,9 @@ func (t *table) memStoreSize() int {
 }
 
 func (t *table) forceFlush() {
-	t.rowStore.forceFlush()
+	if t.rowStore != nil {
+		t.rowStore.forceFlush()
+	}
 }
 
 func (t *table) logHighWaterMark() {

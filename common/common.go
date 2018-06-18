@@ -2,15 +2,19 @@ package common
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/wal"
+
 	"github.com/getlantern/zenodb/encoding"
 )
 
 const (
 	keyIncludeMemStore = "zenodb.includeMemStore"
+
+	nanosPerMilli = 1000000
 )
 
 type Partition struct {
@@ -40,6 +44,33 @@ type QueryMetaData struct {
 	Plan       string
 }
 
+// QueryStats captures stats about query
+type QueryStats struct {
+	NumPartitions           int
+	NumSuccessfulPartitions int
+	LowestHighWaterMark     int64
+	HighestHighWaterMark    int64
+	MissingPartitions       string
+}
+
+// Retriable is a marker for retriable errors
+type Retriable interface {
+	error
+}
+
+type retriable struct {
+	wrapped error
+}
+
+func (err *retriable) Error() string {
+	return fmt.Sprintf("%v (retriable)", err.wrapped.Error())
+}
+
+// MarkRetriable marks the given error as retriable
+func MarkRetriable(err error) Retriable {
+	return &retriable{err}
+}
+
 func WithIncludeMemStore(ctx context.Context, includeMemStore bool) context.Context {
 	return context.WithValue(ctx, keyIncludeMemStore, includeMemStore)
 }
@@ -47,4 +78,12 @@ func WithIncludeMemStore(ctx context.Context, includeMemStore bool) context.Cont
 func ShouldIncludeMemStore(ctx context.Context) bool {
 	include := ctx.Value(keyIncludeMemStore)
 	return include != nil && include.(bool)
+}
+
+func NanosToMillis(nanos int64) int64 {
+	return nanos / nanosPerMilli
+}
+
+func TimeToMillis(ts time.Time) int64 {
+	return NanosToMillis(ts.UnixNano())
 }

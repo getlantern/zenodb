@@ -2,19 +2,23 @@ package zenodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/getlantern/bytemap"
+
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
 )
 
-func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
-	db.capMemorySize()
+var (
+	ErrOutOfMemory = errors.New("out of memory")
+)
 
+func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
 	opts := &planner.Opts{
 		GetTable: func(table string, outFields func(tableFields core.Fields) (core.Fields, error)) (planner.Table, error) {
 			return db.getQueryable(table, outFields, includeMemStore)
@@ -24,7 +28,7 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 		SubQueryResults: subQueryResults,
 	}
 	if db.opts.Passthrough {
-		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+		opts.QueryCluster = func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 			return db.queryCluster(ctx, sqlString, isSubQuery, subQueryResults, includeMemStore, unflat, onFields, onRow, onFlatRow)
 		}
 	}
@@ -54,7 +58,7 @@ func (db *DB) getQueryable(table string, outFields func(tableFields core.Fields)
 	if out == nil {
 		out = t.getFields()
 	}
-	return &queryable{t, out, asOf, until, includeMemStore}, nil
+	return &queryable{db, t, out, asOf, until, includeMemStore}, nil
 }
 
 func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMetaData {
@@ -68,6 +72,7 @@ func MetaDataFor(source core.FlatRowSource, fields core.Fields) *common.QueryMet
 }
 
 type queryable struct {
+	db              *DB
 	t               *table
 	fields          core.Fields
 	asOf            time.Time
@@ -99,16 +104,38 @@ func (q *queryable) String() string {
 	return q.t.Name
 }
 
-func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
+func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) (interface{}, error) {
 	// We report all fields from the table
 	err := onFields(q.fields)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
+	i := 1
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
-	return q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	highWaterMark, err := q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+		if i%1000 == 0 {
+			// every 1000 rows, check and cap memory size
+			if !q.db.capMemorySize(false) {
+				log.Error("Returning ErrOutOfMemory")
+				return false, ErrOutOfMemory
+			}
+		}
+		i++
 		return onRow(key, vals)
 	})
+	if err != nil {
+		log.Errorf("Error on iterating: %v", err)
+	}
+	numSuccessfulPartitions := 0
+	if err == nil {
+		numSuccessfulPartitions = 1
+	}
+	return &common.QueryStats{
+		NumPartitions:           1,
+		NumSuccessfulPartitions: numSuccessfulPartitions,
+		LowestHighWaterMark:     common.TimeToMillis(highWaterMark),
+		HighestHighWaterMark:    common.TimeToMillis(highWaterMark),
+	}, err
 }

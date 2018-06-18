@@ -16,7 +16,7 @@ const (
 	backtick = "`"
 )
 
-type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error
+type QueryClusterFN func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error)
 
 type clusterSource struct {
 	opts          *Opts
@@ -24,18 +24,18 @@ type clusterSource struct {
 	planAsIfLocal core.Source
 }
 
-func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+func (cs *clusterSource) doIterate(ctx context.Context, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 	var subQueryResults [][]interface{}
 	if cs.query.Where != nil {
 		runSubQueries, subQueryPlanErr := planSubQueries(cs.opts, cs.query)
 		if subQueryPlanErr != nil {
-			return subQueryPlanErr
+			return nil, subQueryPlanErr
 		}
 
 		var subQueryErr error
 		subQueryResults, subQueryErr = runSubQueries(ctx)
 		if subQueryErr != nil {
-			return subQueryErr
+			return nil, subQueryErr
 		}
 	}
 
@@ -62,7 +62,7 @@ type clusterRowSource struct {
 	clusterSource
 }
 
-func (cs *clusterRowSource) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) error {
+func (cs *clusterRowSource) Iterate(ctx context.Context, onFields core.OnFields, onRow core.OnRow) (interface{}, error) {
 	return cs.doIterate(ctx, true, onFields, onRow, nil)
 }
 
@@ -74,7 +74,7 @@ type clusterFlatRowSource struct {
 	clusterSource
 }
 
-func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onFields core.OnFields, onFlatRow core.OnFlatRow) error {
+func (cs *clusterFlatRowSource) Iterate(ctx context.Context, onFields core.OnFields, onFlatRow core.OnFlatRow) (interface{}, error) {
 	return cs.doIterate(ctx, false, onFields, nil, func(row *core.FlatRow) (bool, error) {
 		return onFlatRow(row)
 	})

@@ -603,7 +603,7 @@ func defaultOpts() *Opts {
 	}
 }
 
-func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields OnFields, onRow OnRow, onFlatRow OnFlatRow) error {
+func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields OnFields, onRow OnRow, onFlatRow OnFlatRow) (interface{}, error) {
 	numPartitions := 1
 	for i := 0; i < numPartitions; i++ {
 		opts := defaultOpts()
@@ -621,18 +621,18 @@ func queryCluster(ctx context.Context, sqlString string, isSubQuery bool, subQue
 		}
 		plan, err := Plan(sqlString, opts)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if unflat {
 			return UnflattenOptimized(plan).Iterate(ctx, onFields, onRow)
 		} else {
-			err = plan.Iterate(ctx, onFields, onFlatRow)
+			_, err = plan.Iterate(ctx, onFields, onFlatRow)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 type testTable struct {
@@ -660,7 +660,7 @@ func (t *testTable) GetPartitionBy() []string {
 	return []string{"x", "y"}
 }
 
-func (t *testTable) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (t *testTable) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) (interface{}, error) {
 	onFields(t.fields)
 
 	onRow(makeRow(epoch.Add(-9*resolution), 1, 0, 10, 0))
@@ -673,7 +673,7 @@ func (t *testTable) Iterate(ctx context.Context, onFields OnFields, onRow OnRow)
 	onRow(makeRow(epoch.Add(-2*resolution), 0, 3, 0, 80))
 	onRow(makeRow(epoch.Add(-1*resolution), 1, 5, 90, 0))
 	onRow(makeRow(epoch, 2, 2, 0, 100))
-	return nil
+	return nil, nil
 }
 
 func makeRow(ts time.Time, x int, y int, a float64, b float64) (bytemap.ByteMap, []encoding.Sequence) {
@@ -707,7 +707,7 @@ type partition struct {
 	numPartitions int
 }
 
-func (t *partition) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (t *partition) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) (interface{}, error) {
 	return t.testTable.Iterate(ctx, onFields, func(key bytemap.ByteMap, vals Vals) (bool, error) {
 		// This mimics the logic in the actual clustering code
 		h := murmur3.New32()

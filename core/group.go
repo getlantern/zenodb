@@ -107,7 +107,7 @@ func (g *group) GetUntil() time.Time {
 	return g.Until
 }
 
-func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) (interface{}, error) {
 	guard := Guard(ctx)
 
 	var sliceKey func(key bytemap.ByteMap) bytemap.ByteMap
@@ -171,7 +171,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 		bt.Update(key, vals, nil, metadata)
 	}
 
-	err := g.source.Iterate(ctx, func(fields Fields) error {
+	metadata, err := g.source.Iterate(ctx, func(fields Fields) error {
 		inFields = fields
 		var err error
 		outFields, err = g.Fields.Get(inFields)
@@ -206,7 +206,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 			var havingField Field
 			for _, ctab := range sortedCtabs {
 				if guard.TimedOut() {
-					return ErrDeadlineExceeded
+					return metadata, ErrDeadlineExceeded
 				}
 				for _, outField := range origOutFields {
 					if outField.Name == HavingFieldName {
@@ -217,7 +217,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 					}
 					cond, condErr := goexpr.Binary("=", g.Crosstab, goexpr.Constant(ctab))
 					if condErr != nil {
-						return condErr
+						return metadata, condErr
 					}
 					ifex := expr.IF(cond, outField.Expr)
 					outFields = append(outFields, NewField(fmt.Sprintf("%v_%v", strings.ToLower(ctab), outField.Name), ifex))
@@ -236,7 +236,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 
 			for _, kv := range kvs {
 				if guard.TimedOut() {
-					return ErrDeadlineExceeded
+					return metadata, ErrDeadlineExceeded
 				}
 				updateTree(kv.key, kv.vals)
 			}
@@ -244,7 +244,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 
 		onFieldsErr := onFields(outFields)
 		if onFieldsErr != nil {
-			return onFieldsErr
+			return metadata, onFieldsErr
 		}
 
 		if bt != nil {
@@ -260,10 +260,10 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) err
 	}
 
 	if walkErr != nil {
-		return walkErr
+		return metadata, walkErr
 	}
 
-	return err
+	return metadata, err
 }
 
 func (g *group) String() string {

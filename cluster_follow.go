@@ -494,8 +494,10 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 				// Ignore empty data
 				continue
 			}
+			offset := r.Offset()
+			metrics.CurrentlyReadingWAL(offset)
 			select {
-			case requests <- &partitionRequest{partitions, &walEntry{stream: stream, data: data, offset: r.Offset()}}:
+			case requests <- &partitionRequest{partitions, &walEntry{stream: stream, data: data, offset: offset}}:
 				// okay
 			case <-stop:
 				return

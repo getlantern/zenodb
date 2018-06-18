@@ -64,8 +64,8 @@ var indexHTML = []byte(`
     }
 
     .summary {
-      font-size: 1.5em;
-      vertical-align: middle;
+      font-size: 0.75em;
+			vertical-align: middle;
       margin-left: 10px;
     }
 
@@ -243,11 +243,11 @@ var indexHTML = []byte(`
 			<div id="sql">{{ sql }}</div>
 
 		  <div style="margin-top: 10px;">
-			  <button type="button" class="btn btn-default" aria-label="Left Align" on-click="run" {{#if running}}disabled{{/if}}>
+			  <button type="button" class="btn btn-default" aria-label="Left Align" style="font-size: 10px" on-click="run" {{#if running}}disabled{{/if}}>
 	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
 	      </button>
 			  {{#if !running}}
-	        {{#if error}}<span class="error">Error: {{ error }}</span>{{else}}<span class="summary">{{#if result.Rows}}{{result.Rows.length}}{{else}}No{{/if}} results as of {{ date }}</span>{{/if}}
+	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: <b>{{ date }}</b>&nbsp;&nbsp;Partitions: <b>{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }}</b>{{#if result.Stats.MissingPartitions }}&nbsp;&nbsp;Missing Partitions: <b>{{ result.Stats.MissingPartitions }}{{/if}}&nbsp;&nbsp;Complete To: <b>{{ completeUpTo }}</b></span>{{/if}}
 	      {{/if}}
 	    </div>
 
@@ -356,6 +356,7 @@ var indexHTML = []byte(`
 			"error": null,
       "formatTS": formatTS,
       "date": null,
+			"completeUpTo": null,
       "showTimeSeriesChart": false,
       "showOtherChart": false,
 			"inIframe": false,
@@ -432,7 +433,12 @@ var indexHTML = []byte(`
 					}
 					if (this.status == 200) {
             var result = JSON.parse(this.responseText);
+						if (!result.Stats) {
+							// default Stats for backward compatibility with historical queries
+							result.Stats = {};
+						}
             ractive.set("date", formatTS(result.TS));
+						ractive.set("completeUpTo", formatTS(result.Stats.LowestHighWaterMark));
             ractive.set("result", result);
 						if (isReport) {
 							isReport = false;
@@ -601,7 +607,10 @@ var indexHTML = []byte(`
     }
 
     function formatTS(ts) {
-      return new Date(ts).toString();
+			if (!ts) {
+				return "";
+			}
+      return new Date(ts).toISOString();
     }
 
     // Courtesty of http://stackoverflow.com/questions/25594478/different-color-for-each-bar-in-a-bar-chart-chartjs

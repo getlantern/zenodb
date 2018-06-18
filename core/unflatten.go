@@ -32,7 +32,7 @@ type unflatten struct {
 	fields FieldSource
 }
 
-func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) error {
+func (f *unflatten) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) (interface{}, error) {
 	var inFields, outFields Fields
 	var numIn, numOut int
 

@@ -16,7 +16,7 @@ type flatten struct {
 	rowTransform
 }
 
-func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) error {
+func (f *flatten) Iterate(ctx context.Context, onFields OnFields, onRow OnFlatRow) (interface{}, error) {
 	guard := Guard(ctx)
 
 	resolution := f.GetResolution()

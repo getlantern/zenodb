@@ -102,7 +102,7 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
 					var register func()
 					register = func() {
-						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) error {
+						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
 							// Re-register when finished
 							defer register()
 							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
@@ -754,7 +754,7 @@ func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeM
 	}
 
 	var fields core.Fields
-	err = source.Iterate(context.Background(), func(inFields core.Fields) error {
+	_, err = source.Iterate(context.Background(), func(inFields core.Fields) error {
 		fields = inFields
 		return nil
 	}, func(row *core.FlatRow) (bool, error) {

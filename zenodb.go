@@ -21,6 +21,7 @@ import (
 	"github.com/getlantern/vtime"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/common"
+	"github.com/getlantern/zenodb/metrics"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
 	"github.com/oxtoacart/bpool"
@@ -35,7 +36,8 @@ const (
 	DefaultIterationCoalesceInterval = 3 * time.Second
 	DefaultIterationConcurrency      = 2
 
-	DefaultClusterQueryConcurrency = 100
+	DefaultClusterQueryConcurrency = 25
+	DefaultClusterQueryTimeout     = 1 * time.Hour
 )
 
 var (
@@ -112,6 +114,9 @@ type DBOpts struct {
 	// ClusterQueryConcurrency specifies the maximum concurrency for clustered
 	// query handlers.
 	ClusterQueryConcurrency int
+	// ClusterQueryTimeout specifies the maximum amount of time leader will wait
+	// for followers to answer a query
+	ClusterQueryTimeout time.Duration
 	// MaxFollowAge limits how far back to go when follower pulls data from
 	// leader
 	MaxFollowAge time.Duration
@@ -149,6 +154,8 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		opts.IterationConcurrency = DefaultIterationConcurrency
 	}
 
+	metrics.SetNumPartitions(opts.NumPartitions)
+
 	var err error
 	db := &DB{
 		opts:                opts,
@@ -179,6 +186,9 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 	if opts.ClusterQueryConcurrency <= 0 {
 		opts.ClusterQueryConcurrency = DefaultClusterQueryConcurrency
+	}
+	if opts.ClusterQueryTimeout <= 0 {
+		opts.ClusterQueryTimeout = DefaultClusterQueryTimeout
 	}
 
 	db.opts.ReadOnly = opts.Dir == ""
@@ -254,6 +264,10 @@ func (db *DB) Close() {
 		log.Debugf("Closing stream %v", name)
 		stream.Close()
 		delete(db.streams, name)
+	}
+	for name, table := range db.tables {
+		log.Debugf("Force flushing table: %v", name)
+		table.forceFlush()
 	}
 	db.tablesMutex.Unlock()
 }
@@ -375,9 +389,13 @@ func (db *DB) updateMemStats() {
 	log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
 }
 
-func (db *DB) capMemorySize() {
+// capMemorySize attempts to keep the database's memory size below the
+// configured threshold by forcing GC and flushing tables (if allowFlush is
+// true). Returns true if it was able to keep the size below the limit, false if
+// not.
+func (db *DB) capMemorySize(allowFlush bool) bool {
 	if db.opts.MaxMemoryRatio <= 0 {
-		return
+		return true
 	}
 
 	actual := atomic.LoadUint64(&db.memory)
@@ -389,17 +407,17 @@ func (db *DB) capMemorySize() {
 		db.updateMemStats()
 	}
 
-	db.tablesMutex.RLock()
-	sizes := make(byCurrentSize, 0, len(db.tables))
-	for _, table := range db.tables {
-		if !table.Virtual {
-			sizes = append(sizes, &memStoreSize{table, table.memStoreSize()})
+	if !db.opts.Passthrough && allowFlush {
+		db.tablesMutex.RLock()
+		sizes := make(byCurrentSize, 0, len(db.tables))
+		for _, table := range db.tables {
+			if !table.Virtual {
+				sizes = append(sizes, &memStoreSize{table, table.memStoreSize()})
+			}
 		}
-	}
-	db.tablesMutex.RUnlock()
+		db.tablesMutex.RUnlock()
 
-	db.flushMutex.Lock()
-	if !db.opts.Passthrough {
+		db.flushMutex.Lock()
 		actual = atomic.LoadUint64(&db.memory)
 		if actual > allowed {
 			// Force flushing on the table with the largest memstore
@@ -409,8 +427,11 @@ func (db *DB) capMemorySize() {
 			db.updateMemStats()
 			log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
 		}
+		db.flushMutex.Unlock()
 	}
-	db.flushMutex.Unlock()
+
+	actual = atomic.LoadUint64(&db.memory)
+	return actual <= allowed
 }
 
 func (db *DB) maxMemoryBytes() uint64 {

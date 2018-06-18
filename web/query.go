@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
@@ -22,8 +23,6 @@ import (
 )
 
 const (
-	nanosPerMilli = 1000000
-
 	pauseTime    = 250 * time.Millisecond
 	shortTimeout = 5 * time.Second
 	longTimeout  = 1000 * time.Hour
@@ -39,6 +38,7 @@ type QueryResult struct {
 	Dims               []string
 	DimCardinalities   []uint64
 	Rows               []*ResultRow
+	Stats              *common.QueryStats
 }
 
 type ResultRow struct {
@@ -253,6 +253,7 @@ func compress(resultBytes []byte, err error) ([]byte, error) {
 func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, error) {
 	rs, err := h.db.Query(sqlString, false, nil, false)
 	if err != nil {
+		log.Errorf("Error running query: %v", err)
 		return nil, err
 	}
 
@@ -261,7 +262,7 @@ func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, err
 	result := &QueryResult{
 		SQL:       sqlString,
 		Permalink: permalink,
-		TS:        time.Now().UnixNano() / nanosPerMilli,
+		TS:        common.TimeToMillis(time.Now()),
 	}
 	groupBy := rs.GetGroupBy()
 	if len(groupBy) > 0 {
@@ -296,7 +297,7 @@ func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, err
 	var mx sync.Mutex
 	ctx, cancel := context.WithTimeout(context.Background(), h.QueryTimeout)
 	defer cancel()
-	rs.Iterate(ctx, func(inFields core.Fields) error {
+	stats, _ := rs.Iterate(ctx, func(inFields core.Fields) error {
 		fields = inFields
 		for _, field := range fields {
 			result.Fields = append(result.Fields, field.Name)
@@ -333,7 +334,7 @@ func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, err
 		tsCardinality.Add(cbytes)
 
 		resultRow := &ResultRow{
-			TS:   row.TS / nanosPerMilli,
+			TS:   common.NanosToMillis(row.TS),
 			Key:  key,
 			Vals: make([]float64, 0, len(row.Values)),
 		}
@@ -361,6 +362,10 @@ func (h *handler) doQuery(sqlString string, permalink string) (*QueryResult, err
 	result.FieldCardinalities = make([]uint64, 0, len(fieldCardinalities))
 	for _, fieldCardinality := range fieldCardinalities {
 		result.FieldCardinalities = append(result.FieldCardinalities, fieldCardinality.Count())
+	}
+
+	if stats != nil {
+		result.Stats = stats.(*common.QueryStats)
 	}
 
 	return result, nil
