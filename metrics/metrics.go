@@ -127,7 +127,10 @@ func FollowerFailed(followerID int) {
 func QueuedForFollower(followerID int, queued int) {
 	mx.Lock()
 	defer mx.Unlock()
-	followerStats[followerID].Queued = queued
+	fs, found := followerStats[followerID]
+	if found {
+		fs.Queued = queued
+	}
 }
 
 func GetStats() *Stats {
