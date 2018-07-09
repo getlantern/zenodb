@@ -220,8 +220,9 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 					}
 				}
 				var highWaterMark int64
-				if qstats != nil {
-					highWaterMark = qstats.(*common.QueryStats).HighestHighWaterMark
+				qs, ok := qstats.(*common.QueryStats)
+				if ok && qs != nil {
+					highWaterMark = qs.HighestHighWaterMark
 				}
 				results <- &remoteResult{
 					partition:     partition,
