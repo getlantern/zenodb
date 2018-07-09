@@ -46,6 +46,7 @@ type FollowerStats struct {
 	followerId int
 	Partition  int
 	Queued     int
+	Failed     bool
 }
 
 // PartitionStats provides stats for a single partition
@@ -92,12 +93,8 @@ func CurrentlyReadingWAL(offset wal.Offset) {
 func FollowerJoined(followerID int, partition int) {
 	mx.Lock()
 	defer mx.Unlock()
-	leaderStats.ConnectedFollowers++
-	followerStats[followerID] = &FollowerStats{
-		followerId: followerID,
-		Partition:  partition,
-		Queued:     0,
-	}
+	fs := getFollowerStats(followerID)
+	fs.Partition = partition
 	ps := partitionStats[partition]
 	if ps == nil {
 		ps = &PartitionStats{Partition: partition}
@@ -111,11 +108,11 @@ func FollowerJoined(followerID int, partition int) {
 func FollowerFailed(followerID int) {
 	mx.Lock()
 	defer mx.Unlock()
-	// Only delete once
+	// Only mark failed once
 	fs, found := followerStats[followerID]
-	if found {
+	if found && !fs.Failed {
 		leaderStats.ConnectedFollowers--
-		delete(followerStats, followerID)
+		fs.Failed = true
 		partitionStats[fs.Partition].NumFollowers--
 		if partitionStats[fs.Partition].NumFollowers == 0 {
 			leaderStats.ConnectedPartitions--
@@ -131,6 +128,19 @@ func QueuedForFollower(followerID int, queued int) {
 	if found {
 		fs.Queued = queued
 	}
+}
+
+func getFollowerStats(followerID int) *FollowerStats {
+	fs, found := followerStats[followerID]
+	if !found {
+		leaderStats.ConnectedFollowers++
+		fs = &FollowerStats{
+			followerId: followerID,
+			Queued:     0,
+		}
+		followerStats[followerID] = fs
+	}
+	return fs
 }
 
 func GetStats() *Stats {
