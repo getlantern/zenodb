@@ -73,7 +73,7 @@ WHERE
 	dim_g IS NULL AND
 	dim_h IS NOT NULL AND
 	dim_i IN (5, 6, 7, 8) AND
-	dim_j IN (SELECT subdim FROM subtable WHERE subdim > 20) AND
+	dim_j IN (SELECT subdim FROM subtable WHERE subdim > 20 HAVING something > 2) AND
 	RAND() < 0.5
 GROUP BY
 	dim_a,
@@ -335,7 +335,7 @@ LIMIT 100, 10
 	assert.Equal(t, 5*time.Second, q.Resolution)
 	// TODO: reenable this
 	// assert.Equal(t, "(((dim_a LIKE 172.56.) AND (dim_b > 10)) OR (((((((dim_c == 20) OR (dim_d != thing)) AND (dim_e LIKE no such host)) AND (dim_f != true)) AND (dim_g == <nil>)) AND (dim_h != <nil>)) AND dim_i IN(5, 6, 7, 8)))", q.Where.String())
-	assert.Equal(t, "where dim_a like '172.56.' and dim_b > 10 or (dim_c = 20 or dim_d != 'thing') and dim_e not like 'no such host' and dim_f != true and dim_g is null and dim_h is not null and dim_i in (5, 6, 7, 8) and dim_j in (select subdim from subtable where subdim > 20) and rand() < 0.5", q.WhereSQL)
+	assert.Equal(t, "where dim_a like '172.56.' and dim_b > 10 or (dim_c = 20 or dim_d != 'thing') and dim_e not like 'no such host' and dim_f != true and dim_g is null and dim_h is not null and dim_i in (5, 6, 7, 8) and dim_j in (select subdim from subtable where subdim > 20 having something > 2) and rand() < 0.5", q.WhereSQL)
 	var subQueries []*SubQuery
 	q.Where.WalkLists(func(list goexpr.List) {
 		sq, ok := list.(*SubQuery)
@@ -344,7 +344,7 @@ LIMIT 100, 10
 		}
 	})
 	if assert.Len(t, subQueries, 1) {
-		assert.Equal(t, "select subdim from subtable where subdim > 20", subQueries[0].SQL)
+		assert.Equal(t, "select subdim from subtable where subdim > 20 having something > 2", subQueries[0].SQL)
 	}
 	assert.True(t, q.HasHaving)
 	assert.Equal(t, "rate > 15 and h < 2 AS _having", q.HavingSQL)

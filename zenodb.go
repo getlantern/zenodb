@@ -277,6 +277,7 @@ func (db *DB) Close() {
 		log.Debugf("Force flushing table: %v", name)
 		table.forceFlush()
 	}
+	log.Debug("Done force flushing tables")
 	db.tablesMutex.Unlock()
 }
 

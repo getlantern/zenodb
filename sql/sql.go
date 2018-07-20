@@ -1043,8 +1043,14 @@ func goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 				if fieldsErr != nil {
 					return nil, fieldsErr
 				}
-				if len(fields) != 1 {
-					return nil, fmt.Errorf("Subqueries must select at exactly 1 dimension")
+				numOfFieldsExcludingHaving := 0
+				for _, name := range fields.Names() {
+					if name != "_having" {
+						numOfFieldsExcludingHaving++
+					}
+				}
+				if numOfFieldsExcludingHaving != 1 {
+					return nil, fmt.Errorf("Subqueries in must select exactly 1 dimension")
 				}
 				right = &SubQuery{Dim: fields[0].Name, SQL: nodeToString(stmt)}
 			default:
