@@ -99,6 +99,13 @@ func noopSubQueries(ctx context.Context) ([][]interface{}, error) {
 	return nil, nil
 }
 
+func fixupSubQuery(query *sql.Query, opts *Opts) {
+	if opts.IsSubQuery {
+		// Change field to _points field
+		query.Fields = &pointsAndHavingFieldSource{query.Fields}
+	}
+}
+
 // pointsAndHavingFieldSource is a FieldSource that wraps an existing
 // FieldSource and returns only the _having field (if present) and the _points
 // field.

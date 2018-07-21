@@ -50,13 +50,6 @@ func Plan(sqlString string, opts *Opts) (core.FlatRowSource, error) {
 	return planLocal(query, opts)
 }
 
-func fixupSubQuery(query *sql.Query, opts *Opts) {
-	if opts.IsSubQuery {
-		// Change field to _points field
-		query.Fields = core.StaticFieldSource{core.PointsField}
-	}
-}
-
 func addGroupBy(source core.RowSource, query *sql.Query, applyResolution bool, resolution time.Duration, strideSlice time.Duration) core.RowSource {
 	opts := core.GroupOpts{
 		By:                    query.GroupBy,
