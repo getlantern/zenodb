@@ -2,6 +2,7 @@ package planner
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/getlantern/goexpr"
@@ -96,4 +97,30 @@ type sqResult struct {
 
 func noopSubQueries(ctx context.Context) ([][]interface{}, error) {
 	return nil, nil
+}
+
+// pointsAndHavingFieldSource is a FieldSource that wraps an existing
+// FieldSource and returns only the _having field (if present) and the _points
+// field.
+type pointsAndHavingFieldSource struct {
+	wrapped core.FieldSource
+}
+
+func (phfs pointsAndHavingFieldSource) Get(known core.Fields) (core.Fields, error) {
+	var result core.Fields
+	origFields, err := phfs.wrapped.Get(known)
+	if err != nil {
+		return result, err
+	}
+	result = append(result, core.PointsField)
+	for _, field := range origFields {
+		if field.Name == core.HavingFieldName {
+			result = append(result, field)
+		}
+	}
+	return result, nil
+}
+
+func (phfs pointsAndHavingFieldSource) String() string {
+	return fmt.Sprintf("pointsAndHaving(%s)", phfs.wrapped)
 }

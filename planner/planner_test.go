@@ -102,10 +102,10 @@ func TestPlans(t *testing.T) {
 		})
 
 	pushdownScenario("WHERE with subquery",
-		"SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb)",
-		"select * from TableA where dim in (select dim from tableb)",
+		"SELECT * FROM TableA WHERE dim IN (SELECT DIM FROM tableb GROUP BY DIM)",
+		"select * from TableA where dim in (select dim from tableb group by dim)",
 		func(source RowSource) Source {
-			return Flatten(RowFilter(source, "where dim in (select dim from tableb)", nil))
+			return Flatten(RowFilter(source, "where dim in (select dim from tableb group by dim)", nil))
 		})
 
 	scenario("LIMIT and OFFSET",
