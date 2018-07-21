@@ -345,6 +345,8 @@ LIMIT 100, 10
 	})
 	if assert.Len(t, subQueries, 1) {
 		assert.Equal(t, "select subdim from subtable where subdim > 20 having something > 2", subQueries[0].SQL)
+		log.Debug(subQueries[0].Dim)
+		assert.Equal(t, "subdim", subQueries[0].Dim)
 	}
 	assert.True(t, q.HasHaving)
 	assert.Equal(t, "rate > 15 and h < 2 AS _having", q.HavingSQL)

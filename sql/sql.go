@@ -1044,15 +1044,17 @@ func goExprFor(_e sqlparser.Expr) (goexpr.Expr, error) {
 					return nil, fieldsErr
 				}
 				numOfFieldsExcludingHaving := 0
+				fieldName := ""
 				for _, name := range fields.Names() {
 					if name != "_having" {
 						numOfFieldsExcludingHaving++
+						fieldName = name
 					}
 				}
 				if numOfFieldsExcludingHaving != 1 {
 					return nil, fmt.Errorf("Subqueries in must select exactly 1 dimension")
 				}
-				right = &SubQuery{Dim: fields[0].Name, SQL: nodeToString(stmt)}
+				right = &SubQuery{Dim: fieldName, SQL: nodeToString(stmt)}
 			default:
 				return nil, fmt.Errorf("IN requires a list of values on the right hand side, not %v %v", reflect.TypeOf(e.Right), nodeToString(e.Right))
 			}
