@@ -676,7 +676,7 @@ SELECT
 	_ AS present
 FROM test_a
 ASOF '%s' UNTIL '%s'
-WHERE b != true AND r IN (SELECT r FROM test_a)
+WHERE b != true AND r IN (SELECT r FROM test_a HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12)
 GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
@@ -710,6 +710,8 @@ ORDER BY u DESC
 				"newfield_5": 0,
 				"newfield_6": 0,
 				"newfield_7": 0,
+				"pp":         0,
+				"pp_5p":      0,
 			},
 		},
 		expectedRow{
@@ -739,6 +741,8 @@ ORDER BY u DESC
 				"newfield_5": 0,
 				"newfield_6": 0,
 				"newfield_7": 0,
+				"pp":         0,
+				"pp_5p":      0,
 			},
 		},
 	}.assert(t, db, sqlString, includeMemStore)
@@ -799,11 +803,43 @@ func (erow expectedRow) assert(t *testing.T, fieldNames []string, row *core.Flat
 		}
 	}
 
-	if !assert.Len(t, row.Values, len(erow.vals), "Row %d - wrong number of values in result", idx) {
+	if !assert.Len(t, row.Values, len(erow.vals), "Row %d - wrong number of values in result. %v", idx, erow.fieldDiff(fieldNames)) {
 		return
 	}
 	for i, v := range row.Values {
 		fieldName := fieldNames[i]
 		AssertFloatWithin(t, 0.01, erow.vals[fieldName], v, fmt.Sprintf("Row %d - mismatch on field %v", idx, fieldName))
 	}
+}
+
+func (erow expectedRow) fieldDiff(fieldNames []string) string {
+	diff := ""
+	first := true
+	for expected := range erow.vals {
+		found := false
+		for _, name := range fieldNames {
+			if name == expected {
+				found = true
+				break
+			}
+		}
+		if !found {
+			if !first {
+				diff += "   "
+			}
+			first = false
+			diff += expected + "(m)"
+		}
+	}
+	for _, name := range fieldNames {
+		_, found := erow.vals[name]
+		if !found {
+			if !first {
+				diff += "   "
+			}
+			first = false
+			diff += name + "(e)"
+		}
+	}
+	return diff
 }
