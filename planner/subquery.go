@@ -84,7 +84,6 @@ func planSubQueries(opts *Opts, query *sql.Query) (func(ctx context.Context) ([]
 			if err != nil && (finalErr == nil || finalErr == core.ErrDeadlineExceeded) {
 				finalErr = err
 			}
-			log.Debugf("Results for IN subquery `%v`: %v", subQueries[i].SQL, result.dims)
 			subQueryResults = append(subQueryResults, result.dims)
 		}
 		return subQueryResults, finalErr
@@ -102,13 +101,8 @@ func noopSubQueries(ctx context.Context) ([][]interface{}, error) {
 
 func fixupSubQuery(query *sql.Query, opts *Opts) {
 	if opts.IsSubQuery {
-		switch fields := query.Fields.(type) {
-		case *pointsAndHavingFieldSource:
-			// nothing to do
-		default:
-			// Change field to _points field
-			query.Fields = &pointsAndHavingFieldSource{fields}
-		}
+		// Change field to _points field
+		query.Fields = &pointsAndHavingFieldSource{query.Fields}
 	}
 }
 

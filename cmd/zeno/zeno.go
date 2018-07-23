@@ -67,7 +67,6 @@ var (
 	webQueryCacheTTL          = flag.Duration("webquerycachettl", 2*time.Hour, "specifies how long to cache web query results")
 	webQueryTimeout           = flag.Duration("webquerytimeout", 30*time.Minute, "time out web queries after this duration")
 	webQueryConcurrencyLimit  = flag.Int("webqueryconcurrency", 2, "limit concurrent web queries to this (subsequent queries will be queued)")
-	webQueryCoalesceInterval  = flag.Duration("webquerycoalecseinterval", web.DefaultQueryCoalesceInterval, "how long to wait for additional queries when coalescing web queries")
 	webMaxResponseBytes       = flag.Int("webquerymaxresponsebytes", 25*1024*1024, "limit the size of query results returned through the web API")
 )
 
@@ -310,7 +309,6 @@ func serveHTTP(db *zenodb.DB, hl net.Listener) {
 		CacheTTL:              *webQueryCacheTTL,
 		QueryTimeout:          *webQueryTimeout,
 		QueryConcurrencyLimit: *webQueryConcurrencyLimit,
-		QueryCoalesceInterval: *webQueryCoalesceInterval,
 		MaxResponseBytes:      *webMaxResponseBytes,
 	})
 	if err != nil {

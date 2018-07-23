@@ -73,13 +73,3 @@ notbackfilled2:
   sql: >
     SELECT *
     FROM combined
-
-archive:
-  retentionperiod: 1h
-  maxflushlatency: 30s
-  view: true
-  sql: >
-    SELECT *
-    FROM base
-    WHERE exclude IS NULL
-    GROUP BY PERIOD(1h)

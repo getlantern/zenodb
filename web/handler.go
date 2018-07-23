@@ -13,10 +13,6 @@ import (
 	"time"
 )
 
-const (
-	DefaultQueryCoalesceInterval = 15 * time.Second
-)
-
 var (
 	log = golog.LoggerFor("zenodb.web")
 )
@@ -32,7 +28,6 @@ type Opts struct {
 	Password              string
 	QueryTimeout          time.Duration
 	QueryConcurrencyLimit int
-	QueryCoalesceInterval time.Duration
 	MaxResponseBytes      int
 }
 
@@ -66,10 +61,6 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 
 	if opts.QueryConcurrencyLimit <= 0 {
 		opts.QueryConcurrencyLimit = 2
-	}
-
-	if opts.QueryCoalesceInterval < 0 {
-		opts.QueryCoalesceInterval = DefaultQueryCoalesceInterval
 	}
 
 	if opts.MaxResponseBytes <= 0 {
