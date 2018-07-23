@@ -33,13 +33,15 @@ const (
 var (
 	log = golog.LoggerFor("zeno-cli")
 
-	addr       = flag.String("addr", ":17712", "The address to which to connect with gRPC over TLS, defaults to localhost:17712")
-	insecure   = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to the server (don't use this in production!)")
-	timeout    = flag.Duration("timeout", 1*time.Minute, "specify the timeout for queries, defaults to 1 minute")
-	fresh      = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
-	porcelain  = flag.Bool("porcelain", false, "Set this flag to display results in a more machine-readable format (e.g. no headers)")
-	queryStats = flag.Bool("querystats", false, "Set this to show query stats on each query")
-	password   = flag.String("password", "", "if specified, will authenticate against server using this password")
+	addr            = flag.String("addr", ":17712", "The address to which to connect with gRPC over TLS, defaults to localhost:17712")
+	insecure        = flag.Bool("insecure", false, "set to true to disable TLS certificate verification when connecting to the server (don't use this in production!)")
+	timeout         = flag.Duration("timeout", 1*time.Minute, "specify the timeout for queries, defaults to 1 minute")
+	fresh           = flag.Bool("fresh", false, "Set this flag to include data not yet flushed from memstore in query results")
+	porcelain       = flag.Bool("porcelain", false, "Set this flag to display results in a more machine-readable format (e.g. no headers)")
+	queryStats      = flag.Bool("querystats", false, "Set this to show query stats on each query")
+	password        = flag.String("password", "", "if specified, will authenticate against server using this password")
+	allowIncomplete = flag.Bool("allowincomplete", false, "if specified, will allow incomplete results that are missing some data from 1 or more partitions")
+	maxAge          = flag.Duration("maxage", 2*time.Hour, "control how far out of date we allow results to be")
 )
 
 func main() {
@@ -139,19 +141,33 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, cs
 		return err
 	}
 
+	now := time.Now()
+	var stats *common.QueryStats
 	if csv {
-		return dumpCSV(stdout, md, iterate)
+		stats, err = dumpCSV(stdout, md, iterate)
+	} else {
+		stats, err = dumpPlainText(stdout, sql, md, iterate)
 	}
-	return dumpPlainText(stdout, sql, md, iterate)
+
+	if err == nil {
+		if !*allowIncomplete && stats.NumSuccessfulPartitions < stats.NumPartitions {
+			err = fmt.Errorf("missing partitions: %v", stats.MissingPartitions)
+		}
+		age := now.Sub(encoding.TimeFromMillis(stats.LowestHighWaterMark))
+		if age > *maxAge {
+			err = fmt.Errorf("results age of %v exceeds allowed age of %v", age, maxAge)
+		}
+	}
+	return err
 }
 
-func dumpPlainText(stdout io.Writer, sql string, md *common.QueryMetaData, iterate func(onRow core.OnFlatRow) error) error {
+func dumpPlainText(stdout io.Writer, sql string, md *common.QueryMetaData, iterate func(onRow core.OnFlatRow) (*common.QueryStats, error)) (*common.QueryStats, error) {
 	printQueryStats(os.Stderr, md)
 
 	// Read all rows into list and collect unique dimensions
 	var rows []*core.FlatRow
 	uniqueDims := make(map[string]bool)
-	err := iterate(func(row *core.FlatRow) (bool, error) {
+	stats, err := iterate(func(row *core.FlatRow) (bool, error) {
 		if log.IsTraceEnabled() {
 			log.Tracef("Got row: %v", spew.Sdump(row))
 		}
@@ -162,7 +178,7 @@ func dumpPlainText(stdout io.Writer, sql string, md *common.QueryMetaData, itera
 		return true, nil
 	})
 	if err != nil {
-		return err
+		return stats, err
 	}
 
 	numFields := numFieldsFor(md)
@@ -333,10 +349,10 @@ func dumpPlainText(stdout io.Writer, sql string, md *common.QueryMetaData, itera
 		fmt.Fprint(stdout, "\n")
 	}
 
-	return nil
+	return stats, nil
 }
 
-func dumpCSV(stdout io.Writer, md *common.QueryMetaData, iterate func(onRow core.OnFlatRow) error) error {
+func dumpCSV(stdout io.Writer, md *common.QueryMetaData, iterate func(onRow core.OnFlatRow) (*common.QueryStats, error)) (*common.QueryStats, error) {
 	printQueryStats(os.Stderr, md)
 
 	w := csv.NewWriter(stdout)
@@ -346,7 +362,7 @@ func dumpCSV(stdout io.Writer, md *common.QueryMetaData, iterate func(onRow core
 
 	i := 0
 	var knownDims []string
-	err := iterate(func(row *core.FlatRow) (bool, error) {
+	stats, err := iterate(func(row *core.FlatRow) (bool, error) {
 		dims := row.Key.AsMap()
 		rowStrings := make([]string, 0, 1+len(dims)+len(md.FieldNames))
 		rowStrings = append(rowStrings, encoding.TimeFromInt(row.TS).In(time.UTC).Format(time.RFC3339))
@@ -398,12 +414,12 @@ func dumpCSV(stdout io.Writer, md *common.QueryMetaData, iterate func(onRow core
 	})
 
 	if err != nil {
-		return err
+		return stats, err
 	}
 
 	if *porcelain {
 		// Skip writing header for now
-		return nil
+		return stats, nil
 	}
 
 	// Write header
@@ -454,7 +470,7 @@ func dumpCSV(stdout io.Writer, md *common.QueryMetaData, iterate func(onRow core
 
 	w.Write(rowStrings)
 	w.Flush()
-	return nil
+	return stats, nil
 }
 
 func nilToBlank(val interface{}) interface{} {

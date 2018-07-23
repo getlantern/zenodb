@@ -57,3 +57,15 @@ func TestRoundTimeUntilDownZeroTime(t *testing.T) {
 	to := ti
 	assert.Equal(t, to, RoundTimeUntilDown(ti, 13, until))
 }
+
+func TestTimeFromInt(t *testing.T) {
+	t1 := time.Date(2018, 1, 1, 1, 1, 1, 0, time.UTC)
+	t2 := TimeFromInt(t1.UnixNano()).In(time.UTC)
+	assert.Equal(t, t1, t2)
+}
+
+func TestTimeFromMillis(t *testing.T) {
+	t1 := time.Date(2018, 1, 1, 1, 1, 1, 0, time.UTC)
+	t2 := TimeFromMillis(t1.UnixNano() / nanosPerMilli).In(time.UTC)
+	assert.Equal(t, t1, t2)
+}

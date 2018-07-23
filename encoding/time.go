@@ -6,7 +6,8 @@ import (
 )
 
 const (
-	WidthTime = Width64bits
+	WidthTime     = Width64bits
+	nanosPerMilli = 1000000
 )
 
 var (
@@ -29,6 +30,10 @@ func TimeFromInt(ts int64) time.Time {
 	s := ts / int64(time.Second)
 	ns := ts % int64(time.Second)
 	return time.Unix(s, ns)
+}
+
+func TimeFromMillis(millis int64) time.Time {
+	return TimeFromInt(millis * nanosPerMilli)
 }
 
 func RoundTimeUp(ts time.Time, resolution time.Duration) time.Time {
