@@ -174,7 +174,7 @@ func (h *handler) coalesceQueries() {
 				} else {
 					remainingQueries = append(remainingQueries, query)
 				}
-			case <-time.After(15 * time.Second):
+			case <-time.After(h.Opts.QueryCoalesceInterval):
 				break coalesceLoop
 			}
 		}
