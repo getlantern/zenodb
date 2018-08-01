@@ -138,8 +138,8 @@
   name = "github.com/spaolacci/murmur3"
 
 [[constraint]]
+  branch = "master"
   name = "github.com/stretchr/testify"
-  version = "1.1.4"
 
 [[constraint]]
   branch = "master"
