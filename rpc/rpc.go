@@ -69,7 +69,7 @@ type RegisterQueryHandler struct {
 type Client interface {
 	NewInserter(ctx context.Context, stream string, opts ...grpc.CallOption) (Inserter, error)
 
-	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*common.QueryMetaData, func(onRow core.OnFlatRow) error, error)
+	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*common.QueryMetaData, func(onRow core.OnFlatRow) (*common.QueryStats, error), error)
 
 	Follow(ctx context.Context, in *common.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
 

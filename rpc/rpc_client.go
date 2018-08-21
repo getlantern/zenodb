@@ -104,7 +104,7 @@ func (i *inserter) Close() (*InsertReport, error) {
 	return report, nil
 }
 
-func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*common.QueryMetaData, func(onRow core.OnFlatRow) error, error) {
+func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*common.QueryMetaData, func(onRow core.OnFlatRow) (*common.QueryStats, error), error) {
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[0], c.cc, "/zenodb/query", opts...)
 	if err != nil {
 		return nil, nil, err
@@ -122,19 +122,19 @@ func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bo
 		return nil, nil, err
 	}
 
-	iterate := func(onRow core.OnFlatRow) error {
+	iterate := func(onRow core.OnFlatRow) (*common.QueryStats, error) {
 		for {
 			result := &RemoteQueryResult{}
 			rowErr := stream.RecvMsg(result)
 			if rowErr != nil {
-				return rowErr
+				return nil, rowErr
 			}
 			if result.EndOfResults {
-				return nil
+				return result.Stats, nil
 			}
 			more, rowErr := onRow(result.Row)
 			if !more || rowErr != nil {
-				return rowErr
+				return nil, rowErr
 			}
 		}
 	}
