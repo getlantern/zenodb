@@ -28,6 +28,9 @@ const (
 	basePrompt  = "zeno-cli >"
 	emptyPrompt = "            "
 	totalLabel  = "*total*"
+
+	StatusMissingPartitions = 100
+	StatusResultsTooOld     = 101
 )
 
 var (
@@ -83,6 +86,14 @@ func main() {
 		sql := strings.Trim(flag.Arg(0), ";")
 		queryErr := query(os.Stdout, os.Stderr, client, sql, true)
 		if queryErr != nil {
+			if strings.HasPrefix(queryErr.Error(), "missing partitions: ") {
+				log.Error(queryErr)
+				os.Exit(StatusMissingPartitions)
+			}
+			if strings.HasPrefix(queryErr.Error(), "results age of ") {
+				log.Error(queryErr)
+				os.Exit(StatusResultsTooOld)
+			}
 			log.Fatal(queryErr)
 		}
 		return
@@ -152,10 +163,11 @@ func query(stdout io.Writer, stderr io.Writer, client rpc.Client, sql string, cs
 	if err == nil {
 		if !*allowIncomplete && stats.NumSuccessfulPartitions < stats.NumPartitions {
 			err = fmt.Errorf("missing partitions: %v", stats.MissingPartitions)
-		}
-		age := now.Sub(encoding.TimeFromMillis(stats.LowestHighWaterMark))
-		if age > *maxAge {
-			err = fmt.Errorf("results age of %v exceeds allowed age of %v", age, maxAge)
+		} else {
+			age := now.Sub(encoding.TimeFromMillis(stats.LowestHighWaterMark))
+			if age > *maxAge {
+				err = fmt.Errorf("results age of %v exceeds allowed age of %v", age, maxAge)
+			}
 		}
 	}
 	return err
