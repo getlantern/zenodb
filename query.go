@@ -111,6 +111,10 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 		return nil, err
 	}
 
+	if len(q.fields) == 0 {
+		return nil, errors.New("No fields found!")
+	}
+
 	i := 1
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
