@@ -199,7 +199,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 			if recvErr != nil {
 				m.Error = recvErr.Error()
 				finalErr = errors.New("Unable to receive result: %v", recvErr)
-				if first {
+				if first && m.Error == zenodb.ErrOutOfMemory.Error() {
 					finalErr = common.MarkRetriable(finalErr)
 				}
 				break

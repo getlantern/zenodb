@@ -56,6 +56,8 @@ type QueryStats struct {
 // Retriable is a marker for retriable errors
 type Retriable interface {
 	error
+
+	Retriable() bool
 }
 
 type retriable struct {
@@ -64,6 +66,10 @@ type retriable struct {
 
 func (err *retriable) Error() string {
 	return fmt.Sprintf("%v (retriable)", err.wrapped.Error())
+}
+
+func (err *retriable) Retriable() bool {
+	return true
 }
 
 // MarkRetriable marks the given error as retriable
