@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,7 +153,7 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 		resultsForPartition := &_resultsForPartition
 		resultsByPartition[partition] = resultsForPartition
 		go func() {
-			for {
+			for attempt := 0; attempt < 10; attempt++ {
 				elapsed := mtime.Stopwatch()
 				query := db.remoteQueryHandlerForPartition(partition)
 				if query == nil {
@@ -213,7 +214,9 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 				if err != nil {
 					switch err.(type) {
 					case common.Retriable:
-						log.Debugf("Failed on partition %d but error is retriable, continuing: %v", partition, err)
+						wait := time.Duration(math.Pow(1.5, float64(attempt))) * time.Second
+						log.Debugf("Failed on partition %d but error is retriable, continuing after %v: %v", partition, wait, err)
+						time.Sleep(wait)
 						continue
 					default:
 						log.Debugf("Failed on partition %d and error is not retriable, will abort: %v", partition, err)
