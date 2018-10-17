@@ -31,6 +31,8 @@ var indexHTML = []byte(`
   <!-- Bootstrap 3 -->
   <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
 
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/dygraph/2.1.0/dygraph.min.css">
+
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/page.js/1.7.1/page.min.js"></script>
 
   <style type="text/css">
@@ -72,6 +74,16 @@ var indexHTML = []byte(`
     .defaultHide {
       display: none;
     }
+
+    .dygraph-legend {
+	  top: 0 !important;
+	  background-color: transparent;
+    }
+
+    .dygraph-legend .highlight {
+	  font-weight: 900;
+	  background-color: rgba(200, 200, 200, 0.3)
+	}
 
     /* Spinning courtesy of http://chadkuehn.com/animated-font-spinners/ */
     .glyphicon-spin {
@@ -339,7 +351,7 @@ var indexHTML = []byte(`
 
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/ractive/0.8.7/ractive-legacy.js"></script>
 
-  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/dygraph/1.1.1/dygraph-combined.js"></script>
+  <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/dygraph/2.1.0/dygraph.min.js"></script>
 
   <script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.4.0/Chart.min.js"></script>
 
@@ -504,8 +516,16 @@ var indexHTML = []byte(`
         data,
         {
           labels: labels,
+          labelsSeparateLines: true,
+          labelsKMG2: true,
           includeZero: true,
-          legend: 'always',
+          legend: 'follow',
+          highlightCircleSize: 2,
+          highlightSeriesOpts: {
+            strokeWidth: 3,
+            strokeBorderWidth: 1,
+            highlightCircleSize: 5
+          }
         });
     }
 
