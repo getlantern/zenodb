@@ -190,6 +190,7 @@ type Query struct {
 	OrderBy               []core.OrderBy
 	Offset                int
 	Limit                 int
+	ForceFresh            bool
 }
 
 // TableFor returns the table in the FROM clause of this query
@@ -274,6 +275,11 @@ func parse(stmt *sqlparser.Select) (*Query, error) {
 		return nil, err
 	}
 
+	for _, comment := range stmt.Comments {
+		if strings.Contains(string(comment), "force_fresh") {
+			q.ForceFresh = true
+		}
+	}
 	return q, nil
 }
 

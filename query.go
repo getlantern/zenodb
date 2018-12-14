@@ -12,6 +12,7 @@ import (
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/planner"
+	"github.com/getlantern/zenodb/sql"
 )
 
 var (
@@ -19,6 +20,16 @@ var (
 )
 
 func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]interface{}, includeMemStore bool) (core.FlatRowSource, error) {
+	q, err := sql.Parse(sqlString)
+	if err != nil {
+		return nil, err
+	}
+
+	if q.ForceFresh {
+		log.Debug("Query requires fresh results, including mem store")
+		includeMemStore = true
+	}
+
 	opts := &planner.Opts{
 		GetTable: func(table string, outFields func(tableFields core.Fields) (core.Fields, error)) (planner.Table, error) {
 			return db.getQueryable(table, outFields, includeMemStore)

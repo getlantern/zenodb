@@ -45,7 +45,7 @@ func TestSQLPlain(t *testing.T) {
 	lKnownField := core.NewField("l", AVG("l"))
 	pKnownField := core.NewField("ptile", PERCENTILE(FIELD("p"), CONST(99.9), 0, 100, 2))
 	q, err := Parse(`
-SELECT
+SELECT -- force_fresh
 	AVG(a) / (SUM(A) + SUM(b) + SUM(C)) * 2 AS rate,
 	myfield,
 	` + "`knownfield`" + `,
@@ -352,6 +352,7 @@ LIMIT 100, 10
 	assert.Equal(t, "rate > 15 and h < 2 AS _having", q.HavingSQL)
 	assert.Equal(t, 10, q.Limit)
 	assert.Equal(t, 100, q.Offset)
+	assert.True(t, q.ForceFresh)
 }
 
 func TestFromSubQuery(t *testing.T) {
@@ -401,6 +402,8 @@ GROUP BY A, period('10s')
 	if assert.Len(t, q.GroupBy, 1) {
 		assert.Equal(t, core.NewGroupBy("a", goexpr.Param("a")), q.GroupBy[0])
 	}
+
+	assert.False(t, q.ForceFresh)
 }
 
 func TestSQLDefaults(t *testing.T) {
