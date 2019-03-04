@@ -75,15 +75,28 @@ var indexHTML = []byte(`
       display: none;
     }
 
-    .dygraph-legend {
-	  top: 0 !important;
-	  background-color: transparent;
+		.dygraph-legend {
+		  top: 0 !important;
+		  background-color: transparent;
+      font-weight: 100;
+      opacity: 10%;
+      padding: 5px;
     }
 
-    .dygraph-legend .highlight {
-	  font-weight: 900;
-	  background-color: rgba(200, 200, 200, 0.3)
-	}
+		.dygraph-legend b {
+		  font-weight: 100;
+		  opacity: 10%;
+		}
+
+	  .dygraph-legend .highlight {
+		  font-weight: 900;
+	    opacity: 100%;
+		  background-color: white;
+		}
+
+	  .dygraph-legend .highlight b {
+	    font-weight: 900;
+	  }
 
     /* Spinning courtesy of http://chadkuehn.com/animated-font-spinners/ */
     .glyphicon-spin {
@@ -258,6 +271,9 @@ var indexHTML = []byte(`
 			  <button type="button" class="btn btn-default" aria-label="Left Align" style="font-size: 10px" on-click="run" {{#if running}}disabled{{/if}}>
 	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run
 	      </button>
+				<button type="button" class="btn btn-default" aria-label="Left Align" style="font-size: 10px" on-click="run-now" {{#if running}}disabled{{/if}}>
+	        <span class="glyphicon {{#if running}}glyphicon-refresh glyphicon-spin{{else}}glyphicon-play{{/if}}" aria-hidden="true"></span> Run Now!
+	      </button>
 			  {{#if !running}}
 	        {{#if error}}<span class="error">Error: {{ error }}</span>{{elseif result}}<span class="summary">Queried: <b>{{ date }}</b>&nbsp;&nbsp;Partitions: <b>{{ result.Stats.NumSuccessfulPartitions }} / {{ result.Stats.NumPartitions }}</b>{{#if result.Stats.MissingPartitions }}&nbsp;&nbsp;Missing Partitions: <b>{{ result.Stats.MissingPartitions }}{{/if}}&nbsp;&nbsp;Complete To: <b>{{ completeUpTo }}</b></span>{{/if}}
 	      {{/if}}
@@ -374,7 +390,10 @@ var indexHTML = []byte(`
 			"inIframe": false,
     }});
     ractive.on("run", function() {
-      runQuery(false);
+      runQuery(false, false);
+    });
+		ractive.on("run-now", function() {
+      runQuery(false, true);
     });
 
     // Set up ace editor
@@ -408,7 +427,7 @@ var indexHTML = []byte(`
       }
     }, 1000);
 
-		function runQuery(allowCaching, cachedLink) {
+		function runQuery(allowCaching, immediate, cachedLink) {
 			ractive.set("running", true);
       ractive.set("result", null);
 			ractive.set("error", null);
@@ -426,7 +445,11 @@ var indexHTML = []byte(`
 					url = cachedLink;
 				} else {
 					var query = editor.getValue();
-		      url = '/async?' + encodeURIComponent(query);
+					baseURL = '/async';
+					if (immediate) {
+						baseURL = '/immediate';
+					}
+		      url = baseURL + '?' + encodeURIComponent(query);
 					console.log("Running query", query);
 				}
 			}
@@ -440,7 +463,7 @@ var indexHTML = []byte(`
 				if (this.readyState == 4) {
 					if (this.status == 202) {
 						var cachedLink = this.responseText;
-						runQuery(true, cachedLink);
+						runQuery(true, false, cachedLink);
 						return;
 					}
 					if (this.status == 200) {
