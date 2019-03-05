@@ -50,15 +50,20 @@ type ResultRow struct {
 type query struct {
 	sqlString string
 	parsed    *sql.Query
+	immediate bool
 	ce        cacheEntry
 }
 
 func (h *handler) runQuery(resp http.ResponseWriter, req *http.Request) {
-	h.sqlQuery(resp, req, longTimeout)
+	h.sqlQuery(resp, req, longTimeout, false)
 }
 
 func (h *handler) asyncQuery(resp http.ResponseWriter, req *http.Request) {
-	h.sqlQuery(resp, req, shortTimeout)
+	h.sqlQuery(resp, req, shortTimeout, false)
+}
+
+func (h *handler) immediateQuery(resp http.ResponseWriter, req *http.Request) {
+	h.sqlQuery(resp, req, shortTimeout, true)
 }
 
 func (h *handler) cachedQuery(resp http.ResponseWriter, req *http.Request) {
@@ -77,7 +82,7 @@ func (h *handler) cachedQuery(resp http.ResponseWriter, req *http.Request) {
 	h.respondWithCacheEntry(resp, req, ce, err, shortTimeout)
 }
 
-func (h *handler) sqlQuery(resp http.ResponseWriter, req *http.Request, timeout time.Duration) {
+func (h *handler) sqlQuery(resp http.ResponseWriter, req *http.Request, timeout time.Duration, immediate bool) {
 	if !h.authenticate(resp, req) {
 		resp.WriteHeader(http.StatusForbidden)
 		return
@@ -86,7 +91,7 @@ func (h *handler) sqlQuery(resp http.ResponseWriter, req *http.Request, timeout 
 	log.Debug(req.URL)
 	sqlString, _ := url.QueryUnescape(req.URL.RawQuery)
 
-	ce, err := h.query(req, sqlString)
+	ce, err := h.query(req, sqlString, immediate)
 	h.respondWithCacheEntry(resp, req, ce, err, timeout)
 }
 
@@ -131,7 +136,7 @@ func (h *handler) respondError(resp http.ResponseWriter, req *http.Request, ce c
 	resp.Write(ce.error())
 }
 
-func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err error) {
+func (h *handler) query(req *http.Request, sqlString string, immediate bool) (ce cacheEntry, err error) {
 	parsed, parseErr := sql.Parse(sqlString)
 	if parseErr != nil {
 		return nil, parseErr
@@ -155,7 +160,7 @@ func (h *handler) query(req *http.Request, sqlString string) (ce cacheEntry, err
 	}
 
 	// Request query to run in background
-	h.queries <- &query{sqlString, parsed, ce}
+	h.queries <- &query{sqlString, parsed, immediate, ce}
 
 	return
 }
