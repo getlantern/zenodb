@@ -421,9 +421,11 @@ func (db *DB) logMemStats() {
 				return
 			}
 		case <-t.C:
-			mi := mem.mi
-			memstats := mem.memstats
-			log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
+			if mem != nil {
+				mi := mem.mi
+				memstats := mem.memstats
+				log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
+			}
 		}
 	}
 }

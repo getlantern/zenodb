@@ -3,11 +3,15 @@ package zenodb
 import (
 	"fmt"
 	"os"
+	"time"
+
+	"github.com/golang/snappy"
 
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 )
@@ -28,6 +32,21 @@ func (db *DB) FilterAndMerge(table string, whereClause string, shouldSort bool, 
 		return errors.New("Table %v not found", table)
 	}
 	return t.filterAndMerge(whereClause, shouldSort, outFile, inFiles)
+}
+
+// FileInfo returns information about the given data file
+func FileInfo(inFile string) (highWaterMark time.Time, fieldsString string, fields core.Fields, err error) {
+	fs := &fileStore{
+		filename: inFile,
+	}
+	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
+	if err != nil {
+		err = errors.New("Unable to open filestore at %v: %v", fs.filename)
+		return
+	}
+	defer file.Close()
+	r := snappy.NewReader(file)
+	return fs.info(r)
 }
 
 func (t *table) filterAndMerge(whereClause string, shouldSort bool, outFile string, inFiles []string) error {

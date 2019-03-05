@@ -18,11 +18,29 @@ var (
 	outFile    = flag.String("out", "", "Name of file to which to write output")
 	where      = flag.String("where", "", "SQL WHERE clause for filtering rows")
 	shouldSort = flag.Bool("sort", false, "Sort the output")
+	info       = flag.Bool("info", false, "If set, this simply shows information about the input files, no schema required")
 )
 
 func main() {
 	iniflags.SetAllowUnknownFlags(true)
 	iniflags.Parse()
+
+	inFiles := flag.Args()
+	if len(inFiles) == 0 {
+		log.Fatal("Please specify at last one input file")
+	}
+
+	if *info {
+		for _, inFile := range inFiles {
+			highWaterMark, fieldsString, _, err := zenodb.FileInfo(inFile)
+			if err != nil {
+				log.Error(err)
+			} else {
+				log.Debugf("%v   highWaterMark: %v    fields: %v", inFile, highWaterMark, fieldsString)
+			}
+		}
+		return
+	}
 
 	if *table == "" {
 		log.Fatal("Please specify a table using -table")
@@ -46,7 +64,6 @@ func main() {
 		log.Fatalf("Unable to initialize DB: %v", err)
 	}
 
-	inFiles := flag.Args()
 	err = db.FilterAndMerge(*table, *where, *shouldSort, *outFile, inFiles...)
 	if err != nil {
 		log.Fatalf("Unable to perform merge: %v", err)

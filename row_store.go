@@ -14,6 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang/snappy"
+	"github.com/oxtoacart/emsort"
+
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
@@ -22,8 +25,6 @@ import (
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
-	"github.com/golang/snappy"
-	"github.com/oxtoacart/emsort"
 )
 
 const (
@@ -650,37 +651,12 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		log.Debugf("Found filestore at %v", fs.filename)
 		r := snappy.NewReader(file)
 
-		fileVersion := versionFor(fs.filename)
-		// File contains header with field info, use it
-		headerLength := uint32(0)
-		lengthErr := binary.Read(r, encoding.Binary, &headerLength)
-		if lengthErr != nil {
-			return highWaterMark, log.Errorf("Unexpected error reading header length: %v", lengthErr)
-		}
-		fieldsBytes := make([]byte, headerLength)
-		_, err = io.ReadFull(r, fieldsBytes)
+		var fileFields core.Fields
+		highWaterMark, _, fileFields, err = fs.info(r)
 		if err != nil {
-			return highWaterMark, log.Errorf("Unable to read fields: %v", err)
+			return highWaterMark, err
 		}
-		highWaterMark = wal.Offset(fieldsBytes[:wal.OffsetSize]).TS()
 		log.Debugf("Set highWaterMark from data file: %v", highWaterMark)
-		fieldsBytes = fieldsBytes[wal.OffsetSize:]
-		delim := fieldsDelims[fileVersion]
-		fieldStrings := strings.Split(string(fieldsBytes), delim)
-		fileFields := make(core.Fields, 0, len(fieldStrings))
-		for _, fieldString := range fieldStrings {
-			foundField := false
-			for _, field := range fs.fields {
-				if fieldString == field.String() {
-					fileFields = append(fileFields, field)
-					foundField = true
-					break
-				}
-			}
-			if !foundField {
-				fileFields = append(fileFields, core.Field{})
-			}
-		}
 
 		// raw is only okay if the file fields match the out fields
 		rawOkay = rawOkay && fileFields.Equals(outFields)
@@ -804,6 +780,43 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 	}
 
 	return highWaterMark, nil
+}
+
+func (fs *fileStore) info(r io.Reader) (time.Time, string, core.Fields, error) {
+	var highWaterMark time.Time
+	fileVersion := versionFor(fs.filename)
+	// File contains header with field info, use it
+	headerLength := uint32(0)
+	lengthErr := binary.Read(r, encoding.Binary, &headerLength)
+	if lengthErr != nil {
+		return highWaterMark, "", nil, log.Errorf("Unexpected error reading header length: %v", lengthErr)
+	}
+	fieldsBytes := make([]byte, headerLength)
+	_, readErr := io.ReadFull(r, fieldsBytes)
+	if readErr != nil {
+		return highWaterMark, "", nil, log.Errorf("Unable to read fields: %v", readErr)
+	}
+	highWaterMark = wal.Offset(fieldsBytes[:wal.OffsetSize]).TS()
+	fieldsBytes = fieldsBytes[wal.OffsetSize:]
+	delim := fieldsDelims[fileVersion]
+	fieldsString := string(fieldsBytes)
+	fieldStrings := strings.Split(fieldsString, delim)
+	fileFields := make(core.Fields, 0, len(fieldStrings))
+	for _, fieldString := range fieldStrings {
+		foundField := false
+		for _, field := range fs.fields {
+			if fieldString == field.String() {
+				fileFields = append(fileFields, field)
+				foundField = true
+				break
+			}
+		}
+		if !foundField {
+			fileFields = append(fileFields, core.Field{})
+		}
+	}
+
+	return highWaterMark, fieldsString, fileFields, nil
 }
 
 func versionFor(filename string) int {
