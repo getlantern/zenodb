@@ -179,6 +179,9 @@ func (h *handler) coalesceQueries() {
 				} else {
 					remainingQueries = append(remainingQueries, query)
 				}
+				if query.immediate {
+					break coalesceLoop
+				}
 			case <-time.After(15 * time.Second):
 				break coalesceLoop
 			}
