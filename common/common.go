@@ -50,7 +50,7 @@ type QueryStats struct {
 	NumSuccessfulPartitions int
 	LowestHighWaterMark     int64
 	HighestHighWaterMark    int64
-	MissingPartitions       string
+	MissingPartitions       []int
 }
 
 // Retriable is a marker for retriable errors

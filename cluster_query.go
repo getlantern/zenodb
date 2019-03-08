@@ -5,8 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -88,11 +87,12 @@ func (db *DB) queryCluster(ctx context.Context, sqlString string, isSubQuery boo
 	finalStats := func() *common.QueryStats {
 		finalMx.RLock()
 		defer finalMx.RUnlock()
-		mps := make([]string, 0, len(missingPartitions))
+		mps := make([]int, 0, len(missingPartitions))
 		for partition := range missingPartitions {
-			mps = append(mps, strconv.Itoa(partition))
+			mps = append(mps, partition)
 		}
-		stats.MissingPartitions = strings.Join(mps, ",")
+		sort.Ints(mps)
+		stats.MissingPartitions = mps
 		return stats
 	}
 
