@@ -3,6 +3,7 @@ package main
 
 import (
 	"flag"
+	"os"
 	"strings"
 
 	"github.com/getlantern/golog"
@@ -19,6 +20,7 @@ var (
 	where      = flag.String("where", "", "SQL WHERE clause for filtering rows")
 	shouldSort = flag.Bool("sort", false, "Sort the output")
 	info       = flag.Bool("info", false, "If set, this simply shows information about the input files, no schema required")
+	check      = flag.Bool("check", false, "If set, this scans the files and makes sure they're fully readable")
 )
 
 func main() {
@@ -39,6 +41,19 @@ func main() {
 				log.Debugf("%v   highWaterMark: %v    fields: %v", inFile, highWaterMark, fieldsString)
 			}
 		}
+		return
+	}
+
+	if *check {
+		errors := zenodb.Check(inFiles...)
+		if len(errors) > 0 {
+			log.Debug("------------- Files with Error -------------")
+			for filename, err := range errors {
+				log.Debugf("%v     %v", filename, err)
+			}
+			os.Exit(100)
+		}
+		log.Debug("All Files Passed Check")
 		return
 	}
 

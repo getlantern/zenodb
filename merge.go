@@ -2,6 +2,8 @@ package zenodb
 
 import (
 	"fmt"
+	"io"
+	"io/ioutil"
 	"os"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/wal"
+
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
@@ -47,6 +50,34 @@ func FileInfo(inFile string) (highWaterMark time.Time, fieldsString string, fiel
 	defer file.Close()
 	r := snappy.NewReader(file)
 	return fs.info(r)
+}
+
+// Check checks all of the given inFiles for readability and returns errors
+// for all files that are in error.
+func Check(inFiles ...string) map[string]error {
+	errors := make(map[string]error)
+	for _, inFile := range inFiles {
+		fs := &fileStore{
+			filename: inFile,
+		}
+		file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
+		if err != nil {
+			errors[inFile] = fmt.Errorf("Unable to open filestore at %v: %v", fs.filename)
+			continue
+		}
+		defer file.Close()
+		r := snappy.NewReader(file)
+		_, _, _, err = fs.info(r)
+		if err != nil {
+			errors[inFile] = err
+			continue
+		}
+		_, err = io.Copy(ioutil.Discard, r)
+		if err != nil {
+			errors[inFile] = err
+		}
+	}
+	return errors
 }
 
 func (t *table) filterAndMerge(whereClause string, shouldSort bool, outFile string, inFiles []string) error {
