@@ -344,13 +344,17 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	if err != nil {
 		fs.t.log.Errorf("Unable to stat output file to get size: %v", err)
 	}
+
+	if closeErr := out.Close(); closeErr != nil {
+		panic(closeErr)
+	}
+
 	// Note - we left-pad the unix nano value to the widest possible length to
 	// ensure lexicographical sort matches time-based sort (e.g. on directory
 	// listing).
 	newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
-	err = os.Rename(out.Name(), newFileStoreName)
-	if err != nil {
-		panic(err)
+	if renameErr := os.Rename(out.Name(), newFileStoreName); renameErr != nil {
+		panic(renameErr)
 	}
 
 	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}

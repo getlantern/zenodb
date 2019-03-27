@@ -62,7 +62,7 @@ func Check(inFiles ...string) map[string]error {
 		}
 		file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 		if err != nil {
-			errors[inFile] = fmt.Errorf("Unable to open filestore at %v: %v", fs.filename)
+			errors[inFile] = fmt.Errorf("Unable to open filestore at %v: %v", fs.filename, err)
 			continue
 		}
 		defer file.Close()
