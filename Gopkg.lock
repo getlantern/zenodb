@@ -245,11 +245,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:9072181164e616e422cbfbe48ca9ac249a4d76301ca0876c9f56b937cf214a2f"
+  digest = "1:c8531772275e4f3ad417d11b6e54f8adec37f5c23e3f53147a3aea0050a8170b"
   name = "github.com/getlantern/uuid"
   packages = ["."]
   pruneopts = "UT"
-  revision = "1318e7614b82cd38041b0b0bd3692d71f3901fb8"
+  revision = "ffb979a5ca6465a5de5112b0d401c52e05e77435"
 
 [[projects]]
   branch = "master"
