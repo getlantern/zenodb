@@ -1,17 +1,24 @@
 package cmd
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"flag"
+	"io/ioutil"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"time"
 
 	"github.com/getlantern/goexpr/isp"
 	"github.com/getlantern/goexpr/isp/ip2location"
 	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
-	tlsredis "github.com/getlantern/tlsredis"
-	"gopkg.in/redis.v5"
+
 	"strings"
+
+	rclient "github.com/go-redis/redis"
 )
 
 var (
@@ -19,17 +26,16 @@ var (
 )
 
 var (
-	Schema          = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
-	AliasesFile     = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
-	EnableGeo       = flag.Bool("enablegeo", false, "enable geolocation functions")
-	ISPFormat       = flag.String("ispformat", "ip2location", "ip2location or maxmind")
-	ISPDB           = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
-	RedisAddr       = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
-	RedisCA         = flag.String("redisca", "", "Certificate for redislabs's CA")
-	RedisClientPK   = flag.String("redisclientpk", "", "Private key for authenticating client to redis's stunnel")
-	RedisClientCert = flag.String("redisclientcert", "", "Certificate for authenticating client to redis's stunnel")
-	RedisCacheSize  = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HGET operations, defaults to 25,000 per hash")
-	PprofAddr       = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
+	Schema         = flag.String("schema", "schema.yaml", "Location of schema file, defaults to ./schema.yaml")
+	AliasesFile    = flag.String("aliases", "", "Optionally specify the path to a file containing expression aliases in the form alias=template(%v,%v) with one alias per line")
+	EnableGeo      = flag.Bool("enablegeo", false, "enable geolocation functions")
+	ISPFormat      = flag.String("ispformat", "ip2location", "ip2location or maxmind")
+	ISPDB          = flag.String("ispdb", "", "In order to enable ISP functions, point this to a ISP database file, either in IP2Location Lite format or MaxMind GeoIP2 ISP format")
+	redisAddr      = flag.String("redis", "", "Redis address in \"redis[s]://host:port\" format")
+	redisPassword  = flag.String("redispassword", "", "Password for accessing redis")
+	redisCA        = flag.String("redisca", "", "Certificate for the remote redis's CA")
+	RedisCacheSize = flag.Int("rediscachesize", 25000, "Configures the maximum size of redis caches for HGET operations, defaults to 25,000 per hash")
+	PprofAddr      = flag.String("pprofaddr", "localhost:4000", "if specified, will listen for pprof connections at the specified tcp address")
 )
 
 func StartPprof() {
@@ -68,23 +74,38 @@ func ISPProvider() isp.Provider {
 	return ispProvider
 }
 
-func RedisClient() *redis.Client {
-	if *RedisAddr == "" {
-		log.Debug("Redis not configured")
-		return nil
+// RedisClient creates a new redis client.
+func RedisClient() *rclient.Client {
+	var redisErr error
+	opts := &rclient.Options{
+		PoolSize:     10,
+		ReadTimeout:  1 * time.Minute,
+		WriteTimeout: 1 * time.Minute,
+		IdleTimeout:  4 * time.Minute,
+		Password:     *redisPassword,
+		Addr:         *redisAddr,
+		DialTimeout:  30 * time.Second,
 	}
-	log.Debugf("Connecting to Redis at %v", *RedisAddr)
-	redisClient, err := tlsredis.GetClient(&tlsredis.Options{
-		RedisURL:       *RedisAddr,
-		RedisCAFile:    *RedisCA,
-		ClientPKFile:   *RedisClientPK,
-		ClientCertFile: *RedisClientCert,
-	})
-	if err == nil {
-		log.Debugf("Connected to Redis at %v", *RedisAddr)
-		return redisClient
+
+	var cert []byte
+	if _, err := os.Stat(*redisCA); os.IsNotExist(err) {
+		cert = []byte(*redisCA)
 	} else {
-		log.Errorf("Unable to connect to redis: %v", err)
-		return nil
+		cert, err = ioutil.ReadFile(*redisCA)
+		if err != nil {
+			return nil, errors.New("Error reading cert: %v", err)
+		}
 	}
+
+	certPool := x509.NewCertPool()
+	certPool.AppendCertsFromPEM(cert)
+	opts.TLSConfig = &tls.Config{
+		RootCAs: certPool,
+	}
+	client := rclient.NewClient(opts)
+
+	if e := client.Ping().Err(); e != nil {
+		return nil, errors.New("Error pinging redis: %v", e)
+	}
+	return client, nil
 }

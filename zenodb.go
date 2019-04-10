@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cloudfoundry/gosigar"
+	sigar "github.com/cloudfoundry/gosigar"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
@@ -24,10 +24,10 @@ import (
 	"github.com/getlantern/zenodb/metrics"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
+	"github.com/go-redis/redis"
 	"github.com/oxtoacart/bpool"
 	"github.com/rickar/props"
 	"github.com/shirou/gopsutil/process"
-	"gopkg.in/redis.v5"
 )
 
 const (

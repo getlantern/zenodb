@@ -58,7 +58,7 @@
   name = "github.com/getlantern/errors"
 
 [[constraint]]
-  branch = "master"
+  branch = "update-redis-client"
   name = "github.com/getlantern/goexpr"
 
 [[constraint]]
@@ -80,10 +80,6 @@
 [[constraint]]
   branch = "master"
   name = "github.com/getlantern/tlsdefaults"
-
-[[constraint]]
-  branch = "master"
-  name = "github.com/getlantern/tlsredis"
 
 [[constraint]]
   branch = "master"
@@ -148,10 +144,6 @@
 [[constraint]]
   name = "golang.org/x/net"
   source = "https://github.com/golang/net"
-
-[[constraint]]
-  name = "gopkg.in/redis.v5"
-  version = "5.2.9"
 
 [prune]
   go-tests = true
