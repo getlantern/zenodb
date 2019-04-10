@@ -3,7 +3,6 @@ package cmd
 import (
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"flag"
 	"io/ioutil"
 	"net/http"
@@ -76,7 +75,6 @@ func ISPProvider() isp.Provider {
 
 // RedisClient creates a new redis client.
 func RedisClient() *rclient.Client {
-	var redisErr error
 	opts := &rclient.Options{
 		PoolSize:     10,
 		ReadTimeout:  1 * time.Minute,
@@ -88,12 +86,13 @@ func RedisClient() *rclient.Client {
 	}
 
 	var cert []byte
-	if _, err := os.Stat(*redisCA); os.IsNotExist(err) {
+	if _, err := os.Stat(*redisCA); err != nil {
 		cert = []byte(*redisCA)
 	} else {
 		cert, err = ioutil.ReadFile(*redisCA)
 		if err != nil {
-			return nil, errors.New("Error reading cert: %v", err)
+			log.Debugf("Could not read CA file at %v", *redisCA)
+			return nil
 		}
 	}
 
@@ -105,7 +104,8 @@ func RedisClient() *rclient.Client {
 	client := rclient.NewClient(opts)
 
 	if e := client.Ping().Err(); e != nil {
-		return nil, errors.New("Error pinging redis: %v", e)
+		log.Debugf("Could not ping %v", e)
+		return nil
 	}
-	return client, nil
+	return client
 }
