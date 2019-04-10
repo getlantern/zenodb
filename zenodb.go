@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cloudfoundry/gosigar"
+	sigar "github.com/cloudfoundry/gosigar"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
@@ -28,7 +28,7 @@ import (
 	"github.com/rickar/props"
 	"github.com/shirou/gopsutil/process"
 
-	rclient "github.com/go-redis/redis"
+	"github.com/go-redis/redis"
 )
 
 const (
