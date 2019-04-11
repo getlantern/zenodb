@@ -38,18 +38,24 @@ type cacheEntry []byte
 
 func (c *cache) newCacheEntry() cacheEntry {
 	ce := make([]byte, widthPermalink+encoding.WidthTime+1)
-	permalink := uuid.NewRandom()
-	copy(ce[idxPermalink:], permalink)
+	permalink := uuid.New()
+	copy(ce[idxPermalink:], permalink[:])
 	encoding.EncodeTime(ce[idxTime:], time.Now().Add(c.ttl))
 	return ce
 }
 
 func (ce cacheEntry) permalink() string {
-	return uuid.UUID(ce.permalinkBytes()).String()
+	return ce.uuid().String()
 }
 
 func (ce cacheEntry) permalinkBytes() []byte {
 	return ce[idxPermalink : idxPermalink+widthPermalink]
+}
+
+func (ce cacheEntry) uuid() uuid.UUID {
+	var arr [16]byte
+	copy(arr[:], ce.permalinkBytes())
+	return uuid.UUID(arr)
 }
 
 func (ce cacheEntry) expires() time.Time {
@@ -171,10 +177,10 @@ func (c *cache) begin(sql string) (ce cacheEntry, err error) {
 }
 
 func (c *cache) getByPermalink(permalink string) (ce cacheEntry, err error) {
-	key := uuid.Parse(permalink)
+	key := uuid.MustParse(permalink)
 	err = c.db.View(func(tx *bolt.Tx) error {
 		pb := tx.Bucket(permalinkBucket)
-		ce = cacheEntry(pb.Get(key)).copy()
+		ce = cacheEntry(pb.Get(key[:])).copy()
 		return nil
 	})
 	return
