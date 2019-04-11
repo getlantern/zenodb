@@ -17,7 +17,7 @@ import (
 
 	"strings"
 
-	rclient "github.com/go-redis/redis"
+	"github.com/go-redis/redis"
 )
 
 var (
@@ -74,17 +74,7 @@ func ISPProvider() isp.Provider {
 }
 
 // RedisClient creates a new redis client.
-func RedisClient() *rclient.Client {
-	opts := &rclient.Options{
-		PoolSize:     10,
-		ReadTimeout:  1 * time.Minute,
-		WriteTimeout: 1 * time.Minute,
-		IdleTimeout:  4 * time.Minute,
-		Password:     *redisPassword,
-		Addr:         *redisAddr,
-		DialTimeout:  30 * time.Second,
-	}
-
+func RedisClient() *redis.Client {
 	var cert []byte
 	if _, err := os.Stat(*redisCA); err != nil {
 		cert = []byte(*redisCA)
@@ -98,14 +88,17 @@ func RedisClient() *rclient.Client {
 
 	certPool := x509.NewCertPool()
 	certPool.AppendCertsFromPEM(cert)
-	opts.TLSConfig = &tls.Config{
-		RootCAs: certPool,
-	}
-	client := rclient.NewClient(opts)
 
-	if e := client.Ping().Err(); e != nil {
-		log.Debugf("Could not ping %v", e)
-		return nil
-	}
-	return client
+	return redis.NewClient(&redis.Options{
+		PoolSize:     10,
+		ReadTimeout:  1 * time.Minute,
+		WriteTimeout: 1 * time.Minute,
+		IdleTimeout:  4 * time.Minute,
+		Password:     *redisPassword,
+		Addr:         *redisAddr,
+		DialTimeout:  30 * time.Second,
+		TLSConfig: &tls.Config{
+			RootCAs: certPool,
+		},
+	})
 }
