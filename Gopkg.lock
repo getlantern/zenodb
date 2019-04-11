@@ -137,7 +137,7 @@
   revision = "c5f0cd24e7991579ba6f5f1bd20a1ad2c9f06cd4"
 
 [[projects]]
-  branch = "update-redis-client"
+  branch = "master"
   digest = "1:d7911a16466dc4ea8d7097e9cc77c1d8135dd4327207f2915e26a3a90a8aac19"
   name = "github.com/getlantern/goexpr"
   packages = [
@@ -149,7 +149,7 @@
     "redis",
   ]
   pruneopts = "UT"
-  revision = "2e12cb19288db58a1effe0d77985d0b3750da213"
+  revision = "20677f88a18bf93814417b1598cf6b798c0b1056"
 
 [[projects]]
   branch = "master"

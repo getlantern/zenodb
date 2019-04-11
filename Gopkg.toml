@@ -58,7 +58,7 @@
   name = "github.com/getlantern/errors"
 
 [[constraint]]
-  branch = "update-redis-client"
+  branch = "master"
   name = "github.com/getlantern/goexpr"
 
 [[constraint]]
