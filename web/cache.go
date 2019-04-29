@@ -113,22 +113,27 @@ func newCache(cacheDir string, ttl time.Duration) (*cache, error) {
 	if err != nil {
 		return nil, errors.New("Unable to create cacheDir at %v: %v", cacheDir, err)
 	}
+	return newCacheFromFile(filepath.Join(cacheDir, "webcache.db"), ttl, nil)
+}
 
-	db, err := bolt.Open(filepath.Join(cacheDir, "webcache.db"), 0600, nil)
+func newCacheFromFile(cacheFile string, ttl time.Duration, options *bolt.Options) (*cache, error) {
+	db, err := bolt.Open(cacheFile, 0600, options)
 	if err != nil {
 		return nil, errors.New("Unable to open cache database: %v", err)
 	}
 
-	err = db.Update(func(tx *bolt.Tx) error {
-		_, bucketErr := tx.CreateBucketIfNotExists(cacheBucket)
-		if bucketErr != nil {
+	if options == nil || !options.ReadOnly {
+		err = db.Update(func(tx *bolt.Tx) error {
+			_, bucketErr := tx.CreateBucketIfNotExists(cacheBucket)
+			if bucketErr != nil {
+				return bucketErr
+			}
+			_, bucketErr = tx.CreateBucketIfNotExists(permalinkBucket)
 			return bucketErr
+		})
+		if err != nil {
+			return nil, errors.New("Unable to initialize cache database: %v", err)
 		}
-		_, bucketErr = tx.CreateBucketIfNotExists(permalinkBucket)
-		return bucketErr
-	})
-	if err != nil {
-		return nil, errors.New("Unable to initialize cache database: %v", err)
 	}
 
 	return &cache{

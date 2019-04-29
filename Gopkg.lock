@@ -149,7 +149,7 @@
     "redis",
   ]
   pruneopts = "UT"
-  revision = "20677f88a18bf93814417b1598cf6b798c0b1056"
+  revision = "64ec90b5c995f627388affb6ac64181f1fb7dea0"
 
 [[projects]]
   branch = "master"

@@ -44,7 +44,7 @@ func FileInfo(inFile string) (highWaterMark time.Time, fieldsString string, fiel
 	}
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if err != nil {
-		err = errors.New("Unable to open filestore at %v: %v", fs.filename)
+		err = errors.New("Unable to open filestore at %v: %v", fs.filename, err)
 		return
 	}
 	defer file.Close()
@@ -94,7 +94,7 @@ func (t *table) filterAndMerge(whereClause string, shouldSort bool, outFile stri
 	for _, inFile := range inFiles {
 		nextOffset, _, offsetErr := readWALOffset(inFile)
 		if offsetErr != nil {
-			return errors.New("Unable to read WAL offset from %v: %v", offsetErr)
+			return errors.New("Unable to read WAL offset from %v: %v", inFile, offsetErr)
 		}
 		if nextOffset.After(offset) {
 			offset = nextOffset
