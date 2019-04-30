@@ -14,7 +14,9 @@ import (
 
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
+	"github.com/getlantern/errors"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/withtimeout"
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
@@ -103,9 +105,9 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 					var register func()
 					register = func() {
 						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
-							// Re-register when finished
-							defer register()
-							return query(ctx, sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
+							// Re-register immediately
+							go register()
+							result, err := query(common.WithIncludeMemStore(ctx, true), sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
 								copyOfKey := make(bytemap.ByteMap, len(key))
 								copy(copyOfKey, key)
 								copyOfVals := make(core.Vals, 0, len(vals))
@@ -116,6 +118,8 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 								}
 								return onRow(copyOfKey, copyOfVals)
 							}, onFlatRow)
+							log.Debugf("Handled query: %v: %v", result, err)
+							return result, err
 						})
 					}
 
@@ -751,34 +755,45 @@ ORDER BY u DESC
 type expectedResult []expectedRow
 
 func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeMemStore bool) {
-	var rows []*core.FlatRow
-	source, err := db.Query(sqlString, false, nil, includeMemStore)
-	if !assert.NoError(t, err, "Unable to plan SQL query") {
-		return
-	}
+	_, timedOut, err := withtimeout.Do(30*time.Second, func() (interface{}, error) {
+		var rows []*core.FlatRow
+		source, err := db.Query(sqlString, false, nil, includeMemStore)
+		if err != nil {
+			return nil, errors.New("Unable to plan SQL query")
+		}
 
-	var fields core.Fields
-	_, err = source.Iterate(context.Background(), func(inFields core.Fields) error {
-		fields = inFields
-		return nil
-	}, func(row *core.FlatRow) (bool, error) {
-		rows = append(rows, row)
-		return true, nil
+		var fields core.Fields
+		_, err = source.Iterate(context.Background(), func(inFields core.Fields) error {
+			log.Debugf("Got fields: %v", inFields)
+			fields = inFields
+			return nil
+		}, func(row *core.FlatRow) (bool, error) {
+			log.Debugf("Got row: %v", row)
+			rows = append(rows, row)
+			return true, nil
+		})
+		if err != nil {
+			return nil, errors.New("Unable to plan SQL query")
+		}
+
+		if false {
+			spew.Dump(rows)
+		}
+		md := MetaDataFor(source, fields)
+		if !assert.Len(t, rows, len(er), "Wrong number of rows, perhaps HAVING isn't working") {
+			return nil, err
+		}
+		log.Debug("Reading rows")
+		for i, erow := range er {
+			row := rows[i]
+			erow.assert(t, md.FieldNames, row, i+1)
+		}
+
+		return nil, nil
 	})
-	if !assert.NoError(t, err, "Unable to plan SQL query") {
-		return
-	}
 
-	if false {
-		spew.Dump(rows)
-	}
-	md := MetaDataFor(source, fields)
-	if !assert.Len(t, rows, len(er), "Wrong number of rows, perhaps HAVING isn't working") {
-		return
-	}
-	for i, erow := range er {
-		row := rows[i]
-		erow.assert(t, md.FieldNames, row, i+1)
+	if assert.NoError(t, err, "Error running %v", sqlString) {
+		assert.False(t, timedOut, "Timed out running %v", sqlString)
 	}
 }
 
