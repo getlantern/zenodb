@@ -83,6 +83,10 @@
 
 [[constraint]]
   branch = "master"
+  name = "github.com/getlantern/tlsredis"
+
+[[constraint]]
+  branch = "master"
   name = "github.com/getlantern/uuid"
 
 [[constraint]]
@@ -144,6 +148,10 @@
 [[constraint]]
   name = "golang.org/x/net"
   source = "https://github.com/golang/net"
+
+[[constraint]]
+  name = "gopkg.in/redis.v5"
+  version = "5.2.9"
 
 [prune]
   go-tests = true

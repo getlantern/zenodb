@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	sigar "github.com/cloudfoundry/gosigar"
+	"github.com/cloudfoundry/gosigar"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
@@ -27,8 +27,7 @@ import (
 	"github.com/oxtoacart/bpool"
 	"github.com/rickar/props"
 	"github.com/shirou/gopsutil/process"
-
-	"github.com/go-redis/redis"
+	"gopkg.in/redis.v5"
 )
 
 const (

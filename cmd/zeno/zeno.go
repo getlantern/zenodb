@@ -22,7 +22,7 @@ import (
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/rpc"
-	rpcserver "github.com/getlantern/zenodb/rpc/server"
+	"github.com/getlantern/zenodb/rpc/server"
 	"github.com/getlantern/zenodb/web"
 	"github.com/gorilla/mux"
 	"github.com/vharitonsky/iniflags"

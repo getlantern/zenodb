@@ -138,7 +138,7 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:d7911a16466dc4ea8d7097e9cc77c1d8135dd4327207f2915e26a3a90a8aac19"
+  digest = "1:f136c5344ef253110500820f52a03f3b9c107ea8a25784a0873eb9d37eea4f18"
   name = "github.com/getlantern/goexpr"
   packages = [
     ".",
@@ -245,11 +245,19 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:c8531772275e4f3ad417d11b6e54f8adec37f5c23e3f53147a3aea0050a8170b"
+  digest = "1:7f41184af836f9970b21a68bf3c4992903e84e7f59ea1b4e93c899d93116bc43"
+  name = "github.com/getlantern/tlsredis"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "5d4ed6dd3836cd7e1210a52da62ba4c4a923bfd7"
+
+[[projects]]
+  branch = "master"
+  digest = "1:9072181164e616e422cbfbe48ca9ac249a4d76301ca0876c9f56b937cf214a2f"
   name = "github.com/getlantern/uuid"
   packages = ["."]
   pruneopts = "UT"
-  revision = "ffb979a5ca6465a5de5112b0d401c52e05e77435"
+  revision = "1318e7614b82cd38041b0b0bd3692d71f3901fb8"
 
 [[projects]]
   branch = "master"
@@ -293,22 +301,6 @@
   ]
   pruneopts = "UT"
   revision = "a1ec82a652ebc7e784d7df887cfb31061aeabbcc"
-
-[[projects]]
-  digest = "1:33082c63746b464db3d1c2c07a1396d860484d97fe857ef9e8668a9b406db09f"
-  name = "github.com/go-redis/redis"
-  packages = [
-    ".",
-    "internal",
-    "internal/consistenthash",
-    "internal/hashtag",
-    "internal/pool",
-    "internal/proto",
-    "internal/util",
-  ]
-  pruneopts = "UT"
-  revision = "d22fde8721cc915a55aeb6b00944a76a92bfeb6e"
-  version = "v6.15.2"
 
 [[projects]]
   digest = "1:0f56223de1ca49228034f96a18d3659415404c986426290b9761935f02894755"
@@ -628,6 +620,21 @@
   pruneopts = "UT"
   revision = "5d8897144f741c0358f5f194503db84142d0a985"
 
+[[projects]]
+  digest = "1:e5a1379b4f0cad2aabd75580598c3b8e19a027e8eed806e7b76b0ec949df4599"
+  name = "gopkg.in/redis.v5"
+  packages = [
+    ".",
+    "internal",
+    "internal/consistenthash",
+    "internal/hashtag",
+    "internal/pool",
+    "internal/proto",
+  ]
+  pruneopts = "UT"
+  revision = "a16aeec10ff407b1e7be6dd35797ccf5426ef0f0"
+  version = "v5.2.9"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
@@ -652,12 +659,12 @@
     "github.com/getlantern/mtime",
     "github.com/getlantern/sqlparser",
     "github.com/getlantern/tlsdefaults",
+    "github.com/getlantern/tlsredis",
     "github.com/getlantern/uuid",
     "github.com/getlantern/vtime",
     "github.com/getlantern/wal",
     "github.com/getlantern/withtimeout",
     "github.com/getlantern/yaml",
-    "github.com/go-redis/redis",
     "github.com/golang/snappy",
     "github.com/gorilla/mux",
     "github.com/gorilla/securecookie",
@@ -675,6 +682,7 @@
     "golang.org/x/net/context",
     "google.golang.org/grpc",
     "google.golang.org/grpc/metadata",
+    "gopkg.in/redis.v5",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1
