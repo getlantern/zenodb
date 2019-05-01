@@ -264,12 +264,15 @@ func addPointsField(fields core.Fields) core.Fields {
 }
 
 func (t *table) startFollowing(walOffset wal.Offset) {
+	t.db.newStreamSubscriberMx.Lock()
 	newSubscriber := t.db.newStreamSubscriber[t.From]
 	if newSubscriber == nil {
 		newSubscriber = make(chan *tableWithOffset, 100)
+		log.Debugf("Following leader for %v", t.From)
 		go t.db.followLeader(t.From, newSubscriber)
 		t.db.newStreamSubscriber[t.From] = newSubscriber
 	}
+	t.db.newStreamSubscriberMx.Unlock()
 	newSubscriber <- &tableWithOffset{t, walOffset}
 }
 

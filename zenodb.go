@@ -134,25 +134,26 @@ type memoryInfo struct {
 
 // DB is a zenodb database.
 type DB struct {
-	opts                 *DBOpts
-	clock                vtime.Clock
-	tables               map[string]*table
-	orderedTables        []*table
-	walBuffers           *bpool.BytePool
-	streams              map[string]*wal.WAL
-	newStreamSubscriber  map[string]chan *tableWithOffset
-	tablesMutex          sync.RWMutex
-	isSorting            bool
-	nextTableToSort      int
-	memory               uint64
-	logMemStatsCh        chan *memoryInfo
-	flushMutex           sync.Mutex
-	followerJoined       chan *follower
-	processFollowersOnce sync.Once
-	remoteQueryHandlers  map[int]chan planner.QueryClusterFN
-	requestedIterations  chan *iteration
-	coalescedIterations  chan []*iteration
-	closed               bool
+	opts                  *DBOpts
+	clock                 vtime.Clock
+	tables                map[string]*table
+	orderedTables         []*table
+	walBuffers            *bpool.BytePool
+	streams               map[string]*wal.WAL
+	newStreamSubscriber   map[string]chan *tableWithOffset
+	newStreamSubscriberMx sync.Mutex
+	tablesMutex           sync.RWMutex
+	isSorting             bool
+	nextTableToSort       int
+	memory                uint64
+	logMemStatsCh         chan *memoryInfo
+	flushMutex            sync.Mutex
+	followerJoined        chan *follower
+	processFollowersOnce  sync.Once
+	remoteQueryHandlers   map[int]chan planner.QueryClusterFN
+	requestedIterations   chan *iteration
+	coalescedIterations   chan []*iteration
+	closed                bool
 }
 
 // NewDB creates a database using the given options.

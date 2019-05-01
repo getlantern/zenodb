@@ -268,6 +268,14 @@
   revision = "e99945fbd2d236833907d9539e79b7a8ea604b04"
 
 [[projects]]
+  branch = "master"
+  digest = "1:4186d465d105402dc4165c89bd7102188e2e658ee823d73da5415954e697166f"
+  name = "github.com/getlantern/withtimeout"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "511f017cd91361be75ad73fee96e466a5d790312"
+
+[[projects]]
   digest = "1:59a1c32b1a3e64ba7a0aef9c1cca5c67244c35198033904e6169b5fe6056ca62"
   name = "github.com/getlantern/yaml"
   packages = ["."]
@@ -647,6 +655,7 @@
     "github.com/getlantern/uuid",
     "github.com/getlantern/vtime",
     "github.com/getlantern/wal",
+    "github.com/getlantern/withtimeout",
     "github.com/getlantern/yaml",
     "github.com/go-redis/redis",
     "github.com/golang/snappy",
