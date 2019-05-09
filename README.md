@@ -6,6 +6,15 @@ aggregated analytical SQL queries on dimensional data.  It was developed to
 replace [influxdb](https://github.com/influxdata/influxdb/) as a repository for
 client and server metrics at [Lantern](https://www.getlantern.org).
 
+## Dependencies
+This project uses Go modules to manage dependencies. If running a Go version
+prior to 1.13, you can enable Go modules using the environment variable
+`GO111MODULE=on`, like:
+
+```
+GO111MODULE=on go install github.com/getlantern/zenodb/cmd/zeno
+```
+
 ## Current Features
 
  * No limits on the number of dimensions

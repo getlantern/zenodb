@@ -1,13 +1,11 @@
 language: go
 go:
-- 1.10.2
+- 1.12.5
 install:
-- curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 - go get golang.org/x/tools/cmd/cover
 - go get -v github.com/axw/gocov/gocov
 - go get -v github.com/mattn/goveralls
 script:
-- dep ensure
 - ./test.sh
 after_success:
 - GOPATH=`pwd`:$GOPATH $HOME/gopath/bin/goveralls -coverprofile=profile.cov -service=travis-ci
