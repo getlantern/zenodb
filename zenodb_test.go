@@ -23,8 +23,9 @@ import (
 	. "github.com/getlantern/zenodb/expr"
 	"github.com/getlantern/zenodb/planner"
 
-	"github.com/stretchr/testify/assert"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 const (
@@ -39,12 +40,11 @@ func TestRoundTimeUp(t *testing.T) {
 }
 
 func TestSingleDB(t *testing.T) {
-	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool))) {
+	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(), func(string, func(*table, bool))) {
 		db, err := NewDB(&DBOpts{
 			Dir:                     filepath.Join(tmpDir, "leader"),
 			SchemaFile:              tmpFile,
 			VirtualTime:             true,
-			MaxMemoryRatio:          0.00001,
 			ClusterQueryConcurrency: clusterQueryConcurrency,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
@@ -52,6 +52,8 @@ func TestSingleDB(t *testing.T) {
 		}
 		return db, func(t time.Time) {
 				db.clock.Advance(t)
+			}, func() {
+				db.FlushAll()
 			}, func(tableName string, cb func(tbl *table, isFollower bool)) {
 				cb(db.getTable(tableName), false)
 			}
@@ -75,14 +77,13 @@ func TestClusterNoPushdownMultiPartition(t *testing.T) {
 }
 
 func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
-	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool))) {
+	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(), func(string, func(*table, bool))) {
 		leader, err := NewDB(&DBOpts{
-			Dir:            filepath.Join(tmpDir, "leader"),
-			SchemaFile:     tmpFile,
-			VirtualTime:    true,
-			Passthrough:    true,
-			NumPartitions:  numPartitions,
-			MaxMemoryRatio: 0.00001,
+			Dir:           filepath.Join(tmpDir, "leader"),
+			SchemaFile:    tmpFile,
+			VirtualTime:   true,
+			Passthrough:   true,
+			NumPartitions: numPartitions,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -92,12 +93,11 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 		for i := 0; i < numPartitions; i++ {
 			part := i
 			follower, followerErr := NewDB(&DBOpts{
-				Dir:            filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
-				SchemaFile:     tmpFile,
-				VirtualTime:    true,
-				NumPartitions:  numPartitions,
-				Partition:      part,
-				MaxMemoryRatio: 0.00001,
+				Dir:           filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
+				SchemaFile:    tmpFile,
+				VirtualTime:   true,
+				NumPartitions: numPartitions,
+				Partition:     part,
 				Follow: func(f func() *common.Follow, cb func(data []byte, newOffset wal.Offset) error) {
 					leader.Follow(f(), cb)
 				},
@@ -141,6 +141,10 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 				for _, follower := range followers {
 					follower.clock.Advance(t)
 				}
+			}, func() {
+				for _, follower := range followers {
+					follower.FlushAll()
+				}
 			}, func(tableName string, cb func(tbl *table, isFollower bool)) {
 				cb(leader.getTable(tableName), false)
 				for _, follower := range followers {
@@ -150,7 +154,7 @@ func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
 	})
 }
 
-func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(string, func(*table, bool)))) {
+func doTest(t *testing.T, isClustered bool, partitionKeys []string, buildDB func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(), func(string, func(*table, bool)))) {
 	rand.Seed(0)
 	epoch := time.Date(2015, time.January, 1, 2, 3, 4, 5, time.UTC)
 
@@ -196,7 +200,7 @@ Test_a:
 		return
 	}
 
-	db, advanceClock, modifyTable := buildDB(tmpDir, tmpFile.Name())
+	db, advanceClock, flushTables, modifyTable := buildDB(tmpDir, tmpFile.Name())
 
 	// TODO: verify that we can actually select successfully from the view.
 	schemaB := schemaA + `
@@ -404,9 +408,8 @@ view_a:
 		})
 	}
 
-	var wg sync.WaitGroup
-
-	for _, includeMemStore := range []bool{true, false} {
+	runTests := func(includeMemStore bool) {
+		var wg sync.WaitGroup
 		wg.Add(1)
 		go testSimpleQuery(&wg, t, db, includeMemStore, epoch, resolution)
 		wg.Add(1)
@@ -421,9 +424,15 @@ view_a:
 			wg.Add(1)
 			go testAggregateQuery(&wg, t, db, includeMemStore, now, epoch, resolution, asOf, until, scalingFactor)
 		}
+		wg.Wait()
 	}
 
-	wg.Wait()
+	log.Debug("Running tests with mem stores")
+	runTests(true)
+	log.Debug("Flushing tables")
+	flushTables()
+	log.Debug("Running tests with disk only")
+	runTests(false)
 }
 
 func testSimpleQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
