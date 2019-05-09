@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cloudfoundry/gosigar"
+	sigar "github.com/cloudfoundry/gosigar"
 	"github.com/dustin/go-humanize"
 	"github.com/getlantern/goexpr/geo"
 	"github.com/getlantern/goexpr/isp"
@@ -266,6 +266,17 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	return db, err
 }
 
+// FlushAll flushes all tables
+func (db *DB) FlushAll() {
+	db.tablesMutex.Lock()
+	for name, table := range db.tables {
+		log.Debugf("Force flushing table: %v", name)
+		table.forceFlush()
+	}
+	db.tablesMutex.Unlock()
+	log.Debug("Done force flushing tables")
+}
+
 func (db *DB) Close() {
 	log.Debug("Closing")
 	db.tablesMutex.Lock()
@@ -274,12 +285,8 @@ func (db *DB) Close() {
 		stream.Close()
 		delete(db.streams, name)
 	}
-	for name, table := range db.tables {
-		log.Debugf("Force flushing table: %v", name)
-		table.forceFlush()
-	}
-	log.Debug("Done force flushing tables")
 	db.tablesMutex.Unlock()
+	db.FlushAll()
 }
 
 func registerAliases(aliasesFile string) {
