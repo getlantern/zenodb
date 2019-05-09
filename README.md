@@ -67,8 +67,8 @@ You will learn how to use zeno to:
 Install [Go](https://golang.org/doc/install) if you haven't already.
 
 ```bash
-go install github.com/getlantern/zenodb/cmd/zeno
-go install github.com/getlantern/zenodb/zeno-cli
+GO111MODULE=on go install github.com/getlantern/zenodb/cmd/zeno
+GO111MODULE=on go install github.com/getlantern/zenodb/cmd/zeno-cli
 ```
 
 Make a working directory (e.g. '~/zeno-quickstart').  In here, create a
