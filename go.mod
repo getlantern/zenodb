@@ -16,7 +16,7 @@ require (
 	github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 // indirect
 	github.com/getlantern/elevate v0.0.0-20180207094634-c2e2e4901072 // indirect
 	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7
-	github.com/getlantern/goexpr v0.0.0-20190509122731-201a654ec6dc
+	github.com/getlantern/goexpr v0.0.0-20190520033353-9211b4541306
 	github.com/getlantern/golog v0.0.0-20170508214112-cca714f7feb5
 	github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7 // indirect
 	github.com/getlantern/hidden v0.0.0-20190325191715-f02dbb02be55 // indirect
