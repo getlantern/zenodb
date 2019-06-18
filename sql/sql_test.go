@@ -95,6 +95,7 @@ GROUP BY
 	PSUBSTR(dim_p, 1, 5) AS sub,
 	LEN(dim_q) AS qlen,
 	REPLACEALL(dim_r, 'regex', 'replacement') AS replaced,
+	DECODE(dim_q, 1, 'ok', 'default') AS decoded,
 	period('5s'), // period is a special function
 	STRIDE('1d')
 HAVING Rate > 15 AND H < 2
@@ -277,7 +278,7 @@ LIMIT 100, 10
 	}
 	assert.Equal(t, "table_a", q.From)
 	assert.Equal(t, "Table_A", q.FromSQL)
-	if assert.Len(t, q.GroupBy, 18) {
+	if assert.Len(t, q.GroupBy, 19) {
 		idx := 0
 		assert.Equal(t, core.NewGroupBy("any_of_three", goexpr.Any(goexpr.Param("dim_l"), goexpr.P(redis.HGet(goexpr.Constant("hash"), goexpr.Param("dim_m"))), goexpr.Param("dim_n"))).String(), q.GroupBy[idx].String())
 		idx++
@@ -290,6 +291,8 @@ LIMIT 100, 10
 		assert.Equal(t, core.NewGroupBy("city_state", geo.REGION_CITY(goexpr.Param("ip"))), q.GroupBy[idx])
 		idx++
 		assert.Equal(t, core.NewGroupBy("country", geo.COUNTRY_CODE(goexpr.Param("ip"))), q.GroupBy[idx])
+		idx++
+		assert.Equal(t, core.NewGroupBy("decoded", goexpr.Decode(goexpr.Param("dim_q"), goexpr.Constant(1), goexpr.Constant("ok"), goexpr.Constant("default"))).String(), q.GroupBy[idx].String())
 		idx++
 		assert.Equal(t, core.NewGroupBy("dim_a", goexpr.Param("dim_a")), q.GroupBy[idx])
 		idx++
