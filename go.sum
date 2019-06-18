@@ -37,6 +37,10 @@ github.com/getlantern/goexpr v0.0.0-20190509122731-201a654ec6dc h1:sBgO4VEbFb66n
 github.com/getlantern/goexpr v0.0.0-20190509122731-201a654ec6dc/go.mod h1:SHcmnWH2XPx8rAlsy8uh2eEsIIDK+rJ+aD1mQPv5cQo=
 github.com/getlantern/goexpr v0.0.0-20190520033353-9211b4541306 h1:SyvuARD5+oG+YUfz3oTGMkrmEiNxWxrpO0m4LBpd3Wk=
 github.com/getlantern/goexpr v0.0.0-20190520033353-9211b4541306/go.mod h1:SHcmnWH2XPx8rAlsy8uh2eEsIIDK+rJ+aD1mQPv5cQo=
+github.com/getlantern/goexpr v0.0.0-20190618093503-b8b763017261 h1:Edrsyf2kxtybKEKQlcCuUjwv0a/BxfXS9a3YTnSXIZQ=
+github.com/getlantern/goexpr v0.0.0-20190618093503-b8b763017261/go.mod h1:SHcmnWH2XPx8rAlsy8uh2eEsIIDK+rJ+aD1mQPv5cQo=
+github.com/getlantern/goexpr v0.0.0-20190618200516-431684af4c0b h1:LTzq7zLq7iRLsFTtsWqI06oFgAJd17DvJulSIbxXT58=
+github.com/getlantern/goexpr v0.0.0-20190618200516-431684af4c0b/go.mod h1:SHcmnWH2XPx8rAlsy8uh2eEsIIDK+rJ+aD1mQPv5cQo=
 github.com/getlantern/golog v0.0.0-20170508214112-cca714f7feb5 h1:Okd7vkn9CfIgDBj1ST/vtBTCfD/kxIhYD412K+FRKPc=
 github.com/getlantern/golog v0.0.0-20170508214112-cca714f7feb5/go.mod h1:Vwx1Cg64gCdIalad44uvQsKZw6LsVczIKZrUBStEjVw=
 github.com/getlantern/hex v0.0.0-20190417191902-c6586a6fe0b7 h1:micT5vkcr9tOVk1FiH8SWKID8ultN44Z+yzd2y/Vyb0=

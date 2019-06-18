@@ -119,6 +119,7 @@ var varGoExpr = map[string]func(...goexpr.Expr) goexpr.Expr{
 	"CROSSTABT": crosstabExprFor,
 	"ANY":       goexpr.Any,
 	"ARRAY":     goexpr.Array,
+	"DECODE":    goexpr.Decode,
 }
 
 func RegisterUnaryDIMFunction(name string, fn func(goexpr.Expr) goexpr.Expr) error {
