@@ -285,7 +285,7 @@ func (t *table) startWALProcessing(walOffset wal.Offset) error {
 		if dirErr != nil && !os.IsExist(dirErr) {
 			return dirErr
 		}
-		w, walErr = wal.Open(walDir, t.db.opts.WALSyncInterval)
+		w, walErr = wal.Open(&wal.Opts{Dir: walDir, SyncInterval: t.db.opts.WALSyncInterval, MaxMemoryBacklog: t.db.opts.MaxWALMemoryBacklog})
 		if walErr != nil {
 			return walErr
 		}

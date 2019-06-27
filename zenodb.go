@@ -86,6 +86,8 @@ type DBOpts struct {
 	// WALSyncInterval governs how frequently to sync the WAL to disk. 0 means
 	// it syncs after every write (which is not great for performance).
 	WALSyncInterval time.Duration
+	// MaxWALMemoryBacklog sets the maximum number of writes to buffer in memory.
+	MaxWALMemoryBacklog int
 	// MaxWALSize limits how much WAL data to keep (in bytes)
 	MaxWALSize int
 	// WALCompressionSize specifies the size beyond which to compress WAL segments

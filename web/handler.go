@@ -4,13 +4,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"time"
+
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
-	"net/http"
-	"net/url"
-	"time"
 )
 
 var (

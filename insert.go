@@ -37,7 +37,7 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 	encoding.WriteInt32(dimsLen, len(dims))
 	valsLen := make([]byte, encoding.Width32bits)
 	encoding.WriteInt32(valsLen, len(vals))
-	_, err := w.Write(tsd, dimsLen, dims, valsLen, vals)
+	err := w.Write(tsd, dimsLen, dims, valsLen, vals)
 	if err != nil {
 		log.Error(err)
 		if lastErr == nil {
