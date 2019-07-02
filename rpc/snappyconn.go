@@ -1,9 +1,11 @@
 package rpc
 
 import (
-	"github.com/golang/snappy"
 	"net"
+	"sync"
 	"time"
+
+	"github.com/golang/snappy"
 )
 
 func snappyDialer(d func(string, time.Duration) (net.Conn, error)) func(addr string, timeout time.Duration) (net.Conn, error) {
@@ -36,8 +38,9 @@ func snappyWrap(conn net.Conn, err error) (net.Conn, error) {
 
 type snappyConn struct {
 	net.Conn
-	r *snappy.Reader
-	w *snappy.Writer
+	r  *snappy.Reader
+	w  *snappy.Writer
+	mx sync.Mutex
 }
 
 func (sc *snappyConn) Read(p []byte) (int, error) {
@@ -45,10 +48,15 @@ func (sc *snappyConn) Read(p []byte) (int, error) {
 }
 
 func (sc *snappyConn) Write(p []byte) (int, error) {
-	return sc.w.Write(p)
+	sc.mx.Lock()
+	n, err := sc.w.Write(p)
+	sc.mx.Unlock()
+	return n, err
 }
 
 func (sc *snappyConn) Close() error {
+	sc.mx.Lock()
 	sc.w.Close()
+	sc.mx.Unlock()
 	return sc.Conn.Close()
 }

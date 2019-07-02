@@ -5,17 +5,15 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"time"
 
 	"github.com/golang/snappy"
 
-	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/wal"
 
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
-	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 )
 
@@ -38,7 +36,7 @@ func (db *DB) FilterAndMerge(table string, whereClause string, shouldSort bool, 
 }
 
 // FileInfo returns information about the given data file
-func FileInfo(inFile string) (highWaterMark time.Time, fieldsString string, fields core.Fields, err error) {
+func FileInfo(inFile string) (offsetsBySource common.OffsetsBySource, fieldsString string, fields core.Fields, err error) {
 	fs := &fileStore{
 		filename: inFile,
 	}
@@ -81,58 +79,59 @@ func Check(inFiles ...string) map[string]error {
 }
 
 func (t *table) filterAndMerge(whereClause string, shouldSort bool, outFile string, inFiles []string) error {
-	okayToReuseBuffers := false
-	rawOkay := false
+	// TODO: make this work with multi-source offsets
+	// okayToReuseBuffers := false
+	// rawOkay := false
 
-	filter, err := whereFor(whereClause)
-	if err != nil {
-		return err
-	}
+	// filter, err := whereFor(whereClause)
+	// if err != nil {
+	// 	return err
+	// }
 
-	// Find highest offset amongst all infiles
-	var offset wal.Offset
-	for _, inFile := range inFiles {
-		nextOffset, _, offsetErr := readWALOffset(inFile)
-		if offsetErr != nil {
-			return errors.New("Unable to read WAL offset from %v: %v", inFile, offsetErr)
-		}
-		if nextOffset.After(offset) {
-			offset = nextOffset
-		}
-	}
+	// // Find highest offset amongst all infiles
+	// var offset wal.Offset
+	// for _, inFile := range inFiles {
+	// 	nextOffset, _, offsetErr := readWALOffset(inFile)
+	// 	if offsetErr != nil {
+	// 		return errors.New("Unable to read WAL offset from %v: %v", inFile, offsetErr)
+	// 	}
+	// 	if nextOffset.After(offset) {
+	// 		offset = nextOffset
+	// 	}
+	// }
 
-	// Create output file
-	out, err := os.OpenFile(outFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
-	if err != nil {
-		return errors.New("Unable to create outFile at %v: %v", outFile, err)
-	}
-	defer out.Close()
+	// // Create output file
+	// out, err := os.OpenFile(outFile, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
+	// if err != nil {
+	// 	return errors.New("Unable to create outFile at %v: %v", outFile, err)
+	// }
+	// defer out.Close()
 
-	fso := &fileStore{
-		t:      t,
-		fields: t.fields,
-	}
-	cout, err := fso.createOutWriter(out, t.fields, offset, shouldSort)
-	if err != nil {
-		return errors.New("Unable to create out writer for %v: %v", outFile, err)
-	}
-	defer cout.Close()
+	// fso := &fileStore{
+	// 	t:      t,
+	// 	fields: t.fields,
+	// }
+	// cout, err := fso.createOutWriter(out, t.fields, offset, shouldSort)
+	// if err != nil {
+	// 	return errors.New("Unable to create out writer for %v: %v", outFile, err)
+	// }
+	// defer cout.Close()
 
-	truncateBefore := t.truncateBefore()
-	for _, inFile := range inFiles {
-		fs := &fileStore{
-			t:        t,
-			fields:   t.fields,
-			filename: inFile,
-		}
-		_, err = fs.iterate(t.fields, nil, okayToReuseBuffers, rawOkay, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
-			_, writeErr := fs.doWrite(cout, t.fields, filter, truncateBefore, shouldSort, key, columns, raw)
-			return true, writeErr
-		})
-		if err != nil {
-			return errors.New("Error iterating on %v: %v", inFile, err)
-		}
-	}
+	// truncateBefore := t.truncateBefore()
+	// for _, inFile := range inFiles {
+	// 	fs := &fileStore{
+	// 		t:        t,
+	// 		fields:   t.fields,
+	// 		filename: inFile,
+	// 	}
+	// 	_, err = fs.iterate(t.fields, nil, okayToReuseBuffers, rawOkay, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+	// 		_, writeErr := fs.doWrite(cout, t.fields, filter, truncateBefore, shouldSort, key, columns, raw)
+	// 		return true, writeErr
+	// 	})
+	// 	if err != nil {
+	// 		return errors.New("Error iterating on %v: %v", inFile, err)
+	// 	}
+	// }
 
 	return nil
 }

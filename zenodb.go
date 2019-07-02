@@ -36,13 +36,10 @@ const (
 	DefaultIterationCoalesceInterval = 3 * time.Second
 	DefaultIterationConcurrency      = 2
 
-	DefaultClusterQueryConcurrency = 25
-	DefaultClusterQueryTimeout     = 1 * time.Hour
+	DefaultClusterQueryTimeout = 1 * time.Hour
 )
 
 var (
-	log = golog.LoggerFor("zenodb")
-
 	systemRAM float64
 )
 
@@ -108,6 +105,8 @@ type DBOpts struct {
 	// just WAL). Passthrough nodes will also outsource queries to specific
 	// partition handlers. Requires that NumPartitions be specified.
 	Passthrough bool
+	// ID uniquely identifies a leader in the cluster
+	ID int
 	// NumPartitions identifies how many partitions to split data from
 	// passthrough nodes.
 	NumPartitions int
@@ -123,9 +122,36 @@ type DBOpts struct {
 	// leader
 	MaxFollowAge time.Duration
 	// Follow is a function that allows a follower to request following a stream
-	// from a passthrough node.
-	Follow                     func(f func() *common.Follow, cb func(data []byte, newOffset wal.Offset) error)
-	RegisterRemoteQueryHandler func(partition int, query planner.QueryClusterFN)
+	// from one or more sources (passthrough nodes).
+	Follow                     func(f func(sources []int) map[int]*common.Follow, cb func(data []byte, newOffset wal.Offset, source int) error)
+	RegisterRemoteQueryHandler func(db *DB, partition int, query planner.QueryClusterFN)
+
+	// StartTime is the time at which the database was started
+	StartTime time.Time
+}
+
+// BuildLogger builds a logger for the database configured with these DBOpts
+func (opts *DBOpts) BuildLogger() golog.Logger {
+	return golog.LoggerFor(opts.logLabel())
+}
+
+func (opts *DBOpts) logLabel() string {
+	if opts.StartTime.IsZero() {
+		opts.StartTime = time.Now()
+	}
+	return fmt.Sprintf("%v zenodb.%v", opts.StartTime.Format(time.RFC3339), opts.logSuffix())
+}
+
+func (opts *DBOpts) logSuffix() string {
+	if opts.Passthrough {
+		return fmt.Sprintf("leader.%d", opts.ID)
+	} else if opts.NumPartitions == 0 {
+		// standalone
+		return fmt.Sprintf("standalone.%d", opts.ID)
+	} else {
+		// follower
+		return fmt.Sprintf("follower.%d.%d", opts.Partition, opts.ID)
+	}
 }
 
 type memoryInfo struct {
@@ -135,13 +161,14 @@ type memoryInfo struct {
 
 // DB is a zenodb database.
 type DB struct {
+	log                   golog.Logger
 	opts                  *DBOpts
 	clock                 vtime.Clock
 	tables                map[string]*table
 	orderedTables         []*table
 	walBuffers            *bpool.BytePool
 	streams               map[string]*wal.WAL
-	newStreamSubscriber   map[string]chan *tableWithOffset
+	newStreamSubscriber   map[string]chan *tableWithOffsets
 	newStreamSubscriberMx sync.Mutex
 	tablesMutex           sync.RWMutex
 	isSorting             bool
@@ -154,7 +181,9 @@ type DB struct {
 	remoteQueryHandlers   map[int]chan planner.QueryClusterFN
 	requestedIterations   chan *iteration
 	coalescedIterations   chan []*iteration
-	closed                bool
+	tasks                 sync.WaitGroup
+	closeOnce             sync.Once
+	closing               chan interface{}
 }
 
 // NewDB creates a database using the given options.
@@ -167,17 +196,19 @@ func NewDB(opts *DBOpts) (*DB, error) {
 
 	var err error
 	db := &DB{
+		log:                 opts.BuildLogger(),
 		opts:                opts,
 		clock:               vtime.RealClock,
 		tables:              make(map[string]*table),
 		walBuffers:          bpool.NewBytePool(1000, 1024),
 		streams:             make(map[string]*wal.WAL),
-		newStreamSubscriber: make(map[string]chan *tableWithOffset),
+		newStreamSubscriber: make(map[string]chan *tableWithOffsets),
 		logMemStatsCh:       make(chan *memoryInfo),
 		followerJoined:      make(chan *follower, opts.NumPartitions),
 		remoteQueryHandlers: make(map[int]chan planner.QueryClusterFN),
 		requestedIterations: make(chan *iteration, 1000), // TODO, make the iteration backlog tunable
 		coalescedIterations: make(chan []*iteration, opts.IterationConcurrency),
+		closing:             make(chan interface{}),
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
@@ -194,9 +225,6 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.MaxBackupWait <= 0 {
 		opts.MaxBackupWait = defaultMaxBackupWait
 	}
-	if opts.ClusterQueryConcurrency <= 0 {
-		opts.ClusterQueryConcurrency = DefaultClusterQueryConcurrency
-	}
 	if opts.ClusterQueryTimeout <= 0 {
 		opts.ClusterQueryTimeout = DefaultClusterQueryTimeout
 	}
@@ -204,7 +232,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	go db.logMemStats()
 	db.opts.ReadOnly = opts.Dir == ""
 	if db.opts.ReadOnly {
-		log.Debugf("DB is ReadOnly, will not persist data to disk")
+		db.log.Debugf("DB is ReadOnly, will not persist data to disk")
 	} else {
 		// Create db dir
 		err = os.MkdirAll(opts.Dir, 0755)
@@ -214,7 +242,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 
 	if opts.EnableGeo {
-		log.Debug("Enabling geolocation functions")
+		db.log.Debug("Enabling geolocation functions")
 		err = geo.Init(filepath.Join(opts.Dir, "geoip.dat"), opts.IPCacheSize)
 		if err != nil {
 			return nil, fmt.Errorf("Unable to initialize geo: %v", err)
@@ -222,16 +250,16 @@ func NewDB(opts *DBOpts) (*DB, error) {
 	}
 
 	if opts.ISPProvider != nil {
-		log.Debugf("Setting ISP provider to %v", opts.ISPProvider)
+		db.log.Debugf("Setting ISP provider to %v", opts.ISPProvider)
 		isp.SetProvider(opts.ISPProvider, opts.IPCacheSize)
 	}
 
 	if opts.AliasesFile != "" {
-		registerAliases(opts.AliasesFile)
+		db.registerAliases(opts.AliasesFile)
 	}
 
 	if opts.RedisClient != nil && opts.RedisCacheSize > 0 {
-		log.Debug("Enabling redis expressions")
+		db.log.Debug("Enabling redis expressions")
 		geredis.Configure(opts.RedisClient, opts.RedisCacheSize)
 	}
 
@@ -245,15 +273,15 @@ func NewDB(opts *DBOpts) (*DB, error) {
 			return nil, fmt.Errorf("Unable to apply schema: %v", err)
 		}
 	}
-	log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
+	db.log.Debugf("Dir: %v    SchemaFile: %v", opts.Dir, opts.SchemaFile)
 
 	if db.opts.RegisterRemoteQueryHandler != nil {
-		go db.opts.RegisterRemoteQueryHandler(db.opts.Partition, db.queryForRemote)
+		go db.opts.RegisterRemoteQueryHandler(db, db.opts.Partition, db.queryForRemote)
 	}
 
 	if !db.opts.ReadOnly {
 		if db.opts.MaxMemoryRatio > 0 {
-			log.Debugf("Limiting maximum memory to %v", humanize.Bytes(db.maxMemoryBytes()))
+			db.log.Debugf("Limiting maximum memory to %v", humanize.Bytes(db.maxMemoryBytes()))
 		}
 		go db.trackMemStats()
 	}
@@ -272,38 +300,55 @@ func NewDB(opts *DBOpts) (*DB, error) {
 func (db *DB) FlushAll() {
 	db.tablesMutex.Lock()
 	for name, table := range db.tables {
-		log.Debugf("Force flushing table: %v", name)
+		db.log.Debugf("Force flushing table: %v", name)
 		table.forceFlush()
 	}
 	db.tablesMutex.Unlock()
-	log.Debug("Done force flushing tables")
+	db.log.Debug("Done force flushing tables")
 }
 
+// Go starts a goroutine with a task. The task should look for the stop channel to close,
+// at which point it should terminate as quickly as possible. When db.Close() is called,
+// it will close the stop channel and wait for all running tasks to complete.
+func (db *DB) Go(task func(stop <-chan interface{})) {
+	db.tasks.Add(1)
+	go func() {
+		defer db.tasks.Done()
+		task(db.closing)
+	}()
+}
+
+// Close closes the database, waiting for all background tasks to complete.
 func (db *DB) Close() {
-	log.Debug("Closing")
-	db.tablesMutex.Lock()
-	for name, stream := range db.streams {
-		log.Debugf("Closing stream %v", name)
-		stream.Close()
-		delete(db.streams, name)
-	}
-	db.tablesMutex.Unlock()
-	db.FlushAll()
+	db.closeOnce.Do(func() {
+		db.log.Debug("Closing")
+		close(db.closing)
+		db.log.Debug("Waiting to close streams")
+		db.tablesMutex.Lock()
+		for name, stream := range db.streams {
+			db.log.Debugf("Closing stream %v", name)
+			stream.Close()
+			delete(db.streams, name)
+		}
+		db.tablesMutex.Unlock()
+	})
+	db.tasks.Wait()
+	db.log.Debug("Closed")
 }
 
-func registerAliases(aliasesFile string) {
-	log.Debugf("Registering aliases from file at %v", aliasesFile)
+func (db *DB) registerAliases(aliasesFile string) {
+	db.log.Debugf("Registering aliases from file at %v", aliasesFile)
 
 	file, err := os.Open(aliasesFile)
 	if err != nil {
-		log.Errorf("Unable to open aliases file at %v: %v", aliasesFile, err)
+		db.log.Errorf("Unable to open aliases file at %v: %v", aliasesFile, err)
 		return
 	}
 	defer file.Close()
 
 	p, err := props.Read(file)
 	if err != nil {
-		log.Errorf("Unable to read aliases file at %v: %v", aliasesFile, err)
+		db.log.Errorf("Unable to read aliases file at %v: %v", aliasesFile, err)
 		return
 	}
 
@@ -311,7 +356,7 @@ func registerAliases(aliasesFile string) {
 		template := strings.TrimSpace(p.Get(alias))
 		alias = strings.TrimSpace(alias)
 		sql.RegisterAlias(alias, template)
-		log.Debugf("Registered alias %v = %v", alias, template)
+		db.log.Debugf("Registered alias %v = %v", alias, template)
 	}
 }
 
@@ -369,17 +414,23 @@ func (db *DB) now(table string) time.Time {
 	return db.clock.Now()
 }
 
-func (db *DB) capWALAge(wal *wal.WAL) {
+func (db *DB) capWALAge(wal *wal.WAL, stop <-chan interface{}) {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 	for {
-		time.Sleep(1 * time.Minute)
-		db.waitForBackupToFinish()
-		err := wal.TruncateToSize(int64(db.opts.MaxWALSize))
-		if err != nil {
-			log.Errorf("Error truncating WAL: %v", err)
-		}
-		err = wal.CompressBeforeSize(int64(db.opts.WALCompressionSize))
-		if err != nil {
-			log.Errorf("Error compressing WAL: %v", err)
+		select {
+		case <-stop:
+			return
+		default:
+			db.waitForBackupToFinish(stop)
+			err := wal.TruncateToSize(int64(db.opts.MaxWALSize))
+			if err != nil {
+				db.log.Errorf("Error truncating WAL: %v", err)
+			}
+			err = wal.CompressBeforeSize(int64(db.opts.WALCompressionSize))
+			if err != nil {
+				db.log.Errorf("Error compressing WAL: %v", err)
+			}
 		}
 	}
 }
@@ -394,12 +445,12 @@ func (db *DB) trackMemStats() {
 func (db *DB) updateMemStats() {
 	p, err := process.NewProcess(int32(os.Getpid()))
 	if err != nil {
-		log.Errorf("Unable to get process info: %v", err)
+		db.log.Errorf("Unable to get process info: %v", err)
 		return
 	}
 	mi, err := p.MemoryInfo()
 	if err != nil {
-		log.Errorf("Unable to get memory info for process: %v", err)
+		db.log.Errorf("Unable to get memory info for process: %v", err)
 		return
 	}
 	memstats := &runtime.MemStats{}
@@ -434,7 +485,7 @@ func (db *DB) logMemStats() {
 			if mem != nil {
 				mi := mem.mi
 				memstats := mem.memstats
-				log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
+				db.log.Debugf("Memory InUse: %v    Alloc: %v    Sys: %v     RSS: %v", humanize.Bytes(memstats.HeapInuse), humanize.Bytes(memstats.Alloc), humanize.Bytes(memstats.Sys), humanize.Bytes(mi.RSS))
 			}
 		}
 	}
@@ -453,7 +504,7 @@ func (db *DB) capMemorySize(allowFlush bool) bool {
 	allowed := db.maxMemoryBytes()
 	if actual > allowed {
 		// First try to regain memory with GC
-		log.Debugf("Memory usage of %v exceeds allowed %v, forcing GC", humanize.Bytes(actual), humanize.Bytes(allowed))
+		db.log.Debugf("Memory usage of %v exceeds allowed %v, forcing GC", humanize.Bytes(actual), humanize.Bytes(allowed))
 		debug.FreeOSMemory()
 		db.updateMemStats()
 	}
@@ -473,10 +524,10 @@ func (db *DB) capMemorySize(allowFlush bool) bool {
 		if actual > allowed {
 			// Force flushing on the table with the largest memstore
 			sort.Sort(sizes)
-			log.Debugf("Memory usage of %v exceeds allowed %v even after GC, forcing flush on %v", humanize.Bytes(actual), humanize.Bytes(allowed), sizes[0].t.Name)
+			db.log.Debugf("Memory usage of %v exceeds allowed %v even after GC, forcing flush on %v", humanize.Bytes(actual), humanize.Bytes(allowed), sizes[0].t.Name)
 			sizes[0].t.forceFlush()
 			db.updateMemStats()
-			log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
+			db.log.Debugf("Done forcing flush on %v", sizes[0].t.Name)
 		}
 		db.flushMutex.Unlock()
 	}
@@ -501,7 +552,7 @@ func (a byCurrentSize) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a byCurrentSize) Less(i, j int) bool { return a[i].size > a[j].size }
 
 // waitForBackupToFinish waits until there's no .backup_lock file in the dbdir
-func (db *DB) waitForBackupToFinish() {
+func (db *DB) waitForBackupToFinish(stop <-chan interface{}) {
 	lockFile := filepath.Join(db.opts.Dir, ".backup_lock")
 	start := time.Now()
 	for {
@@ -510,18 +561,22 @@ func (db *DB) waitForBackupToFinish() {
 			if os.IsNotExist(err) {
 				return
 			}
-			log.Errorf("Unable to stat %v, continuing: %v", lockFile, err)
+			db.log.Errorf("Unable to stat %v, continuing: %v", lockFile, err)
 			return
 		}
 		if time.Now().Sub(fi.ModTime()) > db.opts.MaxBackupWait {
-			log.Debugf("%v is older than %v, continuing", lockFile, db.opts.MaxBackupWait)
+			db.log.Debugf("%v is older than %v, continuing", lockFile, db.opts.MaxBackupWait)
 			return
 		}
-		log.Debugf("Waiting for backup to finish")
-		time.Sleep(5 * time.Second)
-		if time.Now().Sub(start) > db.opts.MaxBackupWait {
-			log.Debugf("Waited longer than %v for backup to finish, continuing", db.opts.MaxBackupWait)
+		db.log.Debugf("Waiting for backup to finish")
+		select {
+		case <-stop:
 			return
+		case <-time.After(5 * time.Second):
+			if time.Now().Sub(start) > db.opts.MaxBackupWait {
+				db.log.Debugf("Waited longer than %v for backup to finish, continuing", db.opts.MaxBackupWait)
+				return
+			}
 		}
 	}
 }

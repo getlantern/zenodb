@@ -39,11 +39,11 @@ func main() {
 
 	if *info {
 		for _, inFile := range inFiles {
-			highWaterMark, fieldsString, _, err := zenodb.FileInfo(inFile)
+			offsetsBySource, fieldsString, _, err := zenodb.FileInfo(inFile)
 			if err != nil {
 				log.Error(err)
 			} else {
-				log.Debugf("%v   highWaterMark: %v    fields: %v", inFile, highWaterMark, fieldsString)
+				log.Debugf("%v   highWaterMarks: %v    fields: %v", inFile, offsetsBySource.TSString(), fieldsString)
 			}
 		}
 		return

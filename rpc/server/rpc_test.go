@@ -24,11 +24,10 @@ func TestInsert(t *testing.T) {
 	defer l.Close()
 
 	db := &mockDB{}
-	go func() {
-		Serve(db, l, &Opts{
-			Password: "password",
-		})
-	}()
+	start, _ := PrepareServer(db, l, &Opts{
+		Password: "password",
+	})
+	go start()
 	time.Sleep(1 * time.Second)
 
 	client, err := rpc.Dial(l.Addr().String(), &rpc.ClientOpts{
@@ -52,7 +51,7 @@ func TestInsert(t *testing.T) {
 		if i > 1 && i < 7 {
 			dims = nil
 		}
-		err = inserter.Insert(time.Time{}, dims, func(cb func(key string, value interface{})) {
+		err = inserter.Insert(time.Time{}, dims, func(cb func(key string, value float64)) {
 			if i < 7 {
 				cb("val", float64(i))
 			}

@@ -21,28 +21,35 @@ func (db *DB) pollForSchema(filename string) error {
 
 	err = db.ApplySchemaFromFile(filename)
 	if err != nil {
-		log.Error(err)
+		db.log.Error(err)
 		return err
 	}
 
-	go func() {
+	db.Go(func(stop <-chan interface{}) {
+		db.log.Debug("Polling for schema changes")
+
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
 		for {
-			time.Sleep(100 * time.Millisecond)
-			newStat, err := os.Stat(filename)
-			if err != nil {
-				log.Errorf("Unable to stat schema: %v", err)
-				continue
-			}
-			if newStat.ModTime().After(stat.ModTime()) || newStat.Size() != stat.Size() {
-				log.Debug("Schema file changed, applying")
-				applyErr := db.ApplySchemaFromFile(filename)
-				if applyErr != nil {
-					log.Error(applyErr)
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				newStat, err := os.Stat(filename)
+				if err != nil {
+					db.log.Errorf("Unable to stat schema: %v", err)
+				} else if newStat.ModTime().After(stat.ModTime()) || newStat.Size() != stat.Size() {
+					db.log.Debug("Schema file changed, applying")
+					applyErr := db.ApplySchemaFromFile(filename)
+					if applyErr != nil {
+						db.log.Error(applyErr)
+					}
+					stat = newStat
 				}
-				stat = newStat
 			}
 		}
-	}()
+	})
 
 	return nil
 }
@@ -55,8 +62,8 @@ func (db *DB) ApplySchemaFromFile(filename string) error {
 	var schema Schema
 	err = yaml.Unmarshal(b, &schema)
 	if err != nil {
-		log.Errorf("Error applying schema: %v", err)
-		log.Debug(string(b))
+		db.log.Errorf("Error applying schema: %v", err)
+		db.log.Debug(string(b))
 		return err
 	}
 	return db.ApplySchema(schema)
@@ -92,7 +99,7 @@ func (db *DB) ApplySchema(_schema Schema) error {
 	for _, opts := range tables {
 		bd.add(opts)
 	}
-	log.Debugf("Applying tables in order: %v", strings.Join(bd.names, ", "))
+	db.log.Debugf("Applying tables in order: %v", strings.Join(bd.names, ", "))
 	for _, opts := range bd.opts {
 		name := opts.Name
 		t := db.getTable(name)
@@ -101,15 +108,15 @@ func (db *DB) ApplySchema(_schema Schema) error {
 			tableType = "view"
 		}
 		if t == nil {
-			log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
-			log.Debugf("MaxFlushLatency: %v    MinFlushLatency: %v", opts.MaxFlushLatency, opts.MinFlushLatency)
+			db.log.Debugf("Creating %v '%v' as\n%v", tableType, name, opts.SQL)
+			db.log.Debugf("MaxFlushLatency: %v    MinFlushLatency: %v", opts.MaxFlushLatency, opts.MinFlushLatency)
 			err := db.CreateTable(opts)
 			if err != nil {
 				return fmt.Errorf("Error creating table %v: %v", name, err)
 			}
-			log.Debugf("Created %v %v", tableType, name)
+			db.log.Debugf("Created %v %v", tableType, name)
 		} else {
-			log.Debugf("Altering %v '%v' as \n%v", tableType, name, opts.SQL)
+			db.log.Debugf("Altering %v '%v' as \n%v", tableType, name, opts.SQL)
 			err := t.Alter(opts)
 			if err != nil {
 				return err

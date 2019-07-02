@@ -39,7 +39,7 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 	encoding.WriteInt32(valsLen, len(vals))
 	err := w.Write(tsd, dimsLen, dims, valsLen, vals)
 	if err != nil {
-		log.Error(err)
+		db.log.Error(err)
 		if lastErr == nil {
 			lastErr = err
 		}
@@ -50,22 +50,25 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 type walRead struct {
 	data   []byte
 	offset wal.Offset
+	source int
 }
 
 func (t *table) processWALInserts() {
 	in := make(chan *walRead)
-	go t.processInserts(in)
+	t.db.Go(func(stop <-chan interface{}) {
+		t.processInserts(in, stop)
+	})
 
 	for {
 		data, err := t.wal.Read()
 		if err != nil {
 			panic(fmt.Errorf("Unable to read from WAL: %v", err))
 		}
-		in <- &walRead{data, t.wal.Offset()}
+		in <- &walRead{data, t.wal.Offset(), 0}
 	}
 }
 
-func (t *table) processInserts(in chan *walRead) {
+func (t *table) processInserts(in chan *walRead, stop <-chan interface{}) {
 	isFollower := t.db.opts.Follow != nil
 	start := time.Now()
 	inserted := 0
@@ -73,38 +76,44 @@ func (t *table) processInserts(in chan *walRead) {
 	bytesRead := 0
 
 	h := partitionHash()
-	for read := range in {
-		if read.data == nil {
-			// Ignore empty data
-			continue
-		}
-		bytesRead += len(read.data)
-		if t.insert(read.data, isFollower, h, read.offset) {
-			inserted++
-		} else {
-			// Did not insert (probably due to WHERE clause)
-			t.skip(read.offset)
-			skipped++
-		}
-		t.db.walBuffers.Put(read.data)
-		delta := time.Now().Sub(start)
-		if delta > 1*time.Minute {
-			t.log.Debugf("Read %v at %v per second", humanize.Bytes(uint64(bytesRead)), humanize.Bytes(uint64(float64(bytesRead)/delta.Seconds())))
-			t.log.Debugf("Inserted %v points at %v per second", humanize.Comma(int64(inserted)), humanize.Commaf(float64(inserted)/delta.Seconds()))
-			t.log.Debugf("Skipped %v points at %v per second", humanize.Comma(int64(skipped)), humanize.Commaf(float64(skipped)/delta.Seconds()))
-			inserted = 0
-			skipped = 0
-			bytesRead = 0
-			start = time.Now()
+loop:
+	for {
+		select {
+		case <-stop:
+			return
+		case read := <-in:
+			if read.data == nil {
+				// Ignore empty data
+				continue loop
+			}
+			bytesRead += len(read.data)
+			if t.insert(read.data, isFollower, h, read.offset, read.source) {
+				inserted++
+			} else {
+				// Did not insert (probably due to WHERE clause)
+				t.skip(read.offset, read.source)
+				skipped++
+			}
+			t.db.walBuffers.Put(read.data)
+			delta := time.Now().Sub(start)
+			if delta > 1*time.Minute {
+				t.log.Debugf("Read %v at %v per second", humanize.Bytes(uint64(bytesRead)), humanize.Bytes(uint64(float64(bytesRead)/delta.Seconds())))
+				t.log.Debugf("Inserted %v points at %v per second", humanize.Comma(int64(inserted)), humanize.Commaf(float64(inserted)/delta.Seconds()))
+				t.log.Debugf("Skipped %v points at %v per second", humanize.Comma(int64(skipped)), humanize.Commaf(float64(skipped)/delta.Seconds()))
+				inserted = 0
+				skipped = 0
+				bytesRead = 0
+				start = time.Now()
+			}
 		}
 	}
 }
 
-func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.Offset) bool {
+func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.Offset, source int) bool {
 	defer func() {
 		p := recover()
 		if p != nil {
-			log.Errorf("Panic in inserting: %v", p)
+			t.log.Errorf("Panic in inserting: %v", p)
 		}
 	}()
 
@@ -130,15 +139,15 @@ func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.O
 	valsBM := make(bytemap.ByteMap, len(vals))
 	copy(dimsBM, dims)
 	copy(valsBM, vals)
-	return t.doInsert(ts, dimsBM, valsBM, offset)
+	return t.doInsert(ts, dimsBM, valsBM, offset, source)
 }
 
 // Skip informs the table of a new offset so that we can store it
-func (t *table) skip(offset wal.Offset) {
-	t.rowStore.insert(&insert{nil, nil, nil, offset})
+func (t *table) skip(offset wal.Offset, source int) {
+	t.rowStore.insert(&insert{nil, nil, nil, offset, source})
 }
 
-func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset) bool {
+func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap, offset wal.Offset, source int) bool {
 	where := t.getWhere()
 
 	if where != nil {
@@ -178,7 +187,7 @@ func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMa
 
 	tsparams := encoding.NewTSParams(ts, vals)
 	t.db.capMemorySize(true)
-	t.rowStore.insert(&insert{key, tsparams, dims, offset})
+	t.rowStore.insert(&insert{key, tsparams, dims, offset, source})
 	t.statsMutex.Lock()
 	t.stats.InsertedPoints++
 	t.statsMutex.Unlock()

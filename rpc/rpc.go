@@ -52,6 +52,10 @@ type Point struct {
 	Offset wal.Offset
 }
 
+type SourceInfo struct {
+	ID int
+}
+
 type RemoteQueryResult struct {
 	Fields       core.Fields
 	Key          bytemap.ByteMap
@@ -71,7 +75,7 @@ type Client interface {
 
 	Query(ctx context.Context, sqlString string, includeMemStore bool, opts ...grpc.CallOption) (*common.QueryMetaData, func(onRow core.OnFlatRow) (*common.QueryStats, error), error)
 
-	Follow(ctx context.Context, in *common.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error)
+	Follow(ctx context.Context, in *common.Follow, opts ...grpc.CallOption) (int, func() (data []byte, newOffset wal.Offset, err error), error)
 
 	ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, timeout time.Duration, opts ...grpc.CallOption) error
 

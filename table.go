@@ -15,6 +15,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
@@ -88,7 +89,7 @@ type iteration struct {
 	includeMemStore bool
 	onValue         func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)
 	fieldMappings   map[int]int
-	highWaterMarkCh chan time.Time
+	offsetsCh       chan common.OffsetsBySource
 	errCh           chan error
 }
 
@@ -108,12 +109,15 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 		if opts.RetentionPeriod <= 0 {
 			return errors.New("Please specify a positive RetentionPeriod")
 		}
+		if opts.RetentionPeriod < q.Resolution {
+			return errors.New("Please specify a RetentionPeriod greater than the resolution")
+		}
 		if opts.MinFlushLatency <= 0 {
-			log.Debug("MinFlushLatency disabled")
+			db.log.Debug("MinFlushLatency disabled")
 		}
 		if opts.MaxFlushLatency <= 0 {
 			opts.MaxFlushLatency = time.Duration(math.MaxInt64)
-			log.Debug("MaxFlushLatency disabled")
+			db.log.Debug("MaxFlushLatency disabled")
 		}
 	}
 	opts.Name = strings.ToLower(opts.Name)
@@ -123,38 +127,11 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 		Query:     *q,
 		fields:    fields,
 		db:        db,
-		log:       golog.LoggerFor("zenodb." + opts.Name),
+		log:       golog.LoggerFor(fmt.Sprintf("%v.%v", db.opts.logLabel(), opts.Name)),
 	}
 
 	t.log.Debugf("Fields will be: %v", fields)
 	t.applyWhere(q.Where)
-
-	var rsErr error
-	var walOffset wal.Offset
-	if !t.Virtual {
-		t.rowStore, walOffset, rsErr = t.openRowStore(&rowStoreOptions{
-			dir:             filepath.Join(db.opts.Dir, t.Name),
-			minFlushLatency: t.MinFlushLatency,
-			maxFlushLatency: t.MaxFlushLatency,
-		})
-		if rsErr != nil {
-			return rsErr
-		}
-
-		offsetByRetentionPeriod := wal.NewOffsetForTS(t.truncateBefore())
-		if offsetByRetentionPeriod.After(walOffset) {
-			// Don't bother looking further back than table's retention period
-			walOffset = offsetByRetentionPeriod
-		}
-
-		offsetByBackfillDepth := wal.NewOffsetForTS(t.backfillTo())
-		if offsetByBackfillDepth.After(walOffset) {
-			// Don't bother looking further back than table's backfill depth
-			walOffset = offsetByBackfillDepth
-		}
-
-		t.log.Debugf("Starting at WAL offset %v", walOffset)
-	}
 
 	db.tablesMutex.Lock()
 	defer db.tablesMutex.Unlock()
@@ -166,15 +143,36 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 	db.orderedTables = append(db.orderedTables, t)
 
 	if !t.Virtual {
+		var rsErr error
+		var offsetsBySource common.OffsetsBySource
 		if !t.db.opts.Passthrough {
-			go t.logHighWaterMark()
+			t.rowStore, offsetsBySource, rsErr = t.openRowStore(&rowStoreOptions{
+				dir:             filepath.Join(db.opts.Dir, t.Name),
+				minFlushLatency: t.MinFlushLatency,
+				maxFlushLatency: t.MaxFlushLatency,
+			})
+			if rsErr != nil {
+				return rsErr
+			}
+
+			// Don't bother looking further back than table's retention period
+			offsetByRetentionPeriod := wal.NewOffsetForTS(t.truncateBefore())
+			offsetsBySource = offsetsBySource.LimitAge(offsetByRetentionPeriod)
+
+			// Don't bother looking further back than table's backfill depth
+			offsetByBackfillDepth := wal.NewOffsetForTS(t.backfillTo())
+			offsetsBySource = offsetsBySource.LimitAge(offsetByBackfillDepth)
+
+			t.log.Debugf("Starting at WAL offsets %v", offsetsBySource)
+
+			t.db.Go(t.logHighWaterMark)
 		}
 
 		if t.db.opts.Follow != nil {
-			t.startFollowing(walOffset)
+			t.startFollowing(offsetsBySource)
 			return nil
 		}
-		return t.startWALProcessing(walOffset)
+		return t.startWALProcessing(offsetsBySource[0]) // this is a non-clustered server, only use this DB's source
 	}
 
 	return nil
@@ -263,17 +261,19 @@ func addPointsField(fields core.Fields) core.Fields {
 	return newFields
 }
 
-func (t *table) startFollowing(walOffset wal.Offset) {
+func (t *table) startFollowing(offsetsBySource common.OffsetsBySource) {
 	t.db.newStreamSubscriberMx.Lock()
 	newSubscriber := t.db.newStreamSubscriber[t.From]
 	if newSubscriber == nil {
-		newSubscriber = make(chan *tableWithOffset, 100)
-		log.Debugf("Following leader for %v", t.From)
-		go t.db.followLeader(t.From, newSubscriber)
+		newSubscriber = make(chan *tableWithOffsets, 100)
+		t.log.Debugf("Following leaders for %v", t.From)
+		t.db.Go(func(stop <-chan interface{}) {
+			t.db.followLeaders(t.From, newSubscriber, stop)
+		})
 		t.db.newStreamSubscriber[t.From] = newSubscriber
 	}
 	t.db.newStreamSubscriberMx.Unlock()
-	newSubscriber <- &tableWithOffset{t, walOffset}
+	newSubscriber <- &tableWithOffsets{t, offsetsBySource}
 }
 
 func (t *table) startWALProcessing(walOffset wal.Offset) error {
@@ -289,7 +289,9 @@ func (t *table) startWALProcessing(walOffset wal.Offset) error {
 		if walErr != nil {
 			return walErr
 		}
-		go t.db.capWALAge(w)
+		t.db.Go(func(stop <-chan interface{}) {
+			t.db.capWALAge(w, stop)
+		})
 		t.db.streams[t.From] = w
 	}
 
@@ -365,18 +367,27 @@ func (t *table) backfillTo() time.Time {
 	return t.db.clock.Now().Add(-1 * t.Backfill)
 }
 
-func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) (time.Time, error) {
+func (t *table) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) (common.OffsetsBySource, error) {
+	origOnValue := onValue
+	iterCount := 0
+	defer func() {
+		t.log.Debugf("Iterated over %d", iterCount)
+	}()
+	onValue = func(dims bytemap.ByteMap, vals []encoding.Sequence) (more bool, err error) {
+		iterCount++
+		return origOnValue(dims, vals)
+	}
 	it := &iteration{
 		t:               t,
 		ctx:             ctx,
 		outFields:       outFields,
 		includeMemStore: includeMemStore,
 		onValue:         onValue,
-		highWaterMarkCh: make(chan time.Time, 1),
+		offsetsCh:       make(chan common.OffsetsBySource, 1),
 		errCh:           make(chan error, 1),
 	}
 	t.db.requestedIterations <- it
-	return <-it.highWaterMarkCh, <-it.errCh
+	return <-it.offsetsCh, <-it.errCh
 }
 
 // coalesceIterations coalesces multiple parallel iterations for a single table,
@@ -458,7 +469,7 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 		}
 	}
 
-	log.Debugf("Coalescing %d iterations on %v", len(iterations), iterations[0].t.Name)
+	iterations[0].t.log.Debugf("Coalescing %d iterations", len(iterations))
 
 	remainingIterations := make(map[int]*iteration, len(iterations))
 	for i, it := range iterations {
@@ -477,7 +488,7 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 			}
 			itMore, err := it.onValue(dims, itVals)
 			if err != nil {
-				log.Errorf("Error while iterating: %v", err)
+				it.t.log.Errorf("Error while iterating: %v", err)
 				return false, err
 			}
 			if !itMore {
@@ -496,12 +507,12 @@ func (db *DB) doProcessIterations(iterations []*iteration) {
 		newCtx, cancel = context.WithDeadline(newCtx, maxDeadline)
 		defer cancel()
 	}
-	highWaterMark, err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
+	offsetsBySource, err := iterations[0].t.rowStore.iterate(newCtx, allOutFields, includeMemStore, combinedOnValue)
 	if err != nil {
-		log.Errorf("Got error while iterating: %v", err)
+		iterations[0].t.log.Errorf("Got error while iterating: %v", err)
 	}
 	for _, it := range iterations {
-		it.highWaterMarkCh <- highWaterMark
+		it.offsetsCh <- offsetsBySource
 		it.errCh <- err
 	}
 }
@@ -552,14 +563,21 @@ func (t *table) forceFlush() {
 	}
 }
 
-func (t *table) logHighWaterMark() {
+func (t *table) logHighWaterMark(stop <-chan interface{}) {
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(15 * time.Second)
-		t.highWaterMarkMx.RLock()
-		disk := t.highWaterMarkDisk
-		memory := t.highWaterMarkMemory
-		t.highWaterMarkMx.RUnlock()
-		t.log.Debugf("High Water Mark    disk: %v    memory: %v", encoding.TimeFromInt(disk).In(time.UTC), encoding.TimeFromInt(memory).In(time.UTC))
+		select {
+		case <-stop:
+			return
+		case <-ticker.C:
+			t.highWaterMarkMx.RLock()
+			disk := t.highWaterMarkDisk
+			memory := t.highWaterMarkMemory
+			t.highWaterMarkMx.RUnlock()
+			t.log.Debugf("High Water Mark    disk: %v    memory: %v", encoding.TimeFromInt(disk).In(time.UTC), encoding.TimeFromInt(memory).In(time.UTC))
+		}
 	}
 }
 

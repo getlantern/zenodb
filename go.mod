@@ -24,6 +24,7 @@ require (
 	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
 	github.com/getlantern/goexpr v0.0.0-20190618200516-431684af4c0b
 	github.com/getlantern/golog v0.0.0-20170508214112-cca714f7feb5
+	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
 	github.com/getlantern/keyman v0.0.0-20180207174507-f55e7280e93a // indirect
 	github.com/getlantern/msgpack v3.1.4+incompatible
 	github.com/getlantern/mtime v0.0.0-20170117193331-ba114e4a82b0
@@ -33,20 +34,24 @@ require (
 	github.com/getlantern/tlsredis v0.0.0-20180308045249-5d4ed6dd3836
 	github.com/getlantern/uuid v1.2.0
 	github.com/getlantern/vtime v0.0.0-20160810174823-dc1e573cf991
-	github.com/getlantern/wal v0.0.0-20190627140325-b1e11f559e7e
+	github.com/getlantern/waitforserver v1.0.1
+	github.com/getlantern/wal v0.0.0-20190717163743-5ddbeeeef8a2
 	github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913
 	github.com/getlantern/yaml v0.0.0-20140912054538-97d86b60f57e
 	github.com/glendc/gopher-json v0.0.0-20170414221815-dc4743023d0c // indirect
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/go-redis/redis v6.15.2+incompatible // indirect
+	github.com/golang/gddo v0.0.0-20190419222130-af0f2af80721
 	github.com/golang/snappy v0.0.1
 	github.com/gomodule/redigo v2.0.0+incompatible // indirect
 	github.com/gorilla/mux v1.7.1
 	github.com/gorilla/securecookie v1.1.1
 	github.com/hashicorp/golang-lru v0.5.1 // indirect
+	github.com/inconshreveable/log15 v0.0.0-20180818164646-67afb5ed74ec // indirect
 	github.com/jmcvetta/randutil v0.0.0-20150817122601-2bb1b664bcff
 	github.com/kr/pretty v0.1.0 // indirect
 	github.com/kylelemons/godebug v1.1.0
+	github.com/mattn/go-colorable v0.1.2 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/onsi/ginkgo v1.8.0 // indirect
 	github.com/onsi/gomega v1.5.0 // indirect
@@ -60,7 +65,7 @@ require (
 	github.com/rickar/props v0.0.0-20170718221555-0b06aeb2f037
 	github.com/shirou/gopsutil v2.18.12+incompatible
 	github.com/shirou/w32 v0.0.0-20160930032740-bb4de0191aa4 // indirect
-	github.com/siddontang/go v0.0.0-20180604090527-bdc77568d726 // indirect
+	github.com/siddontang/go v0.0.0-20180604090527-bdc77568d726
 	github.com/siddontang/goredis v0.0.0-20180423163523-0b4019cbd7b7 // indirect
 	github.com/siddontang/ledisdb v0.0.0-20190202134119-8ceb77e66a92 // indirect
 	github.com/siddontang/rdb v0.0.0-20150307021120-fc89ed2e418d // indirect
@@ -73,7 +78,7 @@ require (
 	github.com/yuin/gopher-lua v0.0.0-20190514113301-1cd887cd7036 // indirect
 	golang.org/x/crypto v0.0.0-20190605123033-f99c8df09eb5
 	golang.org/x/net v0.0.0-20190603091049-60506f45cf65
-	google.golang.org/appengine v1.6.1 // indirect
+	google.golang.org/appengine v1.6.1
 	google.golang.org/grpc v1.20.1
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 	gopkg.in/getlantern/yaml.v1 v1.0.0-20140912054538-97d86b60f57e // indirect

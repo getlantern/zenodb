@@ -18,6 +18,7 @@ func TestStorage(t *testing.T) {
 
 	tb := &table{
 		log: golog.LoggerFor("storagetest"),
+		db:  &DB{},
 	}
 	cs, _, err := tb.openRowStore(&rowStoreOptions{
 		dir: tmpDir,

@@ -15,13 +15,12 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
-	"github.com/getlantern/wal"
+	"github.com/getlantern/golog"
 	"github.com/getlantern/withtimeout"
-	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 	. "github.com/getlantern/zenodb/expr"
-	"github.com/getlantern/zenodb/planner"
+	"github.com/getlantern/zenodb/testsupport"
 
 	"testing"
 
@@ -30,6 +29,10 @@ import (
 
 const (
 	clusterQueryConcurrency = 100
+)
+
+var (
+	log = golog.LoggerFor("zenodb_test")
 )
 
 func TestRoundTimeUp(t *testing.T) {
@@ -56,100 +59,6 @@ func TestSingleDB(t *testing.T) {
 				db.FlushAll()
 			}, func(tableName string, cb func(tbl *table, isFollower bool)) {
 				cb(db.getTable(tableName), false)
-			}
-	})
-}
-
-func TestClusterPushdownSinglePartition(t *testing.T) {
-	doTestCluster(t, 1, []string{"r", "u"})
-}
-
-func TestClusterPushdownMultiPartition(t *testing.T) {
-	doTestCluster(t, 7, []string{"r", "u"})
-}
-
-func TestClusterNoPushdownSinglePartition(t *testing.T) {
-	doTestCluster(t, 1, nil)
-}
-
-func TestClusterNoPushdownMultiPartition(t *testing.T) {
-	doTestCluster(t, 7, nil)
-}
-
-func doTestCluster(t *testing.T, numPartitions int, partitionBy []string) {
-	doTest(t, true, partitionBy, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(), func(string, func(*table, bool))) {
-		leader, err := NewDB(&DBOpts{
-			Dir:           filepath.Join(tmpDir, "leader"),
-			SchemaFile:    tmpFile,
-			VirtualTime:   true,
-			Passthrough:   true,
-			NumPartitions: numPartitions,
-		})
-		if !assert.NoError(t, err, "Unable to create leader DB") {
-			t.Fatal()
-		}
-
-		followers := make([]*DB, 0, numPartitions)
-		for i := 0; i < numPartitions; i++ {
-			part := i
-			follower, followerErr := NewDB(&DBOpts{
-				Dir:           filepath.Join(tmpDir, fmt.Sprintf("follower%d", i)),
-				SchemaFile:    tmpFile,
-				VirtualTime:   true,
-				NumPartitions: numPartitions,
-				Partition:     part,
-				Follow: func(f func() *common.Follow, cb func(data []byte, newOffset wal.Offset) error) {
-					leader.Follow(f(), cb)
-				},
-				RegisterRemoteQueryHandler: func(partition int, query planner.QueryClusterFN) {
-					var register func()
-					register = func() {
-						leader.RegisterQueryHandler(partition, func(ctx context.Context, sqlString string, isSubQuery bool, subQueryResults [][]interface{}, unflat bool, onFields core.OnFields, onRow core.OnRow, onFlatRow core.OnFlatRow) (interface{}, error) {
-							// Re-register immediately
-							go register()
-							result, err := query(common.WithIncludeMemStore(ctx, true), sqlString, isSubQuery, subQueryResults, unflat, onFields, func(key bytemap.ByteMap, vals core.Vals) (bool, error) {
-								copyOfKey := make(bytemap.ByteMap, len(key))
-								copy(copyOfKey, key)
-								copyOfVals := make(core.Vals, 0, len(vals))
-								for _, val := range vals {
-									copyOfVal := make(encoding.Sequence, len(val))
-									copy(copyOfVal, val)
-									copyOfVals = append(copyOfVals, copyOfVal)
-								}
-								return onRow(copyOfKey, copyOfVals)
-							}, onFlatRow)
-							log.Debugf("Handled query: %v: %v", result, err)
-							return result, err
-						})
-					}
-
-					// Continously handle queries
-					for j := 0; j < clusterQueryConcurrency; j++ {
-						go register()
-					}
-				},
-			})
-			if !assert.NoError(t, followerErr, "Unable to create follower DB") {
-				t.Fatal()
-			}
-
-			followers = append(followers, follower)
-		}
-
-		return leader, func(t time.Time) {
-				leader.clock.Advance(t)
-				for _, follower := range followers {
-					follower.clock.Advance(t)
-				}
-			}, func() {
-				for _, follower := range followers {
-					follower.FlushAll()
-				}
-			}, func(tableName string, cb func(tbl *table, isFollower bool)) {
-				cb(leader.getTable(tableName), false)
-				for _, follower := range followers {
-					cb(follower.getTable(tableName), true)
-				}
 			}
 	})
 }
@@ -207,7 +116,7 @@ Test_a:
 view_a:
   view: true
   maxflushlatency: 1ms
-  retentionperiod: 200ms
+  retentionperiod: 200s
   sql: >
     SELECT *
     FROM teSt_a
@@ -220,7 +129,7 @@ view_a:
 	}
 
 	viewCreated := false
-	for i := 0; i < 50; i++ {
+	for i := 0; i < 500; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if db.getTable("view_a") != nil {
 			viewCreated = true
@@ -445,8 +354,8 @@ GROUP BY _
 ORDER BY _time`
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
-	expectedResult{
-		expectedRow{
+	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
+		testsupport.ExpectedRow{
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
@@ -468,7 +377,7 @@ ORDER BY _time`
 				"newfield_7": 0,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -490,7 +399,7 @@ ORDER BY _time`
 				"newfield_7": 0,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -512,7 +421,7 @@ ORDER BY _time`
 				"newfield_7": 0,
 			},
 		},
-	}.assert(t, db, sqlString, includeMemStore)
+	})
 }
 
 // testHavingQuery makes sure that a HAVING clause works even when the field in
@@ -528,15 +437,15 @@ HAVING biv = 10 AND i = 11
 ORDER BY _time`
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
-	expectedResult{
-		expectedRow{
+	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
+		testsupport.ExpectedRow{
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
 				"a_i": 11,
 			},
 		},
-	}.assert(t, db, sqlString, includeMemStore)
+	})
 }
 
 func testStrideQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
@@ -549,8 +458,8 @@ GROUP BY _, STRIDE(%v)
 ORDER BY _time`, resolution*6)
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
-	expectedResult{
-		expectedRow{
+	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
+		testsupport.ExpectedRow{
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
@@ -563,7 +472,7 @@ ORDER BY _time`, resolution*6)
 				"z":       0,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -576,7 +485,7 @@ ORDER BY _time`, resolution*6)
 				"z":       700,
 			},
 		},
-	}.assert(t, db, sqlString, includeMemStore)
+	})
 }
 
 func testShiftQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
@@ -590,9 +499,9 @@ HAVING i_1s > 0 OR i > 0
 ORDER BY _time`, -2*resolution, 1*resolution)
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
-	expectedResult{
+	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
 		// Excluded by HAVING filter
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
@@ -601,7 +510,7 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 				"i_1s":    0,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -610,7 +519,7 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 				"i_1s":    11,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(2 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -619,7 +528,7 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 				"i_1s":    30142,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -628,7 +537,7 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 				"i_1s":    0,
 			},
 		},
-	}.assert(t, db, sqlString, includeMemStore)
+	})
 }
 
 func testSubQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
@@ -642,8 +551,8 @@ FROM (SELECT *
 	ORDER BY _time)`
 
 	epoch = encoding.RoundTimeUp(epoch, resolution)
-	expectedResult{
-		expectedRow{
+	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
+		testsupport.ExpectedRow{
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
@@ -651,7 +560,7 @@ FROM (SELECT *
 				"i":       11,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -659,7 +568,7 @@ FROM (SELECT *
 				"i":       30142,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			epoch.Add(6 * resolution),
 			map[string]interface{}{},
 			map[string]float64{
@@ -667,7 +576,7 @@ FROM (SELECT *
 				"i":       500,
 			},
 		},
-	}.assert(t, db, sqlString, includeMemStore)
+	})
 }
 
 func testAggregateQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, now time.Time, epoch time.Time, resolution time.Duration, asOf time.Time, until time.Time, scalingFactor int) {
@@ -695,8 +604,8 @@ HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC
 `, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), period)
 
-	expectedResult{
-		expectedRow{
+	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
+		testsupport.ExpectedRow{
 			encoding.RoundTimeDown(until, resolution),
 			map[string]interface{}{
 				"r": "A",
@@ -727,7 +636,7 @@ ORDER BY u DESC
 				"pp_5p":      0,
 			},
 		},
-		expectedRow{
+		testsupport.ExpectedRow{
 			encoding.RoundTimeDown(until, resolution),
 			map[string]interface{}{
 				"r": "A",
@@ -758,12 +667,10 @@ ORDER BY u DESC
 				"pp_5p":      0,
 			},
 		},
-	}.assert(t, db, sqlString, includeMemStore)
+	})
 }
 
-type expectedResult []expectedRow
-
-func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeMemStore bool) {
+func assertExpectedResult(t *testing.T, db *DB, sqlString string, includeMemStore bool, er testsupport.ExpectedResult) {
 	_, timedOut, err := withtimeout.Do(30*time.Second, func() (interface{}, error) {
 		var rows []*core.FlatRow
 		source, err := db.Query(sqlString, false, nil, includeMemStore)
@@ -793,10 +700,7 @@ func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeM
 			return nil, err
 		}
 		log.Debug("Reading rows")
-		for i, erow := range er {
-			row := rows[i]
-			erow.assert(t, md.FieldNames, row, i+1)
-		}
+		er.Assert(t, md, rows)
 
 		return nil, nil
 	})
@@ -804,66 +708,4 @@ func (er expectedResult) assert(t *testing.T, db *DB, sqlString string, includeM
 	if assert.NoError(t, err, "Error running %v", sqlString) {
 		assert.False(t, timedOut, "Timed out running %v", sqlString)
 	}
-}
-
-type expectedRow struct {
-	ts   time.Time
-	dims map[string]interface{}
-	vals map[string]float64
-}
-
-func (erow expectedRow) assert(t *testing.T, fieldNames []string, row *core.FlatRow, idx int) {
-	if !assert.Equal(t, erow.ts.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC), "Row %d - wrong timestamp", idx) {
-		return
-	}
-
-	dims := row.Key.AsMap()
-	if !assert.Len(t, dims, len(erow.dims), "Row %d - wrong number of dimensions in result", idx) {
-		return
-	}
-	for k, v := range erow.dims {
-		if !assert.Equal(t, v, dims[k], "Row %d - mismatch on dimension %v", idx, k) {
-			return
-		}
-	}
-
-	if !assert.Len(t, row.Values, len(erow.vals), "Row %d - wrong number of values in result. %v", idx, erow.fieldDiff(fieldNames)) {
-		return
-	}
-	for i, v := range row.Values {
-		fieldName := fieldNames[i]
-		AssertFloatWithin(t, 0.01, erow.vals[fieldName], v, fmt.Sprintf("Row %d - mismatch on field %v", idx, fieldName))
-	}
-}
-
-func (erow expectedRow) fieldDiff(fieldNames []string) string {
-	diff := ""
-	first := true
-	for expected := range erow.vals {
-		found := false
-		for _, name := range fieldNames {
-			if name == expected {
-				found = true
-				break
-			}
-		}
-		if !found {
-			if !first {
-				diff += "   "
-			}
-			first = false
-			diff += expected + "(m)"
-		}
-	}
-	for _, name := range fieldNames {
-		_, found := erow.vals[name]
-		if !found {
-			if !first {
-				diff += "   "
-			}
-			first = false
-			diff += name + "(e)"
-		}
-	}
-	return diff
 }
