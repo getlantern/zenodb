@@ -17,5 +17,6 @@ func (s *Server) HandleShutdownSignal() {
 		sig := <-c
 		s.log.Debugf("Got signal \"%s\", closing db and exiting...", sig)
 		s.Close()
+		os.Exit(0)
 	}()
 }

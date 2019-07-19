@@ -700,7 +700,7 @@ func assertExpectedResult(t *testing.T, db *DB, sqlString string, includeMemStor
 			return nil, err
 		}
 		log.Debug("Reading rows")
-		er.Assert(t, sqlString, md, rows)
+		er.Assert(t, "Results for "+sqlString, md, rows)
 
 		return nil, nil
 	})

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"net"
 	"os"
 	"strings"
@@ -122,16 +123,13 @@ func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLe
 func doTest(t *testing.T, partitionKeys []string, configureCluster func(tmpDirs func() string, tmpFile string) ([]*Server, [][]*Server)) {
 	gr := grtrack.Start()
 
-	sleepToStart := false
+	sleepBeforeStart := false
 	startServer := func(s *Server) {
-		if sleepToStart {
+		if sleepBeforeStart {
 			// sometimes sleep to test followers joining simultaneously and at separate times
 			time.Sleep(1 * time.Second)
-			sleepToStart = false
-		} else {
-			// sleep next time
-			sleepToStart = true
 		}
+		sleepBeforeStart = !sleepBeforeStart
 		_, err := s.Serve()
 		if err != nil {
 			log.Fatalf("Unable to start serving: %v", err)
@@ -181,9 +179,10 @@ test:
   retentionperiod: 5h%s
   sql: >
     SELECT
-      SUM(val) AS val
+      val,
+      IF(meta = 'include', SUM(val)) AS filtered_val
     FROM inbound
-    GROUP BY period(1h)
+    GROUP BY a, b, period(1h)
 `, flushLatency, partitionClause)
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schema), 0644)
 	if !assert.NoError(t, err, "Unable to write schema") {
@@ -257,11 +256,16 @@ test:
 
 		for i := 0; i < iters; i++ {
 			inserter := inserters[i%len(inserters)]
+			meta := ""
+			if i%2 == 0 {
+				meta = "include"
+			}
 			insertErr := inserter.Insert(
 				now,
 				map[string]interface{}{
-					"a": i,
-					"b": "thing",
+					"a":    i,
+					"b":    "thing",
+					"meta": meta,
 				},
 				func(cb func(key string, value float64)) {
 					cb("val", 1)
@@ -320,7 +324,7 @@ test:
 				if !assert.NoError(t, err) {
 					return false
 				}
-				if !assert.EqualValues(t, []string{"_points", "val"}, md.FieldNames) {
+				if !assert.EqualValues(t, []string{"_points", "val", "filtered_val"}, md.FieldNames) {
 					return false
 				}
 				er := testsupport.ExpectedResult{
@@ -330,8 +334,9 @@ test:
 							"b": "thing",
 						},
 						map[string]float64{
-							"_points": float64(inserted),
-							"val":     float64(inserted),
+							"_points":      float64(inserted),
+							"val":          float64(inserted),
+							"filtered_val": math.Floor(float64(inserted) / 2),
 						},
 					},
 				}
