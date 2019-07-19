@@ -129,7 +129,7 @@ view_a:
 	}
 
 	viewCreated := false
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 50; i++ {
 		time.Sleep(100 * time.Millisecond)
 		if db.getTable("view_a") != nil {
 			viewCreated = true
@@ -700,7 +700,7 @@ func assertExpectedResult(t *testing.T, db *DB, sqlString string, includeMemStor
 			return nil, err
 		}
 		log.Debug("Reading rows")
-		er.Assert(t, md, rows)
+		er.Assert(t, sqlString, md, rows)
 
 		return nil, nil
 	})

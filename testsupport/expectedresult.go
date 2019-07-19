@@ -21,14 +21,14 @@ var (
 
 type ExpectedResult []ExpectedRow
 
-func (er ExpectedResult) Assert(t *testing.T, md *common.QueryMetaData, rows []*core.FlatRow) bool {
-	if !assert.Len(t, rows, len(er)) {
+func (er ExpectedResult) Assert(t *testing.T, label string, md *common.QueryMetaData, rows []*core.FlatRow) bool {
+	if !assert.Len(t, rows, len(er), label+" | Wrong number of rows") {
 		return false
 	}
 	ok := true
 	for i, erow := range er {
 		row := rows[i]
-		if !erow.Assert(t, md.FieldNames, row, i+1) {
+		if !erow.Assert(t, label, md.FieldNames, row, i+1) {
 			ok = false
 		}
 	}
@@ -41,29 +41,29 @@ type ExpectedRow struct {
 	Vals map[string]float64
 }
 
-func (erow ExpectedRow) Assert(t *testing.T, fieldNames []string, row *core.FlatRow, idx int) bool {
-	if !assert.Equal(t, erow.TS.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC), "Row %d - wrong timestamp", idx) {
+func (erow ExpectedRow) Assert(t *testing.T, label string, fieldNames []string, row *core.FlatRow, idx int) bool {
+	if !assert.Equal(t, erow.TS.In(time.UTC), encoding.TimeFromInt(row.TS).In(time.UTC), label+" | Row %d - wrong timestamp", idx) {
 		return false
 	}
 
 	dims := row.Key.AsMap()
-	if !assert.Len(t, dims, len(erow.Dims), "Row %d - wrong number of dimensions in result", idx) {
+	if !assert.Len(t, dims, len(erow.Dims), label+" | Row %d - wrong number of dimensions in result", idx) {
 		return false
 	}
 	for k, v := range erow.Dims {
-		if !assert.Equal(t, v, dims[k], "Row %d - mismatch on dimension %v", idx, k) {
+		if !assert.Equal(t, v, dims[k], label+" | Row %d - mismatch on dimension %v", idx, k) {
 			return false
 		}
 	}
 
-	if !assert.Len(t, row.Values, len(erow.Vals), "Row %d - wrong number of values in result. %v", idx, erow.FieldDiff(fieldNames)) {
+	if !assert.Len(t, row.Values, len(erow.Vals), label+" | Row %d - wrong number of values in result. %v", idx, erow.FieldDiff(fieldNames)) {
 		return false
 	}
 
 	ok := true
 	for i, v := range row.Values {
 		fieldName := fieldNames[i]
-		if !AssertFloatWithin(t, 0.01, erow.Vals[fieldName], v, fmt.Sprintf("Row %d - mismatch on field %v", idx, fieldName)) {
+		if !AssertFloatWithin(t, 0.01, erow.Vals[fieldName], v, fmt.Sprintf(label+" | Row %d - mismatch on field %v", idx, fieldName)) {
 			ok = false
 		}
 	}

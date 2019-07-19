@@ -118,7 +118,7 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 	newlyJoinedStreams := make(map[string]bool)
 	onFollowerJoined := func(f *follower) {
 		metrics.FollowerJoined(f.FollowerID)
-		db.log.Debugf("Follower joined: %v -> %v", f.EarliestOffset, f.FollowerID)
+		db.log.Debugf("Follower %v joined starting at offset %v", f.FollowerID, f.EarliestOffset)
 		followers[f.FollowerID] = f
 
 		partitions := streams[f.Stream]
@@ -160,12 +160,12 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 					table.followersByPartition[f.FollowerID.Partition] = specs
 				}
 				offset := t.Offsets[db.opts.ID]
-				if f.EarliestOffset.After(offset) {
+				if offset.After(f.EarliestOffset) {
 					offset = f.EarliestOffset
 				}
 				spec := &followSpec{followerID: f.FollowerID, offset: offset}
 				specs[f.FollowerID] = spec
-				db.log.Debugf("Following %v: %v -> %v", t.Name, f.EarliestOffset, f.FollowerID)
+				db.log.Debugf("%v following %v starting at %v", f.FollowerID, t.Name, f.EarliestOffset)
 			}
 		}
 

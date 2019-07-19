@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io/ioutil"
-	"math/rand"
 	"net"
 	"os"
 	"strings"
@@ -123,10 +122,15 @@ func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLe
 func doTest(t *testing.T, partitionKeys []string, configureCluster func(tmpDirs func() string, tmpFile string) ([]*Server, [][]*Server)) {
 	gr := grtrack.Start()
 
+	sleepToStart := false
 	startServer := func(s *Server) {
-		if rand.Float64() > 0.5 {
+		if sleepToStart {
 			// sometimes sleep to test followers joining simultaneously and at separate times
 			time.Sleep(1 * time.Second)
+			sleepToStart = false
+		} else {
+			// sleep next time
+			sleepToStart = true
 		}
 		_, err := s.Serve()
 		if err != nil {
@@ -289,143 +293,146 @@ test:
 
 	sql := "SELECT * FROM test GROUP BY b"
 
-	log.Debug("Inserting")
-	insert(100)
+	type test struct {
+		label           string
+		includeMemStore bool
+		prep            func()
+	}
 
-	queryAndCheck := func(includeMemStore bool) bool {
-		time.Sleep(flushLatency / 4)
+	runTest := func(tst test) bool {
+		if tst.prep != nil {
+			log.Debugf("Preparing to check that %v", tst.label)
+			tst.prep()
+		}
+		time.Sleep(flushLatency / 2)
+		log.Debugf("Checking that %v", tst.label)
 		for _, client := range clients {
-			md, rows, err := query(client, sql, includeMemStore)
-			if !assert.NoError(t, err) {
-				return false
+			// query multiple times to make sure we're hitting all the different followers
+			numQueries := 1
+			if len(followersByPartition) > 0 {
+				numQueries = 0
+				for _, followers := range followersByPartition {
+					numQueries += len(followers)
+				}
 			}
-			if !assert.EqualValues(t, []string{"_points", "val"}, md.FieldNames) {
-				return false
-			}
-			er := testsupport.ExpectedResult{
-				testsupport.ExpectedRow{
-					now.Truncate(time.Hour).Add(time.Hour),
-					map[string]interface{}{
-						"b": "thing",
+			for i := 0; i < numQueries; i++ {
+				md, rows, err := query(client, sql, tst.includeMemStore)
+				if !assert.NoError(t, err) {
+					return false
+				}
+				if !assert.EqualValues(t, []string{"_points", "val"}, md.FieldNames) {
+					return false
+				}
+				er := testsupport.ExpectedResult{
+					testsupport.ExpectedRow{
+						now.Truncate(time.Hour).Add(time.Hour),
+						map[string]interface{}{
+							"b": "thing",
+						},
+						map[string]float64{
+							"_points": float64(inserted),
+							"val":     float64(inserted),
+						},
 					},
-					map[string]float64{
-						"_points": float64(inserted),
-						"val":     float64(inserted),
-					},
-				},
-			}
-			if !er.Assert(t, md, rows) {
-				for partition, followersForPartition := range followersByPartition {
-					followerClients, _ := clientsForServers(followersForPartition)
-					for followerIdx, followerClient := range followerClients {
-						_, rows, err := query(followerClient, sql, includeMemStore)
-						if err == nil {
-							for _, row := range rows {
-								t.Logf("Partition: %d   Follower Idx: %d   Points: %f    Val: %f", partition, followerIdx, row.Values[0], row.Values[1])
+				}
+				if !er.Assert(t, fmt.Sprintf("%v (%d)", tst.label, i), md, rows) {
+					for partition, followersForPartition := range followersByPartition {
+						followerClients, _ := clientsForServers(followersForPartition)
+						for followerIdx, followerClient := range followerClients {
+							_, rows, err := query(followerClient, sql, tst.includeMemStore)
+							if err != nil {
+								t.Logf("Partition: %d   Follower Idx: %d   Error: %v", partition, followerIdx, err)
+							} else {
+								t.Logf("Partition: %d   Follower Idx: %d   Num Rows: %d", partition, followerIdx, len(rows))
 							}
 						}
 					}
+					return false
 				}
-				return false
 			}
 		}
 
 		return true
 	}
 
-	log.Debug("Checking that unflushed data is available from memstore")
-	if !queryAndCheck(true) {
-		return
-	}
-
-	log.Debug("Waiting to flush and then checking that flushed data is available")
-	time.Sleep(flushLatency + 1*time.Second)
-	if !queryAndCheck(false) {
-		return
-	}
-
-	log.Debug("kill redundant followers and make sure we still get the right results from the remaining followers")
-	for _, followersForPartition := range followersByPartition {
-		if len(followersForPartition) > 1 {
-			for i := 1; i < len(followersForPartition); i++ {
-				closeServer(followersForPartition[i])
+	runTests := func(tests []test) {
+		for _, tst := range tests {
+			if ok := runTest(tst); !ok {
+				return
 			}
 		}
 	}
-	if !queryAndCheck(false) {
-		return
-	}
 
-	log.Debug("insert some more")
-	insert(100)
-	if !queryAndCheck(true) {
-		return
-	}
+	runTests([]test{
+		test{"unflushed data should be available in memstore", true, func() { insert(100) }},
+		test{"flushed data should be available after waiting long enough to flush", false, func() {
+			time.Sleep(flushLatency + 1*time.Second)
+		}},
+		test{"remaining followers return correct results after killing redundant followers", false, func() {
+			for _, followersForPartition := range followersByPartition {
+				if len(followersForPartition) > 1 {
+					for i := 1; i < len(followersForPartition); i++ {
+						closeServer(followersForPartition[i])
+					}
+				}
+			}
+		}},
+		test{"additional inserted data is reflected in results from memstore", true, func() {
+			insert(100)
+		}},
+		test{"followers reconnect after leaders are restarted", true, func() {
+			for _, leader := range leaders {
+				closeServer(leader)
+			}
+			leaders, _ = rebuildCluster()
+			for _, leader := range leaders {
+				startServer(leader)
+			}
+			clients, err = clientsForServers(leaders)
+			if !assert.NoError(t, err) {
+				return
+			}
+			time.Sleep(flushLatency + 1*time.Second)
+		}},
+		test{"followers reconnect to leaders after restarting", true, func() {
+			for _, followersForPartition := range followersByPartition {
+				for _, follower := range followersForPartition {
+					closeServer(follower)
+				}
+			}
+			_, followersByPartition = rebuildCluster()
+			for _, followersForPartition := range followersByPartition {
+				for _, follower := range followersForPartition {
+					startServer(follower)
+				}
+			}
+			time.Sleep(flushLatency + 1*time.Second)
+		}},
+		test{"redundant followers read the data they missed while offline", true, func() {
+			for _, followersForPartition := range followersByPartition {
+				if len(followersForPartition) > 1 {
+					closeServer(followersForPartition[0])
+				}
+			}
 
-	log.Debug("restart leaders and make sure followers reconnect")
-	for _, leader := range leaders {
-		closeServer(leader)
-	}
-	leaders, _ = rebuildCluster()
-	for _, leader := range leaders {
-		startServer(leader)
-	}
-	clients, err = clientsForServers(leaders)
-	if !assert.NoError(t, err) {
-		return
-	}
-	time.Sleep(flushLatency + 1*time.Second)
-	if !queryAndCheck(true) {
-		return
-	}
+			insert(1)
 
-	log.Debug("restart followers and make sure they connect to existing leaders")
-	for _, followersForPartition := range followersByPartition {
-		for _, follower := range followersForPartition {
-			closeServer(follower)
-		}
-	}
-	_, followersByPartition = rebuildCluster()
-	for _, followersForPartition := range followersByPartition {
-		for _, follower := range followersForPartition {
-			startServer(follower)
-		}
-	}
-	time.Sleep(flushLatency + 1*time.Second)
-	if !queryAndCheck(true) {
-		return
-	}
+			time.Sleep(flushLatency + 1*time.Second)
 
-	log.Debug("kill only the followers that were up while we inserted and make sure that the redundant followers read the data that they missed")
-	for _, followersForPartition := range followersByPartition {
-		if len(followersForPartition) > 1 {
-			closeServer(followersForPartition[0])
-		}
-	}
-	if !queryAndCheck(true) {
-		return
-	}
-
-	log.Debug("insert just one so that only a single leader is affected (tests that we store a superset of offsets in our data files)")
-	insert(1)
-	time.Sleep(flushLatency + 1*time.Second)
-
-	log.Debug("restart followers")
-	for _, followersForPartition := range followersByPartition {
-		for _, follower := range followersForPartition {
-			closeServer(follower)
-		}
-	}
-	_, followersByPartition = rebuildCluster()
-	for _, followersForPartition := range followersByPartition {
-		for _, follower := range followersForPartition {
-			startServer(follower)
-		}
-	}
-	time.Sleep(flushLatency + 1*time.Second)
-	if !queryAndCheck(true) {
-		return
-	}
+			log.Debug("restart followers")
+			for _, followersForPartition := range followersByPartition {
+				for _, follower := range followersForPartition {
+					closeServer(follower)
+				}
+			}
+			_, followersByPartition = rebuildCluster()
+			for _, followersForPartition := range followersByPartition {
+				for _, follower := range followersForPartition {
+					startServer(follower)
+				}
+			}
+		}},
+	})
 
 	log.Debug("Make sure we can shut down whole cluster")
 	for _, followersForPartition := range followersByPartition {

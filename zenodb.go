@@ -105,7 +105,7 @@ type DBOpts struct {
 	// just WAL). Passthrough nodes will also outsource queries to specific
 	// partition handlers. Requires that NumPartitions be specified.
 	Passthrough bool
-	// ID uniquely identifies a leader in the cluster
+	// ID uniquely identifies a leader in the cluster or a follower for a given partition
 	ID int
 	// NumPartitions identifies how many partitions to split data from
 	// passthrough nodes.
@@ -125,9 +125,6 @@ type DBOpts struct {
 	// from one or more sources (passthrough nodes).
 	Follow                     func(f func(sources []int) map[int]*common.Follow, cb func(data []byte, newOffset wal.Offset, source int) error)
 	RegisterRemoteQueryHandler func(db *DB, partition int, query planner.QueryClusterFN)
-
-	// StartTime is the time at which the database was started
-	StartTime time.Time
 }
 
 // BuildLogger builds a logger for the database configured with these DBOpts
@@ -136,10 +133,7 @@ func (opts *DBOpts) BuildLogger() golog.Logger {
 }
 
 func (opts *DBOpts) logLabel() string {
-	if opts.StartTime.IsZero() {
-		opts.StartTime = time.Now()
-	}
-	return fmt.Sprintf("%v zenodb.%v", opts.StartTime.Format(time.RFC3339), opts.logSuffix())
+	return fmt.Sprintf("zenodb.%v", opts.logSuffix())
 }
 
 func (opts *DBOpts) logSuffix() string {
