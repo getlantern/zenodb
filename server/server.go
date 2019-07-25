@@ -37,6 +37,8 @@ const (
 )
 
 var (
+	ErrInvalidID      = serrors.New("id below 0")
+	ErrMissingID      = serrors.New("clustered server missing id")
 	ErrAlreadyRunning = serrors.New("already running")
 )
 
@@ -67,6 +69,7 @@ type Server struct {
 	Feed                      string
 	FeedOverride              string
 	ID                        int
+	AllowZeroID               bool
 	NumPartitions             int
 	Partition                 int
 	ClusterQueryConcurrency   int
@@ -100,6 +103,13 @@ type Server struct {
 
 // Serve runs the zeno server. The returned function allows waiting until the server is finished running and returns the first error encountered while running.
 func (s *Server) Serve() (func() error, error) {
+	if s.ID < 0 {
+		return nil, ErrInvalidID
+	}
+	if s.ID == 0 && s.NumPartitions > 0 && !s.AllowZeroID {
+		return nil, ErrMissingID
+	}
+
 	s.runningMx.Lock()
 	started := false
 	defer func() {

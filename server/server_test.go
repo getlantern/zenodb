@@ -86,6 +86,7 @@ func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLe
 				ID:            id,
 				NumPartitions: numPartitions,
 				Passthrough:   true,
+				AllowZeroID:   i == 0,
 				ListenTimeout: 10 * time.Second,
 			}
 			leaderAddrs = append(leaderAddrs, fmt.Sprintf("%v%v%v", leader.Addr, sourceIDDelim, id)) // use an ID that doesn't start at 0 to make sure we're not treating indexes like magic leader ids
@@ -105,6 +106,7 @@ func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLe
 					HTTPSAddr:                 fmt.Sprintf("127.0.0.1:%d", startingPort+1000+(i+1)*10+(j+1)*100),
 					Insecure:                  true,
 					ID:                        j,
+					AllowZeroID:               j == 0,
 					NumPartitions:             numPartitions,
 					Partition:                 i,
 					Capture:                   leaderAddrsString,
