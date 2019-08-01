@@ -6,11 +6,12 @@ import (
 	"time"
 
 	"github.com/getlantern/wal"
+	"github.com/getlantern/zenodb/common"
 )
 
 var (
 	leaderStats    *LeaderStats
-	followerStats  map[int]*FollowerStats
+	followerStats  map[common.FollowerID]*FollowerStats
 	partitionStats map[int]*PartitionStats
 
 	mx sync.RWMutex
@@ -22,7 +23,7 @@ func init() {
 
 func reset() {
 	leaderStats = &LeaderStats{}
-	followerStats = make(map[int]*FollowerStats, 0)
+	followerStats = make(map[common.FollowerID]*FollowerStats, 0)
 	partitionStats = make(map[int]*PartitionStats, 0)
 }
 
@@ -43,8 +44,7 @@ type LeaderStats struct {
 
 // FollowerStats provides stats for a single follower
 type FollowerStats struct {
-	followerId int
-	Partition  int
+	FollowerID common.FollowerID
 	Queued     int
 	Failed     bool
 }
@@ -60,10 +60,7 @@ type sortedFollowerStats []*FollowerStats
 func (s sortedFollowerStats) Len() int      { return len(s) }
 func (s sortedFollowerStats) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
 func (s sortedFollowerStats) Less(i, j int) bool {
-	if s[i].Partition < s[j].Partition {
-		return true
-	}
-	return s[i].followerId < s[j].followerId
+	return s[i].FollowerID.Partition < s[j].FollowerID.Partition || s[i].FollowerID.ID < s[j].FollowerID.ID
 }
 
 type sortedPartitionStats []*PartitionStats
@@ -90,22 +87,21 @@ func CurrentlyReadingWAL(offset wal.Offset) {
 }
 
 // FollowerJoined records the fact that a follower joined the leader
-func FollowerJoined(followerID int, partition int) {
+func FollowerJoined(followerID common.FollowerID) {
 	mx.Lock()
 	defer mx.Unlock()
-	fs := getFollowerStats(followerID)
-	fs.Partition = partition
-	ps := partitionStats[partition]
+	getFollowerStats(followerID) // get follower stats to lazily initialize
+	ps := partitionStats[followerID.Partition]
 	if ps == nil {
-		ps = &PartitionStats{Partition: partition}
-		partitionStats[partition] = ps
+		ps = &PartitionStats{Partition: followerID.Partition}
+		partitionStats[followerID.Partition] = ps
 		leaderStats.ConnectedPartitions++
 	}
 	ps.NumFollowers++
 }
 
 // FollowerFailed records the fact that a follower failed (which is analogous to leaving)
-func FollowerFailed(followerID int) {
+func FollowerFailed(followerID common.FollowerID) {
 	mx.Lock()
 	defer mx.Unlock()
 	// Only mark failed once
@@ -113,15 +109,15 @@ func FollowerFailed(followerID int) {
 	if found && !fs.Failed {
 		leaderStats.ConnectedFollowers--
 		fs.Failed = true
-		partitionStats[fs.Partition].NumFollowers--
-		if partitionStats[fs.Partition].NumFollowers == 0 {
+		partitionStats[fs.FollowerID.Partition].NumFollowers--
+		if partitionStats[fs.FollowerID.Partition].NumFollowers == 0 {
 			leaderStats.ConnectedPartitions--
 		}
 	}
 }
 
 // QueuedForFollower records how many measurements are queued for a given Follower
-func QueuedForFollower(followerID int, queued int) {
+func QueuedForFollower(followerID common.FollowerID, queued int) {
 	mx.Lock()
 	defer mx.Unlock()
 	fs, found := followerStats[followerID]
@@ -130,12 +126,12 @@ func QueuedForFollower(followerID int, queued int) {
 	}
 }
 
-func getFollowerStats(followerID int) *FollowerStats {
+func getFollowerStats(followerID common.FollowerID) *FollowerStats {
 	fs, found := followerStats[followerID]
 	if !found {
 		leaderStats.ConnectedFollowers++
 		fs = &FollowerStats{
-			followerId: followerID,
+			FollowerID: followerID,
 			Queued:     0,
 		}
 		followerStats[followerID] = fs

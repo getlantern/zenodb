@@ -166,6 +166,8 @@ func (h *handler) query(req *http.Request, sqlString string, immediate bool) (ce
 }
 
 func (h *handler) coalesceQueries() {
+	defer close(h.coalescedQueries)
+
 	for q := range h.queries {
 		coalescedQueries := append([]*query(nil), q)
 		var remainingQueries []*query

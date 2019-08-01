@@ -29,6 +29,11 @@ func (tsp TSParams) TimeInt() int64 {
 	return TimeIntFromBytes(tsp)
 }
 
+func (tsp TSParams) String() string {
+	ts, params := tsp.TimeAndParams()
+	return fmt.Sprintf("%v: %v", ts, params)
+}
+
 // bytemapParams is an implementation of the expr.Params interface backed by a
 // ByteMap.
 type bytemapParams bytemap.ByteMap

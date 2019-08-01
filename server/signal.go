@@ -1,4 +1,4 @@
-package zenodb
+package server
 
 import (
 	"os"
@@ -6,7 +6,7 @@ import (
 	"syscall"
 )
 
-func (db *DB) HandleShutdownSignal() {
+func (s *Server) HandleShutdownSignal() {
 	c := make(chan os.Signal, 1)
 	signal.Notify(c,
 		syscall.SIGHUP,
@@ -14,9 +14,9 @@ func (db *DB) HandleShutdownSignal() {
 		syscall.SIGTERM,
 		syscall.SIGQUIT)
 	go func() {
-		s := <-c
-		log.Debugf("Got signal \"%s\", closing db and exiting...", s)
-		db.Close()
+		sig := <-c
+		s.log.Debugf("Got signal \"%s\", closing db and exiting...", sig)
+		s.Close()
 		os.Exit(0)
 	}()
 }

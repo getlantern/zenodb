@@ -23,6 +23,7 @@ import (
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/wal"
 	"github.com/getlantern/zenodb/bytetree"
+	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/encoding"
 )
@@ -30,7 +31,8 @@ import (
 const (
 	// File format versions
 	FileVersion_4      = 4
-	CurrentFileVersion = FileVersion_4
+	FileVersion_5      = 5
+	CurrentFileVersion = FileVersion_5
 
 	offsetFilename = "offset"
 )
@@ -38,6 +40,7 @@ const (
 var (
 	fieldsDelims = map[int]string{
 		FileVersion_4: "|",
+		FileVersion_5: "|",
 	}
 )
 
@@ -52,39 +55,45 @@ type insert struct {
 	vals     encoding.TSParams
 	metadata bytemap.ByteMap
 	offset   wal.Offset
+	source   int
 }
 
 type rowStore struct {
-	t                   *table
-	fields              core.Fields
-	fieldUpdates        chan core.Fields
-	opts                *rowStoreOptions
-	memStore            *memstore
-	fileStore           *fileStore
-	inserts             chan *insert
-	forceFlushes        chan bool
-	forceFlushCompletes chan bool
-	flushCount          int
-	mx                  sync.RWMutex
+	t                    *table
+	fields               core.Fields
+	fieldUpdates         chan core.Fields
+	opts                 *rowStoreOptions
+	memStore             *memstore
+	fileStore            *fileStore
+	inserts              chan *insert
+	forceFlushes         chan bool
+	forceFlushCompletes  chan bool
+	flushCount           int
+	iterationsInProgress map[string]int
+	mx                   sync.RWMutex
 }
 
 type memstore struct {
-	fields        core.Fields
-	tree          *bytetree.Tree
-	offset        wal.Offset
-	offsetChanged bool
+	fields          core.Fields
+	tree            *bytetree.Tree
+	offsetsBySource common.OffsetsBySource
+	offsetChanged   bool
 }
 
 func (ms *memstore) copy() *memstore {
+	copyOfOffsets := make(common.OffsetsBySource)
+	for source, offset := range ms.offsetsBySource {
+		copyOfOffsets[source] = offset
+	}
 	return &memstore{
-		fields:        ms.fields,
-		tree:          ms.tree.Copy(),
-		offset:        ms.offset,
-		offsetChanged: ms.offsetChanged,
+		fields:          ms.fields,
+		tree:            ms.tree.Copy(),
+		offsetsBySource: copyOfOffsets,
+		offsetChanged:   ms.offsetChanged,
 	}
 }
 
-func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, error) {
+func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, common.OffsetsBySource, error) {
 	err := os.MkdirAll(opts.dir, 0755)
 	if err != nil && !os.IsExist(err) {
 		return nil, nil, fmt.Errorf("Unable to create folder for row store: %v", err)
@@ -95,8 +104,11 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 	if err != nil {
 		return nil, nil, fmt.Errorf("Unable to read contents of directory: %v", err)
 	}
-	var walOffset wal.Offset
+	offsetsBySource := make(common.OffsetsBySource)
 	if len(files) > 0 {
+		for _, file := range files {
+			t.log.Debug(file.Name())
+		}
 		// files are sorted by name, in our case timestamp, so the last file in the
 		// list is the most recent. That's the one that we want.
 		for i := len(files) - 1; i >= 0; i-- {
@@ -107,26 +119,30 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 				o, err := ioutil.ReadFile(existingFileName)
 				if err != nil {
 					t.log.Errorf("Unable to read offset: %v", err)
-				} else if len(o) != wal.OffsetSize {
-					t.log.Errorf("Invalid offset found in offset file")
+				} else if len(o) < wal.OffsetSize {
+					t.log.Errorf("Offset file contents of wrong length: %v %d", existingFileName, len(o))
 				} else {
-					walOffset = wal.Offset(o)
+					fileVersion := FileVersion_4
+					if len(o) > wal.OffsetSize {
+						// Before Version 5, we only stored a single offset. Since we have more than that,
+						// assume that this is at least Version 5.
+						fileVersion = FileVersion_5
+					}
+					offsetsBySource, _ = t.readOffsets(fileVersion, o)
+					t.log.Debugf("Read highWaterMarks from offset file: %v", offsetsBySource.TSString())
 				}
 				// clear existingFileName so we don't use it for filestore
 				existingFileName = ""
 				continue
 			}
 
-			// Version is currently unused, just read it to advance through file
-			versionFor(existingFileName)
-
 			// Get WAL offset
-			newWALOffset, opened, err := readWALOffset(existingFileName)
+			newOffsetsBySource, opened, err := t.readWALOffsets(existingFileName)
 			if err != nil {
 				if !opened {
 					return nil, nil, err
 				} else {
-					log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
+					t.log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
 					rmErr := os.Remove(existingFileName)
 					if rmErr != nil {
 						return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
@@ -135,9 +151,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 				}
 			}
 
-			if newWALOffset.After(walOffset) {
-				walOffset = newWALOffset
-			}
+			offsetsBySource = newOffsetsBySource.Advance(offsetsBySource)
 			t.log.Debugf("Initializing row store from %v", existingFileName)
 			break
 		}
@@ -145,13 +159,14 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 
 	fields := t.getFields()
 	rs := &rowStore{
-		opts:                opts,
-		t:                   t,
-		fields:              fields,
-		fieldUpdates:        make(chan core.Fields),
-		inserts:             make(chan *insert),
-		forceFlushes:        make(chan bool),
-		forceFlushCompletes: make(chan bool),
+		opts:                 opts,
+		t:                    t,
+		fields:               fields,
+		fieldUpdates:         make(chan core.Fields),
+		inserts:              make(chan *insert),
+		forceFlushes:         make(chan bool),
+		forceFlushCompletes:  make(chan bool),
+		iterationsInProgress: make(map[string]int),
 		fileStore: &fileStore{
 			t:        t,
 			fields:   fields,
@@ -160,32 +175,41 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, wal.Offset, erro
 	}
 	rs.fileStore.rs = rs
 
-	go rs.processInserts()
-	go rs.removeOldFiles()
+	t.db.Go(func(stop <-chan interface{}) {
+		rs.processInserts(offsetsBySource, stop)
+	})
+	t.db.Go(rs.removeOldFiles)
 
-	return rs, walOffset, nil
+	return rs, offsetsBySource, nil
 }
 
-func readWALOffset(filename string) (wal.Offset, bool, error) {
+func (t *table) readWALOffsets(filename string) (common.OffsetsBySource, bool, error) {
 	opened := false
+	var offsetsBySource common.OffsetsBySource
+
 	file, err := os.Open(filename)
 	if err != nil {
-		return nil, opened, fmt.Errorf("Unable to open file %v: %v", filename, err)
+		return offsetsBySource, opened, errors.New("Unable to open file %v: %v", filename, err)
 	}
 	defer file.Close()
 	opened = true
 
+	fileVersion := t.versionFor(filename)
+
 	r := snappy.NewReader(file)
 
-	// Read WAL along with preceeding header length
-	walOffset := make(wal.Offset, wal.OffsetSize+4)
-	_, err = io.ReadFull(r, walOffset)
-	if err != nil {
-		return nil, opened, err
+	headerLength := uint32(0)
+	lengthErr := binary.Read(r, encoding.Binary, &headerLength)
+	if lengthErr != nil {
+		return offsetsBySource, opened, errors.New("Unexpected error reading header length: %v", lengthErr)
 	}
-
-	// Drop header length
-	return walOffset[4:], opened, nil
+	fieldsBytes := make([]byte, headerLength)
+	_, readErr := io.ReadFull(r, fieldsBytes)
+	if readErr != nil {
+		return offsetsBySource, opened, errors.New("Unable to read fields: %v", readErr)
+	}
+	offsetsBySource, fieldsBytes = t.readOffsets(fileVersion, fieldsBytes)
+	return offsetsBySource, opened, nil
 }
 
 func (rs *rowStore) memStoreSize() int {
@@ -207,14 +231,14 @@ func (rs *rowStore) forceFlush() {
 	<-rs.forceFlushCompletes
 }
 
-func (rs *rowStore) newMemStore() *memstore {
+func (rs *rowStore) newMemStore(offsetsBySource common.OffsetsBySource) *memstore {
 	fields := rs.fields
 	tree := bytetree.New(fields.Exprs(), nil, rs.t.Resolution, 0, time.Time{}, time.Time{}, 0)
-	return &memstore{fields: fields, tree: tree}
+	return &memstore{fields: fields, tree: tree, offsetsBySource: offsetsBySource}
 }
 
-func (rs *rowStore) processInserts() {
-	ms := rs.newMemStore()
+func (rs *rowStore) processInserts(offsetsBySource common.OffsetsBySource, stop <-chan interface{}) {
+	ms := rs.newMemStore(offsetsBySource)
 	rs.mx.Lock()
 	rs.memStore = ms
 	rs.mx.Unlock()
@@ -229,7 +253,7 @@ func (rs *rowStore) processInserts() {
 
 			if ms.offsetChanged {
 				rs.t.log.Debug("No new data, but we've advanced through the WAL, record the change")
-				err := rs.writeOffset(ms.offset)
+				err := rs.writeOffsets(ms.offsetsBySource)
 				if err != nil {
 					rs.t.log.Errorf("Unable to write updated offset: %v", err)
 				}
@@ -259,7 +283,7 @@ func (rs *rowStore) processInserts() {
 		select {
 		case insert := <-rs.inserts:
 			rs.mx.Lock()
-			ms.offset = insert.offset
+			ms.offsetsBySource[insert.source] = insert.offset
 			ms.offsetChanged = true
 			if insert.key != nil {
 				ms.tree.Update(insert.key, nil, insert.vals, insert.metadata)
@@ -273,17 +297,23 @@ func (rs *rowStore) processInserts() {
 			rs.t.log.Debug("Forcing flush")
 			flush(true)
 			rs.forceFlushCompletes <- true
+		case <-stop:
+			rs.t.log.Debug("Forcing flush due to database stopped")
+			flush(true)
+			rs.t.log.Debug("Done forcing flush due to database stopped")
+			return
 		case fields := <-rs.fieldUpdates:
 			rs.t.log.Debugf("Updating fields to %v", fields)
 			// update fields immediately
 			rs.fields = fields
 
 			// force flush before processing any more inserts
+			offsetsBySource = ms.offsetsBySource
 			ms = flush(false)
 
 			if ms == nil {
 				// nothing flushed, create a new memstore to pick up new fields
-				ms = rs.newMemStore()
+				ms = rs.newMemStore(offsetsBySource)
 				rs.mx.Lock()
 				rs.memStore = ms
 				rs.mx.Unlock()
@@ -292,7 +322,7 @@ func (rs *rowStore) processInserts() {
 	}
 }
 
-func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) (time.Time, error) {
+func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeMemStore bool, onValue func(bytemap.ByteMap, []encoding.Sequence) (more bool, err error)) (common.OffsetsBySource, error) {
 	guard := core.Guard(ctx)
 
 	rs.mx.RLock()
@@ -301,6 +331,7 @@ func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeM
 	if includeMemStore {
 		ms = rs.memStore.copy()
 	}
+	rs.iterationsInProgress[fs.filename] = rs.iterationsInProgress[fs.filename] + 1
 	rs.mx.RUnlock()
 	return fs.iterate(outFields, ms, false, false, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		return guard.ProceedAfter(onValue(key, columns))
@@ -310,9 +341,6 @@ func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeM
 func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.Duration) {
 	shouldSort := allowSort && rs.t.shouldSort()
 	willSort := "not sorted"
-	if shouldSort {
-	}
-
 	if shouldSort {
 		defer rs.t.stopSorting()
 		willSort = "sorted"
@@ -334,11 +362,11 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	out, err := ioutil.TempFile("", "nextrowstore")
 	if err != nil {
-		panic(err)
+		rs.t.db.Panic(err)
 	}
 	defer out.Close()
 
-	highWaterMark := fs.flush(out, rs.fields, nil, ms.offset, ms, shouldSort, disallowRaw)
+	highWaterMark, rowCount := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
 
 	fi, err := out.Stat()
 	if err != nil {
@@ -346,7 +374,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	}
 
 	if closeErr := out.Close(); closeErr != nil {
-		panic(closeErr)
+		rs.t.db.Panic(closeErr)
 	}
 
 	// Note - we left-pad the unix nano value to the widest possible length to
@@ -354,11 +382,11 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	// listing).
 	newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
 	if renameErr := os.Rename(out.Name(), newFileStoreName); renameErr != nil {
-		panic(renameErr)
+		rs.t.db.Panic(renameErr)
 	}
 
 	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}
-	ms = rs.newMemStore()
+	ms = rs.newMemStore(ms.offsetsBySource)
 	rs.mx.Lock()
 	rs.fileStore = fs
 	rs.memStore = ms
@@ -366,44 +394,46 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	flushDuration := time.Now().Sub(start)
 	if fi != nil {
-		rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
+		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %v. %v.", rowCount, newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
 	} else {
-		rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
+		rs.t.log.Debugf("Flushed %d rows to %v in %v. %v.", rowCount, newFileStoreName, flushDuration, willSort)
 	}
 
 	rs.t.updateHighWaterMarkDisk(highWaterMark)
 	return ms, flushDuration
 }
 
-func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offset wal.Offset, ms *memstore, shouldSort bool, disallowRaw bool) int64 {
-	cout, err := fs.createOutWriter(out, fields, offset, shouldSort)
+func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) (int64, int) {
+	cout, err := fs.createOutWriter(out, fields, offsetsBySource, shouldSort)
 	if err != nil {
-		panic(err)
+		fs.t.db.Panic(err)
 	}
 
 	highWaterMark := int64(0)
 	truncateBefore := fs.t.truncateBefore()
+	rowCount := 0
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		nextHighWaterMark, err := fs.doWrite(cout, fields, filter, truncateBefore, shouldSort, key, columns, raw)
 		if err != nil {
-			panic(err)
+			fs.t.db.Panic(err)
 		}
 		if nextHighWaterMark > highWaterMark {
 			highWaterMark = nextHighWaterMark
 		}
+		rowCount++
 		return true, nil
 	}
 
 	fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
 	err = cout.Close()
 	if err != nil {
-		panic(err)
+		fs.t.db.Panic(err)
 	}
 
-	return highWaterMark
+	return highWaterMark, rowCount
 }
 
-func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offset wal.Offset, shouldSort bool) (io.WriteCloser, error) {
+func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBySource common.OffsetsBySource, shouldSort bool) (io.WriteCloser, error) {
 	sout := snappy.NewBufferedWriter(out)
 
 	fieldStrings := make([]string, 0, len(fields))
@@ -411,12 +441,12 @@ func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offset wa
 		fieldStrings = append(fieldStrings, field.String())
 	}
 	fieldsBytes := []byte(strings.Join(fieldStrings, fieldsDelims[CurrentFileVersion]))
-	headerLength := uint32(len(offset) + len(fieldsBytes))
+	headerLength := uint32(encoding.Width64bits + len(offsetsBySource)*(encoding.Width64bits+wal.OffsetSize) + len(fieldsBytes))
 	err := binary.Write(sout, encoding.Binary, headerLength)
 	if err != nil {
 		return nil, errors.New("Unable to write header length: %v", err)
 	}
-	_, err = sout.Write(offset)
+	err = fs.t.writeOffsets(sout, offsetsBySource)
 	if err != nil {
 		return nil, errors.New("Unable to write header: %v", err)
 	}
@@ -448,7 +478,7 @@ func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offset wa
 
 	cout, sortErr := emsort.New(sout, chunk, less, int(fs.t.db.maxMemoryBytes())/10)
 	if sortErr != nil {
-		panic(sortErr)
+		fs.t.db.Panic(sortErr)
 	}
 
 	return cout, nil
@@ -546,16 +576,16 @@ func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goe
 	return highWaterMark, nil
 }
 
-func (rs *rowStore) writeOffset(offset wal.Offset) error {
+func (rs *rowStore) writeOffsets(offsetsBySource common.OffsetsBySource) error {
 	out, err := ioutil.TempFile("", "nextoffset")
 	if err != nil {
-		panic(err)
+		rs.t.db.Panic(err)
 	}
 	defer out.Close()
 
-	_, err = out.Write(offset)
+	err = rs.t.writeOffsets(out, offsetsBySource)
 	if err != nil {
-		return fmt.Errorf("Unable to write next offset: %v", err)
+		return fmt.Errorf("Unable to write offsets: %v", err)
 	}
 
 	err = out.Close()
@@ -566,34 +596,47 @@ func (rs *rowStore) writeOffset(offset wal.Offset) error {
 	return os.Rename(out.Name(), filepath.Join(rs.opts.dir, offsetFilename))
 }
 
-func (rs *rowStore) removeOldFiles() {
+func (rs *rowStore) removeOldFiles(stop <-chan interface{}) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
 	for {
-		time.Sleep(10 * time.Second)
-		files, err := ioutil.ReadDir(rs.opts.dir)
-		if err != nil {
-			log.Errorf("Unable to list data files in %v: %v", rs.opts.dir, err)
-		}
-		// Note - the list of files is sorted by name, which in our case is the
-		// timestamp, so that means they're sorted chronologically. We don't want
-		// to delete the last file in the list because that's the current one.
-		foundLatest := false
-		for i := len(files) - 1; i >= 0; i-- {
-			filename := files[i].Name()
-			if filename == offsetFilename {
-				// Ignore offset file
-				continue
-			}
-			if !foundLatest {
-				foundLatest = true
-				continue
-			}
-			rs.t.db.waitForBackupToFinish()
-			// Okay to delete now
-			name := filepath.Join(rs.opts.dir, filename)
-			rs.t.log.Debugf("Removing old file %v", name)
-			err := os.Remove(name)
+		select {
+		case <-stop:
+			rs.t.log.Debug("Stop removing old files")
+			return
+		case <-ticker.C:
+			files, err := ioutil.ReadDir(rs.opts.dir)
 			if err != nil {
-				rs.t.log.Errorf("Unable to delete old file store %v, still consuming disk space unnecessarily: %v", name, err)
+				rs.t.log.Errorf("Unable to list data files in %v: %v", rs.opts.dir, err)
+			}
+			// Note - the list of files is sorted by name, which in our case is the
+			// timestamp, so that means they're sorted chronologically. We don't want
+			// to delete the last file in the list because that's the current one.
+			foundLatest := false
+			for i := len(files) - 1; i >= 0; i-- {
+				filename := files[i].Name()
+				if filename == offsetFilename {
+					// Ignore offset file
+					continue
+				}
+				if !foundLatest {
+					foundLatest = true
+					continue
+				}
+				rs.t.db.waitForBackupToFinish(stop)
+				rs.mx.RLock()
+				okayToRemove := rs.iterationsInProgress[filename] == 0 // don't remove file if we're iterating on it
+				rs.mx.RUnlock()
+				if okayToRemove {
+					// Okay to delete now
+					name := filepath.Join(rs.opts.dir, filename)
+					rs.t.log.Debugf("Removing old file %v", name)
+					err := os.Remove(name)
+					if err != nil {
+						rs.t.log.Errorf("Unable to delete old file store %v, still consuming disk space unnecessarily: %v", name, err)
+					}
+				}
 			}
 		}
 	}
@@ -614,9 +657,10 @@ type fileStore struct {
 	filename string
 }
 
-func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) (time.Time, error) {
+func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBuffer bool, rawOkay bool, onRow func(bytemap.ByteMap, []encoding.Sequence, []byte) (more bool, err error)) (common.OffsetsBySource, error) {
+	fs.t.log.Debugf("Iterating over %v", fs.filename)
 	ctx := time.Now().UnixNano()
-	var highWaterMark time.Time
+	var offsetsBySource common.OffsetsBySource
 
 	if fs.t.log.IsTraceEnabled() {
 		fs.t.log.Tracef("Iterating with memstore ? %v from file %v", ms != nil, fs.filename)
@@ -637,30 +681,38 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 
 	file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 	if os.IsNotExist(err) {
-		log.Debugf("No filestore available at %v , (yet), try reading the offset file", fs.filename)
+		fs.t.log.Debugf("No filestore available at %v, (yet), try reading the offset file", fs.filename)
 		offsetFile := filepath.Join(fs.rs.opts.dir, offsetFilename)
 		o, err := ioutil.ReadFile(offsetFile)
 		if err != nil {
-			log.Errorf("Error reading offset file %v: %v", offsetFile, err)
-		} else if len(o) != wal.OffsetSize {
-			log.Errorf("Offset file contents of wrong length: %v %d", offsetFile, len(o))
+			if !os.IsNotExist(err) {
+				fs.t.log.Errorf("Error reading offset file %v: %v", offsetFile, err)
+			}
+		} else if len(o) < wal.OffsetSize {
+			fs.t.log.Errorf("Offset file contents of wrong length: %v %d", offsetFile, len(o))
 		} else {
-			highWaterMark = wal.Offset(o).TS()
-			log.Debugf("Set highWaterMark from offset file: %v", highWaterMark)
+			fileVersion := FileVersion_4
+			if len(o) > wal.OffsetSize {
+				// Before Version 5, we only stored a single offset. Since we have more than that,
+				// assume that this is at least Version 5.
+				fileVersion = FileVersion_5
+			}
+			offsetsBySource, _ = fs.t.readOffsets(fileVersion, o)
+			fs.t.log.Debugf("Set highWaterMarks from offset file: %v", offsetsBySource.TSString())
 		}
 	} else {
 		if err != nil {
-			return highWaterMark, log.Errorf("Unable to open file %v: %v", fs.filename, err)
+			return offsetsBySource, fs.t.log.Errorf("Unable to open file %v: %v", fs.filename, err)
 		}
-		log.Debugf("Found filestore at %v", fs.filename)
+		fs.t.log.Debugf("Found filestore at %v", fs.filename)
 		r := snappy.NewReader(file)
 
 		var fileFields core.Fields
-		highWaterMark, _, fileFields, err = fs.info(r)
+		offsetsBySource, _, fileFields, err = fs.info(r)
 		if err != nil {
-			return highWaterMark, err
+			return offsetsBySource, err
 		}
-		log.Debugf("Set highWaterMark from data file: %v", highWaterMark)
+		fs.t.log.Debugf("Set highWaterMark from data file: %v", offsetsBySource.TSString())
 
 		// raw is only okay if the file fields match the out fields
 		rawOkay = rawOkay && fileFields.Equals(outFields)
@@ -680,7 +732,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				break
 			}
 			if err != nil {
-				return highWaterMark, log.Errorf("Unexpected error reading row length: %v", err)
+				return offsetsBySource, fs.t.log.Errorf("Unexpected error reading row length: %v", err)
 			}
 
 			useBuffer := okayToReuseBuffer && int(rowLength) <= cap(rowBuffer)
@@ -696,7 +748,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
 			if err != nil {
-				return highWaterMark, log.Errorf("Unexpected error while reading row: %v", err)
+				return offsetsBySource, fs.t.log.Errorf("Unexpected error while reading row: %v", err)
 			}
 
 			keyLength, row := encoding.ReadInt16(row)
@@ -710,8 +762,8 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				// There's nothing to merge in, just pass through the raw data
 				more, err := onRow(key, nil, raw)
 				if !more || err != nil {
-					log.Errorf("Error processing row: %v", err)
-					return highWaterMark, err
+					fs.t.log.Errorf("Error processing row: %v", err)
+					return offsetsBySource, err
 				}
 				continue
 			}
@@ -722,7 +774,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
 				if len(row) < 8 {
-					return highWaterMark, log.Errorf("Not enough data left to decode column length!")
+					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column length!")
 				}
 				var colLength int
 				colLength, row = encoding.ReadInt64(row)
@@ -734,7 +786,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			for i, colLength := range colLengths {
 				var seq encoding.Sequence
 				if colLength > len(row) {
-					return highWaterMark, log.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
+					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
 				}
 				seq, row = encoding.ReadSequence(row, colLength)
 				if seq != nil && fileToOut(columns, i, seq) {
@@ -756,23 +808,19 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			if includesAtLeastOneColumn {
 				more, err = onRow(key, columns, raw)
 				if err != nil {
-					log.Errorf("Error processing row: %v", err)
+					fs.t.log.Errorf("Error processing row: %v", err)
 				}
 			}
 
 			if !more || err != nil {
-				return highWaterMark, err
+				return offsetsBySource, err
 			}
 		}
 	}
 
 	// Read remaining stuff from memstore
 	if ms != nil {
-		msts := ms.offset.TS()
-		if msts.After(highWaterMark) {
-			highWaterMark = msts
-			log.Debugf("Set highWaterMark from memstore: %v", highWaterMark)
-		}
+		offsetsBySource = offsetsBySource.Advance(ms.offsetsBySource)
 		ms.tree.Walk(ctx, func(key []byte, msColumns []encoding.Sequence) (bool, bool, error) {
 			columns := make([]encoding.Sequence, len(outFields))
 			for i, msColumn := range msColumns {
@@ -783,25 +831,24 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 		})
 	}
 
-	return highWaterMark, nil
+	return offsetsBySource, nil
 }
 
-func (fs *fileStore) info(r io.Reader) (time.Time, string, core.Fields, error) {
-	var highWaterMark time.Time
-	fileVersion := versionFor(fs.filename)
+func (fs *fileStore) info(r io.Reader) (common.OffsetsBySource, string, core.Fields, error) {
+	var offsetsBySource common.OffsetsBySource
+	fileVersion := fs.t.versionFor(fs.filename)
 	// File contains header with field info, use it
 	headerLength := uint32(0)
 	lengthErr := binary.Read(r, encoding.Binary, &headerLength)
 	if lengthErr != nil {
-		return highWaterMark, "", nil, log.Errorf("Unexpected error reading header length: %v", lengthErr)
+		return offsetsBySource, "", nil, fs.t.log.Errorf("Unexpected error reading header length: %v", lengthErr)
 	}
 	fieldsBytes := make([]byte, headerLength)
 	_, readErr := io.ReadFull(r, fieldsBytes)
 	if readErr != nil {
-		return highWaterMark, "", nil, log.Errorf("Unable to read fields: %v", readErr)
+		return offsetsBySource, "", nil, fs.t.log.Errorf("Unable to read fields: %v", readErr)
 	}
-	highWaterMark = wal.Offset(fieldsBytes[:wal.OffsetSize]).TS()
-	fieldsBytes = fieldsBytes[wal.OffsetSize:]
+	offsetsBySource, fieldsBytes = fs.t.readOffsets(fileVersion, fieldsBytes)
 	delim := fieldsDelims[fileVersion]
 	fieldsString := string(fieldsBytes)
 	fieldStrings := strings.Split(fieldsString, delim)
@@ -820,10 +867,10 @@ func (fs *fileStore) info(r io.Reader) (time.Time, string, core.Fields, error) {
 		}
 	}
 
-	return highWaterMark, fieldsString, fileFields, nil
+	return offsetsBySource, fieldsString, fileFields, nil
 }
 
-func versionFor(filename string) int {
+func (t *table) versionFor(filename string) int {
 	fileVersion := 0
 	parts := strings.Split(filepath.Base(filename), "_")
 	if len(parts) == 3 {
@@ -831,7 +878,7 @@ func versionFor(filename string) int {
 		var versionErr error
 		fileVersion, versionErr = strconv.Atoi(versionString)
 		if versionErr != nil {
-			panic(fmt.Errorf("Unable to determine file version for file %v: %v", filename, versionErr))
+			t.db.Panic(fmt.Errorf("Unable to determine file version for file %v: %v", filename, versionErr))
 		}
 	}
 	return fileVersion
@@ -881,4 +928,54 @@ func outIdxsFor(outFields core.Fields, inFields core.Fields) []int {
 	}
 
 	return outIdxs
+}
+
+func (t *table) writeOffsets(file io.Writer, offsetsBySource common.OffsetsBySource) error {
+	t.log.Debugf("Writing offsets: %v", offsetsBySource)
+	numOffsets := make([]byte, encoding.Width64bits)
+	encoding.WriteInt64(numOffsets, len(offsetsBySource))
+
+	_, err := file.Write(numOffsets)
+	if err != nil {
+		return err
+	}
+
+	for source, offset := range offsetsBySource {
+		sourceBytes := make([]byte, encoding.Width64bits)
+		encoding.WriteInt64(sourceBytes, source)
+		_, err := file.Write(sourceBytes)
+		if err != nil {
+			return err
+		}
+		_, err = file.Write(offset)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (t *table) readOffsets(fileVersion int, header []byte) (common.OffsetsBySource, []byte) {
+	offsetsBySource := make(common.OffsetsBySource)
+	defer func() {
+		t.log.Debugf("Read offsets: %v", offsetsBySource)
+	}()
+	if fileVersion < FileVersion_5 {
+		// Header contains only a single offset
+		offsetsBySource[0] = wal.Offset(header[:wal.OffsetSize])
+		return offsetsBySource, header[wal.OffsetSize:]
+	} else {
+		// Header contains multiple offsets
+		var numOffsets, source int
+		numOffsets, header = encoding.ReadInt64(header)
+		for i := 0; i < numOffsets; i++ {
+			source, header = encoding.ReadInt64(header)
+			offset := header[:wal.OffsetSize]
+			header = header[wal.OffsetSize:]
+			offsetsBySource[source] = offset
+		}
+		return offsetsBySource, header
+	}
+
 }

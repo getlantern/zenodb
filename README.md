@@ -28,14 +28,15 @@ GO111MODULE=on go install github.com/getlantern/zenodb/cmd/zeno
  * Seems pretty fast
  * Materialized views (with historical data from write-ahead log)
  * Some unit tests
-
+ * Limit query memory consumption to avoid OOM killer
+ * Multi-leader, multi-follower architecture
+ 
 ## Future Stuff
 
  * Auto cleanup of Write-ahead Log
  * Harmonize field vs column language
  * More unit tests and general code cleanup
  * Byte array buffers to avoid allocations for sequences and ByteMaps
- * Limit query memory consumption to avoid OOM killer
  * Smart sorting - e.g. only sort data files if a substantial number of new keys have been added
  * More validations/error checking
  * TLS in HTTP

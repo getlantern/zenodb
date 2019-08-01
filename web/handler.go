@@ -4,13 +4,14 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+	"time"
+
 	"github.com/getlantern/golog"
 	"github.com/getlantern/zenodb"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/securecookie"
-	"net/http"
-	"net/url"
-	"time"
 )
 
 var (
@@ -42,13 +43,13 @@ type handler struct {
 	coalescedQueries chan []*query
 }
 
-func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
+func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) (func(), error) {
 	if opts.OAuthClientID == "" || opts.OAuthClientSecret == "" || opts.GitHubOrg == "" {
 		log.Errorf("WARNING - Missing OAuthClientID, OAuthClientSecret and/or GitHubOrg, web API will not authenticate!")
 	}
 
 	if opts.CacheDir == "" {
-		return errors.New("Unable to start web server, no CacheDir specified")
+		return nil, errors.New("Unable to start web server, no CacheDir specified")
 	}
 
 	if opts.CacheTTL <= 0 {
@@ -75,7 +76,7 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 		hashKey = make([]byte, 64)
 		_, err := rand.Read(hashKey)
 		if err != nil {
-			return fmt.Errorf("Unable to generate random hash key: %v", err)
+			return nil, fmt.Errorf("Unable to generate random hash key: %v", err)
 		}
 	}
 
@@ -84,13 +85,13 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 		blockKey = make([]byte, 32)
 		_, err := rand.Read(blockKey)
 		if err != nil {
-			return fmt.Errorf("Unable to generate random block key: %v", err)
+			return nil, fmt.Errorf("Unable to generate random block key: %v", err)
 		}
 	}
 
 	cache, err := newCache(opts.CacheDir, opts.CacheTTL)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	h := &handler{
@@ -121,7 +122,12 @@ func Configure(db *zenodb.DB, router *mux.Router, opts *Opts) error {
 	router.PathPrefix("/metrics").HandlerFunc(h.metrics)
 	router.PathPrefix("/").HandlerFunc(h.index)
 
-	return nil
+	return func() {
+		close(h.queries)
+		if err := cache.Close(); err != nil {
+			log.Errorf("Unable to close cache: %v", err)
+		}
+	}, nil
 }
 
 func buildURL(base string, params map[string]string) (*url.URL, error) {

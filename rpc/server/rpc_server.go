@@ -3,6 +3,9 @@ package rpcserver
 import (
 	"context"
 	"fmt"
+	"net"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/golog"
@@ -15,15 +18,12 @@ import (
 	"github.com/getlantern/zenodb/rpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"net"
-	"time"
-)
-
-var (
-	log = golog.LoggerFor("zenodb.rpc")
 )
 
 type Opts struct {
+	// ID uniquely identifies this server
+	ID int
+
 	// Password, if specified, is the password that clients must present in order
 	// to access the server.
 	Password string
@@ -40,15 +40,17 @@ type DB interface {
 	RegisterQueryHandler(partition int, query planner.QueryClusterFN)
 }
 
-func Serve(db DB, l net.Listener, opts *Opts) error {
+func PrepareServer(db DB, l net.Listener, opts *Opts) (func() error, func()) {
 	l = &rpc.SnappyListener{l}
 	gs := grpc.NewServer(grpc.CustomCodec(rpc.Codec))
-	gs.RegisterService(&rpc.ServiceDesc, &server{db, opts.Password})
-	return gs.Serve(l)
+	gs.RegisterService(&rpc.ServiceDesc, &server{golog.LoggerFor(fmt.Sprintf("zenodb.rpc (%d)", opts.ID)), db, opts.ID, opts.Password})
+	return func() error { return gs.Serve(l) }, gs.Stop
 }
 
 type server struct {
+	log      golog.Logger
 	db       DB
+	id       int
 	password string
 }
 
@@ -142,13 +144,17 @@ func (s *server) Query(q *rpc.Query, stream grpc.ServerStream) error {
 }
 
 func (s *server) Follow(f *common.Follow, stream grpc.ServerStream) error {
-	authorizeErr := s.authorize(stream)
-	if authorizeErr != nil {
+	if authorizeErr := s.authorize(stream); authorizeErr != nil {
 		return authorizeErr
 	}
 
-	log.Debugf("Follower %d joined", f.PartitionNumber)
-	defer log.Debugf("Follower %d left", f.PartitionNumber)
+	s.log.Debugf("Follower %v joined", f.FollowerID)
+	defer s.log.Debugf("Follower %v left", f.FollowerID)
+
+	if err := stream.SendMsg(&rpc.SourceInfo{ID: s.id}); err != nil {
+		return err
+	}
+
 	s.db.Follow(f, func(data []byte, newOffset wal.Offset) error {
 		return stream.SendMsg(&rpc.Point{data, newOffset})
 	})
@@ -235,7 +241,7 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 			recvErr = stream.RecvMsg(m)
 		}
 
-		log.Debugf("Finishing partition %d with finalErr: %v", r.Partition, finalErr)
+		s.log.Debugf("Finishing partition %d with finalErr: %v", r.Partition, finalErr)
 		finish(finalErr)
 		return m.Stats, finalErr
 	})
@@ -255,12 +261,12 @@ func (s *server) HandleRemoteQueries(r *rpc.RegisterQueryHandler, stream grpc.Se
 
 func (s *server) authorize(stream grpc.ServerStream) error {
 	if s.password == "" {
-		log.Debug("No password specified, allowing access to world")
+		s.log.Debug("No password specified, allowing access to world")
 		return nil
 	}
 	md, ok := metadata.FromIncomingContext(stream.Context())
 	if !ok {
-		return log.Error("No metadata provided, unable to authenticate")
+		return s.log.Error("No metadata provided, unable to authenticate")
 	}
 	passwords := md[rpc.PasswordKey]
 	for _, password := range passwords {
@@ -269,5 +275,5 @@ func (s *server) authorize(stream grpc.ServerStream) error {
 			return nil
 		}
 	}
-	return log.Error("None of the provided passwords matched, not authorized!")
+	return s.log.Error("None of the provided passwords matched, not authorized!")
 }

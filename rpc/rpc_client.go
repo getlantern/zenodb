@@ -15,6 +15,7 @@ import (
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -24,10 +25,13 @@ type ClientOpts struct {
 	Password string
 
 	Dialer func(string, time.Duration) (net.Conn, error)
+
+	KeepaliveInterval time.Duration
+	KeepaliveTimeout  time.Duration
 }
 
 type Inserter interface {
-	Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, interface{}))) error
+	Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, float64))) error
 
 	Close() (*InsertReport, error)
 }
@@ -43,6 +47,7 @@ func Dial(addr string, opts *ClientOpts) (Client, error) {
 	opts.Dialer = snappyDialer(opts.Dialer)
 
 	conn, err := grpc.Dial(addr,
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: opts.KeepaliveInterval, Timeout: opts.KeepaliveTimeout, PermitWithoutStream: true}),
 		grpc.WithInsecure(),
 		grpc.WithDialer(opts.Dialer),
 		grpc.WithCodec(Codec),
@@ -75,12 +80,17 @@ func (c *client) NewInserter(ctx context.Context, streamName string, opts ...grp
 	}, nil
 }
 
-func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, interface{}))) error {
+func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, float64))) error {
+	iterate := func(cb func(string, interface{})) {
+		vals(func(field string, val float64) {
+			cb(field, val)
+		})
+	}
 	insert := &Insert{
 		Stream: i.streamName,
 		TS:     ts.UnixNano(),
 		Dims:   bytemap.New(dims),
-		Vals:   bytemap.Build(vals, nil, true),
+		Vals:   bytemap.Build(iterate, nil, true),
 	}
 	// Set streamName to "" to prevent sending it unnecessarily in subsequent inserts
 	i.streamName = ""
@@ -142,17 +152,24 @@ func (c *client) Query(ctx context.Context, sqlString string, includeMemStore bo
 	return md, iterate, nil
 }
 
-func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.CallOption) (func() (data []byte, newOffset wal.Offset, err error), error) {
+func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.CallOption) (int, func() (data []byte, newOffset wal.Offset, err error), error) {
 	stream, err := grpc.NewClientStream(c.authenticated(ctx), &ServiceDesc.Streams[1], c.cc, "/zenodb/follow", opts...)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if err := stream.SendMsg(f); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	if err := stream.CloseSend(); err != nil {
-		return nil, err
+		return 0, nil, err
 	}
+
+	sourceInfo := &SourceInfo{}
+	if err := stream.RecvMsg(sourceInfo); err != nil {
+		return 0, nil, err
+	}
+
+	log.Debugf("Following leader %d", sourceInfo.ID)
 
 	next := func() ([]byte, wal.Offset, error) {
 		point := &Point{}
@@ -163,7 +180,7 @@ func (c *client) Follow(ctx context.Context, f *common.Follow, opts ...grpc.Call
 		return point.Data, point.Offset, nil
 	}
 
-	return next, nil
+	return sourceInfo.ID, next, nil
 }
 
 func (c *client) ProcessRemoteQuery(ctx context.Context, partition int, query planner.QueryClusterFN, timeout time.Duration, opts ...grpc.CallOption) error {

@@ -26,7 +26,7 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 	}
 
 	if q.ForceFresh {
-		log.Debug("Query requires fresh results, including mem store")
+		db.log.Debug("Query requires fresh results, including mem store")
 		includeMemStore = true
 	}
 
@@ -47,7 +47,7 @@ func (db *DB) Query(sqlString string, isSubQuery bool, subQueryResults [][]inter
 	if err != nil {
 		return nil, err
 	}
-	log.Debugf("\n------------ Query Plan ------------\n\n%v\n\n%v\n----------- End Query Plan ----------", sqlString, core.FormatSource(plan))
+	db.log.Debugf("\n------------ Query Plan ------------\n\n%v\n\n%v\n----------- End Query Plan ----------", sqlString, core.FormatSource(plan))
 	return plan, nil
 }
 
@@ -129,11 +129,11 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 	i := 1
 	// When iterating, as an optimization, we read only the needed fields (not
 	// all table fields).
-	highWaterMark, err := q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
+	highWaterMarks, err := q.t.iterate(ctx, q.fields, q.includeMemStore, func(key bytemap.ByteMap, vals []encoding.Sequence) (bool, error) {
 		if i%1000 == 0 {
 			// every 1000 rows, check and cap memory size
 			if !q.db.capMemorySize(false) {
-				log.Error("Returning ErrOutOfMemory")
+				q.t.log.Error("Returning ErrOutOfMemory")
 				return false, ErrOutOfMemory
 			}
 		}
@@ -141,7 +141,7 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 		return onRow(key, vals)
 	})
 	if err != nil {
-		log.Errorf("Error on iterating: %v", err)
+		q.t.log.Errorf("Error on iterating: %v", err)
 	}
 	numSuccessfulPartitions := 0
 	if err == nil {
@@ -150,7 +150,7 @@ func (q *queryable) Iterate(ctx context.Context, onFields core.OnFields, onRow c
 	return &common.QueryStats{
 		NumPartitions:           1,
 		NumSuccessfulPartitions: numSuccessfulPartitions,
-		LowestHighWaterMark:     common.TimeToMillis(highWaterMark),
-		HighestHighWaterMark:    common.TimeToMillis(highWaterMark),
+		LowestHighWaterMark:     common.TimeToMillis(highWaterMarks.LowestTS()),
+		HighestHighWaterMark:    common.TimeToMillis(highWaterMarks.HighestTS()),
 	}, err
 }
