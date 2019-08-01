@@ -214,7 +214,10 @@ func doTest(t *testing.T, partitionKeys []string, configureCluster func(tmpDirs 
 			time.Sleep(5 * time.Second)
 		}
 		sleepBeforeStart = !sleepBeforeStart
-		_, err := s.Serve()
+		_, run, err := s.Prepare()
+		if err == nil {
+			go run()
+		}
 		return err
 	}
 

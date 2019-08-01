@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	serrors "errors"
+	"flag"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -53,7 +54,12 @@ type Server struct {
 	IterationCoalesceInterval time.Duration
 	IterationConcurrency      int
 	Addr                      string
+	Listener                  net.Listener
+	HTTPAddr                  string
+	HTTPListener              net.Listener
 	HTTPSAddr                 string
+	HTTPSListener             net.Listener
+	Router                    *mux.Router
 	Password                  string
 	PKFile                    string
 	CertFile                  string
@@ -94,8 +100,6 @@ type Server struct {
 
 	log     golog.Logger
 	db      *zenodb.DB
-	l       net.Listener
-	hl      net.Listener
 	stopRPC func()
 	stopWeb func()
 
@@ -103,33 +107,18 @@ type Server struct {
 	runningMx sync.Mutex
 }
 
-// Serve runs the zeno server. The returned function allows waiting until the server is finished running and returns the first error encountered while running.
-func (s *Server) Serve() (func() error, error) {
+// Prepare prepares the zeno server to run, returning a reference to the underlying db and a blocking function for actually running.
+func (s *Server) Prepare() (*zenodb.DB, func() error, error) {
 	if s.ID < 0 {
-		return nil, ErrInvalidID
+		return nil, nil, ErrInvalidID
 	}
 	if s.ID == 0 && s.NumPartitions > 0 && !s.AllowZeroID {
-		return nil, ErrMissingID
+		return nil, nil, ErrMissingID
 	}
 
 	s.runningMx.Lock()
-	started := false
-	defer func() {
-		if !started {
-			if s.l != nil {
-				s.l.Close()
-				s.l = nil
-			}
-			if s.hl != nil {
-				s.hl.Close()
-				s.hl = nil
-			}
-			s.runningMx.Unlock()
-		}
-	}()
-
 	if s.running {
-		return nil, ErrAlreadyRunning
+		return nil, nil, ErrAlreadyRunning
 	}
 
 	if s.ClusterQueryConcurrency <= 0 {
@@ -170,7 +159,7 @@ func (s *Server) Serve() (func() error, error) {
 	if s.Capture != "" {
 		clients, err := s.clientsFor(s.Capture, s.CaptureOverride, clientSessionCache)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		sources := make([]int, 0, len(clients))
 		for source := range clients {
@@ -185,7 +174,7 @@ func (s *Server) Serve() (func() error, error) {
 	if s.Feed != "" {
 		clients, err := s.clientsFor(s.Feed, s.FeedOverride, clientSessionCache)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		s.log.Debugf("Handling queries for: %v", s.Feed)
 		dbOpts.RegisterRemoteQueryHandler = func(db *zenodb.DB, partition int, query planner.QueryClusterFN) {
@@ -233,73 +222,107 @@ func (s *Server) Serve() (func() error, error) {
 	var err error
 	s.db, err = zenodb.NewDB(dbOpts)
 	if err != nil {
-		return nil, s.log.Errorf("Unable to open database at %v: %v", s.DBDir, err)
+		return nil, nil, s.log.Errorf("Unable to open database at %v: %v", s.DBDir, err)
 	}
 	s.log.Debugf("Opened database at %v\n", s.DBDir)
 
-	err = s.listen(func() error {
-		s.l, err = tlsdefaults.Listen(s.Addr, s.PKFile, s.CertFile)
-		return err
-	})
-	if err != nil {
-		return nil, s.log.Errorf("Unable to listen for gRPC over TLS connections at %v: %v", s.Addr, err)
-	}
-	s.log.Debugf("Listening for gRPC connections at %v\n", s.l.Addr())
+	run := func() error {
+		defer func() {
+			if s.Listener != nil {
+				s.Listener.Close()
+				s.Listener = nil
+			}
+			if s.HTTPListener != nil {
+				s.HTTPListener.Close()
+				s.HTTPListener = nil
+			}
+			if s.HTTPSListener != nil {
+				s.HTTPSListener.Close()
+				s.HTTPSListener = nil
+			}
+		}()
 
-	if s.TLSDomain != "" {
-		m := autocert.Manager{
-			Prompt: autocert.AcceptTOS,
-			HostPolicy: func(_ context.Context, host string) error {
-				// Support any host
-				return nil
-			},
-			Cache:    autocert.DirCache("certs"),
-			Email:    "admin@getlantern.org",
-			ForceRSA: true, // we need to force RSA keys because CloudFront doesn't like our ECDSA cipher suites
+		if s.Listener == nil {
+			s.log.Debugf("Starting listener for %v", s.Addr)
+			err = s.listen(func() error {
+				s.Listener, err = tlsdefaults.Listen(s.Addr, s.PKFile, s.CertFile)
+				return err
+			})
+			if err != nil {
+				return s.log.Errorf("Unable to listen for gRPC over TLS connections at %v: %v", s.Addr, err)
+			}
 		}
-		tlsConfig := &tls.Config{
-			GetCertificate:           m.GetCertificate,
-			PreferServerCipherSuites: true,
-			SessionTicketKey:         s.getSessionTicketKey(),
+		s.log.Debugf("Listening for gRPC connections at %v\n", s.Listener.Addr())
+
+		if s.HTTPListener == nil && s.HTTPAddr != "" {
+			err = s.listen(func() error {
+				s.HTTPListener, err = net.Listen("tcp", s.HTTPAddr)
+				return err
+			})
+			if err != nil {
+				return s.log.Errorf("Unable to listen HTTP: %v", err)
+			}
 		}
-		err = s.listen(func() error {
-			s.hl, err = tls.Listen("tcp", s.HTTPSAddr, tlsConfig)
-			return err
-		})
+		if s.HTTPListener != nil {
+			s.log.Debugf("Listening for HTTP connections at %v\n", s.HTTPListener.Addr())
+		}
+
+		if s.HTTPSListener == nil && s.HTTPSAddr != "" {
+			if s.TLSDomain != "" {
+				m := autocert.Manager{
+					Prompt: autocert.AcceptTOS,
+					HostPolicy: func(_ context.Context, host string) error {
+						// Support any host
+						return nil
+					},
+					Cache:    autocert.DirCache("certs"),
+					Email:    "admin@getlantern.org",
+					ForceRSA: true, // we need to force RSA keys because CloudFront doesn't like our ECDSA cipher suites
+				}
+				tlsConfig := &tls.Config{
+					GetCertificate:           m.GetCertificate,
+					PreferServerCipherSuites: true,
+					SessionTicketKey:         s.GetSessionTicketKey(),
+				}
+				err = s.listen(func() error {
+					s.HTTPSListener, err = tls.Listen("tcp", s.HTTPSAddr, tlsConfig)
+					return err
+				})
+				if err != nil {
+					return s.log.Errorf("Unable to listen HTTPS: %v", err)
+				}
+			} else {
+				err = s.listen(func() error {
+					s.HTTPSListener, err = tlsdefaults.Listen(s.HTTPSAddr, s.PKFile, s.CertFile)
+					return err
+				})
+				if err != nil {
+					return s.log.Errorf("Unable to listen for HTTPS connections at %v: %v", s.HTTPSAddr, err)
+				}
+			}
+		}
+		if s.HTTPSListener != nil {
+			s.log.Debugf("Listening for HTTPS connections at %v\n", s.HTTPSListener.Addr())
+		}
+
+		serveHTTP, err := s.serveHTTP()
 		if err != nil {
-			return nil, s.log.Errorf("Unable to listen HTTPS: %v", err)
+			return s.log.Errorf("Unable to serve HTTP: %v", err)
 		}
-	} else {
-		err = s.listen(func() error {
-			s.hl, err = tlsdefaults.Listen(s.HTTPSAddr, s.PKFile, s.CertFile)
-			return err
-		})
-		if err != nil {
-			return nil, s.log.Errorf("Unable to listen for HTTPS connections at %v: %v", s.HTTPSAddr, err)
-		}
-	}
-	s.log.Debugf("Listening for HTTPS connections at %v\n", s.hl.Addr())
+		s.log.Debug("Serving HTTP")
 
-	serveHTTP, err := s.serveHTTP()
-	if err != nil {
-		return nil, s.log.Errorf("Unable to serve HTTP: %v", err)
-	}
-	s.log.Debug("Serving HTTP")
+		errCh := make(chan error, 2)
+		go func() {
+			errCh <- serveHTTP()
+		}()
+		go func() {
+			errCh <- s.serveRPC()
+		}()
 
-	errCh := make(chan error, 2)
-	go func() {
-		errCh <- serveHTTP()
-	}()
-	go func() {
-		errCh <- s.serveRPC()
-	}()
+		s.running = true
+		s.log.Debug("Started")
+		s.runningMx.Unlock()
 
-	s.running = true
-	started = true
-	s.log.Debug("Started")
-	s.runningMx.Unlock()
-
-	return func() error {
 		for i := 0; i < 2; i++ {
 			err := <-errCh
 			if err != nil {
@@ -307,7 +330,9 @@ func (s *Server) Serve() (func() error, error) {
 			}
 		}
 		return nil
-	}, nil
+	}
+
+	return s.db, run, nil
 }
 
 func (s *Server) listen(fn func() error) error {
@@ -392,7 +417,7 @@ func (s *Server) followSource(client rpc.Client, source int, f *common.Follow, i
 }
 
 func (s *Server) serveRPC() error {
-	serve, stop := rpcserver.PrepareServer(s.db, s.l, &rpcserver.Opts{
+	serve, stop := rpcserver.PrepareServer(s.db, s.Listener, &rpcserver.Opts{
 		ID:       s.ID,
 		Password: s.Password,
 	})
@@ -404,8 +429,10 @@ func (s *Server) serveRPC() error {
 }
 
 func (s *Server) serveHTTP() (func() error, error) {
-	router := mux.NewRouter()
-	stop, err := web.Configure(s.db, router, &web.Opts{
+	if s.Router == nil {
+		s.Router = mux.NewRouter()
+	}
+	stop, err := web.Configure(s.db, s.Router, &web.Opts{
 		OAuthClientID:         s.OauthClientID,
 		OAuthClientSecret:     s.OauthClientSecret,
 		GitHubOrg:             s.GitHubOrg,
@@ -423,13 +450,28 @@ func (s *Server) serveHTTP() (func() error, error) {
 	}
 	s.stopWeb = stop
 	return func() error {
-		return http.Serve(s.hl, router)
+		errorsCh := make(chan error, 2)
+		hs := &http.Server{
+			Handler:        s.Router,
+			MaxHeaderBytes: 1 << 19,
+		}
+		if s.HTTPListener != nil {
+			go func() {
+				errorsCh <- hs.Serve(s.HTTPListener)
+			}()
+		}
+		if s.HTTPSListener != nil {
+			go func() {
+				errorsCh <- hs.Serve(s.HTTPSListener)
+			}()
+		}
+		return <-errorsCh
 	}, nil
 }
 
-// this allows us to reuse a session ticket key across restarts, which avoids
-// excessive TLS renegotiation with old clients.
-func (s *Server) getSessionTicketKey() [32]byte {
+// GetSessionTicketKey allows us to reuse a session ticket key across restarts,
+// which avoids excessive TLS renegotiation with old clients.
+func (s *Server) GetSessionTicketKey() [32]byte {
 	var key [32]byte
 	keySlice, err := ioutil.ReadFile("session_ticket_key")
 	if err != nil {
@@ -514,8 +556,13 @@ func (s *Server) Close() {
 	s.runningMx.Lock()
 	if s.running {
 		s.log.Debug("Closing")
-		s.l.Close()
-		s.hl.Close()
+		s.Listener.Close()
+		if s.HTTPListener != nil {
+			s.HTTPListener.Close()
+		}
+		if s.HTTPSListener != nil {
+			s.HTTPSListener.Close()
+		}
 		s.db.Close()
 		s.stopRPC()
 		s.stopWeb()
@@ -525,4 +572,47 @@ func (s *Server) Close() {
 		s.log.Debug("Not running, don't bother closing")
 	}
 	s.runningMx.Unlock()
+}
+
+func (s *Server) ConfigureFlags() {
+	flag.StringVar(&s.DBDir, "dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
+	flag.BoolVar(&s.Vtime, "vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via inserts.")
+	flag.DurationVar(&s.WALSync, "walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
+	flag.IntVar(&s.MaxWALSize, "maxwalsize", 1024*1024*1024, "Maximum size of WAL segments on disk. Defaults to 1 GB.")
+	flag.IntVar(&s.WALCompressionSize, "walcompressionsize", 30*1024*1024, "Size above which to start compressing WAL segments with snappy. Defaults to 30 MB.")
+	flag.Float64Var(&s.MaxMemory, "maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
+	flag.DurationVar(&s.IterationCoalesceInterval, "itercoalesce", zenodb.DefaultIterationCoalesceInterval, "Period to wait for coalescing parallel iterations")
+	flag.IntVar(&s.IterationConcurrency, "iterconcurrency", zenodb.DefaultIterationConcurrency, "specifies the maximum concurrency for iterating tables")
+	flag.StringVar(&s.Addr, "addr", "localhost:17712", "The address at which to listen for gRPC over TLS connections, defaults to localhost:17712")
+	flag.StringVar(&s.HTTPSAddr, "httpsaddr", "localhost:17713", "The address at which to listen for JSON over HTTPS connections, defaults to localhost:17713")
+	flag.StringVar(&s.HTTPAddr, "httpaddr", "", "The address at which to listen for JSON over HTTP connections, defaults to localhost:17713")
+	flag.StringVar(&s.Password, "password", "", "if specified, will authenticate clients using this password")
+	flag.StringVar(&s.PKFile, "pkfile", "pk.pem", "path to the private key PEM file")
+	flag.StringVar(&s.CertFile, "certfile", "cert.pem", "path to the certificate PEM file")
+	flag.StringVar(&s.CookieHashKey, "cookiehashkey", "", "key to use for HMAC authentication of web auth cookies, should be 64 bytes, defaults to random 64 bytes if not specified")
+	flag.StringVar(&s.CookieBlockKey, "cookieblockkey", "", "key to use for encrypting web auth cookies, should be 32 bytes, defaults to random 32 bytes if not specified")
+	flag.StringVar(&s.OauthClientID, "oauthclientid", "", "id to use for oauth client to connect to GitHub")
+	flag.StringVar(&s.OauthClientSecret, "oauthclientsecret", "", "secret id to use for oauth client to connect to GitHub")
+	flag.StringVar(&s.GitHubOrg, "githuborg", "", "the GitHug org against which web users are authenticated")
+	flag.BoolVar(&s.Insecure, "insecure", false, "set to true to disable TLS certificate verification when connecting to other zeno servers (don't use this in production!)")
+	flag.BoolVar(&s.Passthrough, "passthrough", false, "set to true to make this node a passthrough that doesn't capture data in table but is capable of feeding and querying other nodes. requires that -partitions be specified.")
+	flag.StringVar(&s.Capture, "capture", "", "if specified, connect to the node at the given address to receive updates, authenticating with value of -password.  requires that you specify which -partition this node handles.")
+	flag.StringVar(&s.CaptureOverride, "captureoverride", "", "if specified, dial network connection for -capture using this address, but verify TLS connection using the address from -capture")
+	flag.StringVar(&s.Feed, "feed", "", "if specified, connect to the nodes at the given comma,delimited addresses to handle queries for them, authenticating with value of -password. requires that you specify which -partition this node handles.")
+	flag.StringVar(&s.FeedOverride, "feedoverride", "", "if specified, dial network connection for -feed using this address, but verify TLS connection using the address from -feed")
+	flag.IntVar(&s.ID, "id", 0, "unique identifier for a leader. if running in a cluster and omitting ID or specifying id = 0, you need to also specify the -allowzeroid flag")
+	flag.BoolVar(&s.AllowZeroID, "allowzeroid", false, "specify this flag to allow omitting the -id parameter or setting it to 0")
+	flag.IntVar(&s.NumPartitions, "numpartitions", 1, "The number of partitions available to distribute amongst followers")
+	flag.IntVar(&s.Partition, "partition", 0, "the partition number assigned to this follower")
+	flag.IntVar(&s.ClusterQueryConcurrency, "clusterqueryconcurrency", DefaultClusterQueryConcurrency, "specifies the maximum concurrency for clustered queries")
+	flag.DurationVar(&s.ClusterQueryTimeout, "clusterquerytimeout", zenodb.DefaultClusterQueryTimeout, "specifies the maximum time leader will wait for followers to answer a query")
+	flag.DurationVar(&s.NextQueryTimeout, "nextquerytimeout", DefaultNextQueryTimeout, "specifies the maximum time follower will wait for leader to send a query on an open connection")
+	flag.DurationVar(&s.MaxFollowAge, "maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
+	flag.StringVar(&s.TLSDomain, "tlsdomain", "", "Specify this to automatically use LetsEncrypt certs for this domain")
+	flag.DurationVar(&s.WebQueryCacheTTL, "webquerycachettl", 2*time.Hour, "specifies how long to cache web query results")
+	flag.DurationVar(&s.WebQueryTimeout, "webquerytimeout", 30*time.Minute, "time out web queries after this duration")
+	flag.IntVar(&s.WebQueryConcurrencyLimit, "webqueryconcurrency", 2, "limit concurrent web queries to this (subsequent queries will be queued)")
+	flag.IntVar(&s.WebMaxResponseBytes, "webquerymaxresponsebytes", 25*1024*1024, "limit the size of query results returned through the web API")
+	flag.DurationVar(&s.RPCKeepaliveInterval, "rpckeealiveinterval", 10*time.Second, "interval at which to ping leader via RPC")
+	flag.DurationVar(&s.RPCKeepAliveTimeout, "rpckeepalivetimeout", 5*time.Second, "time to wait for ping response from leader before reconnecting")
 }
