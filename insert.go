@@ -62,7 +62,7 @@ func (t *table) processWALInserts() {
 	for {
 		data, err := t.wal.Read()
 		if err != nil {
-			panic(fmt.Errorf("Unable to read from WAL: %v", err))
+			t.db.Panic(fmt.Errorf("Unable to read from WAL: %v", err))
 		}
 		in <- &walRead{data, t.wal.Offset(), 0}
 	}

@@ -194,7 +194,7 @@ func (t *table) readWALOffsets(filename string) (common.OffsetsBySource, bool, e
 	defer file.Close()
 	opened = true
 
-	fileVersion := versionFor(filename)
+	fileVersion := t.versionFor(filename)
 
 	r := snappy.NewReader(file)
 
@@ -342,9 +342,6 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	shouldSort := allowSort && rs.t.shouldSort()
 	willSort := "not sorted"
 	if shouldSort {
-	}
-
-	if shouldSort {
 		defer rs.t.stopSorting()
 		willSort = "sorted"
 	}
@@ -365,11 +362,11 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	out, err := ioutil.TempFile("", "nextrowstore")
 	if err != nil {
-		panic(err)
+		rs.t.db.Panic(err)
 	}
 	defer out.Close()
 
-	highWaterMark := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
+	highWaterMark, rowCount := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
 
 	fi, err := out.Stat()
 	if err != nil {
@@ -377,7 +374,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	}
 
 	if closeErr := out.Close(); closeErr != nil {
-		panic(closeErr)
+		rs.t.db.Panic(closeErr)
 	}
 
 	// Note - we left-pad the unix nano value to the widest possible length to
@@ -385,7 +382,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	// listing).
 	newFileStoreName := filepath.Join(rs.opts.dir, fmt.Sprintf("filestore_%020d_%d.dat", time.Now().UnixNano(), CurrentFileVersion))
 	if renameErr := os.Rename(out.Name(), newFileStoreName); renameErr != nil {
-		panic(renameErr)
+		rs.t.db.Panic(renameErr)
 	}
 
 	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}
@@ -397,41 +394,43 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	flushDuration := time.Now().Sub(start)
 	if fi != nil {
-		rs.t.log.Debugf("Flushed to %v in %v, size %v. %v.", newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
+		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %v. %v.", rowCount, newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
 	} else {
-		rs.t.log.Debugf("Flushed to %v in %v. %v.", newFileStoreName, flushDuration, willSort)
+		rs.t.log.Debugf("Flushed %d rows to %v in %v. %v.", rowCount, newFileStoreName, flushDuration, willSort)
 	}
 
 	rs.t.updateHighWaterMarkDisk(highWaterMark)
 	return ms, flushDuration
 }
 
-func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) int64 {
+func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) (int64, int) {
 	cout, err := fs.createOutWriter(out, fields, offsetsBySource, shouldSort)
 	if err != nil {
-		panic(err)
+		fs.t.db.Panic(err)
 	}
 
 	highWaterMark := int64(0)
 	truncateBefore := fs.t.truncateBefore()
+	rowCount := 0
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		nextHighWaterMark, err := fs.doWrite(cout, fields, filter, truncateBefore, shouldSort, key, columns, raw)
 		if err != nil {
-			panic(err)
+			fs.t.db.Panic(err)
 		}
 		if nextHighWaterMark > highWaterMark {
 			highWaterMark = nextHighWaterMark
 		}
+		rowCount++
 		return true, nil
 	}
 
 	fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
 	err = cout.Close()
 	if err != nil {
-		panic(err)
+		fs.t.db.Panic(err)
 	}
 
-	return highWaterMark
+	return highWaterMark, rowCount
 }
 
 func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBySource common.OffsetsBySource, shouldSort bool) (io.WriteCloser, error) {
@@ -479,7 +478,7 @@ func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBy
 
 	cout, sortErr := emsort.New(sout, chunk, less, int(fs.t.db.maxMemoryBytes())/10)
 	if sortErr != nil {
-		panic(sortErr)
+		fs.t.db.Panic(sortErr)
 	}
 
 	return cout, nil
@@ -580,7 +579,7 @@ func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goe
 func (rs *rowStore) writeOffsets(offsetsBySource common.OffsetsBySource) error {
 	out, err := ioutil.TempFile("", "nextoffset")
 	if err != nil {
-		panic(err)
+		rs.t.db.Panic(err)
 	}
 	defer out.Close()
 
@@ -610,9 +609,6 @@ func (rs *rowStore) removeOldFiles(stop <-chan interface{}) {
 			files, err := ioutil.ReadDir(rs.opts.dir)
 			if err != nil {
 				rs.t.log.Errorf("Unable to list data files in %v: %v", rs.opts.dir, err)
-			}
-			for _, file := range files {
-				rs.t.log.Debug(file.Name())
 			}
 			// Note - the list of files is sorted by name, which in our case is the
 			// timestamp, so that means they're sorted chronologically. We don't want
@@ -840,7 +836,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 
 func (fs *fileStore) info(r io.Reader) (common.OffsetsBySource, string, core.Fields, error) {
 	var offsetsBySource common.OffsetsBySource
-	fileVersion := versionFor(fs.filename)
+	fileVersion := fs.t.versionFor(fs.filename)
 	// File contains header with field info, use it
 	headerLength := uint32(0)
 	lengthErr := binary.Read(r, encoding.Binary, &headerLength)
@@ -874,7 +870,7 @@ func (fs *fileStore) info(r io.Reader) (common.OffsetsBySource, string, core.Fie
 	return offsetsBySource, fieldsString, fileFields, nil
 }
 
-func versionFor(filename string) int {
+func (t *table) versionFor(filename string) int {
 	fileVersion := 0
 	parts := strings.Split(filepath.Base(filename), "_")
 	if len(parts) == 3 {
@@ -882,7 +878,7 @@ func versionFor(filename string) int {
 		var versionErr error
 		fileVersion, versionErr = strconv.Atoi(versionString)
 		if versionErr != nil {
-			panic(fmt.Errorf("Unable to determine file version for file %v: %v", filename, versionErr))
+			t.db.Panic(fmt.Errorf("Unable to determine file version for file %v: %v", filename, versionErr))
 		}
 	}
 	return fileVersion

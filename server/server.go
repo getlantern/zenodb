@@ -84,6 +84,8 @@ type Server struct {
 	RPCKeepaliveInterval      time.Duration
 	RPCKeepAliveTimeout       time.Duration
 	ListenTimeout             time.Duration
+	MaxReconnectWaitTime      time.Duration
+	Panic                     func(err interface{})
 
 	Schema         string
 	AliasesFile    string
@@ -158,6 +160,7 @@ func (s *Server) Serve() (func() error, error) {
 		ClusterQueryConcurrency:   s.ClusterQueryConcurrency,
 		ClusterQueryTimeout:       s.ClusterQueryTimeout,
 		MaxFollowAge:              s.MaxFollowAge,
+		Panic:                     s.Panic,
 	}
 
 	s.log = dbOpts.BuildLogger()
@@ -187,7 +190,10 @@ func (s *Server) Serve() (func() error, error) {
 		s.log.Debugf("Handling queries for: %v", s.Feed)
 		dbOpts.RegisterRemoteQueryHandler = func(db *zenodb.DB, partition int, query planner.QueryClusterFN) {
 			minWaitTime := 50 * time.Millisecond
-			maxWaitTime := 5 * time.Second
+			maxWaitTime := s.MaxReconnectWaitTime
+			if maxWaitTime <= 0 {
+				maxWaitTime = 5 * time.Second
+			}
 
 			for _, _client := range clients {
 				client := _client

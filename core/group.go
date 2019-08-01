@@ -4,14 +4,15 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+	"time"
+
 	"github.com/getlantern/bytemap"
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/zenodb/bytetree"
 	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/expr"
-	"sort"
-	"strings"
-	"time"
 )
 
 var (
