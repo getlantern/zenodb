@@ -125,6 +125,8 @@ type DBOpts struct {
 	// from one or more sources (passthrough nodes).
 	Follow                     func(f func(sources []int) map[int]*common.Follow, cb func(data []byte, newOffset wal.Offset, source int) error)
 	RegisterRemoteQueryHandler func(db *DB, partition int, query planner.QueryClusterFN)
+	// Panic is an optional function for triggering panics
+	Panic func(interface{})
 }
 
 // BuildLogger builds a logger for the database configured with these DBOpts
@@ -178,12 +180,18 @@ type DB struct {
 	tasks                 sync.WaitGroup
 	closeOnce             sync.Once
 	closing               chan interface{}
+	Panic                 func(interface{})
 }
 
 // NewDB creates a database using the given options.
 func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.IterationConcurrency <= 0 {
 		opts.IterationConcurrency = DefaultIterationConcurrency
+	}
+	if opts.Panic == nil {
+		opts.Panic = func(err interface{}) {
+			panic(err)
+		}
 	}
 
 	metrics.SetNumPartitions(opts.NumPartitions)
@@ -203,6 +211,7 @@ func NewDB(opts *DBOpts) (*DB, error) {
 		requestedIterations: make(chan *iteration, 1000), // TODO, make the iteration backlog tunable
 		coalescedIterations: make(chan []*iteration, opts.IterationConcurrency),
 		closing:             make(chan interface{}),
+		Panic:               opts.Panic,
 	}
 	if opts.VirtualTime {
 		db.clock = vtime.NewVirtualClock(time.Time{})
