@@ -43,12 +43,16 @@ func TestRoundTimeUp(t *testing.T) {
 }
 
 func TestSingleDB(t *testing.T) {
+	cancel := testsupport.RedirectLogsToTest(t)
+	defer cancel()
+
 	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(), func(string, func(*table, bool))) {
 		db, err := NewDB(&DBOpts{
-			Dir:                     filepath.Join(tmpDir, "leader"),
-			SchemaFile:              tmpFile,
-			VirtualTime:             true,
-			ClusterQueryConcurrency: clusterQueryConcurrency,
+			Dir:                       filepath.Join(tmpDir, "leader"),
+			SchemaFile:                tmpFile,
+			VirtualTime:               true,
+			ClusterQueryConcurrency:   clusterQueryConcurrency,
+			IterationCoalesceInterval: 1 * time.Millisecond,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -110,6 +114,7 @@ Test_a:
 	}
 
 	db, advanceClock, flushTables, modifyTable := buildDB(tmpDir, tmpFile.Name())
+	defer db.Close()
 
 	// TODO: verify that we can actually select successfully from the view.
 	schemaB := schemaA + `
@@ -302,7 +307,7 @@ view_a:
 	shuffleFields()
 
 	// Give processing time to catch up
-	time.Sleep(10 * time.Second)
+	time.Sleep(2 * time.Second)
 
 	if !isClustered {
 		table := db.getTable("test_a")

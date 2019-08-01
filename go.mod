@@ -37,7 +37,7 @@ require (
 	github.com/getlantern/waitforserver v1.0.1
 	github.com/getlantern/wal v0.0.0-20190717163743-5ddbeeeef8a2
 	github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913
-	github.com/getlantern/yaml v0.0.0-20160317154340-79303eb9c0d9
+	github.com/getlantern/yaml v0.0.0-20190801163808-0c9bb1ebf426
 	github.com/glendc/gopher-json v0.0.0-20170414221815-dc4743023d0c // indirect
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/go-redis/redis v6.15.2+incompatible // indirect
@@ -78,7 +78,6 @@ require (
 	google.golang.org/appengine v1.6.1 // indirect
 	google.golang.org/grpc v1.20.1
 	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
-	gopkg.in/getlantern/yaml.v1 v1.0.0-20140912054538-97d86b60f57e // indirect
 	gopkg.in/mgo.v2 v2.0.0-20180705113604-9856a29383ce // indirect
 	gopkg.in/redis.v5 v5.2.9
 	gopkg.in/vmihailenco/msgpack.v2 v2.9.1 // indirect

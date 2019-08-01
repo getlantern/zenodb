@@ -80,7 +80,7 @@ func (h *handler) requestAuthorization(resp http.ResponseWriter, req *http.Reque
 		"scope":     "read:org",
 	})
 	if err != nil {
-		panic(err)
+		h.db.Panic(err)
 	}
 
 	log.Debugf("Redirecting to: %v", u.String())
@@ -111,7 +111,7 @@ func (h *handler) oauthCode(resp http.ResponseWriter, req *http.Request) {
 		"state":         state,
 	})
 	if err != nil {
-		panic(err)
+		h.db.Panic(err)
 	}
 
 	post, _ := http.NewRequest(http.MethodPost, u.String(), nil)

@@ -257,11 +257,17 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 
 			for stream := range newlyJoinedStreams {
 				var earliestOffset wal.Offset
+				hasOffset := false
 				for _, partition := range streams[stream] {
 					for _, table := range partition.tables {
 						for _, specs := range table.followersByPartition {
-							for _, spec := range specs {
-								if earliestOffset == nil || earliestOffset.After(spec.offset) {
+							for followerID, spec := range specs {
+								db.log.Debugf("Offset on %v for %v is %v", stream, followerID, spec.offset)
+								if !hasOffset {
+									db.log.Debugf("Follower %v has first offset on %v, using it: %v", followerID, stream, spec.offset)
+									hasOffset = true
+								} else if earliestOffset.After(spec.offset) {
+									db.log.Debugf("Follower %v has earlier offset on %v than %v, using it: %v", followerID, stream, earliestOffset, spec.offset)
 									earliestOffset = spec.offset
 								}
 							}
@@ -271,10 +277,11 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 
 				stopWALReader := stopWALReaders[stream]
 				if stopWALReader != nil {
+					db.log.Debugf("Stopping WAL reader for %v", stream)
 					stopWALReader()
 				}
 
-				// Start following wal
+				db.log.Debugf("Start following WAL for %v", stream)
 				stopWALReader, err := db.followWAL(stream, earliestOffset, streams[stream], requests)
 				if err != nil {
 					db.log.Errorf("Unable to start following wal: %v", err)
@@ -553,11 +560,13 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 				if err == io.EOF || err == io.ErrUnexpectedEOF {
 					return
 				}
-				db.log.Debugf("Unable to read from stream '%v': %v", stream, err)
+				db.log.Debugf("Unable to read from stream '%v', continuing: %v", stream, err)
 				continue
 			}
 			select {
 			case <-stop:
+				return
+			case <-stopDB:
 				return
 			default:
 				// keep going
