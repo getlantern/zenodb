@@ -262,7 +262,6 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 					for _, table := range partition.tables {
 						for _, specs := range table.followersByPartition {
 							for followerID, spec := range specs {
-								db.log.Debugf("Offset on %v for %v is %v", stream, followerID, spec.offset)
 								if !hasOffset {
 									db.log.Debugf("Follower %v has first offset on %v, using it: %v", followerID, stream, spec.offset)
 									earliestOffset = spec.offset
