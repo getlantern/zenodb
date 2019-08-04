@@ -265,6 +265,7 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 								db.log.Debugf("Offset on %v for %v is %v", stream, followerID, spec.offset)
 								if !hasOffset {
 									db.log.Debugf("Follower %v has first offset on %v, using it: %v", followerID, stream, spec.offset)
+									earliestOffset = spec.offset
 									hasOffset = true
 								} else if earliestOffset.After(spec.offset) {
 									db.log.Debugf("Follower %v has earlier offset on %v than %v, using it: %v", followerID, stream, earliestOffset, spec.offset)
