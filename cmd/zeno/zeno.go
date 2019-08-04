@@ -16,7 +16,7 @@ var (
 func main() {
 	srv := &server.Server{}
 	srv.ConfigureFlags()
-
+	iniflags.SetAllowUnknownFlags(true)
 	iniflags.Parse()
 
 	srv.Schema = *cmd.Schema
