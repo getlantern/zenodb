@@ -589,8 +589,10 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 	})
 
 	return func() {
+		db.log.Debug("Calling wal.Stop()")
 		r.Stop()
-		stop <- true
+		close(stop)
+		db.log.Debug("Waiting for WAL reading to finish")
 		<-finished
 	}, nil
 }
