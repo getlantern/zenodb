@@ -106,6 +106,15 @@ func TestServers(t *testing.T) {
 		enqueueTest(fmt.Sprintf("ClusterSimple.%d", i), func(t *testing.T) {
 			doTestCluster(t, 1, 3, 1, i, rpcPort(200, i), httpPort(200, i))
 		})
+		// enqueueTest(fmt.Sprintf("ClusterRedundantFollowers.%d", i), func(t *testing.T) {
+		// 	doTestCluster(t, 1, 1, 2, i, rpcPort(200, i), httpPort(200, i))
+		// })
+		// enqueueTest(fmt.Sprintf("ClusterMultiLeader.%d", i), func(t *testing.T) {
+		// 	doTestCluster(t, 2, 2, 1, i, rpcPort(200, i), httpPort(200, i))
+		// })
+		// enqueueTest(fmt.Sprintf("ClusterComplex.%d", i), func(t *testing.T) {
+		// 	doTestCluster(t, 2, 3, 3, i, rpcPort(200, i), httpPort(200, i))
+		// })
 	}
 
 	close(testTasks)
@@ -544,7 +553,7 @@ test_ab:
 
 	runTests([]test{
 		test{"inserted data should become available", 10 * time.Second, func() bool {
-			if !insert(10000) {
+			if !insert(100) {
 				return false
 			}
 			return true
@@ -563,7 +572,7 @@ test_ab:
 			return true
 		}},
 		test{"followers reconnect after leaders are restarted", 10 * time.Second, func() bool {
-			if !insert(10000) {
+			if !insert(100) {
 				return false
 			}
 

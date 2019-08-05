@@ -589,11 +589,16 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 	})
 
 	return func() {
-		db.log.Debug("Calling wal.Stop()")
-		r.Stop()
-		close(stop)
-		db.log.Debug("Waiting for WAL reading to finish")
-		<-finished
+		select {
+		case <-stop:
+			db.log.Debug("Already stopped")
+		default:
+			db.log.Debug("Calling wal.Stop()")
+			r.Stop()
+			close(stop)
+			db.log.Debug("Waiting for WAL reading to finish")
+			<-finished
+		}
 	}, nil
 }
 
@@ -671,7 +676,8 @@ waitForTables:
 func (db *DB) doFollowLeaders(stream string, tables []*table, offsets []common.OffsetsBySource, partitions map[string]*common.Partition, cancel chan bool, stop <-chan interface{}) {
 	var offsetsMx sync.RWMutex
 	ins := make([]chan *walRead, 0, len(tables))
-	for _, t := range tables {
+	for _, _t := range tables {
+		t := _t
 		in := make(chan *walRead) // blocking channel so that we don't bother reading if we're in the middle of flushing
 		ins = append(ins, in)
 		db.Go(func(stop <-chan interface{}) {
