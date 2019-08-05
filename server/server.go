@@ -543,7 +543,7 @@ func (s *Server) clientsFor(serversString string, serverOverridesString string, 
 
 		client, dialErr := rpc.Dial(s.Capture, clientOpts)
 		if dialErr != nil {
-			return nil, errors.New("Unable to connect to server at %v: %v", server, dialErr)
+			return nil, errors.New("Unable to connect to server %v at %v: %v", server, dest, dialErr)
 		}
 		clientsByServerID[id] = client
 	}
