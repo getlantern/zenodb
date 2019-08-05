@@ -160,7 +160,7 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 					table.followersByPartition[f.FollowerID.Partition] = specs
 				}
 				offset := t.Offsets[db.opts.ID]
-				if offset.After(f.EarliestOffset) {
+				if f.EarliestOffset.After(offset) {
 					offset = f.EarliestOffset
 				}
 				spec := &followSpec{followerID: f.FollowerID, offset: offset}

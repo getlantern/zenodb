@@ -256,7 +256,38 @@ test:
       IF(meta = 'include', SUM(val)) AS filtered_val
     FROM inbound
     GROUP BY a, b, period(1h)
-`, flushLatency, partitionClause)
+test_a:
+  maxflushlatency: %s
+  retentionperiod: 5h%s
+	partitionby: [a]
+  sql: >
+    SELECT
+      val,
+      IF(meta = 'include', SUM(val)) AS filtered_val
+    FROM inbound
+    GROUP BY a, b, period(1h)
+test_b:
+  maxflushlatency: %s
+  retentionperiod: 5h%s
+	partitionby: [b]
+  sql: >
+    SELECT
+      val,
+      IF(meta = 'include', SUM(val)) AS filtered_val
+    FROM inbound
+    GROUP BY a, b, period(1h)
+test_ab:
+  maxflushlatency: %s
+  retentionperiod: 5h%s
+	partitionby: [a, b]
+  sql: >
+    SELECT
+      val,
+      IF(meta = 'include', SUM(val)) AS filtered_val
+    FROM inbound
+    GROUP BY a, b, period(1h)
+`, flushLatency, partitionClause, flushLatency, partitionClause, flushLatency, partitionClause, flushLatency, partitionClause)
+	schema = strings.Replace(schema, "\t", "  ", -1)
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schema), 0644)
 	if !assert.NoError(t, err, "Unable to write schema") {
 		return
@@ -513,7 +544,7 @@ test:
 
 	runTests([]test{
 		test{"inserted data should become available", 10 * time.Second, func() bool {
-			if !insert(100) {
+			if !insert(10000) {
 				return false
 			}
 			return true
@@ -532,7 +563,7 @@ test:
 			return true
 		}},
 		test{"followers reconnect after leaders are restarted", 10 * time.Second, func() bool {
-			if !insert(100) {
+			if !insert(10000) {
 				return false
 			}
 
