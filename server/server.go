@@ -613,6 +613,6 @@ func (s *Server) ConfigureFlags() {
 	flag.DurationVar(&s.WebQueryTimeout, "webquerytimeout", 30*time.Minute, "time out web queries after this duration")
 	flag.IntVar(&s.WebQueryConcurrencyLimit, "webqueryconcurrency", 2, "limit concurrent web queries to this (subsequent queries will be queued)")
 	flag.IntVar(&s.WebMaxResponseBytes, "webquerymaxresponsebytes", 25*1024*1024, "limit the size of query results returned through the web API")
-	flag.DurationVar(&s.RPCKeepaliveInterval, "rpckeealiveinterval", 10*time.Second, "interval at which to ping leader via RPC")
-	flag.DurationVar(&s.RPCKeepAliveTimeout, "rpckeepalivetimeout", 5*time.Second, "time to wait for ping response from leader before reconnecting")
+	flag.DurationVar(&s.RPCKeepaliveInterval, "rpckeealiveinterval", 30*time.Second, "interval at which to ping leader via RPC")
+	flag.DurationVar(&s.RPCKeepAliveTimeout, "rpckeepalivetimeout", 25*time.Second, "time to wait for ping response from leader before reconnecting")
 }
