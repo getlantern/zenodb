@@ -636,8 +636,6 @@ func clientsForServers(servers []*Server) ([]rpc.Client, func(), error) {
 					addr,
 					&tls.Config{InsecureSkipVerify: true})
 			},
-			KeepaliveInterval: 250 * time.Millisecond,
-			KeepaliveTimeout:  250 * time.Millisecond,
 		})
 		if err != nil {
 			return nil, nil, err

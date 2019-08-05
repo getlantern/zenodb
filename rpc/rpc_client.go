@@ -15,7 +15,6 @@ import (
 	"github.com/getlantern/zenodb/core"
 	"github.com/getlantern/zenodb/planner"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/metadata"
 )
 
@@ -25,9 +24,6 @@ type ClientOpts struct {
 	Password string
 
 	Dialer func(string, time.Duration) (net.Conn, error)
-
-	KeepaliveInterval time.Duration
-	KeepaliveTimeout  time.Duration
 }
 
 type Inserter interface {
@@ -47,7 +43,6 @@ func Dial(addr string, opts *ClientOpts) (Client, error) {
 	opts.Dialer = snappyDialer(opts.Dialer)
 
 	conn, err := grpc.Dial(addr,
-		grpc.WithKeepaliveParams(keepalive.ClientParameters{Time: opts.KeepaliveInterval, Timeout: opts.KeepaliveTimeout, PermitWithoutStream: true}),
 		grpc.WithInsecure(),
 		grpc.WithDialer(opts.Dialer),
 		grpc.WithCodec(Codec),

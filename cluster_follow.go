@@ -724,6 +724,18 @@ func (db *DB) doFollowLeaders(stream string, tables []*table, offsets []common.O
 	}
 
 	db.opts.Follow(makeFollows, func(data []byte, newOffset wal.Offset, source int) error {
+		select {
+		case <-cancel:
+			// Canceled
+			offsetsMx.Unlock()
+			return errCanceled
+		case <-stop:
+			offsetsMx.Unlock()
+			return errStopped
+		default:
+			// Okay to continue
+		}
+
 		for i, in := range ins {
 			offsetsMx.Lock()
 			priorOffsets := offsets[i]

@@ -6,7 +6,6 @@ import (
 	serrors "errors"
 	"flag"
 	"io/ioutil"
-	"math"
 	"net"
 	"net/http"
 	"path/filepath"
@@ -88,8 +87,6 @@ type Server struct {
 	WebQueryTimeout           time.Duration
 	WebQueryConcurrencyLimit  int
 	WebMaxResponseBytes       int
-	RPCKeepaliveInterval      time.Duration
-	RPCKeepAliveTimeout       time.Duration
 	ListenTimeout             time.Duration
 	MaxReconnectWaitTime      time.Duration
 	Panic                     func(err interface{})
@@ -538,8 +535,6 @@ func (s *Server) clientsFor(serversString string, serverOverridesString string, 
 				tlsConn := tls.Client(conn, clientTLSConfig)
 				return tlsConn, tlsConn.Handshake()
 			},
-			KeepaliveInterval: s.RPCKeepaliveInterval,
-			KeepaliveTimeout:  s.RPCKeepAliveTimeout,
 		}
 
 		client, dialErr := rpc.Dial(s.Capture, clientOpts)
@@ -614,6 +609,4 @@ func (s *Server) ConfigureFlags() {
 	flag.DurationVar(&s.WebQueryTimeout, "webquerytimeout", 30*time.Minute, "time out web queries after this duration")
 	flag.IntVar(&s.WebQueryConcurrencyLimit, "webqueryconcurrency", 2, "limit concurrent web queries to this (subsequent queries will be queued)")
 	flag.IntVar(&s.WebMaxResponseBytes, "webquerymaxresponsebytes", 25*1024*1024, "limit the size of query results returned through the web API")
-	flag.DurationVar(&s.RPCKeepaliveInterval, "rpckeealiveinterval", time.Duration(math.MaxInt64), "interval after which to ping leader via RPC")
-	flag.DurationVar(&s.RPCKeepAliveTimeout, "rpckeepalivetimeout", time.Duration(math.MaxInt64), "time to wait for ping response from leader before reconnecting")
 }
