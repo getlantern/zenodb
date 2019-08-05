@@ -52,9 +52,6 @@ func TestMetrics(t *testing.T) {
 
 	s = GetStats()
 	assert.Equal(t, 2, s.Leader.ConnectedFollowers)
-	assert.True(t, s.Followers[1].Failed)
-	assert.True(t, s.Followers[2].Failed)
-
 	assert.Equal(t, 2, s.Leader.ConnectedPartitions)
 	assert.Equal(t, 1, s.Partitions[0].Partition)
 	assert.Equal(t, 1, s.Partitions[0].NumFollowers)
@@ -67,6 +64,15 @@ func TestMetrics(t *testing.T) {
 	FollowerFailed(common.FollowerID{2, 4})
 	FollowerFailed(common.FollowerID{2, 4})
 
-	assert.True(t, s.Followers[0].Failed)
-	assert.True(t, s.Followers[3].Failed)
+	s = GetStats()
+	assert.Zero(t, s.Leader.ConnectedFollowers)
+	assert.Zero(t, s.Leader.ConnectedPartitions)
+
+	// Re-join
+	FollowerJoined(common.FollowerID{1, 1})
+	FollowerJoined(common.FollowerID{1, 2})
+
+	s = GetStats()
+	assert.Equal(t, 2, s.Leader.ConnectedFollowers)
+	assert.Equal(t, 1, s.Leader.ConnectedPartitions)
 }

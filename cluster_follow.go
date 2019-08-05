@@ -111,7 +111,7 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 	stopWALReaders := make(map[string]func())
 	includedFollowers := make([]common.FollowerID, 0, len(followers))
 
-	stats := make([]int, db.opts.NumPartitions)
+	stats := make(map[common.FollowerID]int, db.opts.NumPartitions)
 	statsInterval := 1 * time.Minute
 	statsTicker := time.NewTicker(statsInterval)
 
@@ -183,12 +183,12 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 	var results chan *partitionsResult
 
 	printStats := func() {
-		for partition, count := range stats {
+		for follower, count := range stats {
 			if count > 0 {
-				db.log.Debugf("Sent to follower %d: %d at %v / s", partition, count, humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
+				db.log.Debugf("Sent to follower %v: %d at %v / s", follower, humanize.Comma(int64(count)), humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
 			}
 		}
-		stats = make([]int, db.opts.NumPartitions)
+		stats = make(map[common.FollowerID]int, db.opts.NumPartitions)
 
 		for _, f := range followers {
 			queued := int64(len(f.entries))
@@ -336,7 +336,7 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 					continue
 				}
 				f.submit(entry)
-				stats[f.FollowerID.Partition]++
+				stats[f.FollowerID]++
 			}
 
 		case <-statsTicker.C:

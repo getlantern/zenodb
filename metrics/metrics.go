@@ -46,7 +46,6 @@ type LeaderStats struct {
 type FollowerStats struct {
 	FollowerID common.FollowerID
 	Queued     int
-	Failed     bool
 }
 
 // PartitionStats provides stats for a single partition
@@ -95,7 +94,6 @@ func FollowerJoined(followerID common.FollowerID) {
 	if ps == nil {
 		ps = &PartitionStats{Partition: followerID.Partition}
 		partitionStats[followerID.Partition] = ps
-		leaderStats.ConnectedPartitions++
 	}
 	ps.NumFollowers++
 }
@@ -104,14 +102,12 @@ func FollowerJoined(followerID common.FollowerID) {
 func FollowerFailed(followerID common.FollowerID) {
 	mx.Lock()
 	defer mx.Unlock()
-	// Only mark failed once
 	fs, found := followerStats[followerID]
-	if found && !fs.Failed {
-		leaderStats.ConnectedFollowers--
-		fs.Failed = true
+	if found {
+		delete(followerStats, followerID)
 		partitionStats[fs.FollowerID.Partition].NumFollowers--
 		if partitionStats[fs.FollowerID.Partition].NumFollowers == 0 {
-			leaderStats.ConnectedPartitions--
+			delete(partitionStats, fs.FollowerID.Partition)
 		}
 	}
 }
@@ -129,7 +125,6 @@ func QueuedForFollower(followerID common.FollowerID, queued int) {
 func getFollowerStats(followerID common.FollowerID) *FollowerStats {
 	fs, found := followerStats[followerID]
 	if !found {
-		leaderStats.ConnectedFollowers++
 		fs = &FollowerStats{
 			FollowerID: followerID,
 			Queued:     0,
@@ -157,5 +152,7 @@ func GetStats() *Stats {
 
 	sort.Sort(s.Followers)
 	sort.Sort(s.Partitions)
+	s.Leader.ConnectedPartitions = len(partitionStats)
+	s.Leader.ConnectedFollowers = len(followerStats)
 	return s
 }
