@@ -622,7 +622,7 @@ waitForTables:
 		case <-timer.C:
 			if len(tables) == 0 {
 				// Wait some more
-				timer.Reset(5 * time.Second)
+				timer.Reset(10 * time.Second)
 			}
 			break waitForTables
 		case subscriber := <-newSubscriber:
@@ -644,7 +644,7 @@ waitForTables:
 				Offsets: os,
 			})
 			// Got some tables, don't wait as long this time
-			timer.Reset(1 * time.Second)
+			timer.Reset(5 * time.Second)
 		}
 	}
 
@@ -708,6 +708,11 @@ func (db *DB) doFollowLeaders(stream string, tables []*table, offsets []common.O
 		db.log.Debugf("Following %v starting at %v", stream, earliestOffsetsBySource)
 		follows := make(map[int]*common.Follow, len(earliestOffsetsBySource))
 		for source, earliestOffset := range earliestOffsetsBySource {
+			for _, partition := range partitions {
+				for _, table := range partition.Tables {
+					db.log.Debugf("Following table %v starting at %v in partition %v", table.Name, table.Offsets[source], partition.Keys)
+				}
+			}
 			follows[source] = &common.Follow{
 				Stream:         stream,
 				EarliestOffset: earliestOffset,
@@ -719,16 +724,6 @@ func (db *DB) doFollowLeaders(stream string, tables []*table, offsets []common.O
 	}
 
 	db.opts.Follow(makeFollows, func(data []byte, newOffset wal.Offset, source int) error {
-		select {
-		case <-cancel:
-			// Canceled
-			return errCanceled
-		case <-stop:
-			return errStopped
-		default:
-			// Okay to continue
-		}
-
 		for i, in := range ins {
 			offsetsMx.Lock()
 			priorOffsets := offsets[i]
@@ -738,11 +733,20 @@ func (db *DB) doFollowLeaders(stream string, tables []*table, offsets []common.O
 			}
 			priorOffset := priorOffsets[source]
 			if newOffset.After(priorOffset) {
-				in <- &walRead{data, newOffset, source}
-				offsetsBySource := offsets[i]
-				offsetsBySource[source] = newOffset
+				select {
+				case in <- &walRead{data, newOffset, source}:
+					offsetsBySource := offsets[i]
+					offsetsBySource[source] = newOffset
+					offsetsMx.Unlock()
+				case <-cancel:
+					// Canceled
+					offsetsMx.Unlock()
+					return errCanceled
+				case <-stop:
+					offsetsMx.Unlock()
+					return errStopped
+				}
 			}
-			offsetsMx.Unlock()
 		}
 		return nil
 	})
