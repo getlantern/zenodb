@@ -185,7 +185,7 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 	printStats := func() {
 		for follower, count := range stats {
 			if count > 0 {
-				db.log.Debugf("Sent to follower %v: %d at %v / s", follower, humanize.Comma(int64(count)), humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
+				db.log.Debugf("Sent to follower %v: %v at %v / s", follower, humanize.Comma(int64(count)), humanize.Comma(int64(float64(count)/statsInterval.Seconds())))
 			}
 		}
 		stats = make(map[common.FollowerID]int, db.opts.NumPartitions)
