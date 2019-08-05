@@ -331,8 +331,15 @@ func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeM
 	if includeMemStore {
 		ms = rs.memStore.copy()
 	}
-	rs.iterationsInProgress[fs.filename] = rs.iterationsInProgress[fs.filename] + 1
 	rs.mx.RUnlock()
+	rs.mx.Lock()
+	rs.iterationsInProgress[fs.filename]++
+	rs.mx.Unlock()
+	defer func() {
+		rs.mx.Lock()
+		rs.iterationsInProgress[fs.filename]--
+		rs.mx.Unlock()
+	}()
 	return fs.iterate(outFields, ms, false, false, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		return guard.ProceedAfter(onValue(key, columns))
 	})

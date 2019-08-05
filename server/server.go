@@ -102,11 +102,14 @@ type Server struct {
 	stopWeb func()
 
 	running   bool
+	stop      chan interface{}
+	stopped   chan interface{}
 	runningMx sync.Mutex
+	closeMx   sync.Mutex
 }
 
 // Prepare prepares the zeno server to run, returning a reference to the underlying db and a blocking function for actually running.
-func (s *Server) Prepare() (*zenodb.DB, func() error, error) {
+func (s *Server) Prepare() (db *zenodb.DB, run func() error, finalErr error) {
 	if s.ID < 0 {
 		return nil, nil, ErrInvalidID
 	}
@@ -114,10 +117,28 @@ func (s *Server) Prepare() (*zenodb.DB, func() error, error) {
 		return nil, nil, ErrMissingID
 	}
 
+	stop := make(chan interface{})
+	stopped := make(chan interface{})
 	s.runningMx.Lock()
-	if s.running {
-		return nil, nil, ErrAlreadyRunning
+	alreadyRunning := s.running
+	if !alreadyRunning {
+		s.stop = stop
+		s.stopped = stopped
+		s.running = true
 	}
+	s.runningMx.Unlock()
+	if alreadyRunning {
+		finalErr = ErrAlreadyRunning
+		return
+	}
+
+	defer func() {
+		if finalErr != nil {
+			s.runningMx.Lock()
+			s.running = true
+			s.runningMx.Unlock()
+		}
+	}()
 
 	if s.ClusterQueryConcurrency <= 0 {
 		s.ClusterQueryConcurrency = DefaultClusterQueryConcurrency
@@ -157,7 +178,8 @@ func (s *Server) Prepare() (*zenodb.DB, func() error, error) {
 	if s.Capture != "" {
 		clients, err := s.clientsFor(s.Capture, s.CaptureOverride, clientSessionCache)
 		if err != nil {
-			return nil, nil, err
+			finalErr = err
+			return
 		}
 		sources := make([]int, 0, len(clients))
 		for source := range clients {
@@ -220,12 +242,23 @@ func (s *Server) Prepare() (*zenodb.DB, func() error, error) {
 	var err error
 	s.db, err = zenodb.NewDB(dbOpts)
 	if err != nil {
-		return nil, nil, s.log.Errorf("Unable to open database at %v: %v", s.DBDir, err)
+		finalErr = s.log.Errorf("Unable to open database at %v: %v", s.DBDir, err)
+		return
 	}
 	s.log.Debugf("Opened database at %v\n", s.DBDir)
 
-	run := func() error {
+	run = func() error {
 		defer func() {
+			s.runningMx.Lock()
+			if s.db != nil {
+				s.db.Close()
+			}
+			if s.stopRPC != nil {
+				s.stopRPC()
+			}
+			if s.stopWeb != nil {
+				s.stopWeb()
+			}
 			if s.Listener != nil {
 				s.Listener.Close()
 				s.Listener = nil
@@ -238,6 +271,11 @@ func (s *Server) Prepare() (*zenodb.DB, func() error, error) {
 				s.HTTPSListener.Close()
 				s.HTTPSListener = nil
 			}
+			close(stopped)
+			s.stop = nil
+			s.stopped = nil
+			s.running = false
+			s.runningMx.Unlock()
 		}()
 
 		if s.Listener == nil {
@@ -317,14 +355,16 @@ func (s *Server) Prepare() (*zenodb.DB, func() error, error) {
 			errCh <- s.serveRPC()
 		}()
 
-		s.running = true
 		s.log.Debug("Started")
-		s.runningMx.Unlock()
 
 		for i := 0; i < 2; i++ {
-			err := <-errCh
-			if err != nil {
-				return err
+			select {
+			case err := <-errCh:
+				if err != nil {
+					return err
+				}
+			case <-stop:
+				return nil
 			}
 		}
 		return nil
@@ -549,25 +589,21 @@ func (s *Server) clientsFor(serversString string, serverOverridesString string, 
 
 func (s *Server) Close() {
 	s.log.Debug("Close requested")
+	s.closeMx.Lock()
 	s.runningMx.Lock()
-	if s.running {
-		s.log.Debug("Closing")
-		s.Listener.Close()
-		if s.HTTPListener != nil {
-			s.HTTPListener.Close()
-		}
-		if s.HTTPSListener != nil {
-			s.HTTPSListener.Close()
-		}
-		s.db.Close()
-		s.stopRPC()
-		s.stopWeb()
-		s.running = false
-		s.log.Debug("Closed")
-	} else {
-		s.log.Debug("Not running, don't bother closing")
-	}
+	running := s.running
+	stop := s.stop
+	stopped := s.stopped
 	s.runningMx.Unlock()
+	if running {
+		s.log.Debug("Stopping")
+		close(stop)
+		<-stopped
+		s.log.Debug("Stopped")
+	} else {
+		s.log.Debug("Already stopped")
+	}
+	s.closeMx.Unlock()
 }
 
 func (s *Server) ConfigureFlags() {

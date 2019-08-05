@@ -54,7 +54,7 @@ func TestServers(t *testing.T) {
 		fn   func(t *testing.T)
 	}
 
-	iters := 8
+	iters := 2
 	concurrency := runtime.NumCPU() * 2
 
 	testTasks := make(chan testTask, iters*concurrency)
@@ -80,21 +80,32 @@ func TestServers(t *testing.T) {
 		testTasks <- testTask{name, fn}
 	}
 
-	rpcPort := func(base, i int) int {
-		return (base + i) * 100
+	currentPort := 20000
+	reservePortRange := func(size int) func() func() int {
+		rangeStart := currentPort
+		currentPort += size
+		return func() func() int {
+			currentInRange := rangeStart
+			return func() int {
+				result := currentInRange
+				currentInRange++
+				return result
+			}
+		}
 	}
-	httpPort := func(base, i int) int {
-		return (base + ((i + 1) * iters) + i) * 100
-	}
+
 	for _i := 1; _i <= iters; _i++ {
 		i := _i
+
+		singlePorts := reservePortRange(2)
 		enqueueTest(fmt.Sprintf("SingleDB.%d", i), func(t *testing.T) {
 			doTest(t, nil, func(tmpDir func(string) string, tmpFile string) ([]*Server, [][]*Server) {
+				nextPort := singlePorts()
 				s := &Server{
 					DBDir:                     tmpDir(fmt.Sprintf("singledb.%d", i)),
 					Schema:                    tmpFile,
-					Addr:                      fmt.Sprintf("127.0.0.1:%d", rpcPort(100, i)),
-					HTTPSAddr:                 fmt.Sprintf("127.0.0.1:%d", httpPort(100, i)),
+					Addr:                      fmt.Sprintf("127.0.0.1:%d", nextPort()),
+					HTTPSAddr:                 fmt.Sprintf("127.0.0.1:%d", nextPort()),
 					Insecure:                  true,
 					IterationCoalesceInterval: 1 * time.Millisecond,
 					Panic:                     dontPanic,
@@ -104,62 +115,29 @@ func TestServers(t *testing.T) {
 		})
 
 		enqueueTest(fmt.Sprintf("ClusterSimple.%d", i), func(t *testing.T) {
-			doTestCluster(t, 1, 3, 1, i, rpcPort(200, i), httpPort(200, i))
+			doTestCluster(t, 1, 3, 1, i, reservePortRange)
 		})
-		// enqueueTest(fmt.Sprintf("ClusterRedundantFollowers.%d", i), func(t *testing.T) {
-		// 	doTestCluster(t, 1, 1, 2, i, rpcPort(200, i), httpPort(200, i))
-		// })
-		// enqueueTest(fmt.Sprintf("ClusterMultiLeader.%d", i), func(t *testing.T) {
-		// 	doTestCluster(t, 2, 2, 1, i, rpcPort(200, i), httpPort(200, i))
-		// })
-		// enqueueTest(fmt.Sprintf("ClusterComplex.%d", i), func(t *testing.T) {
-		// 	doTestCluster(t, 2, 3, 3, i, rpcPort(200, i), httpPort(200, i))
-		// })
+		enqueueTest(fmt.Sprintf("ClusterRedundantFollowers.%d", i), func(t *testing.T) {
+			doTestCluster(t, 1, 1, 2, i, reservePortRange)
+		})
+		enqueueTest(fmt.Sprintf("ClusterMultiLeader.%d", i), func(t *testing.T) {
+			doTestCluster(t, 2, 2, 1, i, reservePortRange)
+		})
+		enqueueTest(fmt.Sprintf("ClusterComplex.%d", i), func(t *testing.T) {
+			doTestCluster(t, 2, 3, 3, i, reservePortRange)
+		})
 	}
 
 	close(testTasks)
-
-	// t.Run("SingleDB", testSingleDB)
-	// t.Run("ClusterSimple", testClusterSimple)
-	// t.Run("ClusterRedundantFollowers", func(t *testing.T) { doTestCluster(t, 1, 1, 2, 52000); wg.Done() })
-	// t.Run("ClusterMultiLeader", testClusterMultiLeader)
-	// t.Run("ClusterComplex", testClusterComplex)
 }
 
-// func testSingleDB(t *testing.T) {
-// 	doTest(t, nil, func(tmpDir func() string, tmpFile string) ([]*Server, [][]*Server) {
-// 		s := &Server{
-// 			DBDir:                     tmpDir(),
-// 			Schema:                    tmpFile,
-// 			Addr:                      "127.0.0.1:40000",
-// 			HTTPSAddr:                 "127.0.0.1:41000",
-// 			Insecure:                  true,
-// 			IterationCoalesceInterval: 1 * time.Millisecond,
-// 		}
-// 		return []*Server{s}, nil
-// 	})
-// }
-
-// func testClusterSimple(t *testing.T) {
-// 	doTestCluster(t, 1, 3, 1, 50000)
-// }
-
-// func testClusterRedundantFollowers(t *testing.T) {
-// 	doTestCluster(t, 1, 1, 2, 52000)
-// }
-
-// func testClusterMultiLeader(t *testing.T) {
-// 	doTestCluster(t, 2, 2, 1, 54000)
-// }
-
-// func testClusterComplex(t *testing.T) {
-// 	doTestCluster(t, 2, 3, 3, 56000)
-// }
-
-func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLevel int, iteration int, startingPortRPC, startingPortHTTP int) {
+func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLevel int, iteration int, reservePortRange func(size int) func() func() int) {
 	t.Helper()
 
+	ports := reservePortRange(1000) //numLeaders + numPartitions*redundancyLevel)
+
 	doTest(t, nil, func(tmpDir func(string) string, tmpFile string) ([]*Server, [][]*Server) {
+		nextPort := ports()
 		var leaderAddrs []string
 		var leaders []*Server
 		for i := 0; i < numLeaders; i++ {
@@ -167,8 +145,8 @@ func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLe
 			leader := &Server{
 				DBDir:         tmpDir(fmt.Sprintf("cluster.leader.%d.%d.%d.%d", numLeaders, numPartitions, redundancyLevel, id)),
 				Schema:        tmpFile,
-				Addr:          fmt.Sprintf("127.0.0.1:%d", startingPortRPC+i),
-				HTTPSAddr:     fmt.Sprintf("127.0.0.1:%d", startingPortHTTP+i),
+				Addr:          fmt.Sprintf("127.0.0.1:%d", nextPort()),
+				HTTPSAddr:     fmt.Sprintf("127.0.0.1:%d", nextPort()),
 				Insecure:      true,
 				ID:            id,
 				NumPartitions: numPartitions,
@@ -191,8 +169,8 @@ func doTestCluster(t *testing.T, numLeaders int, numPartitions int, redundancyLe
 				follower := &Server{
 					DBDir:                     tmpDir(fmt.Sprintf("cluster.follower.%d.%d.%d.%d", numLeaders, numPartitions, redundancyLevel, id)),
 					Schema:                    tmpFile,
-					Addr:                      fmt.Sprintf("127.0.0.1:%d", startingPortRPC+(i+1)*10+(j+1)*100),
-					HTTPSAddr:                 fmt.Sprintf("127.0.0.1:%d", startingPortHTTP+(i+1)*10+(j+1)*100),
+					Addr:                      fmt.Sprintf("127.0.0.1:%d", nextPort()),
+					HTTPSAddr:                 fmt.Sprintf("127.0.0.1:%d", nextPort()),
 					Insecure:                  true,
 					ID:                        id,
 					AllowZeroID:               j == 0,
@@ -231,9 +209,11 @@ func doTest(t *testing.T, partitionKeys []string, configureCluster func(tmpDirs 
 	}
 
 	closeServer := func(s *Server) error {
-		// closes the server and fails if closing takes more than 15 seconds
+		// closes the server and fails if closing takes more than 30 seconds
 		_, timedOut, _ := withtimeout.Do(15*time.Second, func() (interface{}, error) {
-			s.Close()
+			if s != nil {
+				s.Close()
+			}
 			return nil, nil
 		})
 		if timedOut {
@@ -562,7 +542,7 @@ test_ab:
 			for _, followersForPartition := range followersByPartition {
 				if len(followersForPartition) > 1 {
 					for i := 1; i < len(followersForPartition); i++ {
-						if err := closeServer(followersForPartition[i]); !assert.NoError(t, err, "Unable to close follower") {
+						if err := closeServer(followersForPartition[i]); !assert.NoError(t, err, "Unable to close follower %d.%d", followersForPartition[i].Partition, followersForPartition[i].ID) {
 							return false
 						}
 					}
