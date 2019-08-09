@@ -23,7 +23,7 @@ require (
 	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7
 	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
 	github.com/getlantern/goexpr v0.0.0-20190618200516-431684af4c0b
-	github.com/getlantern/golog v0.0.0-20170508214112-cca714f7feb5
+	github.com/getlantern/golog v0.0.0-20190809085441-26e09e6dd330
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
 	github.com/getlantern/keyman v0.0.0-20180207174507-f55e7280e93a // indirect
 	github.com/getlantern/msgpack v3.1.4+incompatible
@@ -69,7 +69,7 @@ require (
 	github.com/spaolacci/murmur3 v1.1.0
 	github.com/stretchr/testify v1.3.0
 	github.com/syndtr/goleveldb v1.0.0 // indirect
-	github.com/ugorji/go v1.1.5-pre // indirect
+	github.com/ugorji/go/codec v1.1.5-pre // indirect
 	github.com/vharitonsky/iniflags v0.0.0-20180513140207-a33cd0b5f3de
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2 // indirect
 	github.com/yuin/gopher-lua v0.0.0-20190514113301-1cd887cd7036 // indirect
