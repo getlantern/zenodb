@@ -397,7 +397,12 @@ test_ab:
 		return md, result, err
 	}
 
-	sql := "SELECT * FROM test GROUP BY b"
+	sqls := []string{
+		"SELECT * FROM test GROUP BY b",
+		"SELECT * FROM test_a GROUP BY b",
+		"SELECT * FROM test_b GROUP BY b",
+		"SELECT * FROM test_ab GROUP BY b",
+	}
 
 	type test struct {
 		label     string
@@ -461,15 +466,17 @@ test_ab:
 					}
 				}
 				for i := 0; i < numQueries; i++ {
-					md, rows, err := query(client, sql, true)
-					if err != nil {
-						continue retryLoop
-					}
-					if !reflect.DeepEqual(expectedFields, md.FieldNames) {
-						continue retryLoop
-					}
-					if !er.TryAssert(md, rows) {
-						continue retryLoop
+					for _, sql := range sqls {
+						md, rows, err := query(client, sql, true)
+						if err != nil {
+							continue retryLoop
+						}
+						if !reflect.DeepEqual(expectedFields, md.FieldNames) {
+							continue retryLoop
+						}
+						if !er.TryAssert(md, rows) {
+							continue retryLoop
+						}
 					}
 				}
 			}
@@ -488,32 +495,34 @@ test_ab:
 				}
 			}
 			for i := 0; i < numQueries; i++ {
-				md, rows, err := query(client, sql, true)
-				if !assert.NoError(t, err, "%v, unable to query client", tst.label) {
-					return false
-				}
-				if !assert.EqualValues(t, expectedFields, md.FieldNames, "%v, wrong field names in query result", tst.label) {
-					return false
-				}
-				if !er.Assert(t, fmt.Sprintf("%v (%d)", tst.label, i), md, rows) {
-					for partition, followersForPartition := range followersByPartition {
-						followerClients, closeClients, err := clientsForServers(followersForPartition)
-						if !assert.NoError(t, err, "Unable to get clients") {
-							return false
-						}
-						defer closeClients()
-						for followerIdx, followerClient := range followerClients {
-							_, rows, err := query(followerClient, sql, true)
-							if err != nil {
-								t.Logf("Partition: %d   Follower Idx: %d   Error: %v", partition, followerIdx, err)
-							} else {
-								for _, row := range rows {
-									t.Logf("Partition: %d   Follower Idx: %d   Row: %v %v", partition, followerIdx, row.Key.AsMap(), row.Values)
+				for _, sql := range sqls {
+					md, rows, err := query(client, sql, true)
+					if !assert.NoError(t, err, "%v, unable to query client", tst.label) {
+						return false
+					}
+					if !assert.EqualValues(t, expectedFields, md.FieldNames, "%v, wrong field names in query result for %v", tst.label, sql) {
+						return false
+					}
+					if !er.Assert(t, fmt.Sprintf("%v (%d)", tst.label, i), md, rows) {
+						for partition, followersForPartition := range followersByPartition {
+							followerClients, closeClients, err := clientsForServers(followersForPartition)
+							if !assert.NoError(t, err, "Unable to get clients") {
+								return false
+							}
+							defer closeClients()
+							for followerIdx, followerClient := range followerClients {
+								_, rows, err := query(followerClient, sql, true)
+								if err != nil {
+									t.Logf("Partition: %d   Follower Idx: %d   Error: %v", partition, followerIdx, err)
+								} else {
+									for _, row := range rows {
+										t.Logf("Partition: %d   Follower Idx: %d   Row: %v %v", partition, followerIdx, row.Key.AsMap(), row.Values)
+									}
 								}
 							}
 						}
+						return false
 					}
-					return false
 				}
 			}
 		}

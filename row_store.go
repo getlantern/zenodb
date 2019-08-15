@@ -375,11 +375,13 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	highWaterMark, rowCount := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
 
+	if syncErr := out.Sync(); syncErr != nil {
+		rs.t.db.Panic(syncErr)
+	}
 	fi, err := out.Stat()
 	if err != nil {
 		fs.t.log.Errorf("Unable to stat output file to get size: %v", err)
 	}
-
 	if closeErr := out.Close(); closeErr != nil {
 		rs.t.db.Panic(closeErr)
 	}
@@ -598,6 +600,10 @@ func (rs *rowStore) writeOffsets(offsetsBySource common.OffsetsBySource) error {
 		return fmt.Errorf("Unable to write offsets: %v", err)
 	}
 
+	err = out.Sync()
+	if err != nil {
+		return fmt.Errorf("Unable to sync offset file: %v", err)
+	}
 	err = out.Close()
 	if err != nil {
 		return fmt.Errorf("Unable to close offset file: %v", err)
