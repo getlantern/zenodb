@@ -10,6 +10,7 @@ import (
 
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
+	"github.com/getlantern/golog"
 	"github.com/getlantern/wal"
 
 	"github.com/getlantern/zenodb/common"
@@ -57,6 +58,9 @@ func Check(inFiles ...string) map[string]error {
 	for _, inFile := range inFiles {
 		fs := &fileStore{
 			filename: inFile,
+			t: &table{
+				log: golog.LoggerFor("check"),
+			},
 		}
 		file, err := os.OpenFile(fs.filename, os.O_RDONLY, 0)
 		if err != nil {

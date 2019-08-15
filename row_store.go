@@ -201,12 +201,12 @@ func (t *table) readWALOffsets(filename string) (common.OffsetsBySource, bool, e
 	headerLength := uint32(0)
 	lengthErr := binary.Read(r, encoding.Binary, &headerLength)
 	if lengthErr != nil {
-		return offsetsBySource, opened, errors.New("Unexpected error reading header length: %v", lengthErr)
+		return offsetsBySource, opened, errors.New("Unexpected error reading header length from %v: %v", filename, lengthErr)
 	}
 	fieldsBytes := make([]byte, headerLength)
 	_, readErr := io.ReadFull(r, fieldsBytes)
 	if readErr != nil {
-		return offsetsBySource, opened, errors.New("Unable to read fields: %v", readErr)
+		return offsetsBySource, opened, errors.New("Unable to read fields from %v: %v", filename, readErr)
 	}
 	offsetsBySource, fieldsBytes = t.readOffsets(fileVersion, fieldsBytes)
 	return offsetsBySource, opened, nil
@@ -431,7 +431,10 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 		return true, nil
 	}
 
-	fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
+	_, err = fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
+	if err != nil {
+		fs.t.db.Panic(err)
+	}
 	err = cout.Close()
 	if err != nil {
 		fs.t.db.Panic(err)
@@ -739,7 +742,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 				break
 			}
 			if err != nil {
-				return offsetsBySource, fs.t.log.Errorf("Unexpected error reading row length: %v", err)
+				return offsetsBySource, fs.t.log.Errorf("Unexpected error reading row length from %v: %v", fs.filename, err)
 			}
 
 			useBuffer := okayToReuseBuffer && int(rowLength) <= cap(rowBuffer)
@@ -755,7 +758,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			row = row[encoding.Width64bits:]
 			_, err = io.ReadFull(r, row)
 			if err != nil {
-				return offsetsBySource, fs.t.log.Errorf("Unexpected error while reading row: %v", err)
+				return offsetsBySource, fs.t.log.Errorf("Unexpected error while reading row from %v: %v", fs.filename, err)
 			}
 
 			keyLength, row := encoding.ReadInt16(row)
@@ -781,7 +784,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
 				if len(row) < 8 {
-					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column length!")
+					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column length from %v!", fs.filename)
 				}
 				var colLength int
 				colLength, row = encoding.ReadInt64(row)
@@ -793,7 +796,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			for i, colLength := range colLengths {
 				var seq encoding.Sequence
 				if colLength > len(row) {
-					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column, wanted %d have %d", colLength, len(row))
+					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column from %v, wanted %d have %d", fs.filename, colLength, len(row))
 				}
 				seq, row = encoding.ReadSequence(row, colLength)
 				if seq != nil && fileToOut(columns, i, seq) {
@@ -815,7 +818,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			if includesAtLeastOneColumn {
 				more, err = onRow(key, columns, raw)
 				if err != nil {
-					fs.t.log.Errorf("Error processing row: %v", err)
+					fs.t.log.Errorf("Error processing row from %v: %v", fs.filename, err)
 				}
 			}
 
@@ -848,12 +851,12 @@ func (fs *fileStore) info(r io.Reader) (common.OffsetsBySource, string, core.Fie
 	headerLength := uint32(0)
 	lengthErr := binary.Read(r, encoding.Binary, &headerLength)
 	if lengthErr != nil {
-		return offsetsBySource, "", nil, fs.t.log.Errorf("Unexpected error reading header length: %v", lengthErr)
+		return offsetsBySource, "", nil, fs.t.log.Errorf("Unexpected error reading header length from %v: %v", fs.filename, lengthErr)
 	}
 	fieldsBytes := make([]byte, headerLength)
 	_, readErr := io.ReadFull(r, fieldsBytes)
 	if readErr != nil {
-		return offsetsBySource, "", nil, fs.t.log.Errorf("Unable to read fields: %v", readErr)
+		return offsetsBySource, "", nil, fs.t.log.Errorf("Unable to read fields from %v: %v", fs.filename, readErr)
 	}
 	offsetsBySource, fieldsBytes = fs.t.readOffsets(fileVersion, fieldsBytes)
 	delim := fieldsDelims[fileVersion]
