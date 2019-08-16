@@ -96,13 +96,13 @@ func (ms *memstore) copy() *memstore {
 func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, common.OffsetsBySource, error) {
 	err := os.MkdirAll(opts.dir, 0755)
 	if err != nil && !os.IsExist(err) {
-		return nil, nil, fmt.Errorf("Unable to create folder for row store: %v", err)
+		return nil, nil, errors.New("Unable to create folder for row store: %v", err)
 	}
 
 	existingFileName := ""
-	files, err := ioutil.ReadDir(opts.dir)
+	files, err := listRegularFiles(opts.dir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("Unable to read contents of directory: %v", err)
+		return nil, nil, errors.New("Unable to read contents of directory: %v", err)
 	}
 	offsetsBySource := make(common.OffsetsBySource)
 	if len(files) > 0 {
@@ -145,7 +145,7 @@ func (t *table) openRowStore(opts *rowStoreOptions) (*rowStore, common.OffsetsBy
 					t.log.Errorf("Unable to read offset from existing file %v, assuming corrupted and will remove: %v", existingFileName, err)
 					rmErr := os.Remove(existingFileName)
 					if rmErr != nil {
-						return nil, nil, fmt.Errorf("Unable to remove corrupted file %v: %v", existingFileName, err)
+						return nil, nil, errors.New("Unable to remove corrupted file %v: %v", existingFileName, err)
 					}
 					continue
 				}
@@ -373,7 +373,12 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	}
 	defer out.Close()
 
-	highWaterMark, rowCount := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
+	highWaterMark, rowCount, flushErr := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
+	if flushErr != nil {
+		rs.t.log.Errorf("Unable to flush, marking %v as corrupted and panicking: %v", fs.filename, flushErr)
+		fs.markCorrupted()
+		rs.t.db.Panic(flushErr)
+	}
 
 	if syncErr := out.Sync(); syncErr != nil {
 		rs.t.db.Panic(syncErr)
@@ -412,10 +417,10 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	return ms, flushDuration
 }
 
-func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) (int64, int) {
+func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) (int64, int, error) {
 	cout, err := fs.createOutWriter(out, fields, offsetsBySource, shouldSort)
 	if err != nil {
-		fs.t.db.Panic(err)
+		fs.t.db.Panic(fmt.Errorf("Unable to create out writer: %v", err))
 	}
 
 	highWaterMark := int64(0)
@@ -424,7 +429,7 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		nextHighWaterMark, err := fs.doWrite(cout, fields, filter, truncateBefore, shouldSort, key, columns, raw)
 		if err != nil {
-			fs.t.db.Panic(err)
+			fs.t.db.Panic(fmt.Errorf("Unable to write row out: %v", err))
 		}
 		if nextHighWaterMark > highWaterMark {
 			highWaterMark = nextHighWaterMark
@@ -435,14 +440,15 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 
 	_, err = fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
 	if err != nil {
-		fs.t.db.Panic(err)
+		// this is the only case in which we return an error to signify that we can self-heal by deleting this filestore
+		return 0, 0, err
 	}
 	err = cout.Close()
 	if err != nil {
-		fs.t.db.Panic(err)
+		fs.t.db.Panic(fmt.Errorf("Unable to close out writer: %v", err))
 	}
 
-	return highWaterMark, rowCount
+	return highWaterMark, rowCount, nil
 }
 
 func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBySource common.OffsetsBySource, shouldSort bool) (io.WriteCloser, error) {
@@ -597,16 +603,16 @@ func (rs *rowStore) writeOffsets(offsetsBySource common.OffsetsBySource) error {
 
 	err = rs.t.writeOffsets(out, offsetsBySource)
 	if err != nil {
-		return fmt.Errorf("Unable to write offsets: %v", err)
+		return errors.New("Unable to write offsets: %v", err)
 	}
 
 	err = out.Sync()
 	if err != nil {
-		return fmt.Errorf("Unable to sync offset file: %v", err)
+		return errors.New("Unable to sync offset file: %v", err)
 	}
 	err = out.Close()
 	if err != nil {
-		return fmt.Errorf("Unable to close offset file: %v", err)
+		return errors.New("Unable to close offset file: %v", err)
 	}
 
 	return os.Rename(out.Name(), filepath.Join(rs.opts.dir, offsetFilename))
@@ -622,7 +628,7 @@ func (rs *rowStore) removeOldFiles(stop <-chan interface{}) {
 			rs.t.log.Debug("Stop removing old files")
 			return
 		case <-ticker.C:
-			files, err := ioutil.ReadDir(rs.opts.dir)
+			files, err := listRegularFiles(rs.opts.dir)
 			if err != nil {
 				rs.t.log.Errorf("Unable to list data files in %v: %v", rs.opts.dir, err)
 			}
@@ -630,7 +636,7 @@ func (rs *rowStore) removeOldFiles(stop <-chan interface{}) {
 			// timestamp, so that means they're sorted chronologically. We don't want
 			// to delete the last file in the list because that's the current one.
 			foundLatest := false
-			for i := len(files) - 1; i >= 0; i-- {
+			for i := len(files) - 2; i >= 0; i-- {
 				filename := files[i].Name()
 				if filename == offsetFilename {
 					// Ignore offset file
@@ -886,6 +892,24 @@ func (fs *fileStore) info(r io.Reader) (common.OffsetsBySource, string, core.Fie
 	return offsetsBySource, fieldsString, fileFields, nil
 }
 
+func (fs *fileStore) markCorrupted() error {
+	dir, file := filepath.Split(fs.filename)
+	corruptedDir := filepath.Join(dir, "corrupted")
+	corruptedFile := filepath.Join(corruptedDir, file)
+
+	err := os.MkdirAll(corruptedDir, 0755)
+	if err != nil {
+		return errors.New("Unable to make corrupted subdirectory %v: %v", corruptedDir, err)
+	}
+
+	err = os.Rename(fs.filename, corruptedFile)
+	if err != nil {
+		return errors.New("Unable to move corrupted filestore %v to %v: %v", fs.filename, corruptedFile, err)
+	}
+
+	return nil
+}
+
 func (t *table) versionFor(filename string) int {
 	fileVersion := 0
 	parts := strings.Split(filepath.Base(filename), "_")
@@ -894,7 +918,7 @@ func (t *table) versionFor(filename string) int {
 		var versionErr error
 		fileVersion, versionErr = strconv.Atoi(versionString)
 		if versionErr != nil {
-			t.db.Panic(fmt.Errorf("Unable to determine file version for file %v: %v", filename, versionErr))
+			t.db.Panic(errors.New("Unable to determine file version for file %v: %v", filename, versionErr))
 		}
 	}
 	return fileVersion
@@ -994,4 +1018,18 @@ func (t *table) readOffsets(fileVersion int, header []byte) (common.OffsetsBySou
 		return offsetsBySource, header
 	}
 
+}
+
+func listRegularFiles(dir string) ([]os.FileInfo, error) {
+	files, err := ioutil.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	regularFiles := make([]os.FileInfo, 0, len(files))
+	for _, file := range files {
+		if !file.IsDir() {
+			regularFiles = append(regularFiles, file)
+		}
+	}
+	return regularFiles, nil
 }

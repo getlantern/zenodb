@@ -74,9 +74,9 @@ func Check(inFiles ...string) map[string]error {
 			errors[inFile] = err
 			continue
 		}
-		_, err = io.Copy(ioutil.Discard, r)
+		n, err := io.Copy(ioutil.Discard, r)
 		if err != nil {
-			errors[inFile] = err
+			errors[inFile] = fmt.Errorf("%v after %d bytes read", err, n)
 		}
 	}
 	return errors
