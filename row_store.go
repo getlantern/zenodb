@@ -367,7 +367,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	fs.t.log.Debugf("Starting flush, %v", willSort)
 	start := time.Now()
 
-	out, err := ioutil.TempFile("", "nextrowstore")
+	out, err := rs.tempFile("nextrowstore")
 	if err != nil {
 		rs.t.db.Panic(err)
 	}
@@ -595,7 +595,7 @@ func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goe
 }
 
 func (rs *rowStore) writeOffsets(offsetsBySource common.OffsetsBySource) error {
-	out, err := ioutil.TempFile("", "nextoffset")
+	out, err := rs.tempFile("nextoffset")
 	if err != nil {
 		rs.t.db.Panic(err)
 	}
@@ -1032,4 +1032,15 @@ func listRegularFiles(dir string) ([]os.FileInfo, error) {
 		}
 	}
 	return regularFiles, nil
+}
+
+func (rs *rowStore) tempFile(name string) (*os.File, error) {
+	tmpDir := filepath.Join(rs.opts.dir, "tmp")
+	err := os.MkdirAll(tmpDir, 0755)
+	if err != nil {
+		return nil, errors.New("Unable to make tmp subdirectory %v: %v", tmpDir, err)
+	}
+
+	filename := filepath.Join(tmpDir, name)
+	return os.OpenFile(filename, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0644)
 }
