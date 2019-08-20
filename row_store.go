@@ -443,12 +443,27 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 		// this is the only case in which we return an error to signify that we can self-heal by deleting this filestore
 		return 0, 0, err
 	}
+
+	// manually flush to the underlying snappy writer, since snappy's own Close() function doesn't check the return value of flush
+	f, ok := cout.(flushable)
+	if ok {
+		err = f.Flush()
+		if err != nil {
+			cout.Close()
+			fs.t.db.Panic(fmt.Errorf("Unable to flush flushable writer: %v", err))
+		}
+	}
+
 	err = cout.Close()
 	if err != nil {
 		fs.t.db.Panic(fmt.Errorf("Unable to close out writer: %v", err))
 	}
 
 	return highWaterMark, rowCount, nil
+}
+
+type flushable interface {
+	Flush() error
 }
 
 func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBySource common.OffsetsBySource, shouldSort bool) (io.WriteCloser, error) {
