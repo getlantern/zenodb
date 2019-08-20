@@ -373,7 +373,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	}
 	defer out.Close()
 
-	highWaterMark, rowCount, flushErr := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
+	highWaterMark, rowCount, byteCount, flushErr := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
 	if flushErr != nil {
 		rs.t.log.Errorf("Unable to flush, marking %v as corrupted and panicking: %v", fs.filename, flushErr)
 		fs.markCorrupted()
@@ -399,6 +399,20 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 		rs.t.db.Panic(renameErr)
 	}
 
+	// Check the output file to make sure it can be read
+	final, err := os.Open(newFileStoreName)
+	if err != nil {
+		rs.t.db.log.Errorf("Unable to open %v to verify integrity, discarding: %v", newFileStoreName, err)
+		if removeErr := os.Remove(newFileStoreName); removeErr != nil {
+			rs.t.db.Panic(removeErr)
+		}
+		return ms, time.Now().Sub(start)
+	}
+	defer final.Close()
+	if _, checkErr := io.Copy(ioutil.Discard, snappy.NewReader(final)); checkErr != nil {
+		rs.t.db.log.Errorf("Failed to verify integrity of %v, discarding: %v", newFileStoreName, err)
+	}
+
 	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}
 	ms = rs.newMemStore(ms.offsetsBySource)
 	rs.mx.Lock()
@@ -408,16 +422,16 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	flushDuration := time.Now().Sub(start)
 	if fi != nil {
-		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %v. %v.", rowCount, newFileStoreName, flushDuration, humanize.Bytes(uint64(fi.Size())), willSort)
+		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %d (%v compressed). %v.", rowCount, newFileStoreName, flushDuration, byteCount, humanize.Bytes(uint64(fi.Size())), willSort)
 	} else {
-		rs.t.log.Debugf("Flushed %d rows to %v in %v. %v.", rowCount, newFileStoreName, flushDuration, willSort)
+		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %d. %v.", rowCount, newFileStoreName, flushDuration, byteCount, willSort)
 	}
 
 	rs.t.updateHighWaterMarkDisk(highWaterMark)
 	return ms, flushDuration
 }
 
-func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) (int64, int, error) {
+func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) (int64, int, int, error) {
 	cout, err := fs.createOutWriter(out, fields, offsetsBySource, shouldSort)
 	if err != nil {
 		fs.t.db.Panic(fmt.Errorf("Unable to create out writer: %v", err))
@@ -426,8 +440,9 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 	highWaterMark := int64(0)
 	truncateBefore := fs.t.truncateBefore()
 	rowCount := 0
+	byteCount := 0
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
-		nextHighWaterMark, err := fs.doWrite(cout, fields, filter, truncateBefore, shouldSort, key, columns, raw)
+		nextHighWaterMark, n, err := fs.doWrite(cout, fields, filter, truncateBefore, shouldSort, key, columns, raw)
 		if err != nil {
 			fs.t.db.Panic(fmt.Errorf("Unable to write row out: %v", err))
 		}
@@ -435,13 +450,14 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 			highWaterMark = nextHighWaterMark
 		}
 		rowCount++
+		byteCount += n
 		return true, nil
 	}
 
 	_, err = fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
 	if err != nil {
 		// this is the only case in which we return an error to signify that we can self-heal by deleting this filestore
-		return 0, 0, err
+		return highWaterMark, rowCount, byteCount, err
 	}
 
 	// manually flush to the underlying snappy writer, since snappy's own Close() function doesn't check the return value of flush
@@ -459,7 +475,7 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 		fs.t.db.Panic(fmt.Errorf("Unable to close out writer: %v", err))
 	}
 
-	return highWaterMark, rowCount, nil
+	return highWaterMark, rowCount, byteCount, nil
 }
 
 type flushable interface {
@@ -517,19 +533,19 @@ func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBy
 	return cout, nil
 }
 
-func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goexpr.Expr, truncateBefore time.Time, shouldSort bool, key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (int64, error) {
+func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goexpr.Expr, truncateBefore time.Time, shouldSort bool, key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (int64, int, error) {
 	highWaterMark := int64(0)
 
 	if !shouldSort && raw != nil {
 		// This is an optimization that allows us to skip other processing by just
 		// passing through the raw data
-		_, writeErr := cout.Write(raw)
-		return highWaterMark, writeErr
+		n, writeErr := cout.Write(raw)
+		return highWaterMark, n, writeErr
 	}
 
 	if filter != nil && !filter.Eval(key).(bool) {
 		// Didn't meet filter criteria, remove key
-		return highWaterMark, nil
+		return highWaterMark, 0, nil
 	}
 
 	hasActiveSequence := false
@@ -543,7 +559,7 @@ func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goe
 
 	if !hasActiveSequence {
 		// all encoding.Sequences expired, remove key
-		return highWaterMark, nil
+		return highWaterMark, 0, nil
 	}
 
 	rowLength := encoding.Width64bits + encoding.Width16bits + len(key) + encoding.Width16bits
@@ -568,45 +584,45 @@ func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goe
 
 	err := binary.Write(o, encoding.Binary, uint64(rowLength))
 	if err != nil {
-		return highWaterMark, errors.Wrap(err)
+		return highWaterMark, 0, errors.Wrap(err)
 	}
 
 	err = binary.Write(o, encoding.Binary, uint16(len(key)))
 	if err != nil {
-		return highWaterMark, errors.Wrap(err)
+		return highWaterMark, 0, errors.Wrap(err)
 	}
 	_, err = o.Write(key)
 	if err != nil {
-		return highWaterMark, errors.Wrap(err)
+		return highWaterMark, 0, errors.Wrap(err)
 	}
 
 	err = binary.Write(o, encoding.Binary, uint16(len(columns)))
 	if err != nil {
-		return highWaterMark, errors.Wrap(err)
+		return highWaterMark, 0, errors.Wrap(err)
 	}
 	for _, seq := range columns {
 		err = binary.Write(o, encoding.Binary, uint64(len(seq)))
 		if err != nil {
-			return highWaterMark, errors.Wrap(err)
+			return highWaterMark, 0, errors.Wrap(err)
 		}
 	}
 	for _, seq := range columns {
 		_, err = o.Write(seq)
 		if err != nil {
-			return highWaterMark, errors.Wrap(err)
+			return highWaterMark, 0, errors.Wrap(err)
 		}
 	}
 
 	if shouldSort {
 		// flush buffer
 		_b := buf.Bytes()
-		_, writeErr := cout.Write(_b)
+		n, writeErr := cout.Write(_b)
 		if writeErr != nil {
-			return highWaterMark, errors.Wrap(err)
+			return highWaterMark, n, errors.Wrap(err)
 		}
 	}
 
-	return highWaterMark, nil
+	return highWaterMark, encoding.Width64bits + rowLength, nil
 }
 
 func (rs *rowStore) writeOffsets(offsetsBySource common.OffsetsBySource) error {

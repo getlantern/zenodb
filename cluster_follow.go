@@ -87,7 +87,7 @@ func (db *DB) Follow(f *common.Follow, cb func([]byte, wal.Offset) error) {
 			db.processFollowers(stop)
 		})
 	})
-	fol := &follower{Follow: *f, db: db, cb: cb, entries: make(chan *walEntry, 1000000)} // TODO: make this buffer tunable
+	fol := &follower{Follow: *f, db: db, cb: cb, entries: make(chan *walEntry, db.opts.MaxFollowQueue)}
 	db.followerJoined <- fol
 	fol.read()
 }

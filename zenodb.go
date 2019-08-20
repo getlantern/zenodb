@@ -37,6 +37,7 @@ const (
 	DefaultIterationConcurrency      = 2
 
 	DefaultClusterQueryTimeout = 1 * time.Hour
+	DefaultMaxFollowQueue      = 100000
 )
 
 var (
@@ -121,6 +122,8 @@ type DBOpts struct {
 	// MaxFollowAge limits how far back to go when follower pulls data from
 	// leader
 	MaxFollowAge time.Duration
+	// MaxFollowQueue limits how many rows to queue for any single follower (defaults to 100,000)
+	MaxFollowQueue int
 	// Follow is a function that allows a follower to request following a stream
 	// from one or more sources (passthrough nodes).
 	Follow                     func(f func(sources []int) map[int]*common.Follow, cb func(data []byte, newOffset wal.Offset, source int) error)
@@ -187,6 +190,9 @@ type DB struct {
 func NewDB(opts *DBOpts) (*DB, error) {
 	if opts.IterationConcurrency <= 0 {
 		opts.IterationConcurrency = DefaultIterationConcurrency
+	}
+	if opts.MaxFollowQueue <= 0 {
+		opts.MaxFollowQueue = DefaultMaxFollowQueue
 	}
 	if opts.Panic == nil {
 		opts.Panic = func(err interface{}) {

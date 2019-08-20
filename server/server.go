@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	serrors "errors"
 	"flag"
+	"fmt"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -82,6 +83,7 @@ type Server struct {
 	ClusterQueryTimeout       time.Duration
 	NextQueryTimeout          time.Duration
 	MaxFollowAge              time.Duration
+	MaxFollowQueue            int
 	TLSDomain                 string
 	WebQueryCacheTTL          time.Duration
 	WebQueryTimeout           time.Duration
@@ -168,6 +170,7 @@ func (s *Server) Prepare() (db *zenodb.DB, run func() error, finalErr error) {
 		ClusterQueryConcurrency:   s.ClusterQueryConcurrency,
 		ClusterQueryTimeout:       s.ClusterQueryTimeout,
 		MaxFollowAge:              s.MaxFollowAge,
+		MaxFollowQueue:            s.MaxFollowQueue,
 		Panic:                     s.Panic,
 	}
 
@@ -639,7 +642,8 @@ func (s *Server) ConfigureFlags() {
 	flag.IntVar(&s.ClusterQueryConcurrency, "clusterqueryconcurrency", DefaultClusterQueryConcurrency, "specifies the maximum concurrency for clustered queries")
 	flag.DurationVar(&s.ClusterQueryTimeout, "clusterquerytimeout", zenodb.DefaultClusterQueryTimeout, "specifies the maximum time leader will wait for followers to answer a query")
 	flag.DurationVar(&s.NextQueryTimeout, "nextquerytimeout", DefaultNextQueryTimeout, "specifies the maximum time follower will wait for leader to send a query on an open connection")
-	flag.DurationVar(&s.MaxFollowAge, "maxfollowage", 0, "user with -follow, limits how far to go back when pulling data from leader")
+	flag.DurationVar(&s.MaxFollowAge, "maxfollowage", 0, "use with -follow, limits how far to go back when pulling data from leader")
+	flag.IntVar(&s.MaxFollowQueue, "maxfollowqueue", zenodb.DefaultMaxFollowQueue, fmt.Sprintf("limits how many rows to queue for any given follower, defaults to %d", zenodb.DefaultMaxFollowQueue))
 	flag.StringVar(&s.TLSDomain, "tlsdomain", "", "Specify this to automatically use LetsEncrypt certs for this domain")
 	flag.DurationVar(&s.WebQueryCacheTTL, "webquerycachettl", 2*time.Hour, "specifies how long to cache web query results")
 	flag.DurationVar(&s.WebQueryTimeout, "webquerytimeout", 30*time.Minute, "time out web queries after this duration")
