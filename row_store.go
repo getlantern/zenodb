@@ -399,20 +399,6 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 		rs.t.db.Panic(renameErr)
 	}
 
-	// Check the output file to make sure it can be read
-	final, err := os.Open(newFileStoreName)
-	if err != nil {
-		rs.t.db.log.Errorf("Unable to open %v to verify integrity, discarding: %v", newFileStoreName, err)
-		if removeErr := os.Remove(newFileStoreName); removeErr != nil {
-			rs.t.db.Panic(removeErr)
-		}
-		return ms, time.Now().Sub(start)
-	}
-	defer final.Close()
-	if _, checkErr := io.Copy(ioutil.Discard, snappy.NewReader(final)); checkErr != nil {
-		rs.t.db.log.Errorf("Failed to verify integrity of %v, discarding: %v", newFileStoreName, err)
-	}
-
 	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}
 	ms = rs.newMemStore(ms.offsetsBySource)
 	rs.mx.Lock()
