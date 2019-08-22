@@ -25,6 +25,7 @@ var (
 	shouldSort = flag.Bool("sort", false, "Sort the output")
 	info       = flag.Bool("info", false, "If set, this simply shows information about the input files, no schema required")
 	check      = flag.Bool("check", false, "If set, this scans the files and makes sure they're fully readable")
+	checktable = flag.Bool("checktable", false, "If set, this checks a single datafile for a given table")
 	permalinks = flag.Bool("permalinks", false, "If set, this returns a list of the permalinks in the database's webcache")
 )
 
@@ -83,10 +84,6 @@ func main() {
 		log.Fatal("Please specify a table using -table")
 	}
 
-	if *outFile == "" {
-		log.Fatal("Please specify an output file using -out")
-	}
-
 	cmd.StartPprof()
 
 	db, err := zenodb.NewDB(&zenodb.DBOpts{
@@ -99,6 +96,17 @@ func main() {
 	})
 	if err != nil {
 		log.Fatalf("Unable to initialize DB: %v", err)
+	}
+
+	if *checktable {
+		if err := db.CheckTable(*table, inFiles[0]); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
+
+	if *outFile == "" {
+		log.Fatal("Please specify an output file using -out")
 	}
 
 	err = db.FilterAndMerge(*table, *where, *shouldSort, *outFile, inFiles...)

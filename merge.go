@@ -8,6 +8,7 @@ import (
 
 	"github.com/golang/snappy"
 
+	"github.com/getlantern/bytemap"
 	"github.com/getlantern/errors"
 	"github.com/getlantern/goexpr"
 	"github.com/getlantern/golog"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/getlantern/zenodb/common"
 	"github.com/getlantern/zenodb/core"
+	"github.com/getlantern/zenodb/encoding"
 	"github.com/getlantern/zenodb/sql"
 )
 
@@ -81,6 +83,29 @@ func Check(inFiles ...string) map[string]error {
 		fmt.Printf("Read %d uncompressed bytes from %v\n", n, inFile)
 	}
 	return errors
+}
+
+// CheckTable checks the given data file for the given table to make sure it's readable
+func (db *DB) CheckTable(table string, filename string) error {
+	t := db.getTable(table)
+	if t == nil {
+		return errors.New("Table %v not found", table)
+	}
+	fs := &fileStore{
+		t:        t,
+		fields:   t.fields,
+		filename: filename,
+	}
+	numRows := 0
+	_, err := fs.iterate(t.fields, nil, true, true, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+		numRows++
+		return true, nil
+	})
+	if err != nil {
+		return errors.New("Encountered error after reading %d rows: %v", numRows, err)
+	}
+	fmt.Printf("Read %d rows\n", numRows)
+	return nil
 }
 
 func (t *table) filterAndMerge(whereClause string, shouldSort bool, outFile string, inFiles []string) error {
