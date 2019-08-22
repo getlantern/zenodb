@@ -3,7 +3,9 @@ package zenodb
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -187,7 +189,8 @@ func (t *table) readWALOffsets(filename string) (common.OffsetsBySource, bool, e
 	opened := false
 	var offsetsBySource common.OffsetsBySource
 
-	file, err := os.Open(filename)
+	t.log.Debugf("Reading WAL offsets from %v", filename)
+	file, err := os.OpenFile(filename, os.O_RDONLY, 0)
 	if err != nil {
 		return offsetsBySource, opened, errors.New("Unable to open file %v: %v", filename, err)
 	}
@@ -377,6 +380,12 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	if flushErr != nil {
 		rs.t.log.Errorf("Unable to flush, marking %v as corrupted and panicking: %v", fs.filename, flushErr)
 		fs.markCorrupted()
+		shasum, err := calcShaSum(fs.filename)
+		if err != nil {
+			rs.t.log.Errorf("Unable to calculate sha256 sum for %v: %v", fs.filename, err)
+		} else {
+			rs.t.log.Debugf("sha256sum for %v was %v after failing to iterate", fs.filename, shasum)
+		}
 		rs.t.db.Panic(flushErr)
 	}
 
@@ -398,6 +407,14 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	if renameErr := os.Rename(out.Name(), newFileStoreName); renameErr != nil {
 		rs.t.db.Panic(renameErr)
 	}
+	defer func() {
+		shasum, err := calcShaSum(newFileStoreName)
+		if err != nil {
+			rs.t.log.Errorf("Unable to calculate sha256 sum for %v: %v", newFileStoreName, err)
+		} else {
+			rs.t.log.Debugf("sha256sum for %v was %v immediately after writing", newFileStoreName, shasum)
+		}
+	}()
 
 	fs = &fileStore{rs.t, rs, rs.fields, newFileStoreName}
 	ms = rs.newMemStore(ms.offsetsBySource)
@@ -408,7 +425,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	flushDuration := time.Now().Sub(start)
 	if fi != nil {
-		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %d (%v compressed). %v.", rowCount, newFileStoreName, flushDuration, byteCount, humanize.Bytes(uint64(fi.Size())), willSort)
+		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %d (%d compressed). %v.", rowCount, newFileStoreName, flushDuration, byteCount, fi.Size(), willSort)
 	} else {
 		rs.t.log.Debugf("Flushed %d rows to %v in %v, size %d. %v.", rowCount, newFileStoreName, flushDuration, byteCount, willSort)
 	}
@@ -418,7 +435,7 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 }
 
 func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr, offsetsBySource common.OffsetsBySource, ms *memstore, shouldSort bool, disallowRaw bool) (int64, int, int, error) {
-	cout, err := fs.createOutWriter(out, fields, offsetsBySource, shouldSort)
+	cout, byteCount, err := fs.createOutWriter(out, fields, offsetsBySource, shouldSort)
 	if err != nil {
 		fs.t.db.Panic(fmt.Errorf("Unable to create out writer: %v", err))
 	}
@@ -426,7 +443,6 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 	highWaterMark := int64(0)
 	truncateBefore := fs.t.truncateBefore()
 	rowCount := 0
-	byteCount := 0
 	write := func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		nextHighWaterMark, n, err := fs.doWrite(cout, fields, filter, truncateBefore, shouldSort, key, columns, raw)
 		if err != nil {
@@ -449,6 +465,7 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 	// manually flush to the underlying snappy writer, since snappy's own Close() function doesn't check the return value of flush
 	f, ok := cout.(flushable)
 	if ok {
+		fs.t.log.Debug("Explicitly flushing snappy writer")
 		err = f.Flush()
 		if err != nil {
 			cout.Close()
@@ -468,7 +485,7 @@ type flushable interface {
 	Flush() error
 }
 
-func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBySource common.OffsetsBySource, shouldSort bool) (io.WriteCloser, error) {
+func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBySource common.OffsetsBySource, shouldSort bool) (io.WriteCloser, int, error) {
 	sout := snappy.NewBufferedWriter(out)
 
 	fieldStrings := make([]string, 0, len(fields))
@@ -479,19 +496,19 @@ func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBy
 	headerLength := uint32(encoding.Width64bits + len(offsetsBySource)*(encoding.Width64bits+wal.OffsetSize) + len(fieldsBytes))
 	err := binary.Write(sout, encoding.Binary, headerLength)
 	if err != nil {
-		return nil, errors.New("Unable to write header length: %v", err)
+		return nil, 0, errors.New("Unable to write header length: %v", err)
 	}
 	err = fs.t.writeOffsets(sout, offsetsBySource)
 	if err != nil {
-		return nil, errors.New("Unable to write header: %v", err)
+		return nil, 0, errors.New("Unable to write header: %v", err)
 	}
 	_, err = sout.Write(fieldsBytes)
 	if err != nil {
-		return nil, errors.New("Unable to write header: %v", err)
+		return nil, 0, errors.New("Unable to write header: %v", err)
 	}
 
 	if !shouldSort {
-		return sout, nil
+		return sout, int(headerLength), nil
 	}
 	chunk := func(r io.Reader) ([]byte, error) {
 		rowLength := uint64(0)
@@ -516,7 +533,7 @@ func (fs *fileStore) createOutWriter(out *os.File, fields core.Fields, offsetsBy
 		fs.t.db.Panic(sortErr)
 	}
 
-	return cout, nil
+	return cout, int(headerLength), nil
 }
 
 func (fs *fileStore) doWrite(cout io.WriteCloser, fields core.Fields, filter goexpr.Expr, truncateBefore time.Time, shouldSort bool, key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (int64, int, error) {
@@ -1049,4 +1066,18 @@ func listRegularFiles(dir string) ([]os.FileInfo, error) {
 		}
 	}
 	return regularFiles, nil
+}
+
+func calcShaSum(filename string) (string, error) {
+	f, err := os.OpenFile(filename, os.O_RDONLY, 0)
+	if err != nil {
+		return "", errors.New("Unable to open %v to calculate sha256: %v", filename, err)
+	}
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", errors.New("Unable to calculate sha256 for %v: %v", filename, err)
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

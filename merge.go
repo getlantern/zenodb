@@ -78,6 +78,7 @@ func Check(inFiles ...string) map[string]error {
 		if err != nil {
 			errors[inFile] = fmt.Errorf("%v after %d bytes read", err, n)
 		}
+		fmt.Printf("Read %d uncompressed bytes from %v\n", n, inFile)
 	}
 	return errors
 }
