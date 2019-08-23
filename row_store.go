@@ -399,10 +399,10 @@ func (rs *rowStore) doProcessFlush(ms *memstore, allowSort, allowFailure bool) (
 			rs.t.log.Debugf("sha256sum for %v was %v after failing to iterate", fs.filename, shasum)
 		}
 		if allowFailure {
-			rs.t.log.Errorf("Unable to flush using %v, will try again: %v", fs.filename, flushErr)
+			rs.t.log.Errorf("Unable to flush using %v, failed after reading %d rows, will try again: %v", fs.filename, rowCount, flushErr)
 			return nil, 0
 		}
-		rs.t.log.Errorf("Unable to flush using %v, marking file as corrupted and panicking: %v", fs.filename, flushErr)
+		rs.t.log.Errorf("Unable to flush using %v, failed after reading %d rows, marking file as corrupted and panicking: %v", fs.filename, rowCount, flushErr)
 		fs.markCorrupted()
 		rs.t.db.Panic(flushErr)
 	}
@@ -482,7 +482,6 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 	// manually flush to the underlying snappy writer, since snappy's own Close() function doesn't check the return value of flush
 	f, ok := cout.(flushable)
 	if ok {
-		fs.t.log.Debug("Explicitly flushing snappy writer")
 		err = f.Flush()
 		if err != nil {
 			cout.Close()
@@ -847,7 +846,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
 				if len(row) < 8 {
-					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column length from %v!", fs.filename)
+					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column %d length on row of length %d from %v!", fs.filename, i, rowLength)
 				}
 				var colLength int
 				colLength, row = encoding.ReadInt64(row)
