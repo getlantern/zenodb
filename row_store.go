@@ -349,6 +349,20 @@ func (rs *rowStore) iterate(ctx context.Context, outFields core.Fields, includeM
 }
 
 func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.Duration) {
+	attempts := 3
+	for i := 0; i < attempts; i++ {
+		// Try a few times just in case we encounter a random error reading the file
+		last := i == attempts-1
+		result, duration := rs.doProcessFlush(ms, allowSort, !last)
+		if result != nil {
+			return result, duration
+		}
+	}
+	rs.t.db.Panic("processFlush loop terminated without result, should never happen")
+	return nil, 0
+}
+
+func (rs *rowStore) doProcessFlush(ms *memstore, allowSort, allowFailure bool) (*memstore, time.Duration) {
 	shouldSort := allowSort && rs.t.shouldSort()
 	willSort := "not sorted"
 	if shouldSort {
@@ -378,13 +392,17 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 
 	highWaterMark, rowCount, byteCount, flushErr := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
 	if flushErr != nil {
-		rs.t.log.Errorf("Unable to flush, marking %v as corrupted and panicking: %v", fs.filename, flushErr)
 		shasum, err := calcShaSum(fs.filename)
 		if err != nil {
 			rs.t.log.Errorf("Unable to calculate sha256 sum for %v: %v", fs.filename, err)
 		} else {
 			rs.t.log.Debugf("sha256sum for %v was %v after failing to iterate", fs.filename, shasum)
 		}
+		if allowFailure {
+			rs.t.log.Errorf("Unable to flush using %v, will try again: %v", fs.filename, flushErr)
+			return nil, 0
+		}
+		rs.t.log.Errorf("Unable to flush using %v, marking file as corrupted and panicking: %v", fs.filename, flushErr)
 		fs.markCorrupted()
 		rs.t.db.Panic(flushErr)
 	}
