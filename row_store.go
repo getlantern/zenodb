@@ -379,13 +379,13 @@ func (rs *rowStore) processFlush(ms *memstore, allowSort bool) (*memstore, time.
 	highWaterMark, rowCount, byteCount, flushErr := fs.flush(out, rs.fields, nil, ms.offsetsBySource, ms, shouldSort, disallowRaw)
 	if flushErr != nil {
 		rs.t.log.Errorf("Unable to flush, marking %v as corrupted and panicking: %v", fs.filename, flushErr)
-		fs.markCorrupted()
 		shasum, err := calcShaSum(fs.filename)
 		if err != nil {
 			rs.t.log.Errorf("Unable to calculate sha256 sum for %v: %v", fs.filename, err)
 		} else {
 			rs.t.log.Debugf("sha256sum for %v was %v after failing to iterate", fs.filename, shasum)
 		}
+		fs.markCorrupted()
 		rs.t.db.Panic(flushErr)
 	}
 
