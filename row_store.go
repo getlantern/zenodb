@@ -846,7 +846,7 @@ func (fs *fileStore) iterate(outFields []core.Field, ms *memstore, okayToReuseBu
 			colLengths := make([]int, 0, numColumns)
 			for i := 0; i < numColumns; i++ {
 				if len(row) < 8 {
-					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column %d length on row of length %d from %v!", fs.filename, i, rowLength)
+					return offsetsBySource, fs.t.log.Errorf("Not enough data left to decode column %d length on row of length %d from %v!", i, rowLength, fs.filename)
 				}
 				var colLength int
 				colLength, row = encoding.ReadInt64(row)
