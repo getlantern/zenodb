@@ -686,7 +686,7 @@ func (rs *rowStore) removeOldFiles(stop <-chan interface{}) {
 			// timestamp, so that means they're sorted chronologically. We don't want
 			// to delete the last file in the list because that's the current one.
 			foundLatest := false
-			for i := len(files) - 2; i >= 0; i-- {
+			for i := len(files) - 3; i >= 0; i-- {
 				filename := files[i].Name()
 				if filename == offsetFilename {
 					// Ignore offset file

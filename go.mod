@@ -35,7 +35,7 @@ require (
 	github.com/getlantern/uuid v1.2.0
 	github.com/getlantern/vtime v0.0.0-20160810174823-dc1e573cf991
 	github.com/getlantern/waitforserver v1.0.1
-	github.com/getlantern/wal v0.0.0-20190717163743-5ddbeeeef8a2
+	github.com/getlantern/wal v0.0.0-20190827183637-031c253cf0ae
 	github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913
 	github.com/getlantern/yaml v0.0.0-20190801163808-0c9bb1ebf426
 	github.com/glendc/gopher-json v0.0.0-20170414221815-dc4743023d0c // indirect

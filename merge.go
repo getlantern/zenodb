@@ -97,7 +97,7 @@ func (db *DB) CheckTable(table string, filename string) error {
 		filename: filename,
 	}
 	numRows := 0
-	_, err := fs.iterate(t.fields, nil, true, true, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
+	_, err := fs.iterate(t.fields, nil, true, false, func(key bytemap.ByteMap, columns []encoding.Sequence, raw []byte) (bool, error) {
 		numRows++
 		return true, nil
 	})
