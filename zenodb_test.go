@@ -187,7 +187,7 @@ view_a:
 			"b":  false,
 			"md": "glub",
 		},
-		map[string]float64{
+		map[string]interface{}{
 			"i":  1,
 			"ii": 2,
 			"iv": 10,
@@ -195,19 +195,37 @@ view_a:
 	shuffleFields()
 
 	// Add a bunch of data for percentile calculation
-	for i := float64(1); i <= 100; i++ {
-		db.Insert("inbound",
-			now,
-			map[string]interface{}{
-				"r":  "A",
-				"u":  1,
-				"b":  false,
-				"md": "glub",
-			},
-			map[string]float64{
-				"p": i,
-			})
+	pi := make([]int, 0)
+	pf := make([]float64, 0)
+	for i := 0; i <= 100; i++ {
+		if i%2 == 0 {
+			pi = append(pi, i)
+		} else {
+			pf = append(pf, float64(i))
+		}
 	}
+	db.Insert("inbound",
+		now,
+		map[string]interface{}{
+			"r":  "A",
+			"u":  1,
+			"b":  false,
+			"md": "glub",
+		},
+		map[string]interface{}{
+			"p": pi,
+		})
+	db.Insert("inbound",
+		now,
+		map[string]interface{}{
+			"r":  "A",
+			"u":  1,
+			"b":  false,
+			"md": "glub",
+		},
+		map[string]interface{}{
+			"p": pf,
+		})
 
 	// This should get excluded by the filter
 	db.Insert("inbound",
@@ -218,11 +236,27 @@ view_a:
 			"b":  false,
 			"md": "glub",
 		},
-		map[string]float64{
+		map[string]interface{}{
 			"i":  1,
 			"ii": 2,
 			"iv": 10,
 		})
+
+	// This should be ignored since it contains only invalid fields
+	db.Insert("inbound",
+		now.Add(randBelowResolution()),
+		map[string]interface{}{
+			"r":  "B",
+			"u":  1,
+			"b":  false,
+			"md": "glub",
+		},
+		map[string]interface{}{
+			"i":  "blah",
+			"ii": true,
+			"iv": float32(4),
+		})
+
 	shuffleFields()
 
 	db.Insert("inbound",
@@ -233,7 +267,7 @@ view_a:
 			"b":  false,
 			"md": "glub",
 		},
-		map[string]float64{
+		map[string]interface{}{
 			"i":  10,
 			"ii": 20,
 			"iv": 20,
@@ -250,7 +284,7 @@ view_a:
 			"b":  false,
 			"md": "glub",
 		},
-		map[string]float64{
+		map[string]interface{}{
 			"i":  111,
 			"ii": 222,
 			"iv": 30,
@@ -265,7 +299,7 @@ view_a:
 			"b":  false,
 			"md": "glub",
 		},
-		map[string]float64{
+		map[string]interface{}{
 			"i":  31,
 			"ii": 42,
 			"z":  53,
@@ -280,7 +314,7 @@ view_a:
 			"b":  true,
 			"md": "glub",
 		},
-		map[string]float64{
+		map[string]interface{}{
 			"i":  30000,
 			"ii": 40000,
 		})
@@ -299,7 +333,7 @@ view_a:
 			"b":  false,
 			"md": "glub",
 		},
-		map[string]float64{
+		map[string]interface{}{
 			"i":  500,
 			"ii": 600,
 			"z":  700,

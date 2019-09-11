@@ -42,6 +42,10 @@ github.com/getlantern/byteexec v0.0.0-20170405023437-4cfb26ec74f4 h1:Nqmy8i81dzo
 github.com/getlantern/byteexec v0.0.0-20170405023437-4cfb26ec74f4/go.mod h1:4WCQkaCIwta0KlF9bQZA1jYqp8bzIS2PeCqjnef8nZ8=
 github.com/getlantern/bytemap v0.0.0-20180417025909-c7bf952233bc h1:TVT95IccIoeFnFPD169fak0Uxr0NSwgcqVI+oLPDdNo=
 github.com/getlantern/bytemap v0.0.0-20180417025909-c7bf952233bc/go.mod h1:DFhUkF3XKDQgnCNVn203TVnRxy4oUnIIMClem8MQxKE=
+github.com/getlantern/bytemap v0.0.0-20190911134738-859d2dbc7b81 h1:hTkKgOzif6TE6cnrrqvjF0DgFzk/Zw9iwGLo3O88KGA=
+github.com/getlantern/bytemap v0.0.0-20190911134738-859d2dbc7b81/go.mod h1:DFhUkF3XKDQgnCNVn203TVnRxy4oUnIIMClem8MQxKE=
+github.com/getlantern/bytemap v0.0.0-20190911140348-f17f27076bf9 h1:xpu/mmrhhkINppMPqVLrVkuK7tT7atRthPfzmzdJQr0=
+github.com/getlantern/bytemap v0.0.0-20190911140348-f17f27076bf9/go.mod h1:DFhUkF3XKDQgnCNVn203TVnRxy4oUnIIMClem8MQxKE=
 github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 h1:NRUJuo3v3WGC/g5YiyF790gut6oQr5f3FBI88Wv0dx4=
 github.com/getlantern/context v0.0.0-20190109183933-c447772a6520/go.mod h1:L+mq6/vvYHKjCX2oez0CgEAJmbq1fbb/oNJIWQkBybY=
 github.com/getlantern/elevate v0.0.0-20180207094634-c2e2e4901072 h1:Sxd/u3rnHYAqXzpRXjOA7DPyRKYzcivMRBKtOhsRwW8=

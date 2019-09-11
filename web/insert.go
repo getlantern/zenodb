@@ -21,7 +21,7 @@ const (
 type Point struct {
 	Ts   time.Time              `json:"ts,omitempty"`
 	Dims map[string]interface{} `json:"dims,omitempty"`
-	Vals map[string]float64     `json:"vals,omitempty"`
+	Vals map[string]interface{} `json:"vals,omitempty"`
 }
 
 func (h *handler) insert(resp http.ResponseWriter, req *http.Request) {
