@@ -31,62 +31,6 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 		return fmt.Errorf("No wal found for stream %v", stream)
 	}
 
-	// Write separate rows for array values if necessary
-	var lastErr error
-	hasMainValue := false
-	mainVals := bytemap.Build(func(_include func(string, interface{})) {
-		include := func(key string, val interface{}) {
-			hasMainValue = true
-			_include(key, val)
-		}
-		vals.IterateValues(func(key string, value interface{}) bool {
-			switch v := value.(type) {
-			case float64:
-				include(key, v)
-			case int:
-				include(key, float64(v))
-			case []float64:
-				// include first value with main vals
-				include(key, v[0])
-				// do separate inserts for additional values
-				for i := 1; i < len(v); i++ {
-					subVals := bytemap.Build(func(subInclude func(string, interface{})) {
-						subInclude(key, v[i])
-					}, nil, true)
-					if subErr := db.doInsertRaw(w, ts, dims, subVals); subErr != nil {
-						lastErr = subErr
-					}
-				}
-			case []int:
-				// include first value with main vals
-				include(key, float64(v[0]))
-				// do separate inserts for additional values
-				for i := 1; i < len(v); i++ {
-					subVals := bytemap.Build(func(subInclude func(string, interface{})) {
-						subInclude(key, float64(v[i]))
-					}, nil, true)
-					if subErr := db.doInsertRaw(w, ts, dims, subVals); subErr != nil {
-						lastErr = subErr
-					}
-				}
-			default:
-				db.log.Errorf("Insert contained value '%v' of unsupported type %v, ignoring", value, reflect.TypeOf(value))
-			}
-			return true
-		})
-	}, nil, true)
-
-	if hasMainValue {
-		if insertErr := db.doInsertRaw(w, ts, dims, mainVals); insertErr != nil {
-			lastErr = insertErr
-		}
-	}
-
-	return lastErr
-}
-
-func (db *DB) doInsertRaw(w *wal.WAL, ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMap) error {
-	var lastErr error
 	tsd := make([]byte, encoding.Width64bits)
 	encoding.EncodeTime(tsd, ts)
 	dimsLen := make([]byte, encoding.Width32bits)
@@ -96,11 +40,8 @@ func (db *DB) doInsertRaw(w *wal.WAL, ts time.Time, dims bytemap.ByteMap, vals b
 	err := w.Write(tsd, dimsLen, dims, valsLen, vals)
 	if err != nil {
 		db.log.Error(err)
-		if lastErr == nil {
-			lastErr = err
-		}
 	}
-	return lastErr
+	return err
 }
 
 type walRead struct {
@@ -241,11 +182,58 @@ func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMa
 		key = bytemap.FromSortedKeysAndValues(names, values)
 	}
 
-	tsparams := encoding.NewTSParams(ts, vals)
+	// Do separate inserts rows for array values if necessary
+	var additionalVals []bytemap.ByteMap
+	hasMainValue := false
+	mainVals := bytemap.Build(func(_include func(string, interface{})) {
+		include := func(key string, val float64) {
+			_include(key, val)
+			hasMainValue = true
+		}
+		vals.IterateValues(func(key string, value interface{}) bool {
+			switch v := value.(type) {
+			case float64:
+				include(key, v)
+			case int:
+				include(key, float64(v))
+			case []float64:
+				// include first value with main vals
+				include(key, v[0])
+				// do separate inserts for additional values
+				for i := 1; i < len(v); i++ {
+					subVals := bytemap.Build(func(subInclude func(string, interface{})) {
+						subInclude(key, v[i])
+					}, nil, true)
+					additionalVals = append(additionalVals, subVals)
+				}
+			case []int:
+				// include first value with main vals
+				include(key, float64(v[0]))
+				// do separate inserts for additional values
+				for i := 1; i < len(v); i++ {
+					subVals := bytemap.Build(func(subInclude func(string, interface{})) {
+						subInclude(key, float64(v[i]))
+					}, nil, true)
+					additionalVals = append(additionalVals, subVals)
+				}
+			default:
+				t.db.log.Errorf("Insert contained value '%v' of unsupported type %v, ignoring", value, reflect.TypeOf(value))
+			}
+			return true
+		})
+	}, nil, true)
+
 	t.db.capMemorySize(true)
-	t.rowStore.insert(&insert{key, tsparams, dims, offset, source})
+	inserted := len(additionalVals)
+	if hasMainValue {
+		t.rowStore.insert(&insert{key, encoding.NewTSParams(ts, mainVals), dims, offset, source})
+		inserted++
+	}
+	for _, subVals := range additionalVals {
+		t.rowStore.insert(&insert{key, encoding.NewTSParams(ts, subVals), dims, offset, source})
+	}
 	t.statsMutex.Lock()
-	t.stats.InsertedPoints++
+	t.stats.InsertedPoints += int64(inserted)
 	t.statsMutex.Unlock()
 
 	return true
