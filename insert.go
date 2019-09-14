@@ -217,7 +217,7 @@ func (t *table) doInsert(ts time.Time, dims bytemap.ByteMap, vals bytemap.ByteMa
 					additionalVals = append(additionalVals, subVals)
 				}
 			default:
-				t.db.log.Errorf("Insert contained value '%v' of unsupported type %v, ignoring", value, reflect.TypeOf(value))
+				t.log.Errorf("Key %v contained value '%v' of unsupported type %v, ignoring", key, value, reflect.TypeOf(value))
 			}
 			return true
 		})

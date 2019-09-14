@@ -198,7 +198,7 @@ view_a:
 	pi := make([]int, 0)
 	pf := make([]float64, 0)
 	for i := 0; i <= 100; i++ {
-		if i%2 == 0 {
+		if i%3 == 0 {
 			pi = append(pi, i)
 		} else {
 			pf = append(pf, float64(i))
@@ -398,7 +398,7 @@ ORDER BY _time`
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points":    102,
+				"_points":    202,
 				"i":          11,
 				"ii":         22,
 				"iii":        121,
@@ -502,7 +502,7 @@ ORDER BY _time`, resolution*6)
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 102,
+				"_points": 202,
 				"i":       11,
 				"ii":      22,
 				"iii":     121,
@@ -544,7 +544,7 @@ ORDER BY _time`, -2*resolution, 1*resolution)
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 102,
+				"_points": 202,
 				"i":       11,
 				"i_1s":    0,
 			},
@@ -595,7 +595,7 @@ FROM (SELECT *
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"_points": 102,
+				"_points": 202,
 				"i":       11,
 			},
 		},

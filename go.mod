@@ -18,7 +18,7 @@ require (
 	github.com/edsrzf/mmap-go v1.0.0 // indirect
 	github.com/getlantern/appdir v0.0.0-20180320102544-7c0f9d241ea7
 	github.com/getlantern/byteexec v0.0.0-20170405023437-4cfb26ec74f4 // indirect
-	github.com/getlantern/bytemap v0.0.0-20190911140348-f17f27076bf9
+	github.com/getlantern/bytemap v0.0.0-20190914004255-0acf4d58df56
 	github.com/getlantern/elevate v0.0.0-20180207094634-c2e2e4901072 // indirect
 	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7
 	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
