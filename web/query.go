@@ -172,24 +172,26 @@ func (h *handler) coalesceQueries() {
 		coalescedQueries := append([]*query(nil), q)
 		var remainingQueries []*query
 		table := q.parsed.From
-	coalesceLoop:
-		for {
-			select {
-			case query := <-h.queries:
-				if table == query.parsed.From {
-					coalescedQueries = append(coalescedQueries, query)
-				} else {
-					remainingQueries = append(remainingQueries, query)
-				}
-				if query.immediate {
+		if !q.immediate {
+		coalesceLoop:
+			for {
+				select {
+				case query := <-h.queries:
+					if table == query.parsed.From {
+						coalescedQueries = append(coalescedQueries, query)
+					} else {
+						remainingQueries = append(remainingQueries, query)
+					}
+					if query.immediate {
+						break coalesceLoop
+					}
+				case <-time.After(5 * time.Second):
 					break coalesceLoop
 				}
-			case <-time.After(15 * time.Second):
-				break coalesceLoop
 			}
 		}
 
-		log.Debugf("Coalesced %d queries to %v", len(coalescedQueries), table)
+		log.Debugf("Executing %d queries on %v", len(coalescedQueries), table)
 		// re-queue queries that weren't included in this run
 		for _, query := range remainingQueries {
 			// TODO: this could theoretically deadlock if h.queries fills up, since
