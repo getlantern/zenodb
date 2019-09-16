@@ -28,33 +28,26 @@ import (
 // expressions) so it is best to keep these relatively low cardinality.
 func PERCENTILE(value interface{}, percentile interface{}, min float64, max float64, precision int) Expr {
 	valueExpr := exprFor(value)
-	switch t := valueExpr.(type) {
-	case *ptile:
-		return PERCENTILEOPT(t, exprFor(percentile))
-	case *ptileOptimized:
-		return PERCENTILEOPT(t, exprFor(percentile))
-	default:
-		// Remove aggregates
-		valueExpr = valueExpr.DeAggregate()
-		// Figure out what precision to use for HDR
-		hdrPrecision := precision
-		if hdrPrecision < 1 {
-			hdrPrecision = 1
-		} else if hdrPrecision > 5 {
-			hdrPrecision = 5
-		}
+	// Remove aggregates
+	valueExpr = valueExpr.DeAggregate()
+	// Figure out what precision to use for HDR
+	hdrPrecision := precision
+	if hdrPrecision < 1 {
+		hdrPrecision = 1
+	} else if hdrPrecision > 5 {
+		hdrPrecision = 5
+	}
 
-		sampleHisto := hdrhistogram.New(scaleToInt(min, precision), scaleToInt(max, precision), hdrPrecision)
-		numCounts := len(sampleHisto.Export().Counts)
-		return &ptile{
-			Value:        BOUNDED(valueExpr, min, max),
-			Percentile:   exprFor(percentile),
-			Min:          scaleToInt(min, precision),
-			Max:          scaleToInt(max, precision),
-			Precision:    precision,
-			HDRPrecision: hdrPrecision,
-			Width:        (1+numCounts)*width64bits + valueExpr.EncodedWidth(),
-		}
+	sampleHisto := hdrhistogram.New(scaleToInt(min, precision), scaleToInt(max, precision), hdrPrecision)
+	numCounts := len(sampleHisto.Export().Counts)
+	return &ptile{
+		Value:        BOUNDED(valueExpr, min, max),
+		Percentile:   exprFor(percentile),
+		Min:          scaleToInt(min, precision),
+		Max:          scaleToInt(max, precision),
+		Precision:    precision,
+		HDRPrecision: hdrPrecision,
+		Width:        (1+numCounts)*width64bits + valueExpr.EncodedWidth(),
 	}
 }
 

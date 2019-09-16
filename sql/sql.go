@@ -813,6 +813,7 @@ func (f *fielded) percentileExprFor(e *sqlparser.FuncExpr, fname string, default
 	} else {
 		if isOptimized {
 			// tried to wrap a non-percentile expression in a PERCENTILEOPT
+			log.Errorf("Tried to wrap %v of type %v with optimized PERCENTILE", valueField, reflect.TypeOf(valueField.Expr))
 			return nil, ErrPercentileOptWrap
 		}
 		// existing expression is not a percentile, need to get the field

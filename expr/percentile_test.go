@@ -23,7 +23,7 @@ func TestPercentile(t *testing.T) {
 	e := msgpacked(t, PERCENTILE(SUM("a"), 99, 0, 100, 1))
 	expected := float64(99)
 
-	eo := msgpacked(t, PERCENTILE(e, 50, 0, 100, 1))
+	eo := msgpacked(t, PERCENTILEOPT(e, 50))
 	expectedO := float64(51)
 
 	eo2 := msgpacked(t, PERCENTILEOPT(eo, 1))
@@ -58,9 +58,6 @@ func TestPercentile(t *testing.T) {
 			// Do some direct updates
 			for k := float64(1); k <= 50; k++ {
 				e.Update(b, Map{"a": k}, md)
-				// Also update the wrapped expressions to make sure this is a noop
-				eo.Update(b, Map{"a": k}, md)
-				eo2.Update(b, Map{"a": k}, md)
 			}
 
 			// Do some point merges
