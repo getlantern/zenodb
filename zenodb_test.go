@@ -361,6 +361,8 @@ view_a:
 		wg.Add(1)
 		go testSimpleQuery(&wg, t, db, includeMemStore, epoch, resolution)
 		wg.Add(1)
+		go testPercentileOptimizedQuery(&wg, t, db, includeMemStore, epoch, resolution)
+		wg.Add(1)
 		go testCrosstabWithHavingQuery(&wg, t, db, includeMemStore, epoch, resolution)
 		wg.Add(1)
 		go testStrideQuery(&wg, t, db, includeMemStore, epoch, resolution)
@@ -458,6 +460,27 @@ ORDER BY _time`
 				"newfield_5": 0,
 				"newfield_6": 0,
 				"newfield_7": 0,
+			},
+		},
+	})
+}
+
+func testPercentileOptimizedQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore bool, epoch time.Time, resolution time.Duration) {
+	defer wg.Done()
+
+	sqlString := `
+SELECT PERCENTILE(pp_5p, 90) AS pp_opt
+FROM test_a
+GROUP BY _
+ORDER BY _time`
+
+	epoch = encoding.RoundTimeUp(epoch, resolution)
+	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
+		testsupport.ExpectedRow{
+			epoch,
+			map[string]interface{}{},
+			map[string]float64{
+				"pp_opt":      90,
 			},
 		},
 	})
@@ -714,7 +737,7 @@ func assertExpectedResult(t *testing.T, db *DB, sqlString string, includeMemStor
 		var rows []*core.FlatRow
 		source, err := db.Query(sqlString, false, nil, includeMemStore)
 		if err != nil {
-			return nil, errors.New("Unable to plan SQL query")
+			return nil, errors.New("Unable to plan SQL query: %v", err)
 		}
 
 		var fields core.Fields
@@ -728,7 +751,7 @@ func assertExpectedResult(t *testing.T, db *DB, sqlString string, includeMemStor
 			return true, nil
 		})
 		if err != nil {
-			return nil, errors.New("Unable to plan SQL query")
+			return nil, errors.New("Unable to plan SQL query: %v", err)
 		}
 
 		if false {
