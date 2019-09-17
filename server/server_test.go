@@ -198,7 +198,7 @@ func doTest(t *testing.T, partitionKeys []string, configureCluster func(tmpDirs 
 	startServer := func(s *Server) error {
 		if sleepBeforeStart {
 			// sometimes sleep to test followers joining simultaneously and at separate times
-			time.Sleep(5 * time.Second)
+			time.Sleep(2 * time.Second)
 		}
 		sleepBeforeStart = !sleepBeforeStart
 		_, run, err := s.Prepare()
