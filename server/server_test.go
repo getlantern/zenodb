@@ -59,6 +59,7 @@ func TestServers(t *testing.T) {
 				return
 			case <-ticker.C:
 				debug.FreeOSMemory()
+				fmt.Println("Still running")
 			}
 		}
 	}()
