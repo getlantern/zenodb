@@ -260,7 +260,7 @@ LIMIT 100, 10
 
 		field = fields[idx]
 		idx++
-		expected = core.NewField("ptile2_opt", PERCENTILE(pKnownField.Expr, CONST(2), 0, 0, 1)).String()
+		expected = core.NewField("ptile2_opt", PERCENTILEOPT(PERCENTILE(pKnownField.Expr, CONST(99.9), 0, 100, 2), CONST(2))).String()
 		actual = field.String()
 		assert.Equal(t, expected, actual)
 

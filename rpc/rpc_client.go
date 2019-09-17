@@ -27,7 +27,7 @@ type ClientOpts struct {
 }
 
 type Inserter interface {
-	Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, float64))) error
+	Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, interface{}))) error
 
 	Close() (*InsertReport, error)
 }
@@ -75,9 +75,9 @@ func (c *client) NewInserter(ctx context.Context, streamName string, opts ...grp
 	}, nil
 }
 
-func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, float64))) error {
+func (i *inserter) Insert(ts time.Time, dims map[string]interface{}, vals func(func(string, interface{}))) error {
 	iterate := func(cb func(string, interface{})) {
-		vals(func(field string, val float64) {
+		vals(func(field string, val interface{}) {
 			cb(field, val)
 		})
 	}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,25 @@ func TestRoundTimeUp(t *testing.T) {
 }
 
 func TestServers(t *testing.T) {
+	stopReleasingMemory := make(chan interface{})
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stopReleasingMemory:
+				return
+			case <-ticker.C:
+				debug.FreeOSMemory()
+				fmt.Println("Still running")
+			}
+		}
+	}()
+
+	defer close(stopReleasingMemory)
+
 	cancel := testsupport.RedirectLogsToTest(t)
 	defer cancel()
 
@@ -198,7 +218,7 @@ func doTest(t *testing.T, partitionKeys []string, configureCluster func(tmpDirs 
 	startServer := func(s *Server) error {
 		if sleepBeforeStart {
 			// sometimes sleep to test followers joining simultaneously and at separate times
-			time.Sleep(5 * time.Second)
+			time.Sleep(2 * time.Second)
 		}
 		sleepBeforeStart = !sleepBeforeStart
 		_, run, err := s.Prepare()
@@ -368,7 +388,7 @@ test_ab:
 					"b":    "thing",
 					"meta": meta,
 				},
-				func(cb func(key string, value float64)) {
+				func(cb func(key string, value interface{})) {
 					cb("val", 1)
 				},
 			)

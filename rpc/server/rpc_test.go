@@ -51,7 +51,7 @@ func TestInsert(t *testing.T) {
 		if i > 1 && i < 7 {
 			dims = nil
 		}
-		err = inserter.Insert(time.Time{}, dims, func(cb func(key string, value float64)) {
+		err = inserter.Insert(time.Time{}, dims, func(cb func(key string, value interface{})) {
 			if i < 7 {
 				cb("val", float64(i))
 			}
