@@ -368,7 +368,7 @@ test_ab:
 					"b":    "thing",
 					"meta": meta,
 				},
-				func(cb func(key string, value float64)) {
+				func(cb func(key string, value interface{})) {
 					cb("val", 1)
 				},
 			)
