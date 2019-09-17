@@ -10,6 +10,7 @@ import (
 	"os"
 	"reflect"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -46,6 +47,24 @@ func TestRoundTimeUp(t *testing.T) {
 }
 
 func TestServers(t *testing.T) {
+	stopReleasingMemory := make(chan interface{})
+
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-stopReleasingMemory:
+				return
+			case <-ticker.C:
+				debug.FreeOSMemory()
+			}
+		}
+	}()
+
+	defer close(stopReleasingMemory)
+
 	cancel := testsupport.RedirectLogsToTest(t)
 	defer cancel()
 
@@ -55,7 +74,7 @@ func TestServers(t *testing.T) {
 	}
 
 	iters := 2
-	concurrency := runtime.NumCPU()
+	concurrency := runtime.NumCPU() * 2
 
 	testTasks := make(chan testTask, iters*concurrency)
 	var wg sync.WaitGroup
