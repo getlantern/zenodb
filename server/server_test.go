@@ -55,7 +55,7 @@ func TestServers(t *testing.T) {
 	}
 
 	iters := 2
-	concurrency := runtime.NumCPU() * 2
+	concurrency := runtime.NumCPU()
 
 	testTasks := make(chan testTask, iters*concurrency)
 	var wg sync.WaitGroup
