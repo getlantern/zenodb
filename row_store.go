@@ -473,10 +473,20 @@ func (fs *fileStore) flush(out *os.File, fields core.Fields, filter goexpr.Expr,
 		return true, nil
 	}
 
-	_, err = fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
-	if err != nil {
+	iterate := func() (err error) {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("Recovered from panic on iterating for flush: %v", r)
+			}
+		}()
+
+		_, err = fs.iterate(fields, ms, !shouldSort, !disallowRaw, write)
+		return
+	}
+
+	if iterateErr := iterate(); iterateErr != nil {
 		// this is the only case in which we return an error to signify that we can self-heal by deleting this filestore
-		return highWaterMark, rowCount, err
+		return highWaterMark, rowCount, iterateErr
 	}
 
 	// manually flush to the underlying snappy writer, since snappy's own Close() function doesn't check the return value of flush
