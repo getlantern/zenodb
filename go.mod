@@ -73,7 +73,7 @@ require (
 	github.com/vharitonsky/iniflags v0.0.0-20180513140207-a33cd0b5f3de
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2 // indirect
 	github.com/yuin/gopher-lua v0.0.0-20190514113301-1cd887cd7036 // indirect
-	golang.org/x/crypto v0.0.0-20190605123033-f99c8df09eb5
+	golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550
 	golang.org/x/net v0.0.0-20190603091049-60506f45cf65
 	google.golang.org/appengine v1.6.1 // indirect
 	google.golang.org/grpc v1.22.1
