@@ -47,6 +47,7 @@ var (
 // Server is a zeno server (standalone, leader of follower)
 type Server struct {
 	DBDir                     string
+	WebAssetsDir              string
 	Vtime                     bool
 	WALSync                   time.Duration
 	MaxWALSize                int
@@ -480,6 +481,7 @@ func (s *Server) serveHTTP() (func() error, error) {
 		HashKey:               s.CookieHashKey,
 		BlockKey:              s.CookieBlockKey,
 		Password:              s.Password,
+		AssetsDir:             s.WebAssetsDir,
 		CacheDir:              filepath.Join(s.DBDir, "_webcache"),
 		CacheTTL:              s.WebQueryCacheTTL,
 		QueryTimeout:          s.WebQueryTimeout,
@@ -611,6 +613,7 @@ func (s *Server) Close() {
 
 func (s *Server) ConfigureFlags() {
 	flag.StringVar(&s.DBDir, "dbdir", "zenodata", "The directory in which to store the database files, defaults to ./zenodata")
+	flag.StringVar(&s.WebAssetsDir, "webassetsdir", "", "optionally specify a directoryy for web assets (in lieu of embedded web assets)")
 	flag.BoolVar(&s.Vtime, "vtime", false, "Set this flag to use virtual instead of real time. When using virtual time, the advancement of time will be governed by the timestamps received via inserts.")
 	flag.DurationVar(&s.WALSync, "walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	flag.IntVar(&s.MaxWALSize, "maxwalsize", 1024*1024*1024, "Maximum size of WAL segments on disk. Defaults to 1 GB.")

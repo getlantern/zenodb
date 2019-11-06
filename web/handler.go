@@ -24,6 +24,7 @@ type Opts struct {
 	GitHubOrg             string
 	HashKey               string
 	BlockKey              string
+	AssetsDir             string
 	CacheDir              string
 	CacheTTL              time.Duration
 	Password              string

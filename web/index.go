@@ -1,8 +1,10 @@
 package web
 
 import (
-	// "io/ioutil"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 )
 
 func (h *handler) index(resp http.ResponseWriter, req *http.Request) {
@@ -12,9 +14,22 @@ func (h *handler) index(resp http.ResponseWriter, req *http.Request) {
 
 	resp.Header().Set("Content-Type", "text/html")
 	resp.WriteHeader(http.StatusOK)
-	// bytes, _ := ioutil.ReadFile("index.html")
-	// resp.Write(bytes)
-	resp.Write(indexHTML)
+	if h.Opts.AssetsDir == "" {
+		resp.Write(indexHTML)
+	} else {
+		resp.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+		resp.Header().Set("Pragma", "no-cache")
+		resp.Header().Set("Expires", "0")
+		log.Debugf("Serving web assets from %v", h.Opts.AssetsDir)
+		file, err := os.OpenFile(filepath.Join(h.Opts.AssetsDir, "index.html"), os.O_RDONLY, 0)
+		if err != nil {
+			log.Errorf("Unable to read index.html from assetsdir, falling back to embedded: %v", err)
+			resp.Write(indexHTML)
+		} else {
+			defer file.Close()
+			io.Copy(resp, file)
+		}
+	}
 }
 
 var indexHTML = []byte(`
