@@ -94,24 +94,18 @@ var indexHTML = []byte(`
 		  top: 0 !important;
 		  background-color: transparent;
       font-weight: 100;
-      opacity: 10%;
       padding: 5px;
     }
 
-		.dygraph-legend b {
-		  font-weight: 100;
-		  opacity: 10%;
+    .dygraph-legend > span {
+		  opacity: 0.1;
 		}
 
-	  .dygraph-legend .highlight {
-		  font-weight: 900;
-	    opacity: 100%;
-		  background-color: white;
+	  .dygraph-legend *.highlight {
+		  opacity: 1;
+      background-color: white;
+      font-weight: 900;
 		}
-
-	  .dygraph-legend .highlight b {
-	    font-weight: 900;
-	  }
 
     /* Spinning courtesy of http://chadkuehn.com/animated-font-spinners/ */
     .glyphicon-spin {
