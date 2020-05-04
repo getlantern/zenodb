@@ -31,6 +31,10 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 		return fmt.Errorf("No wal found for stream %v", stream)
 	}
 
+	if len(db.opts.WhitelistedDimensions) > 0 {
+		dims = dims.Slice(db.opts.WhitelistedDimensions...)
+	}
+
 	tsd := make([]byte, encoding.Width64bits)
 	encoding.EncodeTime(tsd, ts)
 	dimsLen := make([]byte, encoding.Width32bits)

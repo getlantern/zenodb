@@ -53,6 +53,7 @@ func TestSingleDB(t *testing.T) {
 			VirtualTime:               true,
 			ClusterQueryConcurrency:   clusterQueryConcurrency,
 			IterationCoalesceInterval: 1 * time.Millisecond,
+			WhitelistedDimensions:     []string{"r", "u", "b", "md"}, // if you include "discarded" here, the test will fail
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()
@@ -105,7 +106,7 @@ Test_a:
       z
     FROM inbound
     WHERE r = 'A'
-    GROUP BY r, u, b, period(1s)
+    GROUP BY r, u, b, discarded, period(1s)
 `, partitionClause)
 	log.Debug(schemaA)
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
@@ -182,10 +183,11 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "A",
-			"u":  1,
-			"b":  false,
-			"md": "glub",
+			"r":         "A",
+			"u":         1,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"i":  1,
@@ -207,10 +209,11 @@ view_a:
 	db.Insert("inbound",
 		now,
 		map[string]interface{}{
-			"r":  "A",
-			"u":  1,
-			"b":  false,
-			"md": "glub",
+			"r":         "A",
+			"u":         1,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"p": pi,
@@ -218,10 +221,11 @@ view_a:
 	db.Insert("inbound",
 		now,
 		map[string]interface{}{
-			"r":  "A",
-			"u":  1,
-			"b":  false,
-			"md": "glub",
+			"r":         "A",
+			"u":         1,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"p": pf,
@@ -231,10 +235,11 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "B",
-			"u":  1,
-			"b":  false,
-			"md": "glub",
+			"r":         "B",
+			"u":         1,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"i":  1,
@@ -246,10 +251,11 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "B",
-			"u":  1,
-			"b":  false,
-			"md": "glub",
+			"r":         "B",
+			"u":         1,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"i":  "blah",
@@ -279,10 +285,11 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "A",
-			"u":  1,
-			"b":  false,
-			"md": "glub",
+			"r":         "A",
+			"u":         1,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"i":  111,
@@ -294,10 +301,11 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "A",
-			"u":  2,
-			"b":  false,
-			"md": "glub",
+			"r":         "A",
+			"u":         2,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"i":  31,
@@ -309,10 +317,11 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "A",
-			"u":  2,
-			"b":  true,
-			"md": "glub",
+			"r":         "A",
+			"u":         2,
+			"b":         true,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"i":  30000,
@@ -328,10 +337,11 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "A",
-			"u":  2,
-			"b":  false,
-			"md": "glub",
+			"r":         "A",
+			"u":         2,
+			"b":         false,
+			"md":        "glub",
+			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
 			"i":  500,
@@ -391,6 +401,7 @@ func testSimpleQuery(wg *sync.WaitGroup, t *testing.T, db *DB, includeMemStore b
 	sqlString := `
 SELECT *
 FROM test_a
+WHERE discarded IS NULL
 GROUP BY _
 ORDER BY _time`
 
@@ -480,7 +491,7 @@ ORDER BY _time`
 			epoch,
 			map[string]interface{}{},
 			map[string]float64{
-				"pp_opt":      90,
+				"pp_opt": 90,
 			},
 		},
 	})
@@ -660,7 +671,7 @@ SELECT
 	_ AS present
 FROM test_a
 ASOF '%s' UNTIL '%s'
-WHERE b != true AND r IN (SELECT r FROM test_a HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12)
+WHERE b != true AND r IN (SELECT r FROM test_a HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12) AND discarded IS NULL
 GROUP BY r, u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
 ORDER BY u DESC

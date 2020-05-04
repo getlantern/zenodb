@@ -130,6 +130,9 @@ type DBOpts struct {
 	RegisterRemoteQueryHandler func(db *DB, partition int, query planner.QueryClusterFN)
 	// Panic is an optional function for triggering panics
 	Panic func(interface{})
+	// WhitelistedDimensions allow specifying an optional whitelist of dimensions to include in the WAL.
+	// If specified, only dimensions appearing in the whitelisted will be recorded in the WAL.
+	WhitelistedDimensions []string
 }
 
 // BuildLogger builds a logger for the database configured with these DBOpts

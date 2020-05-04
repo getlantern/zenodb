@@ -52,6 +52,7 @@ type Server struct {
 	WALSync                   time.Duration
 	MaxWALSize                int
 	WALCompressionSize        int
+	WhitelistedDimensions     string
 	MaxMemory                 float64
 	IterationCoalesceInterval time.Duration
 	IterationConcurrency      int
@@ -173,6 +174,7 @@ func (s *Server) Prepare() (db *zenodb.DB, run func() error, finalErr error) {
 		MaxFollowAge:              s.MaxFollowAge,
 		MaxFollowQueue:            s.MaxFollowQueue,
 		Panic:                     s.Panic,
+		WhitelistedDimensions:     strings.Split(s.WhitelistedDimensions, ","),
 	}
 
 	s.log = dbOpts.BuildLogger()
@@ -618,6 +620,7 @@ func (s *Server) ConfigureFlags() {
 	flag.DurationVar(&s.WALSync, "walsync", 5*time.Second, "How frequently to sync the WAL to disk. Set to 0 to sync after every write. Defaults to 5 seconds.")
 	flag.IntVar(&s.MaxWALSize, "maxwalsize", 1024*1024*1024, "Maximum size of WAL segments on disk. Defaults to 1 GB.")
 	flag.IntVar(&s.WALCompressionSize, "walcompressionsize", 30*1024*1024, "Size above which to start compressing WAL segments with snappy. Defaults to 30 MB.")
+	flag.StringVar(&s.WhitelistedDimensions, "whitelisteddimensions", "", "comma-separated list of dimensions to whitelist (no whitespace)")
 	flag.Float64Var(&s.MaxMemory, "maxmemory", 0.7, "Set to a non-zero value to cap the total size of the process as a percentage of total system memory. Defaults to 0.7 = 70%.")
 	flag.DurationVar(&s.IterationCoalesceInterval, "itercoalesce", zenodb.DefaultIterationCoalesceInterval, "Period to wait for coalescing parallel iterations")
 	flag.IntVar(&s.IterationConcurrency, "iterconcurrency", zenodb.DefaultIterationConcurrency, "specifies the maximum concurrency for iterating tables")
