@@ -20,14 +20,14 @@ func TestDeAggregatePercentile(t *testing.T) {
 }
 
 func TestPercentile(t *testing.T) {
-	e := msgpacked(t, PERCENTILE(SUM("a"), 99, 0, 100, 1))
-	expected := float64(99)
+	e := msgpacked(t, PERCENTILE(SUM("a"), 99, 0, 10, 1))
+	expected := float64(9.9)
 
 	eo := msgpacked(t, PERCENTILEOPT(e, 50))
-	expectedO := float64(51)
+	expectedO := float64(5.1)
 
-	eo2 := msgpacked(t, PERCENTILEOPT(eo, 1))
-	expectedO2 := float64(1)
+	eo2 := msgpacked(t, PERCENTILEOPT(eo, 10))
+	expectedO2 := float64(1.0)
 
 	if !assert.True(t, IsPercentile(e)) {
 		return
@@ -57,13 +57,13 @@ func TestPercentile(t *testing.T) {
 		for j := 0; j < 50; j++ {
 			// Do some direct updates
 			for k := float64(1); k <= 50; k++ {
-				e.Update(b, Map{"a": k}, md)
+				e.Update(b, Map{"a": k / 10}, md)
 			}
 
 			// Do some point merges
 			for k := float64(51); k <= 100; k++ {
 				b2 := make([]byte, e.EncodedWidth())
-				e.Update(b2, Map{"a": k}, md)
+				e.Update(b2, Map{"a": k / 10}, md)
 				e.Merge(b, b, b2)
 			}
 		}

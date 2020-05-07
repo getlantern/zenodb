@@ -10,7 +10,9 @@ import (
 )
 
 // PERCENTILE tracks estimated percentile values for the given expression
-// assuming the given min and max possible values, to the given precision.
+// assuming the given min and max possible values, to the given precision
+// (where precision is the number of decimal points).
+//
 // Inputs are automatically bounded to the min/max using BOUNDED, such that
 // values falling outside the range are discarded. Percentile is input in
 // percent (e.g. 0-100). See https://godoc.org/github.com/codahale/hdrhistogram.
