@@ -143,6 +143,9 @@ func (db *DB) CreateTable(opts *TableOpts) error {
 	db.orderedTables = append(db.orderedTables, t)
 
 	if !t.Virtual {
+		if q.Resolution <= 0 {
+			return errors.New("Please specify a resolution for the table using PERIOD(...)")
+		}
 		var rsErr error
 		var offsetsBySource common.OffsetsBySource
 		if !t.db.opts.Passthrough {

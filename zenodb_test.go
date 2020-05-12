@@ -145,6 +145,14 @@ view_a:
 		return
 	}
 
+	// try to create a table that's missing a resolution
+	createErr := db.CreateTable(&TableOpts{
+		Name:            "bad",
+		RetentionPeriod: 1 * time.Hour,
+		SQL:             "SELECT * FROM inbound WHERE r = 'A' GROUP BY *",
+	})
+	assert.Error(t, createErr)
+
 	now := epoch
 	advance := func(d time.Duration) {
 		time.Sleep(250 * time.Millisecond)
