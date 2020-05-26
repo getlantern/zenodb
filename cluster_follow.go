@@ -255,6 +255,8 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 				}
 			}
 
+			earliestOffsetByStream := make(map[string]wal.Offset)
+
 			for stream := range newlyJoinedStreams {
 				var earliestOffset wal.Offset
 				hasOffset := false
@@ -274,24 +276,28 @@ func (db *DB) processFollowers(stop <-chan interface{}) {
 						}
 					}
 				}
+				earliestOffsetByStream[stream] = earliestOffset
+			}
 
-				stopWALReader := stopWALReaders[stream]
+			for stream, stopWALReader := range stopWALReaders {
 				if stopWALReader != nil {
 					db.log.Debugf("Stopping WAL reader for %v", stream)
 					stopWALReader()
 				}
+			}
 
+			for stream, startStream := range streams {
 				db.log.Debugf("Start following WAL for %v", stream)
-				stopWALReader, err := db.followWAL(stream, earliestOffset, streams[stream], requests)
+				stopWALReader, err := db.followWAL(stream, earliestOffsetByStream[stream], startStream, requests)
 				if err != nil {
 					db.log.Errorf("Unable to start following wal: %v", err)
 					continue
 				}
 				stopWALReaders[stream] = stopWALReader
+			}
 
-				if oldRequests != nil {
-					close(oldRequests)
-				}
+			if oldRequests != nil {
+				close(oldRequests)
 			}
 
 		case result, ok := <-results:
