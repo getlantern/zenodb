@@ -32,7 +32,14 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 	}
 
 	if len(db.opts.WhitelistedDimensions) > 0 {
+		if db.log.IsTraceEnabled() {
+			db.log.Tracef("Whitelist Dims Original dims: %v", dims.AsMap())
+			db.log.Tracef("Whitelist Dims Slicing dims with whitelist: %v", db.opts.WhitelistedDimensions)
+		}
 		dims = dims.Slice(db.opts.WhitelistedDimensions...)
+		if db.log.IsTraceEnabled() {
+			db.log.Tracef("Whitelist Dims Sliced dims: %v", dims.AsMap())
+		}
 	}
 
 	tsd := make([]byte, encoding.Width64bits)
