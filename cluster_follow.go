@@ -56,6 +56,15 @@ func (f *follower) read() {
 			f.db.log.Debugf("Discarding entry greater than 2 MB")
 			continue
 		}
+		if f.db.log.IsTraceEnabled() {
+			data := entry.data
+			// Skip timestamp
+			_, remain := encoding.Read(data, encoding.Width64bits)
+			dimsLen, remain := encoding.ReadInt32(remain)
+			_dims, _ := encoding.Read(remain, dimsLen)
+			dims := bytemap.ByteMap(_dims)
+			f.db.log.Tracef("Sending dims %v", dims.AsMap())
+		}
 		err := f.cb(entry.data, entry.offset)
 		if err != nil {
 			f.db.log.Errorf("Error on following for follower %d: %v", f.FollowerID.Partition, err)

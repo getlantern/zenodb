@@ -131,6 +131,9 @@ func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.O
 	dims, remain := encoding.Read(remain, dimsLen)
 	if isFollower && !t.db.inPartition(h, dims, t.PartitionBy, t.db.opts.Partition) {
 		// data not relevant to follower on this table
+		if t.log.IsTraceEnabled() {
+			t.log.Tracef("Not in partition: %v", bytemap.ByteMap(dims).AsMap())
+		}
 		return false
 	}
 
@@ -141,14 +144,19 @@ func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.O
 	// will change on next call to wal.Read().
 	dimsBM := make(bytemap.ByteMap, len(dims))
 	valsBM := make(bytemap.ByteMap, len(vals))
+	copy(dimsBM, dims)
+	copy(valsBM, vals)
 	if t.log.IsTraceEnabled() {
-		t.log.Tracef("Vals are %v", valsBM.AsMap())
+		t.log.Tracef("Length of data: %d", len(data))
+		if len(vals) > 0 {
+			t.log.Tracef("Length of vals: %d", len(valsBM))
+			t.log.Tracef("Vals are %v", valsBM.AsMap())
+		}
 		if len(dims) > 0 {
+			t.log.Tracef("Length of dims: %d", len(dimsBM))
 			t.log.Tracef("Dims are %v", dimsBM.AsMap())
 		}
 	}
-	copy(dimsBM, dims)
-	copy(valsBM, vals)
 	return t.doInsert(ts, dimsBM, valsBM, offset, source)
 }
 
