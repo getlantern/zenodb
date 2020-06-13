@@ -581,6 +581,14 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 				db.log.Debugf("Unable to read from stream '%v', continuing: %v", stream, err)
 				continue
 			}
+			if db.log.IsTraceEnabled() {
+				// Skip timestamp
+				_, remain := encoding.Read(data, encoding.Width64bits)
+				dimsLen, remain := encoding.ReadInt32(remain)
+				_dims, _ := encoding.Read(remain, dimsLen)
+				dims := bytemap.ByteMap(_dims)
+				db.log.Tracef("Read from wal with dims %v", dims.AsMap())
+			}
 			select {
 			case <-stop:
 				return
