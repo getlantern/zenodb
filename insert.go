@@ -140,10 +140,13 @@ func (t *table) insert(data []byte, isFollower bool, h hash.Hash32, offset wal.O
 	// to the other. Also, we need copies for both because the WAL read buffer
 	// will change on next call to wal.Read().
 	dimsBM := make(bytemap.ByteMap, len(dims))
-	if t.log.IsTraceEnabled() {
-		t.log.Tracef("Dims are %v", dimsBM.AsMap())
-	}
 	valsBM := make(bytemap.ByteMap, len(vals))
+	if t.log.IsTraceEnabled() {
+		t.log.Tracef("Vals are %v", valsBM.AsMap())
+		if len(dims) > 0 {
+			t.log.Tracef("Dims are %v", dimsBM.AsMap())
+		}
+	}
 	copy(dimsBM, dims)
 	copy(valsBM, vals)
 	return t.doInsert(ts, dimsBM, valsBM, offset, source)
