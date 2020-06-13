@@ -499,6 +499,9 @@ func (db *DB) mapPartitionRequest(h hash.Hash32, req *partitionRequest, mapped c
 			wherePassed, found := whereResults[table.whereString]
 			if !found {
 				wherePassed = table.where == nil || table.where.Eval(dims).(bool)
+				if db.log.IsTraceEnabled() {
+					db.log.Tracef("Evaluated where %v with result %v on %v", table.where, wherePassed, dims.AsMap())
+				}
 				whereResults[table.whereString] = wherePassed
 			}
 			pr.wherePassed[tableName] = wherePassed
