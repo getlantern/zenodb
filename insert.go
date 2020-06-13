@@ -42,7 +42,7 @@ func (db *DB) InsertRaw(stream string, ts time.Time, dims bytemap.ByteMap, vals 
 	valsLen := make([]byte, encoding.Width32bits)
 	encoding.WriteInt32(valsLen, len(vals))
 	if db.log.IsTraceEnabled() {
-		db.log.Tracef("Writing to wal with dims: %v", bytemap.ByteMap(dims).AsMap())
+		db.log.Tracef("Writing to wal with dims length %d: %v", len(dims), bytemap.ByteMap(dims).AsMap())
 	}
 	err := w.Write(tsd, dimsLen, dims, valsLen, vals)
 	if err != nil {

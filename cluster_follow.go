@@ -587,7 +587,7 @@ func (db *DB) followWAL(stream string, offset wal.Offset, partitions map[string]
 				dimsLen, remain := encoding.ReadInt32(remain)
 				_dims, _ := encoding.Read(remain, dimsLen)
 				dims := bytemap.ByteMap(_dims)
-				db.log.Tracef("Read from wal with dims %v", dims.AsMap())
+				db.log.Tracef("Read from wal with dims length %d: %v", dimsLen, dims.AsMap())
 			}
 			select {
 			case <-stop:
