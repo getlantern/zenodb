@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -151,6 +152,18 @@ func (s *Server) Prepare() (db *zenodb.DB, run func() error, finalErr error) {
 		s.NextQueryTimeout = DefaultNextQueryTimeout
 	}
 
+	var whitelistedDimensions []string
+	whitelistedDimensionsString := strings.TrimSpace(s.WhitelistedDimensions)
+	if len(whitelistedDimensionsString) > 0 {
+		for _, dim := range strings.Split(whitelistedDimensionsString, ",") {
+			dim = strings.TrimSpace(dim)
+			if len(dim) > 0 {
+				whitelistedDimensions = append(whitelistedDimensions, dim)
+			}
+		}
+		sort.Strings(whitelistedDimensions)
+	}
+
 	dbOpts := &zenodb.DBOpts{
 		Dir:                       s.DBDir,
 		SchemaFile:                s.Schema,
@@ -174,7 +187,7 @@ func (s *Server) Prepare() (db *zenodb.DB, run func() error, finalErr error) {
 		MaxFollowAge:              s.MaxFollowAge,
 		MaxFollowQueue:            s.MaxFollowQueue,
 		Panic:                     s.Panic,
-		WhitelistedDimensions:     strings.Split(s.WhitelistedDimensions, ","),
+		WhitelistedDimensions:     whitelistedDimensions,
 	}
 
 	s.log = dbOpts.BuildLogger()
