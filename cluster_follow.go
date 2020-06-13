@@ -498,7 +498,8 @@ func (db *DB) mapPartitionRequest(h hash.Hash32, req *partitionRequest, mapped c
 			}
 			wherePassed, found := whereResults[table.whereString]
 			if !found {
-				wherePassed = table.where == nil || table.where.Eval(dims).(bool)
+				// wherePassed = table.where == nil || table.where.Eval(dims).(bool)
+				wherePassed = true
 				whereResults[table.whereString] = wherePassed
 			}
 			pr.wherePassed[tableName] = wherePassed
