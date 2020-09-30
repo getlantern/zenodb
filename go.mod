@@ -20,10 +20,10 @@ require (
 	github.com/getlantern/byteexec v0.0.0-20170405023437-4cfb26ec74f4 // indirect
 	github.com/getlantern/bytemap v0.0.0-20200613184310-39a79601a45c
 	github.com/getlantern/elevate v0.0.0-20180207094634-c2e2e4901072 // indirect
-	github.com/getlantern/errors v0.0.0-20190325191628-abdb3e3e36f7
+	github.com/getlantern/errors v1.0.1
 	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
 	github.com/getlantern/goexpr v0.0.0-20190618200516-431684af4c0b
-	github.com/getlantern/golog v0.0.0-20190809085441-26e09e6dd330
+	github.com/getlantern/golog v0.0.0-20200929154820-62107891371a
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
 	github.com/getlantern/keyman v0.0.0-20180207174507-f55e7280e93a // indirect
 	github.com/getlantern/msgpack v3.1.4+incompatible
@@ -35,7 +35,7 @@ require (
 	github.com/getlantern/uuid v1.2.0
 	github.com/getlantern/vtime v0.0.0-20160810174823-dc1e573cf991
 	github.com/getlantern/waitforserver v1.0.1
-	github.com/getlantern/wal v0.0.0-20190827183637-031c253cf0ae
+	github.com/getlantern/wal v0.0.0-20200930025800-dc0a686070bd
 	github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913
 	github.com/getlantern/yaml v0.0.0-20190801163808-0c9bb1ebf426
 	github.com/glendc/gopher-json v0.0.0-20170414221815-dc4743023d0c // indirect
