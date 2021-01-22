@@ -40,10 +40,6 @@ github.com/getlantern/appdir v0.0.0-20180320102544-7c0f9d241ea7 h1:4b2ht7EWptzPz
 github.com/getlantern/appdir v0.0.0-20180320102544-7c0f9d241ea7/go.mod h1:3vR6+jQdWfWojZ77w+htCqEF5MO/Y2twJOpAvFuM9po=
 github.com/getlantern/byteexec v0.0.0-20170405023437-4cfb26ec74f4 h1:Nqmy8i81dzokjNHpyOg24gnQBeGRF7D51m8HmBRNn0Y=
 github.com/getlantern/byteexec v0.0.0-20170405023437-4cfb26ec74f4/go.mod h1:4WCQkaCIwta0KlF9bQZA1jYqp8bzIS2PeCqjnef8nZ8=
-github.com/getlantern/bytemap v0.0.0-20200613184310-39a79601a45c h1:9GKh4efqOnwQbOxfphCHvZWcuDmfCGSWnrQonio61Q4=
-github.com/getlantern/bytemap v0.0.0-20200613184310-39a79601a45c/go.mod h1:o01y9zxAVkFLqhZjC+mFXsN4NdxQG44Ff/nH1W4SuvI=
-github.com/getlantern/bytemap v0.0.0-20210122161844-a93c2d6a2c7e h1:6x93o4lN27AStOf3WAJNG0nREA7KB3t6r2TMaTLK/jw=
-github.com/getlantern/bytemap v0.0.0-20210122161844-a93c2d6a2c7e/go.mod h1:o01y9zxAVkFLqhZjC+mFXsN4NdxQG44Ff/nH1W4SuvI=
 github.com/getlantern/bytemap v0.0.0-20210122162547-b07440a617f0 h1:GiPU9HjFgQdzXbv6pPPuYiDNtl7vNrfeagFpYzhiZtw=
 github.com/getlantern/bytemap v0.0.0-20210122162547-b07440a617f0/go.mod h1:o01y9zxAVkFLqhZjC+mFXsN4NdxQG44Ff/nH1W4SuvI=
 github.com/getlantern/context v0.0.0-20190109183933-c447772a6520 h1:NRUJuo3v3WGC/g5YiyF790gut6oQr5f3FBI88Wv0dx4=
