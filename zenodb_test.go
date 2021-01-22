@@ -47,10 +47,10 @@ func TestSingleDB(t *testing.T) {
 	defer cancel()
 
 	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(), func(string, func(*table, bool))) {
-		whitelistedDims := map[string]bool{"r": true,
-			"u":  true,
-			"b":  true,
-			"md": true,
+		whitelistedDims := map[string]bool{"dim_r": true,
+			"dim_u":  true,
+			"dim_b":  true,
+			"dim_md": true,
 		} // if you include "discarded" here, the test will fail
 
 		db, err := NewDB(&DBOpts{
@@ -102,7 +102,7 @@ Test_a:
   retentionperiod: 200s%s
   sql: >
     SELECT
-      IF(md = 'glub', SUM(i)) AS i,
+      IF(dim_md = 'glub', SUM(i)) AS i,
       ii,
       i * ii / COUNT(ii) AS iii,
       AVG(iv) AS iv,
@@ -111,8 +111,8 @@ Test_a:
       PERCENTILE(p, 5, 0, 1000, 2) AS pp_5p,
       z
     FROM inbound
-    WHERE r = 'A'
-    GROUP BY r, u, b, discarded, period(1s)
+    WHERE dim_r = 'A'
+    GROUP BY dim_r, dim_u, dim_b, discarded, period(1s)
 `, partitionClause)
 	log.Debug(schemaA)
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaA), 0644)
@@ -133,7 +133,7 @@ view_a:
     SELECT *
     FROM teSt_a
     WHERE r = 'A'
-    GROUP BY u, b`
+    GROUP BY dim_u, dim_b`
 	log.Debug("Writing schemaB")
 	err = ioutil.WriteFile(tmpFile.Name(), []byte(schemaB), 0644)
 	if !assert.NoError(t, err, "Unable to write schemaB") {
@@ -197,10 +197,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":         "A",
-			"u":         1,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "A",
+			"dim_u":     1,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -223,10 +223,10 @@ view_a:
 	db.Insert("inbound",
 		now,
 		map[string]interface{}{
-			"r":         "A",
-			"u":         1,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "A",
+			"dim_u":     1,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -235,10 +235,10 @@ view_a:
 	db.Insert("inbound",
 		now,
 		map[string]interface{}{
-			"r":         "A",
-			"u":         1,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "A",
+			"dim_u":     1,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -249,10 +249,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":         "B",
-			"u":         1,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "dim_b",
+			"dim_u":     1,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -265,10 +265,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":         "B",
-			"u":         1,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "dim_b",
+			"dim_u":     1,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -282,10 +282,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":  "A",
-			"u":  1,
-			"b":  false,
-			"md": "glub",
+			"dim_r":  "A",
+			"dim_u":  1,
+			"dim_b":  false,
+			"dim_md": "glub",
 		},
 		map[string]interface{}{
 			"i":  10,
@@ -299,10 +299,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":         "A",
-			"u":         1,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "A",
+			"dim_u":     1,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -315,10 +315,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":         "A",
-			"u":         2,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "A",
+			"dim_u":     2,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -331,10 +331,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":         "A",
-			"u":         2,
-			"b":         true,
-			"md":        "glub",
+			"dim_r":     "A",
+			"dim_u":     2,
+			"dim_b":     true,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -351,10 +351,10 @@ view_a:
 	db.Insert("inbound",
 		now.Add(randBelowResolution()),
 		map[string]interface{}{
-			"r":         "A",
-			"u":         2,
-			"b":         false,
-			"md":        "glub",
+			"dim_r":     "A",
+			"dim_u":     2,
+			"dim_b":     false,
+			"dim_md":    "glub",
 			"discarded": "i'm discarded",
 		},
 		map[string]interface{}{
@@ -519,7 +519,7 @@ func testCrosstabWithHavingQuery(wg *sync.WaitGroup, t *testing.T, db *DB, inclu
 	sqlString := `
 SELECT i
 FROM test_a
-GROUP BY CROSSTAB(r)
+GROUP BY CROSSTAB(dim_r)
 HAVING biv = 10 AND i = 11
 ORDER BY _time`
 
@@ -685,18 +685,18 @@ SELECT
 	_ AS present
 FROM test_a
 ASOF '%s' UNTIL '%s'
-WHERE b != true AND r IN (SELECT r FROM test_a HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12) AND discarded IS NULL
-GROUP BY r, u, period(%v)
+WHERE dim_b != true AND dim_r IN (SELECT dim_r FROM test_a HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12) AND discarded IS NULL
+GROUP BY dim_r, dim_u, period(%v)
 HAVING ii * 2 = 488 OR ii = 42 OR unknown = 12
-ORDER BY u DESC
+ORDER BY dim_u DESC
 `, asOf.In(time.UTC).Format(time.RFC3339), until.In(time.UTC).Format(time.RFC3339), period)
 
 	assertExpectedResult(t, db, sqlString, includeMemStore, testsupport.ExpectedResult{
 		testsupport.ExpectedRow{
 			encoding.RoundTimeDown(until, resolution),
 			map[string]interface{}{
-				"r": "A",
-				"u": 2,
+				"dim_r": "A",
+				"dim_u": 2,
 			},
 			map[string]float64{
 				"_points":    1,
@@ -726,8 +726,8 @@ ORDER BY u DESC
 		testsupport.ExpectedRow{
 			encoding.RoundTimeDown(until, resolution),
 			map[string]interface{}{
-				"r": "A",
-				"u": 1,
+				"dim_r": "A",
+				"dim_u": 1,
 			},
 			map[string]float64{
 				"_points":    3,
