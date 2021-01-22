@@ -19,6 +19,8 @@ var (
 	// ClusterCrosstab is the crosstab expression for crosstabs that come from an
 	// contained Group By (i.e. from a cluster follower)
 	ClusterCrosstab = goexpr.Param("_crosstab")
+
+	splitOutCrosstab = map[string]bool{"_crosstab": true}
 )
 
 // GroupBy is a named goexpr.Expr.
@@ -116,7 +118,7 @@ func (g *group) Iterate(ctx context.Context, onFields OnFields, onRow OnRow) (in
 		if g.Crosstab != nil && g.Crosstab.String() == ClusterCrosstab.String() {
 			// Remove cluster crosstab expression
 			sliceKey = func(key bytemap.ByteMap) bytemap.ByteMap {
-				_, nonCrosstab := key.Split("_crosstab")
+				_, nonCrosstab := key.Split(splitOutCrosstab)
 				return nonCrosstab
 			}
 		} else if g.Crosstab != nil {

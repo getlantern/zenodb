@@ -47,13 +47,19 @@ func TestSingleDB(t *testing.T) {
 	defer cancel()
 
 	doTest(t, false, nil, func(tmpDir string, tmpFile string) (*DB, func(time.Time), func(), func(string, func(*table, bool))) {
+		whitelistedDims := map[string]bool{"r": true,
+			"u":  true,
+			"b":  true,
+			"md": true,
+		} // if you include "discarded" here, the test will fail
+
 		db, err := NewDB(&DBOpts{
 			Dir:                       filepath.Join(tmpDir, "leader"),
 			SchemaFile:                tmpFile,
 			VirtualTime:               true,
 			ClusterQueryConcurrency:   clusterQueryConcurrency,
 			IterationCoalesceInterval: 1 * time.Millisecond,
-			WhitelistedDimensions:     []string{"r", "u", "b", "md"}, // if you include "discarded" here, the test will fail
+			WhitelistedDimensions:     whitelistedDims,
 		})
 		if !assert.NoError(t, err, "Unable to create leader DB") {
 			t.Fatal()

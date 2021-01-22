@@ -131,8 +131,8 @@ type DBOpts struct {
 	// Panic is an optional function for triggering panics
 	Panic func(interface{})
 	// WhitelistedDimensions allow specifying an optional whitelist of dimensions to include in the WAL.
-	// If specified, only dimensions appearing in the whitelisted will be recorded in the WAL.
-	WhitelistedDimensions []string
+	// If specified, only dimensions appearing in the whiteliste will be recorded in the WAL.
+	WhitelistedDimensions map[string]bool
 }
 
 // BuildLogger builds a logger for the database configured with these DBOpts

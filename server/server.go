@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -152,16 +151,17 @@ func (s *Server) Prepare() (db *zenodb.DB, run func() error, finalErr error) {
 		s.NextQueryTimeout = DefaultNextQueryTimeout
 	}
 
-	var whitelistedDimensions []string
+	var whitelistedDimensions map[string]bool
 	whitelistedDimensionsString := strings.TrimSpace(s.WhitelistedDimensions)
 	if len(whitelistedDimensionsString) > 0 {
+		whitelistedDimensions = make(map[string]bool, 0)
 		for _, dim := range strings.Split(whitelistedDimensionsString, ",") {
 			dim = strings.TrimSpace(dim)
 			if len(dim) > 0 {
-				whitelistedDimensions = append(whitelistedDimensions, dim)
+				whitelistedDimensions[dim] = true
 			}
 		}
-		sort.Strings(whitelistedDimensions)
+		fmt.Printf("Whitelisted dimensions: %v\n", whitelistedDimensions)
 	}
 
 	dbOpts := &zenodb.DBOpts{
