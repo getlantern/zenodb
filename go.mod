@@ -23,11 +23,13 @@ require (
 	github.com/getlantern/errors v1.0.1
 	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
 	github.com/getlantern/goexpr v0.0.0-20190618200516-431684af4c0b
-	github.com/getlantern/golog v0.0.0-20200929154820-62107891371a
+	github.com/getlantern/golog v0.0.0-20210606115803-bce9f9fe5a5f
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
+	github.com/getlantern/hidden v0.0.0-20201229170000-e66e7f878730 // indirect
 	github.com/getlantern/keyman v0.0.0-20180207174507-f55e7280e93a // indirect
 	github.com/getlantern/msgpack v3.1.4+incompatible
 	github.com/getlantern/mtime v0.0.0-20170117193331-ba114e4a82b0
+	github.com/getlantern/ops v0.0.0-20200403153110-8476b16edcd6 // indirect
 	github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c
 	github.com/getlantern/testredis v0.0.0-20190411184556-1cd088e934c0 // indirect
 	github.com/getlantern/tlsdefaults v0.0.0-20171004213447-cf35cfd0b1b4
