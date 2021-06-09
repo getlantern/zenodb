@@ -84,7 +84,8 @@ func parseRedisURL(redisURL string) (password string, hosts []string, err error)
 }
 func RedisClient() *rclient.Client {
 	if *RedisAddr == "" {
-		log.Fatal("Redis not configured")
+		log.Error("Redis not configured")
+		return nil
 	}
 	if _, err := os.Stat(*RedisCA); os.IsNotExist(err) {
 		log.Fatalf("Cannot find certificate authority file: %v", *RedisCA)
