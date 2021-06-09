@@ -18,7 +18,7 @@ import (
 	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
 	"github.com/getlantern/keyman"
-	rclient "github.com/go-redis/redis/v8"
+	"github.com/go-redis/redis/v8"
 )
 
 var (
@@ -82,7 +82,7 @@ func parseRedisURL(redisURL string) (password string, hosts []string, err error)
 	}
 	return matches[1], strings.Split(matches[2], ","), nil
 }
-func RedisClient() *rclient.Client {
+func RedisClient() *redis.Client {
 	if *RedisAddr == "" {
 		log.Error("Redis not configured")
 		return nil
@@ -111,7 +111,7 @@ func RedisClient() *rclient.Client {
 	}
 
 	log.Debugf("Connecting to Redis at %v", *RedisAddr)
-	redisOpts := rclient.FailoverOptions{
+	redisOpts := redis.FailoverOptions{
 		SentinelAddrs:    redisHosts,
 		SentinelPassword: redisPassword,
 		Password:         redisPassword,
@@ -126,7 +126,7 @@ func RedisClient() *rclient.Client {
 			})
 		},
 	}
-	c := rclient.NewFailoverClient(&redisOpts)
+	c := redis.NewFailoverClient(&redisOpts)
 	if err := c.Ping(context.Background()).Err(); err != nil {
 		log.Errorf("error pinging redis: %v", err)
 		return nil

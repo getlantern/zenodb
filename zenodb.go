@@ -24,7 +24,7 @@ import (
 	"github.com/getlantern/zenodb/metrics"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
-	rclient "github.com/go-redis/redis/v8"
+	"github.com/go-redis/redis/v8"
 	"github.com/oxtoacart/bpool"
 	"github.com/rickar/props"
 	"github.com/shirou/gopsutil/process"
@@ -75,7 +75,7 @@ type DBOpts struct {
 	IPCacheSize int
 	// RedisClient provides a connection to redis which enables the use of Redis
 	// expressions like HGET.
-	RedisClient *rclient.Client
+	RedisClient *redis.Client
 	// RedisCacheSize controls the size of redis hash caches
 	RedisCacheSize int
 	// VirtualTime, if true, tells zenodb to use a virtual clock that advances
