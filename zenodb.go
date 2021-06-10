@@ -24,10 +24,10 @@ import (
 	"github.com/getlantern/zenodb/metrics"
 	"github.com/getlantern/zenodb/planner"
 	"github.com/getlantern/zenodb/sql"
+	"github.com/go-redis/redis/v8"
 	"github.com/oxtoacart/bpool"
 	"github.com/rickar/props"
 	"github.com/shirou/gopsutil/process"
-	"gopkg.in/redis.v5"
 )
 
 const (
