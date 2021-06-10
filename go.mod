@@ -17,7 +17,7 @@ require (
 	github.com/getlantern/elevate v0.0.0-20180207094634-c2e2e4901072 // indirect
 	github.com/getlantern/errors v1.0.1
 	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
-	github.com/getlantern/goexpr v0.0.0-20210609074010-558c3d706b58
+	github.com/getlantern/goexpr v0.0.0-20210610142848-2cff7403ef87
 	github.com/getlantern/golog v0.0.0-20210606115803-bce9f9fe5a5f
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
 	github.com/getlantern/keyman v0.0.0-20180207174507-f55e7280e93a
@@ -52,6 +52,6 @@ require (
 	github.com/vharitonsky/iniflags v0.0.0-20180513140207-a33cd0b5f3de
 	github.com/xwb1989/sqlparser v0.0.0-20180606152119-120387863bf2 // indirect
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
-	golang.org/x/net v0.0.0-20210525063256-abc453219eb5
+	golang.org/x/net v0.0.0-20210610132358-84b48f89b13b
 	google.golang.org/grpc v1.22.1
 )

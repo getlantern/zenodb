@@ -75,6 +75,7 @@ func ISPProvider() isp.Provider {
 
 	return ispProvider
 }
+
 func parseRedisURL(redisURL string) (password string, hosts []string, err error) {
 	matches := redisURLRegExp.FindStringSubmatch(redisURL)
 	if len(matches) < 3 {
@@ -82,9 +83,10 @@ func parseRedisURL(redisURL string) (password string, hosts []string, err error)
 	}
 	return matches[1], strings.Split(matches[2], ","), nil
 }
+
 func RedisClient() *redis.Client {
 	if *RedisAddr == "" {
-		log.Error("Redis not configured")
+		log.Debug("Redis not configured")
 		return nil
 	}
 	if _, err := os.Stat(*RedisCA); os.IsNotExist(err) {
@@ -126,13 +128,5 @@ func RedisClient() *redis.Client {
 			})
 		},
 	}
-	c := redis.NewFailoverClient(&redisOpts)
-	if err := c.Ping(context.Background()).Err(); err != nil {
-		log.Errorf("error pinging redis: %v", err)
-		return nil
-	} else {
-		log.Debugf("Connected to Redis at %v", *RedisAddr)
-		return c
-
-	}
+	return redis.NewFailoverClient(&redisOpts)
 }
