@@ -3,12 +3,12 @@ module github.com/getlantern/zenodb
 go 1.12
 
 require (
+	github.com/HdrHistogram/hdrhistogram-go v1.1.0
 	github.com/StackExchange/wmi v0.0.0-20190523213315-cbe66965904d // indirect
 	github.com/aristanetworks/goarista v0.0.0-20190502180301-283422fc1708 // indirect
 	github.com/boltdb/bolt v1.3.1
 	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e
 	github.com/cloudfoundry/gosigar v1.1.0
-	github.com/codahale/hdrhistogram v0.0.0-20161010025455-3a0bb77429bd
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dustin/go-humanize v1.0.0
 	github.com/getlantern/appdir v0.0.0-20180320102544-7c0f9d241ea7
