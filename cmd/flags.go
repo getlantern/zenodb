@@ -118,6 +118,7 @@ func RedisClient() *redis.Client {
 		SentinelPassword: redisPassword,
 		Password:         redisPassword,
 		MasterName:       "mymaster",
+		SlaveOnly:        true,
 		// We use TLS as the transport. If we simply specify the TLSConfig, the Redis library will
 		// establish TLS connections to Sentinel, but plain TCP connections to masters.
 		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
