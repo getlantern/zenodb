@@ -10,6 +10,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"regexp"
+	"strconv"
 
 	"strings"
 
@@ -19,6 +20,10 @@ import (
 	"github.com/getlantern/golog"
 	"github.com/getlantern/keyman"
 	"github.com/go-redis/redis/v8"
+)
+
+const (
+	DefaultSentinelPort = 36379
 )
 
 var (
@@ -128,6 +133,11 @@ func RedisClient() *redis.Client {
 				ClientSessionCache: tls.NewLRUClientSessionCache(100),
 			})
 		},
+	}
+	for i, addr := range redisOpts.SentinelAddrs {
+		if !strings.Contains(addr, ":") {
+			redisOpts.SentinelAddrs[i] = addr + ":" + strconv.Itoa(DefaultSentinelPort)
+		}
 	}
 	return redis.NewFailoverClient(&redisOpts)
 }
