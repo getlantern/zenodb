@@ -88,8 +88,8 @@ github.com/getlantern/mtime v0.0.0-20170117193331-ba114e4a82b0/go.mod h1:u537FS7
 github.com/getlantern/ops v0.0.0-20190325191751-d70cb0d6f85f/go.mod h1:D5ao98qkA6pxftxoqzibIBBrLSUli+kYnJqrgBf9cIA=
 github.com/getlantern/ops v0.0.0-20200403153110-8476b16edcd6 h1:QthAQCekS1YOeYWSvoHI6ZatlG4B+GBDLxV/2ZkBsTA=
 github.com/getlantern/ops v0.0.0-20200403153110-8476b16edcd6/go.mod h1:D5ao98qkA6pxftxoqzibIBBrLSUli+kYnJqrgBf9cIA=
-github.com/getlantern/redis-utils v0.0.0-20210818084459-1381a4a1e382 h1:rO3am7xk4oK2Gjjmyvn8wi3fhZXG0eZIIUEx6BqhCFU=
-github.com/getlantern/redis-utils v0.0.0-20210818084459-1381a4a1e382/go.mod h1:1X9DhzvePQ89WjJRzY2DA5Xpgi7jI0i5E0rFjYxgPWI=
+github.com/getlantern/redis-utils v0.0.0-20210819075426-c1b73fed13c4 h1:FqmKzmOExw0lb1eE7216azMbV9JasmkH2+9K99mRg8I=
+github.com/getlantern/redis-utils v0.0.0-20210819075426-c1b73fed13c4/go.mod h1:1X9DhzvePQ89WjJRzY2DA5Xpgi7jI0i5E0rFjYxgPWI=
 github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c h1:+N/dste38K0oW/1/p4ixoFM0JxJFnFKIf2onc0PMpAI=
 github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c/go.mod h1:wGjYYh1vSkRes1bNy+zio7cmmI9cLbST+H8eqnt5Mg4=
 github.com/getlantern/testredis v0.0.0-20210610142259-c0995d455766 h1:skWNIvx7/KIFCBbmjbR/EPkwvmEWGQWEkjnT9ExO8GE=

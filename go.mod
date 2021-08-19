@@ -19,7 +19,7 @@ require (
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
 	github.com/getlantern/msgpack v3.1.4+incompatible
 	github.com/getlantern/mtime v0.0.0-20170117193331-ba114e4a82b0
-	github.com/getlantern/redis-utils v0.0.0-20210818084459-1381a4a1e382 // indirect
+	github.com/getlantern/redis-utils v0.0.0-20210819075426-c1b73fed13c4
 	github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c
 	github.com/getlantern/tlsdefaults v0.0.0-20171004213447-cf35cfd0b1b4
 	github.com/getlantern/uuid v1.2.0
