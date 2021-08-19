@@ -12,17 +12,14 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/dustin/go-humanize v1.0.0
 	github.com/getlantern/appdir v0.0.0-20180320102544-7c0f9d241ea7
-	github.com/getlantern/byteexec v0.0.0-20170405023437-4cfb26ec74f4 // indirect
 	github.com/getlantern/bytemap v0.0.0-20210122162547-b07440a617f0
-	github.com/getlantern/elevate v0.0.0-20180207094634-c2e2e4901072 // indirect
 	github.com/getlantern/errors v1.0.1
-	github.com/getlantern/filepersist v0.0.0-20160317154340-c5f0cd24e799 // indirect
 	github.com/getlantern/goexpr v0.0.0-20210610142848-2cff7403ef87
 	github.com/getlantern/golog v0.0.0-20210606115803-bce9f9fe5a5f
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
-	github.com/getlantern/keyman v0.0.0-20180207174507-f55e7280e93a
 	github.com/getlantern/msgpack v3.1.4+incompatible
 	github.com/getlantern/mtime v0.0.0-20170117193331-ba114e4a82b0
+	github.com/getlantern/redis-utils v0.0.0-20210819075426-c1b73fed13c4
 	github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c
 	github.com/getlantern/tlsdefaults v0.0.0-20171004213447-cf35cfd0b1b4
 	github.com/getlantern/uuid v1.2.0
@@ -32,8 +29,7 @@ require (
 	github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913
 	github.com/getlantern/yaml v0.0.0-20190801163808-0c9bb1ebf426
 	github.com/go-ole/go-ole v1.2.4 // indirect
-	github.com/go-redis/redis/v8 v8.10.0
-	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/go-redis/redis/v8 v8.11.3
 	github.com/golang/snappy v0.0.3
 	github.com/gorilla/mux v1.7.1
 	github.com/gorilla/securecookie v1.1.1

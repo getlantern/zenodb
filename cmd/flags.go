@@ -1,16 +1,9 @@
 package cmd
 
 import (
-	"context"
-	"crypto/tls"
 	"flag"
-	"fmt"
-	"net"
 	"net/http"
 	_ "net/http/pprof"
-	"os"
-	"regexp"
-	"strconv"
 
 	"strings"
 
@@ -18,7 +11,7 @@ import (
 	"github.com/getlantern/goexpr/isp/ip2location"
 	"github.com/getlantern/goexpr/isp/maxmind"
 	"github.com/getlantern/golog"
-	"github.com/getlantern/keyman"
+	redisutils "github.com/getlantern/redis-utils"
 	"github.com/go-redis/redis/v8"
 )
 
@@ -27,8 +20,7 @@ const (
 )
 
 var (
-	log            = golog.LoggerFor("cmd")
-	redisURLRegExp = regexp.MustCompile(`^rediss\+sentinel://.*?:(.*?)@([\d\.(:\d*)?,]*)$`)
+	log = golog.LoggerFor("cmd")
 )
 
 var (
@@ -50,7 +42,7 @@ func StartPprof() {
 		go func() {
 			log.Debugf("Starting pprof page at http://%s/debug/pprof", *PprofAddr)
 			if err := http.ListenAndServe(*PprofAddr, nil); err != nil {
-				log.Errorf("Unable to start PPROF HTTP interface: %v", err)
+				_ = log.Errorf("Unable to start PPROF HTTP interface: %v", err)
 			}
 		}()
 	}
@@ -71,22 +63,14 @@ func ISPProvider() isp.Provider {
 	case "maxmind":
 		ispProvider, providerErr = maxmind.NewProvider(*ISPDB)
 	default:
-		log.Errorf("Unknown ispdb format %v", *ISPFormat)
+		_ = log.Errorf("Unknown ispdb format %v", *ISPFormat)
 	}
 	if providerErr != nil {
-		log.Errorf("Unable to initialize ISP provider %v from %v: %v", *ISPFormat, *ISPDB, providerErr)
+		_ = log.Errorf("Unable to initialize ISP provider %v from %v: %v", *ISPFormat, *ISPDB, providerErr)
 		ispProvider = nil
 	}
 
 	return ispProvider
-}
-
-func parseRedisURL(redisURL string) (password string, hosts []string, err error) {
-	matches := redisURLRegExp.FindStringSubmatch(redisURL)
-	if len(matches) < 3 {
-		return "", nil, fmt.Errorf("should match %s", redisURLRegExp.String())
-	}
-	return matches[1], strings.Split(matches[2], ","), nil
 }
 
 func RedisClient() *redis.Client {
@@ -94,50 +78,15 @@ func RedisClient() *redis.Client {
 		log.Debug("Redis not configured")
 		return nil
 	}
-	if _, err := os.Stat(*RedisCA); os.IsNotExist(err) {
-		log.Fatalf("Cannot find certificate authority file: %v", *RedisCA)
-	}
-	if _, err := os.Stat(*RedisClientPK); os.IsNotExist(err) {
-		log.Fatalf("Cannot find client private key file: %v", *RedisClientPK)
-	}
-	if _, err := os.Stat(*RedisClientCert); os.IsNotExist(err) {
-		log.Fatalf("Cannot find client certificate file: %v", *RedisClientCert)
-	}
-	redisClientCert, err := tls.LoadX509KeyPair(*RedisClientCert, *RedisClientPK)
+	client, err := redisutils.SetupRedisClient(&redisutils.Config{
+		CAFile:         *RedisCA,
+		ClientKeyFile:  *RedisClientPK,
+		ClientCertFile: *RedisClientCert,
+		URL:            *RedisAddr,
+	})
 	if err != nil {
-		log.Fatalf("Failed to load client certificate: %v", err)
+		_ = log.Errorf("Unable to connect to redis: %v", err)
+		return nil
 	}
-	redisCACert, err := keyman.LoadCertificateFromFile(*RedisCA)
-	if err != nil {
-		log.Fatalf("Failed to load CA cert: %v", err)
-	}
-
-	redisPassword, redisHosts, err := parseRedisURL(*RedisAddr)
-	if err != nil {
-		log.Fatalf("Failed to parse Redis URL: %v", err)
-	}
-
-	log.Debugf("Connecting to Redis at %v", *RedisAddr)
-	redisOpts := redis.FailoverOptions{
-		SentinelAddrs:    redisHosts,
-		SentinelPassword: redisPassword,
-		Password:         redisPassword,
-		MasterName:       "mymaster",
-		SlaveOnly:        true,
-		// We use TLS as the transport. If we simply specify the TLSConfig, the Redis library will
-		// establish TLS connections to Sentinel, but plain TCP connections to masters.
-		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return tls.Dial(network, addr, &tls.Config{
-				RootCAs:            redisCACert.PoolContainingCert(),
-				Certificates:       []tls.Certificate{redisClientCert},
-				ClientSessionCache: tls.NewLRUClientSessionCache(100),
-			})
-		},
-	}
-	for i, addr := range redisOpts.SentinelAddrs {
-		if !strings.Contains(addr, ":") {
-			redisOpts.SentinelAddrs[i] = addr + ":" + strconv.Itoa(DefaultSentinelPort)
-		}
-	}
-	return redis.NewFailoverClient(&redisOpts)
+	return client
 }
