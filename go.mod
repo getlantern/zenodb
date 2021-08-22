@@ -19,7 +19,7 @@ require (
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
 	github.com/getlantern/msgpack v3.1.4+incompatible
 	github.com/getlantern/mtime v0.0.0-20170117193331-ba114e4a82b0
-	github.com/getlantern/redis-utils v0.0.0-20210819090104-dd756ec05b51
+	github.com/getlantern/redis-utils v0.0.0-20210822065854-b70da862b379
 	github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c
 	github.com/getlantern/tlsdefaults v0.0.0-20171004213447-cf35cfd0b1b4
 	github.com/getlantern/uuid v1.2.0
@@ -30,6 +30,7 @@ require (
 	github.com/getlantern/yaml v0.0.0-20190801163808-0c9bb1ebf426
 	github.com/go-ole/go-ole v1.2.4 // indirect
 	github.com/go-redis/redis/v8 v8.11.3
+	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/golang/snappy v0.0.3
 	github.com/gorilla/mux v1.7.1
 	github.com/gorilla/securecookie v1.1.1
@@ -50,4 +51,5 @@ require (
 	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
 	golang.org/x/net v0.0.0-20210610132358-84b48f89b13b
 	google.golang.org/grpc v1.22.1
+	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
