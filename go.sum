@@ -94,6 +94,8 @@ github.com/getlantern/redis-utils v0.0.0-20210819090104-dd756ec05b51 h1:DvBhmiqt
 github.com/getlantern/redis-utils v0.0.0-20210819090104-dd756ec05b51/go.mod h1:1X9DhzvePQ89WjJRzY2DA5Xpgi7jI0i5E0rFjYxgPWI=
 github.com/getlantern/redis-utils v0.0.0-20210822065854-b70da862b379 h1:jQRK341Z7LamYsKTBYtFdtTD+ofAAV2kdHqm9xOLmqA=
 github.com/getlantern/redis-utils v0.0.0-20210822065854-b70da862b379/go.mod h1:1X9DhzvePQ89WjJRzY2DA5Xpgi7jI0i5E0rFjYxgPWI=
+github.com/getlantern/redis-utils v0.0.0-20210823133122-d4f0e525e095 h1:Jw0B8gXCBAZ2lt7y4Uz59uhci9zxKunE+iXnOtYJXvk=
+github.com/getlantern/redis-utils v0.0.0-20210823133122-d4f0e525e095/go.mod h1:1X9DhzvePQ89WjJRzY2DA5Xpgi7jI0i5E0rFjYxgPWI=
 github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c h1:+N/dste38K0oW/1/p4ixoFM0JxJFnFKIf2onc0PMpAI=
 github.com/getlantern/sqlparser v0.0.0-20171012210704-a879d8035f3c/go.mod h1:wGjYYh1vSkRes1bNy+zio7cmmI9cLbST+H8eqnt5Mg4=
 github.com/getlantern/testredis v0.0.0-20210610142259-c0995d455766 h1:skWNIvx7/KIFCBbmjbR/EPkwvmEWGQWEkjnT9ExO8GE=
