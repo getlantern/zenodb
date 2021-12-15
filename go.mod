@@ -14,7 +14,7 @@ require (
 	github.com/getlantern/appdir v0.0.0-20180320102544-7c0f9d241ea7
 	github.com/getlantern/bytemap v0.0.0-20210122162547-b07440a617f0
 	github.com/getlantern/errors v1.0.1
-	github.com/getlantern/goexpr v0.0.0-20210610142848-2cff7403ef87
+	github.com/getlantern/goexpr v0.0.0-20211215215226-4cdd4fd2847b
 	github.com/getlantern/golog v0.0.0-20210606115803-bce9f9fe5a5f
 	github.com/getlantern/grtrack v0.0.0-20160824195228-cbf67d3fa0fd
 	github.com/getlantern/msgpack v3.1.4+incompatible
