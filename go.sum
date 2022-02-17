@@ -104,6 +104,8 @@ github.com/getlantern/waitforserver v1.0.1 h1:xBjqJ3GgEk9JMWnDgRSiNHXINi6Lv2tGNj
 github.com/getlantern/waitforserver v1.0.1/go.mod h1:K1oSA8lNKgQ9iC00OFpMfMNm4UMrsxoGCdHf0NT9LGs=
 github.com/getlantern/wal v0.0.0-20200930025800-dc0a686070bd h1:2MjDR70Dbnp25L+tVTOL88CxUdqiiRLPTM/EZH/IBaA=
 github.com/getlantern/wal v0.0.0-20200930025800-dc0a686070bd/go.mod h1:emAPVd2NRdPkbqAInyWVD6s/AltbTRvKdHXlEhDXX4M=
+github.com/getlantern/wal v0.0.0-20220217194315-e4eac848dbd1 h1:bFSzN5NsN+UUx/zmevxkghHlUz2Vo9uTdg6JKdMvato=
+github.com/getlantern/wal v0.0.0-20220217194315-e4eac848dbd1/go.mod h1:emAPVd2NRdPkbqAInyWVD6s/AltbTRvKdHXlEhDXX4M=
 github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913 h1:YK3YNyTsa+1BPWOoN0F79rrjHyfNx4MAoFEvzwQU+dY=
 github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913/go.mod h1:bwttrA0oacoHdL476F60prypY1oC++WLtVexumgZozY=
 github.com/getlantern/yaml v0.0.0-20190801163808-0c9bb1ebf426 h1:lb2OElfhZzfgvNQym79ONvv4yvDh/gShHkLQI6qzriA=

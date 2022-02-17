@@ -25,7 +25,7 @@ require (
 	github.com/getlantern/uuid v1.2.0
 	github.com/getlantern/vtime v0.0.0-20160810174823-dc1e573cf991
 	github.com/getlantern/waitforserver v1.0.1
-	github.com/getlantern/wal v0.0.0-20200930025800-dc0a686070bd
+	github.com/getlantern/wal v0.0.0-20220217194315-e4eac848dbd1
 	github.com/getlantern/withtimeout v0.0.0-20160829163843-511f017cd913
 	github.com/getlantern/yaml v0.0.0-20190801163808-0c9bb1ebf426
 	github.com/go-ole/go-ole v1.2.4 // indirect
